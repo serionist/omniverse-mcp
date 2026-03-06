@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omniverse-mcp"
+version = "0.1.0"
+description = "MCP server for AI control of NVIDIA Omniverse applications (Isaac Sim 5.1+, USD Composer, and more)"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Soma Osvay" },
+]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "omniverse",
+    "isaac-sim",
+    "nvidia",
+    "robotics",
+    "simulation",
+    "usd",
+    "ai",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "mcp>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/serionist/omniverse-mcp"
+Repository = "https://github.com/serionist/omniverse-mcp"
+Documentation = "https://github.com/serionist/omniverse-mcp/tree/main/docs"
+Issues = "https://github.com/serionist/omniverse-mcp/issues"
+
+[project.scripts]
+omniverse-mcp = "isaac_sim_mcp.server:main"
+
+[tool.setuptools.packages.find]
+include = ["isaac_sim_mcp*"]

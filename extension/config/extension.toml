@@ -1,0 +1,18 @@
+[package]
+version = "1.0.0"
+category = "Simulation"
+title = "Omniverse MCP Bridge"
+description = "HTTP bridge enabling AI assistants to control Omniverse applications via the Model Context Protocol"
+authors = ["Soma Osvay"]
+readme = "docs/README.md"
+
+[dependencies]
+"omni.kit.uiapp" = { optional = true }
+
+[[python.module]]
+name = "isaacsim.mcp.bridge"
+
+[settings]
+exts."isaacsim.mcp.bridge".host = "127.0.0.1"
+exts."isaacsim.mcp.bridge".port = 8211
+exts."isaacsim.mcp.bridge".scene_tree_max_depth = 8
