@@ -362,7 +362,19 @@ def _capture_instance_segmentation():
     # Get raw instance segmentation (uint32 per pixel)
     seg_array = syn.sensors.get_instance_segmentation(viewport)
     if seg_array is None or seg_array.size == 0:
-        return None, {}
+        # Sensor may not be initialized — try to init and retry once
+        try:
+            syn.sensors.create_or_retrieve_sensor(
+                viewport, syn._syntheticdata.SensorType.InstanceSegmentation
+            )
+            syn.sensors.enable_sensors(
+                viewport, [syn._syntheticdata.SensorType.InstanceSegmentation]
+            )
+            seg_array = syn.sensors.get_instance_segmentation(viewport)
+        except Exception:
+            pass
+        if seg_array is None or seg_array.size == 0:
+            return None, {}
 
     # Map instance IDs to prim paths
     sd_iface = syn._syntheticdata.acquire_syntheticdata_interface()
