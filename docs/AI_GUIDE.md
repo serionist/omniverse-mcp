@@ -22,7 +22,7 @@ This prevents hallucinated API calls. Without it, `execute_script` code will fre
 1. get_sim_state()           -> learn up axis, sim state
 2. get_scene_tree()          -> see what exists
 3. [make changes]            -> create/transform prims, spawn robots
-4. capture_viewport()        -> verify visually
+4. capture_viewport()        -> verify visually (image + bboxes + segmentation)
 5. sim_control("play")       -> start physics
 6. start_recording() + play  -> capture behavior over time
 7. stop_recording()          -> review frames
@@ -38,9 +38,20 @@ Use bounding boxes for accurate placement:
 4. capture_viewport()               -> verify
 ```
 
+## Scene Understanding with capture_viewport
+
+`capture_viewport()` outputs 3 files every time you call it:
+1. **Viewport image** -- what the camera sees (PNG)
+2. **Bounding boxes** -- screen-space pixel coordinates + world-space bounds for each visible prim (TXT)
+3. **Instance segmentation** -- unique color per prim (PNG + legend TXT)
+
+Use the bounding box file to know which prim occupies which part of the image. Use the segmentation image + legend to visually identify prims by color. This is especially useful for verifying object placement, identifying occluded objects, and spatial reasoning.
+
 ## Output
 
-- Images -> `mcp_output/captures/*.png` (always files, never inline)
+- Viewport captures -> `mcp_output/captures/viewport_NNNN.png`
+- Bounding boxes -> `mcp_output/captures/viewport_NNNN_bboxes.txt`
+- Segmentation -> `mcp_output/captures/viewport_NNNN_segmentation_NNNN.png`
 - Large text -> `mcp_output/responses/*.txt`
 - Scene dumps -> `mcp_output/scene_dump.txt`
 - Recordings -> `mcp_output/recordings/rec_TIMESTAMP/`

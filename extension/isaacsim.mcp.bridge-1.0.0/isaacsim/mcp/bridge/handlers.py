@@ -245,6 +245,267 @@ async def _capture_frame(camera_path: str, width: int, height: int) -> bytes:
     return png_bytes
 
 
+def _project_world_to_screen(world_points, camera_path: str, img_width: int, img_height: int):
+    """Project world-space 3D points to screen-space 2D pixel coordinates.
+
+    Returns list of [px_x, px_y] for each input point, or None if behind camera.
+    Uses the camera's view/projection matrices for accurate projection.
+    """
+    import numpy as np
+
+    stage = _get_stage()
+    cam_prim = stage.GetPrimAtPath(camera_path)
+    if not cam_prim or not cam_prim.IsValid():
+        return None
+
+    camera = UsdGeom.Camera(cam_prim)
+    if not camera:
+        return None
+
+    # Get camera-to-world transform and invert for world-to-camera
+    xformable = UsdGeom.Xformable(cam_prim)
+    cam_to_world = xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+    world_to_cam = cam_to_world.GetInverse()
+
+    # Get camera properties for projection
+    gf_camera = camera.GetCamera(Usd.TimeCode.Default())
+    frustum = gf_camera.frustum
+
+    results = []
+    for wp in world_points:
+        world_pt = Gf.Vec3d(wp[0], wp[1], wp[2])
+
+        # Transform to camera space
+        cam_pt = world_to_cam.Transform(world_pt)
+
+        # Project using the camera frustum
+        try:
+            screen_pt = frustum.ComputeProjectedPoint(cam_pt)
+        except Exception:
+            results.append(None)
+            continue
+
+        # screen_pt is in NDC [-1, 1] range — convert to pixel coordinates
+        px_x = (screen_pt[0] * 0.5 + 0.5) * img_width
+        px_y = (1.0 - (screen_pt[1] * 0.5 + 0.5)) * img_height
+
+        # Check if behind camera (negative z in camera space means in front)
+        # Camera looks down -Z in USD convention
+        if cam_pt[2] > 0:
+            results.append(None)  # Behind camera
+        else:
+            results.append([round(px_x, 1), round(px_y, 1)])
+
+    return results
+
+
+def _compute_screen_bboxes(camera_path: str, img_width: int, img_height: int):
+    """Compute screen-space bounding boxes for all visible prims.
+
+    Returns list of {prim_path, type, screen_bbox [x_min, y_min, x_max, y_max],
+    world_center, world_dimensions}.
+    """
+    import numpy as np
+
+    stage = _get_stage()
+    bbox_cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), ["default", "render"])
+    results = []
+
+    skip_types = {"Camera", "DomeLight", "DistantLight", "Scope", "Shader", "Material", "NodeGraph"}
+
+    for prim in stage.Traverse():
+        path_str = str(prim.GetPath())
+
+        # Skip internal/hidden prims
+        if path_str.startswith("/OmniverseKit") or path_str.startswith("/Render"):
+            continue
+
+        type_name = prim.GetTypeName()
+        if type_name in skip_types:
+            continue
+
+        # Skip invisible prims
+        if prim.IsA(UsdGeom.Imageable):
+            vis = UsdGeom.Imageable(prim).ComputeVisibility(Usd.TimeCode.Default())
+            if vis == UsdGeom.Tokens.invisible:
+                continue
+
+        # Compute world-space bbox
+        bbox = bbox_cache.ComputeWorldBound(prim)
+        box = bbox.ComputeAlignedRange()
+        if box.IsEmpty():
+            continue
+
+        min_pt = box.GetMin()
+        max_pt = box.GetMax()
+
+        # Get 8 corners of the world-space bounding box
+        corners = []
+        for i in range(8):
+            x = float(max_pt[0]) if (i & 1) else float(min_pt[0])
+            y = float(max_pt[1]) if (i & 2) else float(min_pt[1])
+            z = float(max_pt[2]) if (i & 4) else float(min_pt[2])
+            corners.append([x, y, z])
+
+        projected = _project_world_to_screen(corners, camera_path, img_width, img_height)
+        if projected is None:
+            continue
+
+        # Filter out None (behind camera) and compute screen bbox
+        valid = [p for p in projected if p is not None]
+        if not valid:
+            continue
+
+        xs = [p[0] for p in valid]
+        ys = [p[1] for p in valid]
+        sx_min, sx_max = min(xs), max(xs)
+        sy_min, sy_max = min(ys), max(ys)
+
+        # Skip if entirely off-screen
+        if sx_max < 0 or sx_min > img_width or sy_max < 0 or sy_min > img_height:
+            continue
+
+        # Clamp to image bounds
+        sx_min = max(0, round(sx_min, 1))
+        sy_min = max(0, round(sy_min, 1))
+        sx_max = min(img_width, round(sx_max, 1))
+        sy_max = min(img_height, round(sy_max, 1))
+
+        center = [(float(min_pt[i]) + float(max_pt[i])) / 2.0 for i in range(3)]
+        dims = [float(max_pt[i]) - float(min_pt[i]) for i in range(3)]
+
+        results.append({
+            "prim_path": path_str,
+            "type": type_name,
+            "screen_bbox": [sx_min, sy_min, sx_max, sy_max],
+            "world_center": [round(c, 4) for c in center],
+            "world_dimensions": [round(d, 4) for d in dims],
+        })
+
+    return results
+
+
+async def _capture_instance_segmentation(camera_path: str, width: int, height: int):
+    """Capture instance segmentation image where each prim has a unique color.
+
+    Returns (png_bytes, id_to_labels) where id_to_labels maps color IDs to prim paths.
+    """
+    import numpy as np
+
+    try:
+        import omni.syntheticdata as syn
+        from omni.kit.viewport.utility import get_active_viewport
+    except ImportError:
+        return None, {}
+
+    viewport = get_active_viewport()
+    if viewport is None:
+        return None, {}
+
+    # Point viewport at the requested camera if different
+    current_cam = str(viewport.camera_path)
+    if camera_path and camera_path != current_cam:
+        viewport.camera_path = camera_path
+        await _next_update()
+        await _next_update()
+
+    try:
+        # Initialize the instance segmentation sensor
+        sensor_type = syn._syntheticdata.SensorType.InstanceSegmentation
+        await syn.sensors.create_or_retrieve_sensor_async(viewport, sensor_type)
+        await _next_update()
+        await syn.sensors.next_sensor_data_async(viewport, True)
+        await _next_update()
+
+        # Get the segmentation data with prim path mapping
+        data = syn.sensors.get_instance_segmentation(
+            viewport, parsed=True, return_mapping=True
+        )
+
+        if isinstance(data, tuple) and len(data) == 2:
+            seg_array, mapping = data
+        else:
+            seg_array = data
+            mapping = {}
+
+        # seg_array is uint32 (height, width) with instance IDs per pixel
+        # Convert to a colorized RGB image: deterministic color per ID
+        unique_ids = np.unique(seg_array)
+        h, w = seg_array.shape[:2]
+        color_img = np.zeros((h, w, 3), dtype=np.uint8)
+
+        id_to_color = {}
+        id_to_labels = {}
+
+        for idx, uid in enumerate(unique_ids):
+            uid_int = int(uid)
+            if uid_int == 0:
+                # Background — keep black
+                id_to_color[uid_int] = [0, 0, 0]
+                id_to_labels[uid_int] = "BACKGROUND"
+                continue
+
+            # Generate a distinct, saturated color from the ID
+            # Use golden-ratio hue spacing for visual distinction
+            hue = ((idx * 0.618033988749895) % 1.0)
+            # HSV to RGB with full saturation and value
+            h_i = int(hue * 6)
+            f = hue * 6 - h_i
+            q = int(255 * (1 - f))
+            t = int(255 * f)
+            if h_i == 0:
+                r, g, b = 255, t, 0
+            elif h_i == 1:
+                r, g, b = q, 255, 0
+            elif h_i == 2:
+                r, g, b = 0, 255, t
+            elif h_i == 3:
+                r, g, b = 0, q, 255
+            elif h_i == 4:
+                r, g, b = t, 0, 255
+            else:
+                r, g, b = 255, 0, q
+
+            id_to_color[uid_int] = [r, g, b]
+            mask = seg_array == uid
+            color_img[mask] = [r, g, b]
+
+            # Extract label from mapping if available
+            if isinstance(mapping, dict):
+                label_info = mapping.get(uid_int, mapping.get(str(uid_int), {}))
+                if isinstance(label_info, dict):
+                    id_to_labels[uid_int] = label_info.get("prim_path", label_info.get("name", f"instance_{uid_int}"))
+                elif isinstance(label_info, str):
+                    id_to_labels[uid_int] = label_info
+                else:
+                    id_to_labels[uid_int] = f"instance_{uid_int}"
+            else:
+                id_to_labels[uid_int] = f"instance_{uid_int}"
+
+        png_bytes = _encode_png(color_img)
+
+        # Build color legend: map prim path -> RGB color
+        color_legend = {}
+        for uid_int, label in id_to_labels.items():
+            if uid_int == 0:
+                continue
+            color = id_to_color.get(uid_int, [128, 128, 128])
+            color_legend[label] = color
+
+    except Exception as e:
+        carb.log_warn(f"Instance segmentation failed: {e}")
+        # Restore camera and return None — caller handles gracefully
+        if camera_path and camera_path != current_cam:
+            viewport.camera_path = current_cam
+        return None, {}
+
+    # Restore camera
+    if camera_path and camera_path != current_cam:
+        viewport.camera_path = current_cam
+
+    return png_bytes, color_legend
+
+
 # ---------------------------------------------------------------------------
 # Global recording state
 # ---------------------------------------------------------------------------
@@ -1757,19 +2018,43 @@ async def handle_capture(body: dict) -> dict:
     camera_path = str(camera_path)
 
     try:
+        # 1. Capture the viewport image
         png_bytes = await _capture_frame(camera_path, width, height)
         b64_image = base64.b64encode(png_bytes).decode("utf-8")
 
-        return {
-            "status": "success",
-            "result": {
-                "image_base64": b64_image,
-                "width": width,
-                "height": height,
-                "camera_path": camera_path,
-                "format": "png",
-            },
+        result = {
+            "image_base64": b64_image,
+            "width": width,
+            "height": height,
+            "camera_path": camera_path,
+            "format": "png",
         }
+
+        # 2. Compute screen-space bounding boxes for visible prims
+        try:
+            bboxes = _compute_screen_bboxes(camera_path, width, height)
+            result["screen_bboxes"] = bboxes
+        except Exception as e:
+            carb.log_warn(f"Screen bbox computation failed: {e}")
+            result["screen_bboxes"] = []
+
+        # 3. Capture instance segmentation image
+        try:
+            seg_png, color_legend = await _capture_instance_segmentation(
+                camera_path, width, height
+            )
+            if seg_png:
+                result["segmentation_base64"] = base64.b64encode(seg_png).decode("utf-8")
+                result["segmentation_legend"] = color_legend
+            else:
+                result["segmentation_base64"] = None
+                result["segmentation_legend"] = {}
+        except Exception as e:
+            carb.log_warn(f"Instance segmentation failed: {e}")
+            result["segmentation_base64"] = None
+            result["segmentation_legend"] = {}
+
+        return {"status": "success", "result": result}
     except Exception as e:
         tb = traceback.format_exc()
         return {"status": "error", "error": str(e), "traceback": tb}

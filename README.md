@@ -15,7 +15,7 @@ AI Assistant  <--MCP/stdio-->  MCP Server  <--HTTP/REST-->  Omniverse Extension
 |----------|-------|-------------|
 | **Scene** | `get_scene_tree`, `dump_scene`, `get_prim_properties`, `get_prim_bounds`, `set_prim_transform`, `create_prim`, `delete_prim`, `set_material`, `clone_prim`, `set_visibility`, `save_scene`, `new_scene` | Full scene graph control -- create, query, transform, and manage USD prims |
 | **Robot** | `create_robot`, `get_robot_info`, `get_joint_states`, `set_joint_targets` | Spawn robots from the asset library (Franka, G1, Spot, etc.), query joints, drive positions |
-| **Camera** | `set_camera`, `look_at_prim`, `inspect_prim`, `capture_viewport` | Position cameras, orbit-capture from multiple angles, take viewport screenshots |
+| **Camera** | `set_camera`, `look_at_prim`, `inspect_prim`, `capture_viewport` | Position cameras, orbit-capture from multiple angles, capture viewport with instance segmentation + screen-space bounding boxes |
 | **Simulation** | `sim_control`, `get_sim_state` | Play/pause/stop/step simulation, query state (time, FPS, up axis) |
 | **Recording** | `start_recording`, `stop_recording`, `get_recording_frame` | Capture simulation frames + prim state over time for analysis |
 | **Physics** | `set_physics_properties`, `apply_force`, `raycast` | Set mass/friction/restitution, apply forces, cast rays for spatial queries |
@@ -23,7 +23,7 @@ AI Assistant  <--MCP/stdio-->  MCP Server  <--HTTP/REST-->  Omniverse Extension
 | **Extensions** | `manage_extensions` | List, enable, and disable Omniverse extensions |
 
 **Key capabilities:**
-- **Spatial reasoning** -- bounding box queries + multi-angle inspection
+- **Scene understanding** -- `capture_viewport` outputs a screenshot, screen-space bounding boxes, and instance segmentation (unique color per prim) so the AI knows what it sees
 - **Simulation recording** -- capture frames + prim state during physics, review any frame after
 - **File-based output** -- large scene dumps in grep-friendly text format, images saved as PNGs
 - **Arbitrary scripting** -- run any Python code inside the sim via `execute_script`; also serves as a fallback if any tool fails
@@ -130,17 +130,20 @@ pip install .
 You only need to do this once -- after that the extension autoloads every time.
 
 1. Open Isaac Sim (or any Kit app)
-2. **Window > Extensions > Gear icon (⚙)**
-3. Under **Extension Search Paths**, click **+** and add the full path to the `extension/` folder in the cloned repo
+2. Go to **Window > Extensions**, then click the **hamburger menu** (☰) in the top-right and choose **Settings**
+3. Under **Extension Search Paths**, click the green **+** button and paste the full path to the `extension/` folder in the cloned repo
    - Example: `/home/you/omniverse-mcp/extension` or `C:\Users\you\omniverse-mcp\extension`
-4. Search for **"MCP Bridge"**, toggle it **ON**, and check **Autoload**
+   - The **+** button adds a blank row -- click the new row to type/paste the path
+4. **Close and restart** the app using **File > Exit** (don't just close the terminal -- settings won't save)
+5. Re-open the Extension Manager, search for **"mcp"**, click the **THIRD PARTY** tab, and expand the **User** group to find **Omniverse MCP Bridge**
+6. Toggle it **ON** and check **Autoload**
 
 You should see in the console:
 ```
 [ext: isaacsim.mcp.bridge-1.0.0] startup
 ```
 
-> **Updating the extension:** `git pull` in the repo. Changes take effect on next app restart.
+> **Updating the extension:** `git pull` in the repo. Changes take effect on next app restart (use **File > Exit**).
 
 ### 3. Add the AI guide to your project
 

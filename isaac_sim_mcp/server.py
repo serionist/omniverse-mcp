@@ -760,9 +760,13 @@ def capture_viewport(
     height: int = 720,
     camera_path: str = "",
 ) -> str:
-    """Capture a screenshot from the viewport and save as PNG file.
+    """Capture the viewport and save 3 files for scene understanding:
 
-    Returns the file path. Use your Read tool to view the image.
+    1. **Viewport image** (PNG) -- what the camera sees
+    2. **Bounding boxes** (TXT) -- screen-space bounding boxes mapping each visible prim to pixel coordinates
+    3. **Instance segmentation** (PNG) -- each prim rendered as a unique color, with a legend mapping colors to prim paths
+
+    Use files 2 and 3 to understand which prim is where in the viewport image.
 
     Args:
         width: Image width (default 1280)
@@ -774,8 +778,50 @@ def capture_viewport(
         return f"ERROR: {resp['error']}"
 
     r = resp["result"]
+    lines = []
+
+    # 1. Save viewport image
     filepath = _save_png(r["image_base64"], "viewport")
-    return f"Saved {r['width']}x{r['height']} -> {filepath}"
+    lines.append(f"Viewport: {r['width']}x{r['height']} -> {filepath}")
+
+    # 2. Save screen-space bounding boxes
+    bboxes = r.get("screen_bboxes", [])
+    if bboxes:
+        bbox_dir = os.path.join(OUTPUT_DIR, "captures")
+        os.makedirs(bbox_dir, exist_ok=True)
+        bbox_path = os.path.join(bbox_dir, f"viewport_{_capture_counter:04d}_bboxes.txt")
+        with open(bbox_path, "w", encoding="utf-8") as f:
+            f.write(f"# Screen-space bounding boxes ({r['width']}x{r['height']})\n")
+            f.write(f"# Format: [x_min, y_min, x_max, y_max] in pixels\n\n")
+            for b in bboxes:
+                sb = b["screen_bbox"]
+                f.write(f"[{b['prim_path']}]\n")
+                f.write(f"type = {b['type']}\n")
+                f.write(f"screen_bbox = [{sb[0]}, {sb[1]}, {sb[2]}, {sb[3]}]\n")
+                f.write(f"world_center = {b['world_center']}\n")
+                f.write(f"world_dimensions = {b['world_dimensions']}\n\n")
+        lines.append(f"Bounding boxes ({len(bboxes)} prims) -> {_rel(bbox_path)}")
+    else:
+        lines.append("Bounding boxes: none (no visible prims)")
+
+    # 3. Save instance segmentation image + legend
+    seg_b64 = r.get("segmentation_base64")
+    legend = r.get("segmentation_legend", {})
+    if seg_b64:
+        seg_path = _save_png(seg_b64, f"viewport_{_capture_counter:04d}_segmentation")
+        legend_path = seg_path.replace(".png", "_legend.txt")
+        abs_legend = os.path.join(os.getcwd(), legend_path) if not os.path.isabs(legend_path) else legend_path
+        with open(abs_legend, "w", encoding="utf-8") as f:
+            f.write("# Instance segmentation color legend\n")
+            f.write("# Format: prim_path = [R, G, B]\n\n")
+            for prim_path, color in legend.items():
+                f.write(f"{prim_path} = [{color[0]}, {color[1]}, {color[2]}]\n")
+        lines.append(f"Segmentation -> {seg_path}")
+        lines.append(f"Color legend ({len(legend)} prims) -> {_rel(abs_legend)}")
+    else:
+        lines.append("Segmentation: not available (omni.syntheticdata may not be loaded)")
+
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
