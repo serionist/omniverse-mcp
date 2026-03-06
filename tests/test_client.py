@@ -111,7 +111,7 @@ class TestIsaacSimClient(unittest.TestCase):
         cls.mock.set_response("/robot/joint_targets", {"status": "success", "result": {"prim_path": "/World/G1", "targets_set": 1}})
         cls.mock.set_response("/sim/control", {"status": "success", "result": {"action": "play", "current_state": "playing"}})
         cls.mock.set_response("/sim/state", {"status": "success", "result": {"state": "stopped", "current_time": 0.0, "fps": 60.0, "prim_count": 5, "up_axis": "Y", "meters_per_unit": 1.0, "recording_active": False}})
-        cls.mock.set_response("/sim/capture", {"status": "success", "result": {"image_base64": "iVBORw0KGgo=", "width": 1280, "height": 720, "camera_path": "/OmniverseKit_Persp", "format": "png"}})
+        cls.mock.set_response("/sim/capture", {"status": "success", "result": {"image_base64": "iVBORw0KGgo=", "width": 1280, "height": 720, "camera_path": "/OmniverseKit_Persp", "format": "png", "screen_bboxes": [{"prim_path": "/World/Cube", "type": "Cube", "screen_bbox": [120.0, 200.0, 480.0, 600.0], "world_center": [0.0, 0.5, 0.0], "world_dimensions": [1.0, 1.0, 1.0]}], "segmentation_base64": "iVBORw0KGgo=", "segmentation_legend": {"/World/Cube": [255, 159, 0]}}})
         cls.mock.set_response("/camera/set", {"status": "success", "result": {"camera_path": "/OmniverseKit_Persp", "position": [5, 3, 5], "target": [0, 0, 0]}})
         cls.mock.set_response("/camera/look_at", {"status": "success", "result": {"camera_path": "/OmniverseKit_Persp", "camera_position": [2, 1.5, 2], "target": [0, 0.5, 0], "distance": 3.0, "azimuth": 45.0, "elevation": 30.0}})
         cls.mock.set_response("/camera/inspect", {"status": "success", "result": {"prim_path": "/World/Cube", "center": [0, 0.5, 0], "distance": 2.5, "captures": [{"angle": "front", "azimuth": 0, "elevation": 20, "camera_position": [0, 1, 2.3], "image_base64": "iVBORw0KGgo="}]}})
@@ -190,6 +190,12 @@ class TestIsaacSimClient(unittest.TestCase):
     def test_capture_viewport(self):
         r = self.client.capture_viewport(1280, 720)
         self.assertIn("image_base64", r["result"])
+        self.assertIn("screen_bboxes", r["result"])
+        self.assertEqual(len(r["result"]["screen_bboxes"]), 1)
+        self.assertEqual(r["result"]["screen_bboxes"][0]["prim_path"], "/World/Cube")
+        self.assertIn("segmentation_base64", r["result"])
+        self.assertIn("segmentation_legend", r["result"])
+        self.assertIn("/World/Cube", r["result"]["segmentation_legend"])
 
     def test_camera_set(self):
         r = self.client.camera_set([5, 3, 5], [0, 0, 0])
