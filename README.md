@@ -65,7 +65,7 @@ pip install .
   }
 }
 ```
-Replace `<CONDA_PATH>` with your conda path (e.g., `~/miniconda3`, `C:/Users/you/miniconda3`).
+Replace `<CONDA_PATH>` with your conda path. Find it by running `conda env list` -- the path shown next to `omniverse-mcp` is `<CONDA_PATH>/envs/omniverse-mcp`.
 
 </details>
 
@@ -94,7 +94,7 @@ pip install .
   }
 }
 ```
-Replace `<VENV_PATH>` with the full path to your venv. On Windows, use `<VENV_PATH>/Scripts/python.exe`.
+Replace `<VENV_PATH>` with the full path to your venv. Find it by running `python -c "import sys; print(sys.prefix)"` with the venv activated. On Windows, use `<VENV_PATH>/Scripts/python.exe`.
 
 </details>
 
