@@ -296,7 +296,13 @@ Each angle is saved as a separate PNG file.
 
 ### `capture_viewport`
 
-Capture a screenshot from the viewport and save as a PNG file.
+Capture the viewport and save **3 files** for full scene understanding:
+
+1. **Viewport image** (PNG) -- what the camera sees
+2. **Bounding boxes** (TXT) -- screen-space pixel coordinates for each visible prim, plus world-space center and dimensions
+3. **Instance segmentation** (PNG + legend TXT) -- each prim rendered as a unique color, with a legend mapping colors to prim paths
+
+Use files 2 and 3 to understand which object is where in the viewport image.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -304,7 +310,22 @@ Capture a screenshot from the viewport and save as a PNG file.
 | `height` | int | `720` | Image height |
 | `camera_path` | string | `""` | Camera prim to render from (default: active viewport camera) |
 
-**Returns:** File path to the saved PNG. Use your file reading tool to view the image.
+**Output files:**
+- `mcp_output/captures/viewport_NNNN.png` -- viewport screenshot
+- `mcp_output/captures/viewport_NNNN_bboxes.txt` -- screen bounding boxes in prim-block format
+- `mcp_output/captures/viewport_NNNN_segmentation_NNNN.png` -- instance segmentation image
+- `mcp_output/captures/viewport_NNNN_segmentation_NNNN_legend.txt` -- color-to-prim mapping
+
+**Bounding box format:**
+```
+[/World/table]
+type = Mesh
+screen_bbox = [120.0, 200.0, 480.0, 600.0]
+world_center = [0.0, 0.5, 0.0]
+world_dimensions = [1.0, 1.0, 1.0]
+```
+
+> **Note:** Instance segmentation requires `omni.syntheticdata` (included in Isaac Sim). If unavailable, the viewport image and bounding boxes are still returned.
 
 ---
 
