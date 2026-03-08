@@ -1,6 +1,6 @@
 """
 Full scenario tests against live Isaac Sim.
-Covers all 17 phases from test_project/scenarios.md.
+Covers phases 1-17 plus 24-26 from test_project/scenarios.md.
 
 Run: conda run -n isaac-mcp python -m pytest tests/test_scenarios.py -v -s
 """
@@ -544,7 +544,7 @@ class TestScenarios(unittest.TestCase):
 
     def test_10_02_inspect_robot(self):
         """Phase 10.2: Inspect Robot"""
-        r = self.c.camera_inspect("/World/G1", angles=["front", "perspective"])
+        r = self.c.camera_inspect("/World/G1", angles=["front", "top_front_right"])
         self.assertEqual(r["status"], "success")
         self.assertEqual(len(r["result"]["captures"]), 2)
         print(f"  Robot inspected from 2 angles")
@@ -932,6 +932,249 @@ class TestScenarios(unittest.TestCase):
         tree = self.c.scene_tree("/World", 1)
         self.assertEqual(tree["status"], "success")
         print(f"  New scene created with /World")
+        self._pass()
+
+    # ===== Phase 24: Logging =====
+
+    def test_24_01_get_logs_default(self):
+        """Phase 24.1: Get Logs (Default)"""
+        r = self.c.get_logs()
+        self.assertEqual(r["status"], "success")
+        result = r["result"]
+        self.assertIn("entries", result)
+        self.assertIn("total_captured", result)
+        self.assertIn("buffer_size", result)
+        self.assertGreater(result["total_captured"], 0)
+        print(f"  {result['count']} entries, {result['total_captured']} total captured")
+        self._pass()
+
+    def test_24_02_get_logs_level_filter(self):
+        """Phase 24.2: Get Logs with Level Filter"""
+        r = self.c.get_logs(count=20, min_level="warn")
+        self.assertEqual(r["status"], "success")
+        result = r["result"]
+        for entry in result["entries"]:
+            self.assertIn(entry["level"], ["warn", "error", "fatal"],
+                          f"Entry level {entry['level']} should be warn+")
+        print(f"  {result['count']} warn+ entries")
+        self._pass()
+
+    def test_24_03_get_logs_search_filter(self):
+        """Phase 24.3: Get Logs with Search Filter"""
+        r = self.c.get_logs(search="MCP")
+        self.assertEqual(r["status"], "success")
+        result = r["result"]
+        for entry in result["entries"]:
+            self.assertIn("mcp", entry["msg"].lower(),
+                          f"Entry should contain 'MCP': {entry['msg'][:80]}")
+        print(f"  {result['count']} entries matching 'MCP'")
+        self._pass()
+
+    def test_24_04_get_logs_channel_filter(self):
+        """Phase 24.4: Get Logs with Channel Filter"""
+        r = self.c.get_logs(channel="omni")
+        self.assertEqual(r["status"], "success")
+        result = r["result"]
+        for entry in result["entries"]:
+            self.assertIn("omni", entry["channel"].lower(),
+                          f"Channel should contain 'omni': {entry['channel']}")
+        print(f"  {result['count']} entries with channel matching 'omni'")
+        self._pass()
+
+    def test_24_05_get_logs_since_index(self):
+        """Phase 24.5: Get Logs with since_index"""
+        # Get last 5 entries to find a reference index
+        r1 = self.c.get_logs(count=5)
+        self.assertEqual(r1["status"], "success")
+        entries = r1["result"]["entries"]
+        if not entries:
+            self.skipTest("No log entries available")
+
+        last_index = entries[-1]["index"]
+
+        # Now get entries after that index
+        r2 = self.c.get_logs(since_index=last_index)
+        self.assertEqual(r2["status"], "success")
+        for entry in r2["result"]["entries"]:
+            self.assertGreater(entry["index"], last_index,
+                               f"Entry index {entry['index']} should be > {last_index}")
+        print(f"  {r2['result']['count']} entries after index {last_index}")
+        self._pass()
+
+    def test_24_06_get_logs_after_error(self):
+        """Phase 24.6: Get Logs After Error"""
+        # Generate a known error
+        self.c.execute("raise RuntimeError('log_test_error_sentinel')")
+
+        # Check if it appears in logs
+        r = self.c.get_logs(count=20, search="log_test_error_sentinel")
+        self.assertEqual(r["status"], "success")
+        # The error may appear in Omniverse logs or may only be in the script response
+        # Either way, get_logs should not error
+        print(f"  {r['result']['count']} entries matching error sentinel")
+        self._pass()
+
+    # ===== Phase 25: Async Script Execution (MCP Bridge) =====
+
+    def test_25_01_async_scene_tree(self):
+        """Phase 25.1: Async Scene Tree via MCP Bridge"""
+        r = self.c.execute(
+            "tree = await mcp.scene_tree()\n"
+            "result = tree['status']"
+        )
+        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["result"]["return_value"], "success")
+        print(f"  Async scene_tree returned success")
+        self._pass()
+
+    def test_25_02_async_sim_state(self):
+        """Phase 25.2: Async Sim State via MCP Bridge"""
+        r = self.c.execute(
+            "state = await mcp.sim_state()\n"
+            "result = {\n"
+            "    'up_axis': state['result']['up_axis'],\n"
+            "    'status': state['status']\n"
+            "}"
+        )
+        self.assertEqual(r["status"], "success")
+        rv = r["result"]["return_value"]
+        self.assertEqual(rv["status"], "success")
+        self.assertIn(rv["up_axis"], ["Y", "Z"])
+        print(f"  Async sim_state: up_axis={rv['up_axis']}")
+        self._pass()
+
+    def test_25_03_async_create_and_query(self):
+        """Phase 25.3: Async Create and Query"""
+        r = self.c.execute(
+            "await mcp.create_prim('/World/McpTestCube', 'Cube', position=[0, 1, 0])\n"
+            "bounds = await mcp.prim_bounds('/World/McpTestCube')\n"
+            "result = bounds['result']['center']"
+        )
+        self.assertEqual(r["status"], "success")
+        center = r["result"]["return_value"]
+        self.assertIsInstance(center, list)
+        self.assertEqual(len(center), 3)
+        # Y should be approximately 1.0
+        self.assertAlmostEqual(center[1], 1.0, places=0)
+        print(f"  Created + queried: center={center}")
+
+        # Clean up
+        self.c.delete_prim("/World/McpTestCube")
+        self._pass()
+
+    def test_25_04_async_camera_and_capture(self):
+        """Phase 25.4: Async Camera and Capture"""
+        r = self.c.execute(
+            "await mcp.set_camera([5, 3, 5], target=[0, 0, 0])\n"
+            "cap = await mcp.capture_viewport(width=320, height=240)\n"
+            "result = {\n"
+            "    'status': cap['status'],\n"
+            "    'has_image': 'image_base64' in cap.get('result', {})\n"
+            "}"
+        )
+        self.assertEqual(r["status"], "success")
+        rv = r["result"]["return_value"]
+        self.assertEqual(rv["status"], "success")
+        self.assertTrue(rv["has_image"])
+        print(f"  Async camera+capture: success")
+        self._pass()
+
+    def test_25_05_async_logs(self):
+        """Phase 25.5: Async Logs via MCP Bridge"""
+        r = self.c.execute(
+            "logs = await mcp.get_logs(count=5)\n"
+            "result = {\n"
+            "    'count': logs['result']['count'],\n"
+            "    'status': logs['status']\n"
+            "}"
+        )
+        self.assertEqual(r["status"], "success")
+        rv = r["result"]["return_value"]
+        self.assertEqual(rv["status"], "success")
+        print(f"  Async get_logs: {rv['count']} entries")
+        self._pass()
+
+    def test_25_06_sync_still_works(self):
+        """Phase 25.6: Sync Script Still Works"""
+        r = self.c.execute("result = 42")
+        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["result"]["return_value"], 42)
+        print(f"  Sync script: 42")
+        self._pass()
+
+    def test_25_07_mixed_sync_async(self):
+        """Phase 25.7: Mixed Sync and Async in Same Script"""
+        r = self.c.execute(
+            "import math\n"
+            "x = math.sqrt(144)\n"
+            "state = await mcp.sim_state()\n"
+            "result = {'sqrt': x, 'up_axis': state['result']['up_axis']}"
+        )
+        self.assertEqual(r["status"], "success")
+        rv = r["result"]["return_value"]
+        self.assertAlmostEqual(rv["sqrt"], 12.0)
+        self.assertIn(rv["up_axis"], ["Y", "Z"])
+        print(f"  Mixed: sqrt=12.0, up_axis={rv['up_axis']}")
+        self._pass()
+
+    def test_25_08_async_error_handling(self):
+        """Phase 25.8: Async Script Error Handling"""
+        r = self.c.execute(
+            "bounds = await mcp.prim_bounds('/World/Nonexistent_MCP_Test')\n"
+            "result = bounds['status']"
+        )
+        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["result"]["return_value"], "error")
+        print(f"  Async error handled gracefully")
+        self._pass()
+
+    # ===== Phase 26: Camera Frame Settling =====
+
+    def test_26_01_camera_set_immediate_capture(self):
+        """Phase 26.1: Camera Set + Immediate Capture (no delay)"""
+        # Create something visible
+        self.c.create_prim("/World/SettleCube", "Cube", position=[0, 0.5, 0], scale=[0.5, 0.5, 0.5])
+        self.c.create_prim("/World/SettleLight", "DistantLight", rotation=[45, 0, 0])
+        self.c.set_material("/World/SettleCube", color=[1, 0, 0])
+        time.sleep(0.5)
+
+        positions = [
+            [5, 3, 5],
+            [-3, 2, 4],
+            [0, 5, -3],
+        ]
+        for pos in positions:
+            r = self.c.camera_set(pos, [0, 0, 0])
+            self.assertEqual(r["status"], "success")
+            # Immediately capture — NO sleep/delay
+            cap = self.c.capture_viewport(640, 480)
+            self.assertEqual(cap["status"], "success")
+            self.assertGreater(len(cap["result"]["image_base64"]), 100)
+
+        # Clean up
+        self.c.delete_prim("/World/SettleCube")
+        self.c.delete_prim("/World/SettleLight")
+        print(f"  3 camera positions captured immediately without delay")
+        self._pass()
+
+    def test_26_02_look_at_immediate_capture(self):
+        """Phase 26.2: Look At + Immediate Capture"""
+        self.c.create_prim("/World/SettleTest", "Cube", position=[0, 1, 0], scale=[0.5, 0.5, 0.5])
+        self.c.create_prim("/World/SettleLight2", "DistantLight", rotation=[45, 0, 0])
+        self.c.set_material("/World/SettleTest", color=[0, 1, 0])
+        time.sleep(0.5)
+
+        r = self.c.camera_look_at("/World/SettleTest", azimuth=45, elevation=30)
+        self.assertEqual(r["status"], "success")
+        # Immediately capture
+        cap = self.c.capture_viewport(640, 480)
+        self.assertEqual(cap["status"], "success")
+        self.assertGreater(len(cap["result"]["image_base64"]), 100)
+
+        # Clean up
+        self.c.delete_prim("/World/SettleTest")
+        self.c.delete_prim("/World/SettleLight2")
+        print(f"  Look-at + immediate capture OK")
         self._pass()
 
 

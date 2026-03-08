@@ -124,6 +124,17 @@ class TestIsaacSimClient(unittest.TestCase):
         cls.mock.set_response("/physics/apply_force", {"status": "success", "result": {"prim_path": "/World/Cube", "method": "velocity", "force": [100, 0, 0]}})
         cls.mock.set_response("/physics/raycast", {"status": "success", "result": {"hit": True, "prim_path": "/World/Ground", "position": [0, 0, 0], "normal": [0, 1, 0], "distance": 10.0}})
         cls.mock.set_response("/debug/draw", {"status": "success", "result": {"drawn": [{"type": "line", "start": [0, 0, 0], "end": [1, 1, 0]}]}})
+        # New tool responses
+        cls.mock.set_response("/scene/mesh_stats", {"status": "success", "result": {"prim_path": "/World/Mesh", "total_faces": 1200, "total_vertices": 800, "total_triangles": 2400, "mesh_count": 3, "meshes": [{"path": "/World/Mesh/Body", "faces": 1000, "vertices": 600, "triangles": 2000}, {"path": "/World/Mesh/Arm_L", "faces": 100, "vertices": 100, "triangles": 200}, {"path": "/World/Mesh/Arm_R", "faces": 100, "vertices": 100, "triangles": 200}]}})
+        cls.mock.set_response("/scene/face_count_tree", {"status": "success", "result": {"text": "[/World]\ntype = Xform\nsubtree_faces = 1200\n", "total_faces": 1200, "mesh_count": 3}})
+        cls.mock.set_response("/scene/flatten", {"status": "success", "result": {"input_path": "/tmp/scene.usda", "output_path": "/tmp/flat.usdc", "layer_count": 5}})
+        cls.mock.set_response("/scene/export", {"status": "success", "result": {"prim_path": "/World/Component", "output_path": "/tmp/component.usdc", "target_root": "/Component", "materials_included": 2, "up_axis": "Z"}})
+        cls.mock.set_response("/scene/variant_selection", {"status": "success", "result": {"prim_path": "/World/Server", "variant_set": "model", "old_selection": "focused", "new_selection": "shell", "available_variants": ["focused", "shell"]}})
+        cls.mock.set_response("/scene/create_variant_structure", {"status": "success", "result": {"prim_path": "/World/Server", "variant_set_name": "model", "variants_created": ["focused", "shell"], "default_selection": "focused"}})
+        cls.mock.set_response("/scene/compare", {"status": "success", "result": {"a": {"label": "/World/A", "total_faces": 10000, "total_vertices": 8000, "total_triangles": 20000, "mesh_count": 5, "bounds_center": [0, 0, 0], "bounds_dimensions": [1, 1, 1], "materials": ["/World/Looks/Mat1"]}, "b": {"label": "/World/B", "total_faces": 2000, "total_vertices": 1500, "total_triangles": 4000, "mesh_count": 3, "bounds_center": [0, 0, 0], "bounds_dimensions": [1, 1, 1], "materials": ["/World/Looks/Mat1"]}, "delta": {"faces": -8000, "vertices": -6500, "triangles": -16000, "meshes": -2, "face_reduction_pct": -80.0}}})
+        cls.mock.set_response("/scene/update_material_paths", {"status": "success", "result": {"prim_path": "/World", "old_prefix": "/Old/Looks", "new_prefix": "/World/Looks", "updated_count": 5, "updated_prims": ["/World/Server/Body", "/World/Server/Door"]}})
+        cls.mock.set_response("/viewport/light", {"status": "success", "result": {"camera_light_on": False, "has_scene_lights": True, "scene_lights": [{"path": "/World/DistantLight", "type": "DistantLight", "intensity": 1000}]}})
+        cls.mock.set_response("/logs", {"status": "success", "result": {"entries": [{"index": 0, "level": "warn", "channel": "omni.physx", "module": "PhysX", "source": "physx.cpp:42", "func": "init", "msg": "Test warning", "timestamp": 1709912345.0}], "count": 1, "total_captured": 100, "buffer_size": 2000}})
         cls.mock.start()
 
     @classmethod
@@ -324,6 +335,135 @@ class TestIsaacSimClient(unittest.TestCase):
         self.client._disconnect()
         r = self.client.health()
         self.assertEqual(r["status"], "success")
+
+    # --- New tool tests ---
+
+    def test_mesh_stats(self):
+        r = self.client.mesh_stats("/World/Mesh")
+        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["result"]["total_faces"], 1200)
+        self.assertEqual(r["result"]["mesh_count"], 3)
+        self.assertEqual(len(r["result"]["meshes"]), 3)
+
+    def test_face_count_tree(self):
+        r = self.client.face_count_tree("/World", max_depth=5)
+        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["result"]["total_faces"], 1200)
+        self.assertIn("subtree_faces", r["result"]["text"])
+
+    def test_flatten_usd(self):
+        r = self.client.flatten_usd("/tmp/flat.usdc", "/tmp/scene.usda")
+        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["result"]["layer_count"], 5)
+
+    def test_flatten_usd_current_stage(self):
+        r = self.client.flatten_usd("/tmp/flat.usdc")
+        self.assertEqual(r["status"], "success")
+        # Verify no input_path was sent in body
+        _, _, body = self.mock.requests[-1]
+        self.assertNotIn("input_path", body)
+
+    def test_export_prim(self):
+        r = self.client.export_prim("/World/Component", "/tmp/component.usdc")
+        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["result"]["materials_included"], 2)
+        self.assertEqual(r["result"]["up_axis"], "Z")
+
+    def test_set_variant_selection(self):
+        r = self.client.set_variant_selection("/World/Server", "model", "shell")
+        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["result"]["new_selection"], "shell")
+        self.assertEqual(r["result"]["old_selection"], "focused")
+
+    def test_create_variant_structure(self):
+        r = self.client.create_variant_structure("/World/Server", "model", ["focused", "shell"])
+        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["result"]["variants_created"], ["focused", "shell"])
+        self.assertEqual(r["result"]["default_selection"], "focused")
+
+    def test_create_variant_structure_with_default(self):
+        r = self.client.create_variant_structure(
+            "/World/Server", "model", ["focused", "shell"], default_variant="shell"
+        )
+        self.assertEqual(r["status"], "success")
+        _, _, body = self.mock.requests[-1]
+        self.assertEqual(body["default_variant"], "shell")
+
+    def test_compare_prims_direct(self):
+        r = self.client.compare_prims(prim_path_a="/World/A", prim_path_b="/World/B")
+        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["result"]["delta"]["face_reduction_pct"], -80.0)
+        self.assertEqual(r["result"]["a"]["total_faces"], 10000)
+        self.assertEqual(r["result"]["b"]["total_faces"], 2000)
+
+    def test_compare_prims_variant(self):
+        r = self.client.compare_prims(
+            prim_path="/World/Server", variant_set="model",
+            variant_a="focused", variant_b="shell",
+        )
+        self.assertEqual(r["status"], "success")
+        _, _, body = self.mock.requests[-1]
+        self.assertEqual(body["variant_set"], "model")
+        self.assertEqual(body["variant_a"], "focused")
+        self.assertEqual(body["variant_b"], "shell")
+
+    def test_update_material_paths(self):
+        r = self.client.update_material_paths("/Old/Looks", "/World/Looks", "/World")
+        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["result"]["updated_count"], 5)
+        self.assertEqual(len(r["result"]["updated_prims"]), 2)
+
+    def test_camera_inspect_default_angles(self):
+        """Default angles=None should not send angles in the request body (server defaults to all 14)."""
+        r = self.client.camera_inspect("/World/Cube")
+        self.assertEqual(r["status"], "success")
+        _, _, body = self.mock.requests[-1]
+        self.assertNotIn("angles", body)
+
+    def test_camera_inspect_with_segmentation(self):
+        r = self.client.camera_inspect("/World/Cube", angles=["front"], include_segmentation=True)
+        self.assertEqual(r["status"], "success")
+        _, _, body = self.mock.requests[-1]
+        self.assertTrue(body.get("include_segmentation"))
+
+    def test_viewport_light_get(self):
+        r = self.client.viewport_light("get")
+        self.assertEqual(r["status"], "success")
+        self.assertIn("camera_light_on", r["result"])
+        self.assertIn("scene_lights", r["result"])
+        _, _, body = self.mock.requests[-1]
+        self.assertEqual(body["action"], "get")
+
+    def test_viewport_light_set(self):
+        r = self.client.viewport_light("set_camera_light", enabled=True)
+        self.assertEqual(r["status"], "success")
+        _, _, body = self.mock.requests[-1]
+        self.assertEqual(body["action"], "set_camera_light")
+        self.assertTrue(body["enabled"])
+
+    def test_get_logs(self):
+        r = self.client.get_logs(count=10, min_level="warn")
+        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["result"]["count"], 1)
+        self.assertEqual(r["result"]["entries"][0]["level"], "warn")
+        _, _, body = self.mock.requests[-1]
+        self.assertEqual(body["count"], 10)
+        self.assertEqual(body["min_level"], "warn")
+
+    def test_get_logs_with_filters(self):
+        r = self.client.get_logs(count=20, channel="omni.physx", search="warning")
+        self.assertEqual(r["status"], "success")
+        _, _, body = self.mock.requests[-1]
+        self.assertEqual(body["channel"], "omni.physx")
+        self.assertEqual(body["search"], "warning")
+
+    def test_get_logs_default(self):
+        r = self.client.get_logs()
+        self.assertEqual(r["status"], "success")
+        _, _, body = self.mock.requests[-1]
+        self.assertEqual(body["count"], 50)
+        self.assertNotIn("min_level", body)
+        self.assertNotIn("channel", body)
 
 
 if __name__ == "__main__":

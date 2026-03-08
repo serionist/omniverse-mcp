@@ -9,17 +9,23 @@ AI Assistant  <--MCP/stdio-->  MCP Server  <--HTTP/REST-->  Omniverse Extension
 
 ## What Can It Do?
 
-**32 MCP tools** across 8 categories:
+**42 MCP tools** across 14 categories:
 
 | Category | Tools | Description |
 |----------|-------|-------------|
-| **Scene** | `get_scene_tree`, `dump_scene`, `get_prim_properties`, `get_prim_bounds`, `set_prim_transform`, `create_prim`, `delete_prim`, `set_material`, `clone_prim`, `set_visibility`, `save_scene`, `new_scene` | Full scene graph control -- create, query, transform, and manage USD prims |
+| **Scene** | `get_scene_tree`, `dump_scene`, `get_prim_properties`, `get_prim_bounds`, `set_prim_transform`, `create_prim`, `delete_prim`, `clone_prim`, `set_visibility`, `save_scene`, `new_scene` | Full scene graph control -- create, query, transform, and manage USD prims |
+| **Geometry & Mesh** | `get_mesh_stats`, `get_prim_face_count_tree`, `compare_prims` | Face/vertex/triangle counts, hierarchical face count trees, compare two prims or variants |
+| **USD Operations** | `flatten_usd`, `export_prim_as_file` | Flatten references into a single file, export prim subtrees as self-contained USD |
+| **Variants** | `create_variant_structure`, `set_variant_selection` | Create variant sets, switch variants with automatic FSD/Hydra handling |
+| **Materials** | `set_material`, `update_material_paths` | Create and bind PBR materials, bulk-fix material binding paths |
 | **Robot** | `create_robot`, `get_robot_info`, `get_joint_states`, `set_joint_targets` | Spawn robots from the asset library (Franka, G1, Spot, etc.), query joints, drive positions |
-| **Camera** | `set_camera`, `look_at_prim`, `inspect_prim`, `capture_viewport` | Position cameras, orbit-capture from multiple angles, capture viewport with instance segmentation + screen-space bounding boxes |
+| **Camera** | `set_camera`, `look_at_prim`, `inspect_prim`, `capture_viewport`, `viewport_light` | Position cameras, orbit-capture from multiple angles, capture viewport with instance segmentation + screen-space bounding boxes, manage viewport lighting |
 | **Simulation** | `sim_control`, `get_sim_state` | Play/pause/stop/step simulation, query state (time, FPS, up axis) |
 | **Recording** | `start_recording`, `stop_recording`, `get_recording_frame` | Capture simulation frames + prim state over time for analysis |
 | **Physics** | `set_physics_properties`, `apply_force`, `raycast` | Set mass/friction/restitution, apply forces, cast rays for spatial queries |
 | **Debug** | `draw_debug` | Draw lines, spheres, and points in the viewport for visualization |
+| **Logging** | `get_logs` | Query Omniverse log entries (errors, warnings) for diagnosing tool failures |
+| **Scripting** | `execute_script` | Run Python inside the sim with `mcp` bridge for async MCP handler access |
 | **Extensions** | `manage_extensions` | List, enable, and disable Omniverse extensions |
 
 **Key capabilities:**
@@ -203,13 +209,13 @@ exts."isaacsim.mcp.bridge".port = 8211
 
 **MCP server fails to start** -- If using conda, use the direct `python.exe` path (not `conda run`). Set `"PYTHONPATH": ""` in env if you get import errors.
 
-**Viewport capture returns black** -- First capture after launch needs a warmup frame. Capture twice.
+**Viewport capture returns black** -- The response includes a WARNING with lighting diagnostics. Use the `viewport_light` tool to check whether scene lights exist and whether the camera light is on. Enable the camera light with `viewport_light("set_camera_light", enabled=true)` and recapture. Kit 105.1+ has no default stage light, so scenes without explicitly added lights will render black.
 
 **Tools return errors** -- Check the Omniverse console for tracebacks. Some tools need the sim to have played once (`get_joint_states`, `raycast`). Robot tools require Isaac Sim specifically.
 
 ## Documentation
 
-- [Tool Reference](docs/TOOLS.md) -- All 32 tools with parameters and examples
+- [Tool Reference](docs/TOOLS.md) -- All 40 tools with parameters and examples
 - [Architecture](docs/ARCHITECTURE.md) -- How the two-process bridge works
 - [AI Assistant Guide](docs/AI_GUIDE.md) -- Template for your project's AI instructions
 - [Contributing](CONTRIBUTING.md) -- How to contribute

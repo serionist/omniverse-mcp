@@ -16,7 +16,7 @@ Used uniformly by dump_scene, recording state, and any large data output.
 
 from typing import Any
 
-from pxr import Gf, Sdf, UsdGeom, UsdPhysics
+from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 
 
 def format_value(val) -> str:
@@ -77,11 +77,38 @@ def format_prim_block(prim, include_properties: bool = True,
     lines.append(f"type = {prim.GetTypeName() or 'Xform'}")
 
     if include_transform and prim.IsA(UsdGeom.Xformable):
-        xformable = UsdGeom.Xformable(prim)
-        world_xform = xformable.ComputeLocalToWorldTransform(0)  # TimeCode.Default
-        t = world_xform.ExtractTranslation()
-        lines.append(f"pos = {float(t[0]):.4f}, {float(t[1]):.4f}, {float(t[2]):.4f}")
+        # Use BBoxCache to get physics-accurate world position.
+        # ComputeLocalToWorldTransform reads authored USD transforms which
+        # don't reflect PhysX runtime state during simulation.  BBoxCache
+        # reads through Fabric and returns the real physics position.
+        pos_from_bbox = False
+        if prim.HasAPI(UsdPhysics.RigidBodyAPI):
+            try:
+                bbox_cache = UsdGeom.BBoxCache(
+                    Usd.TimeCode.Default(), ["default", "render"]
+                )
+                bbox = bbox_cache.ComputeWorldBound(prim)
+                box = bbox.ComputeAlignedRange()
+                if not box.IsEmpty():
+                    min_pt = box.GetMin()
+                    max_pt = box.GetMax()
+                    cx = (float(min_pt[0]) + float(max_pt[0])) / 2.0
+                    cy = (float(min_pt[1]) + float(max_pt[1])) / 2.0
+                    cz = (float(min_pt[2]) + float(max_pt[2])) / 2.0
+                    lines.append(f"pos = {cx:.4f}, {cy:.4f}, {cz:.4f}")
+                    pos_from_bbox = True
+            except Exception:
+                pass
 
+        xformable = UsdGeom.Xformable(prim)
+        if not pos_from_bbox:
+            world_xform = xformable.ComputeLocalToWorldTransform(
+                Usd.TimeCode.Default()
+            )
+            t = world_xform.ExtractTranslation()
+            lines.append(f"pos = {float(t[0]):.4f}, {float(t[1]):.4f}, {float(t[2]):.4f}")
+
+        world_xform = xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
         rotation = world_xform.ExtractRotation()
         if rotation:
             quat = rotation.GetQuat()
@@ -96,7 +123,7 @@ def format_prim_block(prim, include_properties: bool = True,
             lines.append(f"bbox_center = {center[0]:.4f}, {center[1]:.4f}, {center[2]:.4f}")
             lines.append(f"bbox_size = {dims[0]:.4f}, {dims[1]:.4f}, {dims[2]:.4f}")
         except Exception:
-            pass
+            lines.append(f"bbox = <unavailable>")
 
     if prim.HasAPI(UsdPhysics.ArticulationRootAPI):
         lines.append("articulation_root = true")

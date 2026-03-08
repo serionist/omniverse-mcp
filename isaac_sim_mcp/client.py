@@ -5,8 +5,11 @@ Uses persistent HTTP connections with keep-alive for efficiency.
 """
 
 import json
+import logging
 import socket
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class IsaacSimClient:
@@ -22,8 +25,9 @@ class IsaacSimClient:
         if self._sock is not None:
             return
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._sock.settimeout(self.timeout)
+        self._sock.settimeout(10.0)
         self._sock.connect((self.host, self.port))
+        self._sock.settimeout(self.timeout)
 
     def _disconnect(self):
         if self._sock is not None:
@@ -54,12 +58,16 @@ class IsaacSimClient:
                 self._connect()
                 self._sock.sendall(raw_request)
                 return self._read_response()
-            except (ConnectionError, BrokenPipeError, OSError):
+            except (ConnectionError, BrokenPipeError, OSError, socket.timeout) as e:
                 self._disconnect()
                 if attempt == 1:
                     raise
+                logger.warning(f"Connection failed (attempt {attempt+1}/2), retrying: {e}")
 
-        raise ConnectionError("Failed to communicate with Isaac Sim extension")
+        raise ConnectionError(
+            f"Failed to communicate with Isaac Sim at {self.host}:{self.port}. "
+            "Ensure Isaac Sim is running with the isaacsim.mcp.bridge extension enabled."
+        )
 
     def _read_response(self) -> dict:
         """Read an HTTP response from the socket."""
@@ -79,15 +87,26 @@ class IsaacSimClient:
             if line.lower().startswith("content-length:"):
                 content_length = int(line.split(":", 1)[1].strip())
 
-        body_buf = body_start
-        while len(body_buf) < content_length:
-            remaining = content_length - len(body_buf)
+        if content_length <= 0:
+            self._disconnect()
+            raise ConnectionError("Isaac Sim returned response with no Content-Length")
+
+        chunks = [body_start]
+        bytes_read = len(body_start)
+        while bytes_read < content_length:
+            remaining = content_length - bytes_read
             chunk = self._sock.recv(min(remaining, 65536))
             if not chunk:
                 raise ConnectionError("Connection closed mid-response")
-            body_buf += chunk
+            chunks.append(chunk)
+            bytes_read += len(chunk)
+        body_bytes = b"".join(chunks)
 
-        return json.loads(body_buf[:content_length].decode("utf-8"))
+        try:
+            return json.loads(body_bytes[:content_length].decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            self._disconnect()
+            raise ConnectionError(f"Malformed response from Isaac Sim: {e}")
 
     # ----- Core endpoints -----
 
@@ -203,7 +222,7 @@ class IsaacSimClient:
     def sim_state(self) -> dict:
         return self.request("/sim/state", {})
 
-    def capture_viewport(self, width: int = 1280, height: int = 720, camera_path: str = "") -> dict:
+    def capture_viewport(self, width: int = 640, height: int = 480, camera_path: str = "") -> dict:
         body: dict[str, Any] = {"width": width, "height": height}
         if camera_path:
             body["camera_path"] = camera_path
@@ -225,12 +244,15 @@ class IsaacSimClient:
         return self.request("/camera/look_at", body)
 
     def camera_inspect(self, prim_path: str, angles: list | None = None,
-                       width: int = 800, height: int = 600, distance: float | None = None) -> dict:
+                       width: int = 640, height: int = 480, distance: float | None = None,
+                       include_segmentation: bool = False) -> dict:
         body: dict[str, Any] = {"prim_path": prim_path, "width": width, "height": height}
         if angles is not None:
             body["angles"] = angles
         if distance is not None:
             body["distance"] = distance
+        if include_segmentation:
+            body["include_segmentation"] = True
         return self.request("/camera/inspect", body)
 
     # ----- Recording -----
@@ -304,6 +326,85 @@ class IsaacSimClient:
     def draw_debug(self, shape_type: str, **kwargs) -> dict:
         body = {"type": shape_type, **kwargs}
         return self.request("/debug/draw", body)
+
+    # ----- New scene tools -----
+
+    def mesh_stats(self, prim_path: str) -> dict:
+        return self.request("/scene/mesh_stats", {"prim_path": prim_path})
+
+    def face_count_tree(self, root: str = "/World", max_depth: int = 10) -> dict:
+        return self.request("/scene/face_count_tree", {"root": root, "max_depth": max_depth})
+
+    def flatten_usd(self, output_path: str, input_path: str = "") -> dict:
+        body: dict[str, Any] = {"output_path": output_path}
+        if input_path:
+            body["input_path"] = input_path
+        return self.request("/scene/flatten", body)
+
+    def export_prim(self, prim_path: str, output_path: str) -> dict:
+        return self.request("/scene/export", {"prim_path": prim_path, "output_path": output_path})
+
+    def set_variant_selection(self, prim_path: str, variant_set: str, variant_name: str) -> dict:
+        return self.request("/scene/variant_selection", {
+            "prim_path": prim_path, "variant_set": variant_set, "variant_name": variant_name,
+        })
+
+    def create_variant_structure(self, prim_path: str, variant_set_name: str,
+                                  variant_names: list[str],
+                                  default_variant: str = "") -> dict:
+        body: dict[str, Any] = {"prim_path": prim_path, "variant_set_name": variant_set_name,
+                                "variant_names": variant_names}
+        if default_variant:
+            body["default_variant"] = default_variant
+        return self.request("/scene/create_variant_structure", body)
+
+    def compare_prims(self, prim_path_a: str = "", prim_path_b: str = "",
+                      prim_path: str = "", variant_set: str = "",
+                      variant_a: str = "", variant_b: str = "") -> dict:
+        body: dict[str, Any] = {}
+        if prim_path_a:
+            body["prim_path_a"] = prim_path_a
+        if prim_path_b:
+            body["prim_path_b"] = prim_path_b
+        if prim_path:
+            body["prim_path"] = prim_path
+        if variant_set:
+            body["variant_set"] = variant_set
+        if variant_a:
+            body["variant_a"] = variant_a
+        if variant_b:
+            body["variant_b"] = variant_b
+        return self.request("/scene/compare", body)
+
+    def update_material_paths(self, old_prefix: str, new_prefix: str,
+                               prim_path: str = "/") -> dict:
+        return self.request("/scene/update_material_paths", {
+            "prim_path": prim_path, "old_prefix": old_prefix, "new_prefix": new_prefix,
+        })
+
+    # ----- Logs -----
+
+    def get_logs(self, count: int = 50, min_level: str = "",
+                 channel: str = "", since_index: int | None = None,
+                 search: str = "") -> dict:
+        body: dict[str, Any] = {"count": count}
+        if min_level:
+            body["min_level"] = min_level
+        if channel:
+            body["channel"] = channel
+        if since_index is not None:
+            body["since_index"] = since_index
+        if search:
+            body["search"] = search
+        return self.request("/logs", body)
+
+    # ----- Viewport light -----
+
+    def viewport_light(self, action: str = "get", enabled: bool = True) -> dict:
+        body: dict[str, Any] = {"action": action}
+        if action == "set_camera_light":
+            body["enabled"] = enabled
+        return self.request("/viewport/light", body)
 
     def close(self):
         self._disconnect()
