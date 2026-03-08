@@ -17,6 +17,9 @@ import omni.ext
 import omni.kit.app
 import omni.usd
 
+MAX_BODY_SIZE = 100 * 1024 * 1024  # 100 MB
+MAX_CONNECTIONS = 20
+
 from .handlers import (
     handle_apply_force,
     handle_camera_inspect,
@@ -24,16 +27,23 @@ from .handlers import (
     handle_camera_set,
     handle_capture,
     handle_clone_prim,
+    handle_compare_prims,
     handle_create_prim,
     handle_create_robot,
+    handle_create_variant_structure,
     handle_delete_prim,
     handle_draw_debug,
     handle_execute,
+    handle_export_prim,
     handle_extensions_list,
     handle_extensions_manage,
+    handle_face_count_tree,
+    handle_flatten_usd,
     handle_get_joint_states,
+    handle_get_logs,
     handle_get_robot_info,
     handle_health,
+    handle_mesh_stats,
     handle_new_scene,
     handle_prim_bounds,
     handle_prim_properties,
@@ -47,10 +57,13 @@ from .handlers import (
     handle_set_joint_targets,
     handle_set_material,
     handle_set_physics_properties,
+    handle_set_variant_selection,
     handle_set_visibility,
     handle_sim_control,
     handle_sim_state,
     handle_transform,
+    handle_update_material_paths,
+    handle_viewport_light,
 )
 
 
@@ -64,6 +77,7 @@ def _get_event_loop() -> asyncio.AbstractEventLoop:
 class Extension(omni.ext.IExt):
     def on_startup(self, ext_id: str):
         self._server = None
+        self._connection_semaphore = asyncio.Semaphore(MAX_CONNECTIONS)
         settings = carb.settings.get_settings()
         self._host = settings.get("/exts/isaacsim.mcp.bridge/host") or "127.0.0.1"
         self._port = settings.get("/exts/isaacsim.mcp.bridge/port") or 8211
@@ -102,13 +116,54 @@ class Extension(omni.ext.IExt):
             "/recording/frame": handle_recording_frame,
             "/extensions/list": handle_extensions_list,
             "/extensions/manage": handle_extensions_manage,
+            "/scene/mesh_stats": handle_mesh_stats,
+            "/scene/face_count_tree": handle_face_count_tree,
+            "/scene/flatten": handle_flatten_usd,
+            "/scene/export": handle_export_prim,
+            "/scene/variant_selection": handle_set_variant_selection,
+            "/scene/create_variant_structure": handle_create_variant_structure,
+            "/scene/compare": handle_compare_prims,
+            "/scene/update_material_paths": handle_update_material_paths,
+            "/viewport/light": handle_viewport_light,
+            "/logs": handle_get_logs,
         }
+
+        host = self._host
+        if host not in ("127.0.0.1", "::1", "localhost"):
+            carb.log_warn(
+                f"[MCP Bridge] WARNING: Binding to non-loopback address {host}. "
+                "The MCP bridge has no authentication — any network client can execute arbitrary code. "
+                "Consider using 127.0.0.1 for security."
+            )
+
+        # Start log buffer before anything else so it captures startup messages
+        from .handlers.logging import log_buffer
+        self._log_buffer = log_buffer
+        self._log_buffer.start()
 
         _get_event_loop().create_task(self._start_server())
         _get_event_loop().create_task(self._init_sensors())
         carb.log_info(f"[MCP Bridge] Starting on {self._host}:{self._port}")
 
     def on_shutdown(self):
+        try:
+            from .handlers.recording import _recording_state
+            if _recording_state.get("active"):
+                _recording_state["active"] = False
+                _recording_state.pop("_sub", None)
+                carb.log_info("[MCP Bridge] Stopped active recording on shutdown")
+        except Exception:
+            pass
+
+        try:
+            from .handlers.robot import _clear_articulation_cache
+            _clear_articulation_cache()
+        except Exception:
+            pass
+
+        if hasattr(self, "_log_buffer") and self._log_buffer is not None:
+            self._log_buffer.stop()
+
         if self._server is not None:
             self._server.close()
             carb.log_info("[MCP Bridge] Server shut down")
@@ -154,79 +209,104 @@ class Extension(omni.ext.IExt):
     async def _handle_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         peer = writer.get_extra_info("peername")
         carb.log_info(f"[MCP Bridge] Connection from {peer}")
-        try:
-            while True:
-                # Read HTTP request
-                request_line = await reader.readline()
-                if not request_line:
-                    break
-                request_line = request_line.decode("utf-8").strip()
-                if not request_line:
-                    continue
-
-                # Parse method and path
-                parts = request_line.split(" ")
-                if len(parts) < 2:
-                    await self._send_response(writer, 400, {"status": "error", "error": "Bad request"})
-                    continue
-                method = parts[0]
-                path = parts[1]
-
-                # Read headers
-                content_length = 0
+        if not hasattr(self, "_routes"):
+            # Connection arrived before on_startup finished (e.g., hot-reload)
+            carb.log_warn("[MCP Bridge] Connection rejected — server not ready")
+            writer.close()
+            return
+        async with self._connection_semaphore:
+            try:
                 while True:
-                    header_line = await reader.readline()
-                    if header_line in (b"\r\n", b"\n", b""):
+                    # Read HTTP request
+                    request_line = await reader.readline()
+                    if not request_line:
                         break
-                    header = header_line.decode("utf-8").strip()
-                    if header.lower().startswith("content-length:"):
-                        content_length = int(header.split(":", 1)[1].strip())
-
-                # Read body
-                body = {}
-                if content_length > 0:
-                    raw_body = await reader.readexactly(content_length)
-                    try:
-                        body = json.loads(raw_body.decode("utf-8"))
-                    except json.JSONDecodeError:
-                        await self._send_response(writer, 400, {"status": "error", "error": "Invalid JSON body"})
+                    request_line = request_line.decode("utf-8").strip()
+                    if not request_line:
                         continue
 
-                # Route to handler
-                handler = self._routes.get(path)
-                if handler is None:
-                    await self._send_response(writer, 404, {"status": "error", "error": f"Unknown endpoint: {path}"})
-                    continue
+                    # Parse method and path
+                    parts = request_line.split(" ")
+                    if len(parts) < 2:
+                        await self._send_response(writer, 400, {"status": "error", "error": "Bad request"})
+                        continue
+                    method = parts[0]
+                    path = parts[1]
 
-                if method == "GET" and path == "/health":
-                    result = await handler(body)
-                    await self._send_response(writer, 200, result)
-                    continue
+                    # Read headers
+                    content_length = 0
+                    while True:
+                        header_line = await reader.readline()
+                        if header_line in (b"\r\n", b"\n", b""):
+                            break
+                        header = header_line.decode("utf-8").strip()
+                        if header.lower().startswith("content-length:"):
+                            try:
+                                content_length = int(header.split(":", 1)[1].strip())
+                            except ValueError:
+                                content_length = 0
 
-                if method != "POST":
-                    await self._send_response(writer, 405, {"status": "error", "error": "Method not allowed, use POST"})
-                    continue
+                    if content_length > MAX_BODY_SIZE:
+                        await self._send_response(writer, 413, {
+                            "status": "error",
+                            "error": f"Request body too large ({content_length} bytes, max {MAX_BODY_SIZE})"
+                        })
+                        continue
 
-                try:
-                    result = await handler(body)
-                    await self._send_response(writer, 200, result)
-                except Exception as e:
-                    tb = traceback.format_exc()
-                    carb.log_error(f"[MCP Bridge] Handler error on {path}: {tb}")
-                    await self._send_response(writer, 500, {"status": "error", "error": str(e), "traceback": tb})
+                    # Read body
+                    body = {}
+                    if content_length > 0:
+                        raw_body = await reader.readexactly(content_length)
+                        try:
+                            body = json.loads(raw_body.decode("utf-8"))
+                        except json.JSONDecodeError:
+                            await self._send_response(writer, 400, {"status": "error", "error": "Invalid JSON body"})
+                            continue
 
-        except asyncio.IncompleteReadError:
-            pass
-        except ConnectionResetError:
-            pass
-        except Exception as e:
-            carb.log_error(f"[MCP Bridge] Connection error: {e}")
-        finally:
-            writer.close()
-            carb.log_info(f"[MCP Bridge] Connection closed from {peer}")
+                    # Route to handler
+                    handler = self._routes.get(path)
+                    if handler is None:
+                        await self._send_response(writer, 404, {"status": "error", "error": f"Unknown endpoint: {path}"})
+                        continue
+
+                    if method == "GET" and path == "/health":
+                        try:
+                            result = await handle_health(_body={})
+                            await self._send_response(writer, 200, result)
+                        except Exception as e:
+                            tb = traceback.format_exc()
+                            carb.log_error(f"[MCP Bridge] Health check error: {e}")
+                            await self._send_response(writer, 500, {
+                                "status": "error",
+                                "error": str(e),
+                                "traceback": tb
+                            })
+                        continue
+
+                    if method != "POST":
+                        await self._send_response(writer, 405, {"status": "error", "error": "Method not allowed, use POST"})
+                        continue
+
+                    try:
+                        result = await handler(body)
+                        await self._send_response(writer, 200, result)
+                    except Exception as e:
+                        tb = traceback.format_exc()
+                        carb.log_error(f"[MCP Bridge] Handler error on {path}: {tb}")
+                        await self._send_response(writer, 500, {"status": "error", "error": str(e), "traceback": tb})
+
+            except asyncio.IncompleteReadError:
+                pass
+            except ConnectionResetError:
+                pass
+            except Exception as e:
+                carb.log_error(f"[MCP Bridge] Connection error: {e}")
+            finally:
+                writer.close()
+                carb.log_info(f"[MCP Bridge] Connection closed from {peer}")
 
     async def _send_response(self, writer: asyncio.StreamWriter, status_code: int, body: dict):
-        status_texts = {200: "OK", 400: "Bad Request", 404: "Not Found", 405: "Method Not Allowed", 500: "Internal Server Error"}
+        status_texts = {200: "OK", 400: "Bad Request", 404: "Not Found", 405: "Method Not Allowed", 413: "Payload Too Large", 500: "Internal Server Error"}
         status_text = status_texts.get(status_code, "Unknown")
         body_bytes = json.dumps(body).encode("utf-8")
         header = (

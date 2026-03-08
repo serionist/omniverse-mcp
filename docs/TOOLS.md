@@ -1,17 +1,22 @@
 # Tool Reference
 
-Complete reference for all 32 MCP tools provided by Omniverse MCP.
+Complete reference for all 42 MCP tools provided by Omniverse MCP.
 
 ## Table of Contents
 
 - [Scene Tools](#scene-tools) (12 tools)
+- [Geometry & Mesh Tools](#geometry--mesh-tools) (3 tools)
+- [USD Operations](#usd-operations) (2 tools)
+- [Variant Tools](#variant-tools) (2 tools)
+- [Material Tools](#material-tools) (1 tool)
 - [Robot Tools](#robot-tools) (4 tools)
-- [Camera Tools](#camera-tools) (4 tools)
+- [Camera Tools](#camera-tools) (5 tools)
 - [Simulation Tools](#simulation-tools) (2 tools)
 - [Recording Tools](#recording-tools) (3 tools)
 - [Physics Tools](#physics-tools) (3 tools)
 - [Debug Tools](#debug-tools) (1 tool)
 - [Extension Tools](#extension-tools) (1 tool)
+- [Logging Tools](#logging-tools) (1 tool)
 - [Script Execution](#script-execution) (1 tool)
 - [MCP Resources](#mcp-resources)
 
@@ -181,6 +186,141 @@ No parameters.
 
 ---
 
+## Geometry & Mesh Tools
+
+### `get_mesh_stats`
+
+Get face/vertex/triangle counts for a mesh prim or subtree.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `prim_path` | string | required | Prim to analyze (includes all descendant meshes) |
+
+**Returns:** Per-mesh breakdown and totals (faces, vertices, triangles, mesh count). Written to file if many meshes.
+
+**When to use:** Measuring geometry budget, computing shell reduction ratios, verifying mesh simplification results.
+
+---
+
+### `get_prim_face_count_tree`
+
+Get scene tree with face counts per mesh and subtree totals.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `root` | string | `"/World"` | Starting prim path |
+| `max_depth` | int | `10` | Max traversal depth |
+
+**Returns:** Prim-block text where each mesh shows `faces`, `vertices`, `triangles` and each group shows `subtree_faces` total.
+
+**When to use:** Quick overview of where geometry budget is spent in a scene, without needing individual `get_mesh_stats` calls.
+
+---
+
+### `compare_prims`
+
+Compare two prims or two variants — mesh counts, bounds, materials.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `prim_path_a` | string | `""` | First prim (mode 1: direct comparison) |
+| `prim_path_b` | string | `""` | Second prim (mode 1) |
+| `prim_path` | string | `""` | Prim with variants (mode 2: variant comparison) |
+| `variant_set` | string | `""` | Variant set name (mode 2) |
+| `variant_a` | string | `""` | First variant name (mode 2) |
+| `variant_b` | string | `""` | Second variant name (mode 2) |
+
+**Returns:** Side-by-side stats (faces, vertices, triangles, meshes, bounds, materials) with deltas and percentage change.
+
+**When to use:** Validating shell creation (comparing focused vs. shell geometry), verifying simplification results. Properly clears BBoxCache between variant switches.
+
+---
+
+## USD Operations
+
+### `flatten_usd`
+
+Flatten a USD file — resolve all references, payloads, sublayers into a single self-contained file.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `output_path` | string | required | Where to write the flattened USD file |
+| `input_path` | string | `""` | Source USD file (default: current stage) |
+
+**Returns:** Input/output paths and number of layers resolved.
+
+**When to use:** Before modifying a component (flatten first so all references are resolved), preparing a file for external tools.
+
+---
+
+### `export_prim_as_file`
+
+Export a prim subtree as a standalone USD file.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `prim_path` | string | required | Root of the subtree to export |
+| `output_path` | string | required | Destination file (.usd/.usda/.usdc — defaults to .usdc) |
+
+**Returns:** Output path, target root prim name, material count, up axis.
+
+Flattens the source (resolves all references) and includes materials even if they live outside the exported subtree. Output is self-contained and can be imported into Blender or other DCC tools.
+
+---
+
+## Variant Tools
+
+### `set_variant_selection`
+
+Switch variant selection on a prim with proper viewport refresh.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `prim_path` | string | required | Prim with variant sets |
+| `variant_set` | string | required | Name of the variant set (e.g., `"model"`) |
+| `variant_name` | string | required | Variant to select (e.g., `"shell"`) |
+
+**Returns:** Old and new selection, available variants.
+
+**Important:** This tool includes the Hydra rprim refresh workaround (activation toggle + 30-frame pump) needed due to FSD/Hydra bugs (OMPE-54434, OMPE-70769, OMPE-71336). Using `execute_script` to switch variants will result in stale viewport geometry — always use this tool instead.
+
+---
+
+### `create_variant_structure`
+
+Create variant set boilerplate on a prim.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `prim_path` | string | required | Target prim |
+| `variant_set_name` | string | required | Name for the new variant set |
+| `variant_names` | list[string] | required | List of variant names to create (e.g., `["focused", "shell"]`) |
+| `default_variant` | string | `""` | Which variant to select by default (default: first in list) |
+
+**Returns:** Prim path, variant set name, created variants, default selection.
+
+---
+
+## Material Tools
+
+### `update_material_paths`
+
+Bulk-update material reference paths in a subtree.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `old_prefix` | string | required | Path prefix to find (e.g., `"/OldProject/Materials"`) |
+| `new_prefix` | string | required | Replacement prefix (e.g., `"/World/Materials"`) |
+| `prim_path` | string | `"/"` | Root of subtree to update (default: entire stage) |
+
+**Returns:** Number of updated references and list of affected prims.
+
+Updates both relationship targets (material bindings) and asset path attributes (texture file paths) that start with `old_prefix`.
+
+**When to use:** After copying USD assets to a new directory where material paths need updating.
+
+---
+
 ## Robot Tools
 
 ### `create_robot`
@@ -278,19 +418,26 @@ Point the viewport camera at a prim from a given angle. Auto-computes distance f
 
 ### `inspect_prim`
 
-Orbit-capture: take screenshots from multiple angles around a prim.
+Orbit-capture: take screenshots from 14 systematic angles around a prim using a cube-based approach (6 face centers + 8 cube corners). Optionally includes instance segmentation at each angle.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Target prim |
-| `angles` | list[string] | `["front", "right", "back", "left", "top"]` | Angle names to capture |
-| `width` | int | `800` | Image width per capture |
-| `height` | int | `600` | Image height per capture |
+| `angles` | list[string] | all 14 | Angle names to capture (see below) |
+| `width` | int | `640` | Image width per capture |
+| `height` | int | `480` | Image height per capture |
 | `distance` | float | `null` | Camera distance (auto from object size) |
+| `include_segmentation` | bool | `false` | Also capture instance segmentation at each angle |
 
-**Available angles:** `front`, `right`, `back`, `left`, `top`, `perspective`
+**Available angles (14 total):**
 
-Each angle is saved as a separate PNG file.
+*Face centers (6):* `front`, `back`, `right`, `left`, `top`, `bottom`
+
+*Cube corners (8):* `top_front_right`, `top_front_left`, `top_back_right`, `top_back_left`, `bottom_front_right`, `bottom_front_left`, `bottom_back_right`, `bottom_back_left`
+
+Corner angles use elevation = ±35.26° (atan(1/√2)), which is the exact angle from the horizontal to a cube corner.
+
+Each angle is saved as a separate PNG file. When `include_segmentation` is true, each angle also saves a segmentation image + legend. Default captures all 14 angles for full coverage.
 
 ---
 
@@ -306,9 +453,10 @@ Use files 2 and 3 to understand which object is where in the viewport image.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `width` | int | `1280` | Image width |
-| `height` | int | `720` | Image height |
+| `width` | int | `640` | Image width |
+| `height` | int | `480` | Image height |
 | `camera_path` | string | `""` | Camera prim to render from (default: active viewport camera) |
+| `include_image` | bool | `false` | Return the viewport image inline as `ImageContent` so AI can see it directly. Files are always saved regardless. |
 
 **Output files:**
 - `mcp_output/captures/viewport_NNNN.png` -- viewport screenshot
@@ -326,6 +474,25 @@ world_dimensions = [1.0, 1.0, 1.0]
 ```
 
 > **Note:** Instance segmentation requires `omni.syntheticdata` (included in Isaac Sim). If unavailable, the viewport image and bounding boxes are still returned.
+
+> **Black image detection:** If the captured image is all-black, the response includes a `WARNING` with lighting diagnostics (whether scene lights exist and whether the camera light is on). Use the `viewport_light` tool to check lighting state and enable the camera light if needed, then recapture. No automatic light changes are made.
+
+---
+
+### `viewport_light`
+
+Query or control viewport lighting — camera light and scene lights.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `action` | string | `"get"` | `"get"` to query state, `"set_camera_light"` to toggle camera light |
+| `enabled` | bool | `true` | Enable or disable camera light (only for `set_camera_light`) |
+
+**Actions:**
+- **get** -- Returns camera light state (on/off), whether scene has lights, and a list of all scene light prims (path, type, intensity)
+- **set_camera_light** -- Enable or disable the viewport camera light (`/rtx/useViewLightingMode`). This is a fill light that follows the camera — non-destructive, does not modify the scene
+
+**When to use:** When `capture_viewport` reports a black image, use `viewport_light("get")` to diagnose, then `viewport_light("set_camera_light", enabled=true)` to enable the camera light and recapture.
 
 ---
 
@@ -461,7 +628,7 @@ Draw debug visualization in the viewport.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `shape` | string | required | `"line"`, `"sphere"`, or `"points"` |
-| `color` | list[float] | `[1,0,0]` | `[r, g, b]` in 0-1 range |
+| `color` | list[float] | `null` | `[r, g, b]` in 0-1 range (defaults to red `[1,0,0]` server-side) |
 | `duration` | float | `5.0` | Display duration in seconds |
 | `start` | list[float] | `null` | Line start `[x,y,z]` (for `shape="line"`) |
 | `end` | list[float] | `null` | Line end `[x,y,z]` (for `shape="line"`) |
@@ -489,6 +656,25 @@ List, enable, or disable Omniverse extensions.
 
 ---
 
+## Logging Tools
+
+### `get_logs`
+
+Get recent Omniverse log entries from the ring buffer.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `count` | int | `50` | Number of recent entries to return (max ~2000) |
+| `min_level` | string | `""` | Minimum severity: `verbose`, `info`, `warn`, `error`, `fatal` |
+| `channel` | string | `""` | Filter by log channel substring (e.g. `"omni.physx"`, `"omni.usd"`) |
+| `search` | string | `""` | Filter by message substring (case-insensitive) |
+
+**When to use:** After any tool returns an error, call `get_logs(min_level="warn")` to see what Omniverse reported internally. PhysX errors, USD composition failures, missing extensions, and other diagnostics are captured here.
+
+**How it works:** The extension subscribes to `omni.log` on startup and stores all log messages in a ring buffer (2000 entries). This captures `carb.log_*()`, Python `logging`, and internal Kit/PhysX/USD messages.
+
+---
+
 ## Script Execution
 
 ### `execute_script`
@@ -511,16 +697,48 @@ Execute arbitrary Python code inside the running Omniverse application.
 | `UsdPhysics` | `pxr.UsdPhysics` | Physics APIs |
 | `Sdf` | `pxr.Sdf` | Layer/path manipulation |
 | `Gf` | `pxr.Gf` | Math: vectors, matrices, quaternions |
+| `mcp` | `MCPBridge` | Async access to MCP handlers (see below) |
 
 Set `result = <value>` to return JSON-serializable data to the AI assistant.
 
-**Example:**
+**Example (sync):**
 ```python
 stage = omni.usd.get_context().get_stage()
 result = [str(p.GetPath()) for p in stage.Traverse() if p.IsA(UsdGeom.Mesh)]
 ```
 
-**When to use:** Complex operations not covered by other tools -- custom physics queries, batch operations, accessing APIs that don't have dedicated tools.
+**Example (async — using `mcp` bridge):**
+```python
+# Using await auto-detects async mode
+viewport = await mcp.capture_viewport(width=1280)
+bounds = await mcp.prim_bounds("/World/Cube")
+await mcp.set_camera([5, 3, 5], target=[0, 0, 0])
+state = await mcp.sim_state()
+result = {"center": bounds["result"]["center"], "sim": state["result"]["state"]}
+```
+
+**Available `mcp` methods** (all async, use `await`):
+
+| Method | Description |
+|--------|-------------|
+| `mcp.capture_viewport(width, height, camera_path)` | Capture viewport with bboxes + segmentation |
+| `mcp.set_camera(position, target)` | Position the viewport camera |
+| `mcp.look_at(prim_path, distance, azimuth, elevation)` | Point camera at a prim |
+| `mcp.inspect(prim_path, angles, width, height, distance)` | Orbit-capture from multiple angles |
+| `mcp.scene_tree(root, max_depth)` | Get scene hierarchy |
+| `mcp.prim_properties(prim_path)` | Get all prim properties |
+| `mcp.prim_bounds(prim_path)` | Get world-space bounding box |
+| `mcp.set_transform(prim_path, position, rotation, scale)` | Move/rotate/scale a prim |
+| `mcp.create_prim(prim_path, prim_type, **kwargs)` | Create a prim |
+| `mcp.delete_prim(prim_path)` | Delete a prim |
+| `mcp.set_material(prim_path, color, opacity, roughness, metallic)` | Create and bind a material |
+| `mcp.sim_control(action)` | play/pause/stop/step |
+| `mcp.sim_state()` | Get simulation state |
+| `mcp.get_logs(count, min_level, channel, search)` | Get recent log entries |
+
+Each method returns the full handler response dict with `"status"` and `"result"` keys. Calls are in-process (no HTTP round-trip).
+
+**When to use:** Complex operations not covered by other tools -- custom physics queries, batch operations, accessing APIs that don't have dedicated tools. Use async `mcp.*` methods when you need to chain multiple MCP operations in a single script (e.g., capture viewport, analyze, reposition, recapture).
 
 **Fallback strategy:** Every MCP tool in this server can be replicated via `execute_script` using the Omniverse Python API directly. If any tool returns an error, you can fall back to writing the equivalent Python code. Use Context7 (`isaac-sim/isaacsim`) or the [NVIDIA Omniverse docs](https://docs.omniverse.nvidia.com/) to look up the correct API rather than guessing.
 

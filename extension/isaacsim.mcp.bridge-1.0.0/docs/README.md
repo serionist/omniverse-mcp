@@ -20,4 +20,4 @@ See the [main project README](https://github.com/serionist/omniverse-mcp) for in
 
 ## Endpoints
 
-The extension exposes 33 HTTP endpoints for scene manipulation, robot control, simulation management, viewport capture, physics, and more. See [docs/ARCHITECTURE.md](https://github.com/serionist/omniverse-mcp/blob/main/docs/ARCHITECTURE.md) for the complete endpoint list.
+The extension exposes 42 HTTP endpoints for scene manipulation, robot control, simulation management, viewport capture, physics, geometry analysis, USD operations, variant management, and more. See [docs/ARCHITECTURE.md](https://github.com/serionist/omniverse-mcp/blob/main/docs/ARCHITECTURE.md) for the complete endpoint list.
