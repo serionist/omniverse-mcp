@@ -264,14 +264,17 @@ class Extension(omni.ext.IExt):
                             continue
 
                     # Route to handler
-                    handler = self._routes.get(path)
+                    routes = getattr(self, "_routes", None)
+                    if routes is None:
+                        break
+                    handler = routes.get(path)
                     if handler is None:
                         await self._send_response(writer, 404, {"status": "error", "error": f"Unknown endpoint: {path}"})
                         continue
 
                     if method == "GET" and path == "/health":
                         try:
-                            result = await handle_health(_body={})
+                            result = await asyncio.ensure_future(handle_health(_body={}))
                             await self._send_response(writer, 200, result)
                         except Exception as e:
                             tb = traceback.format_exc()
@@ -288,7 +291,10 @@ class Extension(omni.ext.IExt):
                         continue
 
                     try:
-                        result = await handler(body)
+                        # Run handler as independent task so _handle_connection
+                        # properly suspends and doesn't block Kit's async tasks
+                        # (viewport updates, property dirty handlers, etc.)
+                        result = await asyncio.ensure_future(handler(body))
                         await self._send_response(writer, 200, result)
                     except Exception as e:
                         tb = traceback.format_exc()
