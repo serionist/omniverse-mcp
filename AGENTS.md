@@ -22,8 +22,8 @@ extension it talks to.
 | Path | What |
 |---|---|
 | `src/omniverse_mcp/` | the server: `server.py` (MCP server, output files, resources), `config.py` (flags, `OMNIVERSE_MCP_*`), `client.py` (the bridge's HTTP client), `bridge_token.py`, `tools/` (the tools by area) |
-| `extension/ovmcp.bridge/` | the extension: `config/extension.toml` (id, version, settings), `ovmcp/bridge/` (`extension.py` with the routes, `handlers/`, `formatter.py`), `ovmcp/core/` (HTTP, token, framing, isolation), `docs/README.md` |
-| `tests/` | pytest; `test_integration.py` and `test_scenarios.py` are the live suites, which need Kit |
+| `extension/ovmcp.bridge/` | the extension: `config/extension.toml` (id, version, settings), `ovmcp/bridge/` (`extension.py` with the routes, `handlers/`), `ovmcp/core/` (HTTP, token, framing, isolation, bounds, the formatter, PNG, logs; `usd.py` types what the pxr stubs get wrong), `docs/README.md` |
+| `tests/` | pytest; `test_integration.py` and `test_scenarios.py` are the live suites (markers `sim`, `scenario`), which need Kit |
 | `test_project/` | an MCP client project for AI-driven scenario runs: `scenarios.md`, `CLAUDE.md`, `.mcp.json.example` |
 | `docs/` | `ARCHITECTURE.md` (routes, protocol, token, threading), `TOOLS.md` (a heading per tool), `AI_GUIDE.md` (for agents using the tools) |
 | `docs/plans/`, `docs/reviews/` | plans of non-trivial changes, with the template; review records. Dated records, never current truth |
@@ -34,7 +34,7 @@ extension it talks to.
 | `.agents/skills/` | links to `.claude/skills/<name>` for Codex, written into git's index by `uv run tools/setup.py link` |
 | `AGENTS.md`, `REVIEW.md` | this file; what a review finding is, and the questions every review answers |
 | `.mcp.json` | Context7 over HTTP; `.claude/settings.local.json.example` turns it on |
-| `pyproject.toml`, `uv.lock`, `.python-version` | the build (hatchling; the wheel carries the extension), ruff and basedpyright settings, dev tools pinned exactly; the lock; Python 3.12 for development |
+| `pyproject.toml`, `uv.lock`, `.python-version` | the build (hatchling; the wheel carries the extension), the settings of ruff, basedpyright, pytest, coverage and import-linter, dev tools pinned exactly; the lock; Python 3.12 for development |
 | `.basedpyright/baseline.json` | the type errors of before basedpyright, which only shrink |
 | `.gitleaks.toml` | the secret scan: gitleaks' own rules, and any exception with its reason |
 | `.editorconfig`, `.gitattributes`, `.gitignore`, `.git-blame-ignore-revs` | UTF-8 and LF everywhere; what git ignores; the reformat commits `git blame` skips |
@@ -50,18 +50,21 @@ PowerShell unless a PowerShell form stands beside it.
 | What | Command |
 |---|---|
 | once per clone | `uv sync`, then `uv run tools/setup.py` (hooks, `git blame`, skill links) |
-| tests | `uv run pytest` |
-| lint, format, types | `uv run ruff check .`, `uv run ruff format --check .`, `uv run basedpyright` |
-| the gate | `uv run tools/gate.py quick` (lock, lint, format, types, AGENTS.md, skills, attribution, secrets); `full` adds pytest; `text --file -` checks a PR's title and description: no attribution, and the issue named |
+| tests | `uv run pytest`; with coverage, `uv run coverage run -m pytest`, then `uv run coverage report` |
+| lint, format, types, imports | `uv run ruff check .`, `uv run ruff format --check .`, `uv run basedpyright`, `uv run lint-imports` |
+| the gate | `uv run tools/gate.py quick` (lock, lint, format, types, imports, the coverage floor, AGENTS.md, skills, attribution, secrets); `full` adds pytest under coverage, and the floor; `text --file -` checks a PR's title and description: no attribution, and the issue named |
 | live suites | `OMNIVERSE_MCP_SIM=1 uv run pytest tests/test_integration.py tests/test_scenarios.py`; PowerShell: `$env:OMNIVERSE_MCP_SIM = "1"`, then `uv run pytest ...` |
 
-- **Live suites** need a Kit app running `ovmcp.bridge` (Kit's extension search path pointed at `extension/`).
-  Without `OMNIVERSE_MCP_SIM=1` they skip when no Kit answers; with it they fail.
+- **Live suites** need a Kit app running `ovmcp.bridge` (Kit's extension search path pointed at `extension/`), at
+  `OMNIVERSE_MCP_HOST` and `OMNIVERSE_MCP_PORT` (127.0.0.1:8211 by default), as the server finds it.
+  Without `OMNIVERSE_MCP_SIM=1` they skip, even with a Kit app running; with it they run, and fail when no Kit
+  answers.
 - **A headless Isaac Sim** needs `OMNI_KIT_ACCEPT_EULA=YES` (PowerShell: `$env:OMNI_KIT_ACCEPT_EULA = "YES"`), set
   by the person who accepts NVIDIA's EULA. An agent never sets it on its own.
 - **Hosted CI never runs Kit:** a change to the extension, the client or a tool says in its PR whether the live
   suites ran, on which Kit app, and what they could not show.
-- **Ratchets:** ruff's per-file ignores and `.basedpyright/baseline.json` only shrink. Fix the code; never add to them.
+- **Ratchets:** ruff's per-file ignores and `.basedpyright/baseline.json` only shrink, and the coverage floor
+  (`fail_under`) only rises; the gate refuses a lower one. Fix the code; never add to them.
 
 ## How a change lands
 

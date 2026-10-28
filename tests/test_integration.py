@@ -14,6 +14,8 @@ import pytest
 
 from omniverse_mcp.client import BridgeClient
 
+from .conftest import LIVE_HOST, LIVE_PORT
+
 pytestmark = pytest.mark.sim
 
 
@@ -22,7 +24,7 @@ class TestIsaacSimIntegration(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.client = BridgeClient(host="127.0.0.1", port=8211, timeout=30.0)
+        cls.client = BridgeClient(host=LIVE_HOST, port=LIVE_PORT, timeout=30.0)
         try:
             result = cls.client.health()
             if result.get("status") != "success":
@@ -32,7 +34,7 @@ class TestIsaacSimIntegration(unittest.TestCase):
             if os.environ.get("OMNIVERSE_MCP_SIM") == "1":
                 raise
             raise unittest.SkipTest(
-                f"Cannot connect to Isaac Sim at 127.0.0.1:8211. "
+                f"Cannot connect to Isaac Sim at {LIVE_HOST}:{LIVE_PORT}. "
                 f"Start Isaac Sim with the ovmcp.bridge extension. Error: {e}"
             )
         # Ensure sim is stopped and create a clean scene

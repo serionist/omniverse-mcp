@@ -276,6 +276,29 @@ def test_agents_md_over_150_lines_fails():
     assert gate.agents_md_problems("line\n" * 151) == ["AGENTS.md has 151 lines; keep it within 150"]
 
 
+# The coverage floor
+
+
+def test_the_floor_is_read_from_the_coverage_report_table():
+    assert gate.coverage_floor("[tool.coverage.report]\nfail_under = 59\nshow_missing = true\n") == 59.0
+    assert gate.coverage_floor("[tool.coverage.report]\nfail_under = 72.5\n") == 72.5
+    assert gate.coverage_floor("[tool.coverage.run]\nbranch = true\n") is None
+    assert gate.coverage_floor("[tool.coverage.report]\nfail_under = true\n") is None
+
+
+def test_the_floor_may_stay_or_rise():
+    assert gate.floor_problems(59.0, [("origin/main", 59.0)]) == []
+    assert gate.floor_problems(61.0, [("origin/main", 59.0), ("a1b2c3d4e5", 60.0)]) == []
+    assert gate.floor_problems(59.0, [("origin/main", None)]) == []
+
+
+def test_a_floor_that_falls_or_goes_fails():
+    assert gate.floor_problems(55.0, [("origin/main", 59.0)]) == [
+        "the coverage floor fell from 59 at origin/main to 55; raise coverage instead"
+    ]
+    assert gate.floor_problems(None, []) == ["pyproject.toml sets no fail_under in [tool.coverage.report]"]
+
+
 # Skills
 
 

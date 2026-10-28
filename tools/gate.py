@@ -4,9 +4,11 @@ Usage: uv run tools/gate.py quick|full [--base <ref>] [--head <ref>]
        uv run tools/gate.py text --file <path>|-
 
 Two kinds of check:
-- the working tree's: the lock file, ruff check, ruff format, basedpyright, AGENTS.md within 150 lines, each skill's
-  frontmatter and its Codex link, the hooks stored as executable; full adds pytest. They run when the head is the
-  checked-out commit, and are skipped, with the reason, when the tree is not what is checked;
+- the working tree's: the lock file, ruff check, ruff format, basedpyright, import-linter's contracts, a coverage
+  floor no lower than at the start of each range checked, AGENTS.md within 150 lines, each skill's frontmatter and
+  its Codex link, the hooks stored as executable; full adds pytest under coverage, then the report against the floor.
+  They run when the head is the checked-out commit, and are skipped, with the reason, when the tree is not what is
+  checked;
 - the commits': no tool attribution in any message, and gitleaks, on base..head (merges included).
 
 It prints a table of the checks and exits 1 when any failed; a warning or a skip never fails it. Without gitleaks the
@@ -17,7 +19,8 @@ as commit-msg checks a message, and a `Refs #<n>`, `Closes #<n>` or `Fixes #<n>`
 pr-text.yml runs it whenever they change.
 
 Standard library only: the hooks import it from an environment uv has not synced. Before the first tool it runs
-(ruff, basedpyright, pytest) it syncs the environment once from uv.lock, `uv sync --frozen`, so it never re-locks.
+(ruff, basedpyright, lint-imports, coverage) it syncs the environment once from uv.lock, `uv sync --frozen`, so it
+never re-locks.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ import shutil
 import subprocess
 import sys
 import time
+import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -420,6 +424,35 @@ def tool(name: str, args: list[str]) -> Callable[[Scope], Result]:
     return check
 
 
+def coverage_floor(pyproject: str) -> float | None:
+    """[tool.coverage.report]'s fail_under in a pyproject.toml's text, or None when it sets none."""
+    value = tomllib.loads(pyproject).get("tool", {}).get("coverage", {}).get("report", {}).get("fail_under")
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def floor_problems(floor: float | None, bases: list[tuple[str, float | None]]) -> list[str]:
+    """The coverage floor only rises: what is wrong with the working tree's against each base's (ref, floor)."""
+    if floor is None:
+        return ["pyproject.toml sets no fail_under in [tool.coverage.report]"]
+    return [
+        f"the coverage floor fell from {before:g} at {ref} to {floor:g}; raise coverage instead"
+        for ref, before in bases
+        if before is not None and floor < before
+    ]
+
+
+def check_coverage_floor(scope: Scope) -> Result:
+    floor = coverage_floor((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    bases: list[tuple[str, float | None]] = []
+    for rev in scope.ranges:
+        ref = rev.split("..", 1)[0]
+        shown = git("show", f"{ref}:pyproject.toml")
+        if shown.returncode != 0:
+            return Result("coverage floor", "FAIL", f"cannot read pyproject.toml at {ref}", output=shown.stderr)
+        bases.append((_FULL_SHA.sub(r"\1", ref), coverage_floor(shown.stdout)))
+    return outcome("coverage floor", floor_problems(floor, bases), f"{floor:g}%")
+
+
 def check_agents_md(_scope: Scope) -> Result:
     path = ROOT / "AGENTS.md"
     if not path.is_file():
@@ -517,13 +550,18 @@ TREE: list[tuple[str, Check]] = [
     ("ruff check", tool("ruff check", ["ruff", "check", "."])),
     ("ruff format", tool("ruff format", ["ruff", "format", "--check", "."])),
     ("basedpyright", tool("basedpyright", ["basedpyright"])),
+    ("imports", tool("imports", ["lint-imports"])),
+    ("coverage floor", check_coverage_floor),
     ("AGENTS.md", check_agents_md),
     ("skills", check_skills),
     ("skill links", check_skill_links),
     ("hooks", check_hooks),
 ]
 COMMITS: list[tuple[str, Check]] = [("attribution", check_attribution), ("gitleaks", check_gitleaks)]
-FULL_ONLY: list[tuple[str, Check]] = [("pytest", tool("pytest", ["pytest", "-q"]))]
+FULL_ONLY: list[tuple[str, Check]] = [
+    ("pytest", tool("pytest", ["coverage", "run", "-m", "pytest", "-q"])),
+    ("coverage", tool("coverage", ["coverage", "report"])),
+]
 
 
 def lane_checks(lane: str) -> list[tuple[str, Check, bool]]:

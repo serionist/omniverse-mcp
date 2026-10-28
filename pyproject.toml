@@ -53,6 +53,8 @@ omniverse-mcp = "omniverse_mcp.server:main"
 [dependency-groups]
 dev = [
     "basedpyright==1.40.2",
+    "coverage==7.16.2",
+    "import-linter==2.15",
     "numpy==2.4.6",
     "pytest==9.2.0",
     "ruff==0.17.1",
@@ -62,6 +64,9 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/omniverse_mcp"]
+# In a development install only, the extension's ovmcp is importable too, for its tests and import-linter. The
+# wheel never makes it a package: the server reaches the extension over HTTP alone (import-linter holds that).
+dev-mode-dirs = ["src", "extension/ovmcp.bridge"]
 
 # The wheel carries the Kit extension of the same release, for `omniverse-mcp extension install` (plan D9, S8).
 [tool.hatch.build.targets.wheel.force-include]
@@ -73,7 +78,7 @@ include = ["src/", "extension/", "tests/", "tools/", "docs/", "README.md", "CHAN
 
 # Strict from the start (plan S6): an unknown marker or setting, an xfail that passes, a repeated parametrize id and
 # any warning are errors. Each by name rather than `strict`, so a newer pytest can't turn on more unseen. The live
-# suites carry the markers sim and scenario: with no Kit answering they skip, and OMNIVERSE_MCP_SIM=1 fails them.
+# suites carry the markers sim and scenario, and run only with OMNIVERSE_MCP_SIM=1 (tests/conftest.py, plan D11).
 [tool.pytest]
 addopts = ["--import-mode=importlib", "-ra"]
 testpaths = ["tests"]
@@ -86,6 +91,16 @@ markers = [
     "sim: needs a Kit app running ovmcp.bridge (tests/test_integration.py)",
     "scenario: the scenario suite, against a Kit app running ovmcp.bridge (tests/test_scenarios.py)",
 ]
+
+# Coverage of the server and the extension's core, lines and branches; the Kit-bound modules only run inside Kit. The
+# floor is what the tests reached when it was set (plan S6); it only rises, and the gate refuses a lower one.
+[tool.coverage.run]
+source = ["src/omniverse_mcp", "extension/ovmcp.bridge/ovmcp/core"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 59
+show_missing = true
 
 [tool.ruff]
 line-length = 120
@@ -161,6 +176,25 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["omniverse_mcp", "ovmcp"]
+
+# What the import graph keeps (plan S6), checked by `uv run lint-imports` and the gate. Imports inside functions
+# count too. The extension's core runs without Kit, so its tests run anywhere; the server reaches the extension over
+# HTTP alone, so its wheel works with no Kit beside it.
+[tool.importlinter]
+root_packages = ["ovmcp", "omniverse_mcp"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "The extension's core imports no Kit"
+type = "forbidden"
+source_modules = ["ovmcp.core"]
+forbidden_modules = ["ovmcp.bridge", "omni", "carb", "isaacsim"]
+
+[[tool.importlinter.contracts]]
+name = "The server imports nothing of the extension"
+type = "forbidden"
+source_modules = ["omniverse_mcp"]
+forbidden_modules = ["ovmcp"]
 
 # basedpyright is pyright with a baseline: the errors of today live in .basedpyright/baseline.json and may only
 # shrink, the same ratchet as ruff's per-file ignores. New code is checked in full.
