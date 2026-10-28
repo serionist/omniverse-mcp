@@ -12,6 +12,7 @@ import omni.kit.app
 import omni.usd
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux
 
+from ..core.framing import MARGIN_PX, apply_zoom, bounding_radius, fit_distance
 from ._utils import (
     CAMERA_SETTLE_FRAMES,
     _compute_world_bbox,
@@ -25,6 +26,15 @@ from ._utils import (
 
 
 SEGMENTATION_RETRY_FRAMES = 10
+
+_warned: set[str] = set()
+
+
+def _warn_once(key: str, message: str):
+    """Log a warning the first time only, for fallbacks that would otherwise repeat on every call."""
+    if key not in _warned:
+        _warned.add(key)
+        carb.log_warn(message)
 
 
 # ---------------------------------------------------------------------------
@@ -159,19 +169,24 @@ def _get_available_lighting_modes() -> list[str]:
     return modes
 
 
-def _compute_autofit_distance(dims, camera_path, stage, width, height, margin_px=10):
-    """Compute camera distance so object's bounding sphere fills the viewport with margin.
+def _viewport_resolution(requested: tuple[int, int]) -> tuple[int, int]:
+    """The pixels the viewport renders, which is what a capture gets; the requested size if it can't be read."""
+    try:
+        import omni.syntheticdata as syn
+        from omni.kit.viewport.utility import get_active_viewport
 
-    Uses FOV from the camera prim to calculate the exact distance where
-    the bounding sphere of the object just fits within the viewport,
-    minus margin_px pixels on each side.
-    """
-    diagonal = math.sqrt(dims[0] ** 2 + dims[1] ** 2 + dims[2] ** 2)
-    radius = diagonal / 2
-    if radius < 0.001:
-        radius = 0.5
+        viewport = get_active_viewport()
+        if viewport is not None:
+            params = syn.helpers.get_view_params(viewport)
+            return int(params["width"]), int(params["height"])
+    except Exception as e:
+        _warn_once("resolution", f"[MCP Bridge] Could not read the viewport's resolution, framing for "
+                                 f"{requested[0]}x{requested[1]} instead: {e}")
+    return requested
 
-    # Get camera FOV from prim attributes
+
+def _compute_autofit_distance(dims, camera_path, stage, width, height):
+    """Camera distance at which the prim's bounding sphere fills the captured frame (core/framing.py)."""
     cam_prim = stage.GetPrimAtPath(camera_path)
     fl, h_ap, v_ap = 18.14756, 20.955, 15.2908  # Omniverse defaults
     if cam_prim.IsValid():
@@ -186,19 +201,8 @@ def _compute_autofit_distance(dims, camera_path, stage, width, height, margin_px
         if v_val and v_val > 0:
             v_ap = v_val
 
-    half_h_fov = math.atan(h_ap / (2 * fl))
-    half_v_fov = math.atan(v_ap / (2 * fl))
-
-    # Reduce effective FOV for margin
-    scale_h = (width - 2 * margin_px) / width
-    scale_v = (height - 2 * margin_px) / height
-    eff_half_h = math.atan(math.tan(half_h_fov) * scale_h)
-    eff_half_v = math.atan(math.tan(half_v_fov) * scale_v)
-
-    # Distance so bounding sphere fits within the tighter FOV dimension
-    d_h = radius / math.tan(eff_half_h)
-    d_v = radius / math.tan(eff_half_v)
-    return max(d_h, d_v)
+    res_w, res_h = _viewport_resolution((width, height))
+    return fit_distance(bounding_radius(dims), fl, h_ap, v_ap, res_w, res_h)
 
 
 def _hide_other_prims(stage, target_path: str) -> list[str]:
@@ -623,6 +627,8 @@ async def handle_camera_inspect(body: dict) -> dict:
 
     if not prim_path:
         return {"status": "error", "error": "prim_path is required"}
+    if width <= 2 * MARGIN_PX or height <= 2 * MARGIN_PX:
+        return {"status": "error", "error": f"width and height must be over {2 * MARGIN_PX} pixels"}
 
     stage = _get_stage()
     prim = stage.GetPrimAtPath(prim_path)
@@ -631,13 +637,12 @@ async def handle_camera_inspect(body: dict) -> dict:
 
     center, dims, _ = _compute_world_bbox(prim)
 
-    # Auto-fit distance using camera FOV math
+    # Auto-fit distance, then zoom_offset: 0=auto-fit, negative=closer, positive=further
     camera_path = _get_active_camera_path()
-    distance = _compute_autofit_distance(dims, camera_path, stage, width, height)
-
-    # Apply zoom offset: 0=auto-fit, negative=closer, positive=further
-    distance = distance * (1.0 + zoom_offset)
-    distance = max(distance, 0.01)
+    try:
+        distance = apply_zoom(_compute_autofit_distance(dims, camera_path, stage, width, height), zoom_offset)
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
 
     # Cube-based angle system: 6 face centers + 8 cube corners = 14 angles.
     # Corners at atan(1/sqrt(2)) ≈ 35.26° elevation.
