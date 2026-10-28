@@ -68,7 +68,8 @@ This keeps the MCP context window clean -- the AI reads files on demand rather t
 
 - Persistent keep-alive connections
 - The bridge token on every request (see [The bridge token](#the-bridge-token)), read again after a 401
-- A handshake, `GET /bridge`, at the start of every new connection
+- A handshake, `GET /bridge`, at the start of every new connection; an extension of another protocol is refused
+  with the command that installs this server's, `uvx omniverse-mcp==X.Y.Z extension install`
 - Automatic reconnection on failure (1 retry, 2 total attempts)
 - Configurable timeout (default 120s)
 - Proper Content-Length framing with chunked body reading (avoids O(n²) buffer concatenation)
@@ -78,6 +79,21 @@ This keeps the MCP context window clean -- the AI reads files on demand rather t
 ## Component 2: Omniverse Extension (`extension/ovmcp.bridge/`)
 
 The extension is an Omniverse Kit extension that runs inside the application's process. It has full access to USD, PhysX, rendering, and all Omniverse/Isaac Sim APIs.
+
+### Delivery
+
+The wheel carries the extension of its own release as `omniverse_mcp/_extension/ovmcp.bridge`, so the server and the
+extension come from one release. `omniverse-mcp extension install` (`src/omniverse_mcp/kit_extension.py`) copies it to
+`exts/ovmcp.bridge` in the user's data folder (`%LOCALAPPDATA%\omniverse-mcp` on Windows,
+`~/Library/Application Support/omniverse-mcp` on macOS, `$XDG_DATA_HOME/omniverse-mcp` or
+`~/.local/share/omniverse-mcp` on Linux), and Kit's extension search paths take that `exts` folder once.
+
+- **Whole or not at all:** the copy is made beside the installed one and swapped in by renaming, so no module a new
+  release dropped is left to load; a swap that fails, as on Windows while a Kit app holds the folder, puts the old one
+  back.
+- **A checkout** has no `_extension` folder in its editable install: the command copies `extension/ovmcp.bridge`, and
+  Kit can as well point at the checkout's `extension/` folder.
+- **`extension path`** prints the `exts` folder, and fails while nothing is installed there.
 
 ### Key files
 

@@ -12,6 +12,7 @@ import threading
 from typing import Any
 
 from .bridge_token import ENV_TOKEN, read_token, token_path
+from .kit_extension import install_command
 
 logger = logging.getLogger(__name__)
 
@@ -98,19 +99,28 @@ class BridgeClient:
         """Refuse an extension that speaks another protocol, before any request runs on it."""
         problem = None
         result: dict[str, Any] = data.get("result") or {}
+        # The extension of this server's release, however the server was installed; Kit loading the extension from a
+        # git checkout takes a pull instead.
+        command = f"{install_command()} (from a git checkout: git pull)"
         if status == 404:
             problem = (
                 f"The Kit extension is older than this MCP server: it has no bridge handshake, the server "
-                f"speaks protocol {PROTOCOL}. Update the extension (git pull in the omniverse-mcp checkout) "
-                "and restart Kit."
+                f"speaks protocol {PROTOCOL}. Install this server's extension, {command}, then restart Kit."
             )
-        elif status != 200 or "protocol" not in result:
+        elif status != 200 or not isinstance(result.get("protocol"), int):
             problem = f"Unexpected handshake answer from the Kit extension (HTTP {status}): {data.get('error', data)}"
         elif result["protocol"] != PROTOCOL:
+            extension = result.get("extension_version", "unknown")
+            if result["protocol"] < PROTOCOL:
+                fix = f"The extension is older: install this server's, {command}, then restart Kit."
+            else:
+                fix = (
+                    f"The server is older: update it to the extension's release, {extension}, or install this "
+                    f"server's extension, {command}, then restart Kit."
+                )
             problem = (
-                f"The Kit extension {result.get('extension_version', 'unknown')} speaks bridge protocol "
-                f"{result['protocol']} and this MCP server speaks {PROTOCOL}. Update the older of the two "
-                "and restart it."
+                f"The Kit extension {extension} speaks bridge protocol {result['protocol']} and this MCP server "
+                f"speaks {PROTOCOL}. {fix}"
             )
         if problem:
             # The next request reconnects and asks again.

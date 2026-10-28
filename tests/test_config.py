@@ -55,3 +55,23 @@ def test_a_flag_from_before_the_rename_says_what_replaced_it(argv, message, caps
         parse_args(argv, {})
     assert exited.value.code == 2
     assert message in capsys.readouterr().err
+
+
+def test_the_extension_command_takes_install_or_path():
+    assert (parse_args(["extension", "install"], {}).command, parse_args(["extension", "path"], {}).action) == (
+        "extension",
+        "path",
+    )
+    assert parse_args([], {}).command is None
+
+
+def test_the_extension_command_refuses_another_action(capsys):
+    with pytest.raises(SystemExit) as exited:
+        parse_args(["extension", "remove"], {})
+    assert exited.value.code == 2
+    assert "invalid choice: 'remove'" in capsys.readouterr().err
+
+
+def test_the_extension_command_does_not_read_the_port():
+    # Only the server talks to Kit: a bad port in the environment doesn't stop an install.
+    assert parse_args(["extension", "install"], {"OMNIVERSE_MCP_PORT": "eighty"}).action == "install"

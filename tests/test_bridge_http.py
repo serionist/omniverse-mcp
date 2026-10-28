@@ -375,9 +375,16 @@ def test_client_keeps_a_token_it_was_given(bridge):
         client.close()
 
 
-def test_client_refuses_an_extension_that_speaks_another_protocol(state):
-    message = "9.0.0"
-    other = RunningBridge({"protocol": PROTOCOL + 1, "extension_version": "9.0.0"})
+@pytest.mark.parametrize(
+    ("protocol", "message"),
+    [
+        (PROTOCOL + 1, "9.0.0 speaks bridge protocol .* The server is older: update it"),
+        (PROTOCOL - 1, "The extension is older: install this server's, uvx omniverse-mcp==.* extension install"),
+        ("1", "Unexpected handshake answer"),
+    ],
+)
+def test_client_refuses_an_extension_that_speaks_another_protocol(state, protocol, message):
+    other = RunningBridge({"protocol": protocol, "extension_version": "9.0.0"})
     try:
         write_token(other.port, TOKEN)
         client = BridgeClient(port=other.port, timeout=5)

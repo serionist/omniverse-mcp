@@ -12,11 +12,28 @@ DEFAULT_PORT = 8211
 
 
 def parse_args(argv: Sequence[str], environ: Mapping[str, str] = os.environ) -> argparse.Namespace:
-    """Parse the server's flags. An unknown flag is an error. An empty OMNIVERSE_MCP_* variable counts as unset,
-    since MCP clients expand an unset ${VAR} in their config to ""."""
+    """Parse the server's flags, or `extension <action>` (command "extension"; None for the server). An unknown flag
+    is an error. An empty OMNIVERSE_MCP_* variable counts as unset, since MCP clients expand an unset ${VAR} in their
+    config to ""."""
+    argv = list(argv)
+    # The command is routed by its first word rather than as an argparse subcommand, which would read a mistyped
+    # flag's value as an unknown command.
+    if argv[:1] == ["extension"]:
+        extension = argparse.ArgumentParser(
+            prog="omniverse-mcp extension", description="The Kit extension ovmcp.bridge of this release."
+        )
+        extension.add_argument(
+            "action",
+            choices=["install", "path"],
+            help="install: copy it to your user data folder, in place of an older one; path: print that folder, which "
+            "Kit's extension search paths need",
+        )
+        return extension.parse_args(argv[1:], argparse.Namespace(command="extension"))
     parser = argparse.ArgumentParser(
         prog="omniverse-mcp",
         description="Omniverse MCP server: drives a Kit app through its ovmcp.bridge extension, over MCP stdio.",
+        epilog="omniverse-mcp extension install|path: install the Kit extension of this release, or print where it "
+        "is installed.",
     )
     parser.add_argument(
         "--host",
@@ -35,7 +52,7 @@ def parse_args(argv: Sequence[str], environ: Mapping[str, str] = os.environ) -> 
         name = arg.split("=", 1)[0]
         if name in RENAMED_FLAGS:
             parser.error(f"{name} was renamed {RENAMED_FLAGS[name]}")
-    args = parser.parse_args(list(argv))
+    args = parser.parse_args(argv, argparse.Namespace(command=None))
     if args.port is None:
         port = environ.get("OMNIVERSE_MCP_PORT") or str(DEFAULT_PORT)
         try:
