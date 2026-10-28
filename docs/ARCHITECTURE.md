@@ -315,7 +315,7 @@ The robot tools use a hybrid approach:
 
 ## Viewport Capture
 
-Viewport capture uses `omni.kit.viewport.utility.capture_viewport_to_file()`. The captured image is read back, base64-encoded, and sent in the HTTP response to the MCP server, which decodes it and saves it as a PNG file.
+Viewport capture uses `omni.kit.viewport.utility.capture_viewport_to_file()`, through `capture_viewport_png` in `handlers/_utils.py`: each capture writes a file of its own, read once the PNG is whole (`ovmcp.core.png.is_complete_png`), since on Kit 110 the capture reports done before the file is written. The image is base64-encoded and sent in the HTTP response to the MCP server, which decodes it and saves it as a PNG file.
 
 **Cold-start note:** The first capture after launching the application may return a black or incomplete image because the renderer hasn't fully initialized. A second capture typically works correctly.
 

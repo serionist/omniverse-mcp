@@ -15,7 +15,7 @@ import omni.kit.app
 
 from ovmcp.core.formatter import format_frame_state
 
-from ._utils import _get_active_camera_path, _get_stage, _next_update
+from ._utils import _get_active_camera_path, _get_stage, capture_viewport_png
 
 # ---------------------------------------------------------------------------
 # Global recording state (shared across handlers)
@@ -144,38 +144,23 @@ async def handle_recording_start(body: dict) -> dict:
 
         frame_idx = _recording_state["frame_count"]
         try:
-            import tempfile
-
-            from omni.kit.viewport.utility import capture_viewport_to_file, get_active_viewport
+            from omni.kit.viewport.utility import get_active_viewport
 
             viewport = get_active_viewport()
             if viewport is None:
                 return
 
-            # Capture to temp file, then move to final location
-            tmp_path = os.path.join(tempfile.gettempdir(), f"mcp_rec_{frame_idx}.png")
-            cap = capture_viewport_to_file(viewport, file_path=tmp_path)
-            await cap.wait_for_result()
-
-            # Wait for file flush
-            for _ in range(10):
-                await _next_update()
-                if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
-                    break
-
             frame_path = os.path.join(
                 _recording_state["output_dir"],
                 f"frame_{frame_idx:05d}.png",
             )
-
-            if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
-                import shutil
-
-                shutil.move(tmp_path, frame_path)
-            else:
-                # File not ready — write empty marker
-                with open(frame_path, "wb") as f:
-                    pass
+            try:
+                data = await capture_viewport_png(viewport)
+            except RuntimeError:
+                # No whole frame in time: an empty file marks it, so the frames keep their numbers.
+                data = b""
+            with open(frame_path, "wb") as f:
+                f.write(data)
 
             _recording_state["metadata"].append(
                 {
