@@ -58,6 +58,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ### Fixed
 
+- **`set_material`'s colours show.** Its OmniPBR shader named only an id, which some Kit apps don't resolve
+  (Isaac Sim 6.2 headless among them): every material rendered as Kit's red error material, while the tool reported
+  success. The shader now names its MDL source, `OmniPBR.mdl`, and a material made before this gets it the next time
+  `set_material` uses it.
 - **`draw_debug`'s `size` defaults to 0.05, what it draws,** where its schema said 5.0; asking for 5.0 drew 0.05.
 - **`get_logs` names Kit's log levels right, and `min_level` keeps the right ones.** A warning was labelled
   `verbose` and an error `info`, and `min_level="warn"` kept only fatal messages.
