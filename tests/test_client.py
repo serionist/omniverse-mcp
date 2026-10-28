@@ -11,7 +11,7 @@ import threading
 import time
 import unittest
 
-from isaac_sim_mcp.client import IsaacSimClient
+from isaac_sim_mcp.client import BridgeError, IsaacSimClient
 
 
 class MockIsaacServer:
@@ -23,9 +23,11 @@ class MockIsaacServer:
         self.server = None
         self.requests: list[tuple[str, str, dict]] = []
         self._responses: dict[str, dict] = {}
+        self._statuses: dict[str, int] = {}
 
-    def set_response(self, path: str, response: dict):
+    def set_response(self, path: str, response: dict, status: int = 200):
         self._responses[path] = response
+        self._statuses[path] = status
 
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         try:
@@ -54,7 +56,7 @@ class MockIsaacServer:
                 response = self._responses.get(path, {"status": "success", "result": {}})
                 body_bytes = json.dumps(response).encode()
                 header_str = (
-                    f"HTTP/1.1 200 OK\r\n"
+                    f"HTTP/1.1 {self._statuses.get(path, 200)} OK\r\n"
                     f"Content-Type: application/json\r\n"
                     f"Content-Length: {len(body_bytes)}\r\n"
                     f"Connection: keep-alive\r\n\r\n"
@@ -91,7 +93,8 @@ class TestIsaacSimClient(unittest.TestCase):
     def setUpClass(cls):
         cls.mock = MockIsaacServer()
         # Register mock responses for all endpoints
-        cls.mock.set_response("/health", {"status": "success", "result": {"stage_path": "/test.usd", "up_axis": "Y", "meters_per_unit": 1.0, "recording_active": False}})
+        cls.mock.set_response("/bridge", {"status": "success", "result": {"protocol": 1, "extension_version": "1.0.0"}})
+        cls.mock.set_response("/health", {"status": "success", "result": {"stage_path": "/test.usd", "up_axis": "Y", "meters_per_unit": 1.0, "recording_active": False, "protocol": 1, "extension_version": "1.0.0"}})
         cls.mock.set_response("/execute", {"status": "success", "result": {"stdout": "hello\n", "stderr": "", "return_value": 42}})
         cls.mock.set_response("/scene/tree", {"status": "success", "result": {"path": "/", "type": "Xform", "children": [{"path": "/World", "type": "Xform", "world_position": [0, 0, 0]}]}})
         cls.mock.set_response("/scene/dump", {"status": "success", "result": {"file_path": "/tmp/scene_dump.json", "file_size_bytes": 1234, "prim_count": 10, "root": "/"}})
@@ -328,7 +331,29 @@ class TestIsaacSimClient(unittest.TestCase):
         self.client.health()
         self.client.sim_state()
         self.client.scene_tree()
-        self.assertEqual(len(self.mock.requests), 3)
+        # One connection: one handshake, then the three requests.
+        self.assertEqual([path for _, path, _ in self.mock.requests],
+                         ["/bridge", "/health", "/sim/state", "/scene/tree"])
+
+    def test_handshake_on_every_new_connection(self):
+        self.client.health()
+        self.client._disconnect()
+        self.client.health()
+        self.assertEqual([path for _, path, _ in self.mock.requests],
+                         ["/bridge", "/health", "/bridge", "/health"])
+
+    def test_extension_from_before_the_handshake_is_refused(self):
+        old = MockIsaacServer()
+        old.set_response("/bridge", {"status": "error", "error": "Unknown endpoint: /bridge"}, status=404)
+        old.start()
+        client = IsaacSimClient(host="127.0.0.1", port=old.port, timeout=5.0)
+        try:
+            with self.assertRaisesRegex(BridgeError, "older than this MCP server"):
+                client.health()
+            self.assertEqual([path for _, path, _ in old.requests], ["/bridge"])
+        finally:
+            client.close()
+            old.stop()
 
     def test_reconnect_after_disconnect(self):
         self.client.health()

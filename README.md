@@ -201,9 +201,24 @@ In `extension.toml`:
 [settings]
 exts."isaacsim.mcp.bridge".host = "127.0.0.1"
 exts."isaacsim.mcp.bridge".port = 8211
+exts."isaacsim.mcp.bridge".token = ""
 ```
 
+### The bridge token
+
+The extension runs any Python the MCP server sends, so it answers only a server that holds its token. At every start
+it writes a new token to a file only your user can read, and the MCP server on the same machine picks it up: nothing
+to set up. Requests from web pages are refused. See [Architecture](docs/ARCHITECTURE.md#the-bridge-token) for where the
+file lives.
+
+For a remote setup, set the extension's `token` to a long random value and give the MCP server the same value in the
+`OMNIVERSE_MCP_TOKEN` environment variable. Anyone with the token can run code in your Kit app.
+
 ## Troubleshooting
+
+**"Missing or wrong bridge token"** -- The server and the extension must both be up to date (`git pull`, then restart Kit and your MCP client). If Kit runs as another user, in a container or on another machine, use the `token` setting and `OMNIVERSE_MCP_TOKEN` (above).
+
+**"The Kit extension is older than this MCP server"** -- `git pull` updates both; restart Kit so it loads the new extension.
 
 **"Cannot connect to Isaac Sim"** -- Is the app running with MCP Bridge enabled? Check console for `[ext: isaacsim.mcp.bridge-1.0.0] startup`. Make sure port 8211 is free.
 

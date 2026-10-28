@@ -3,23 +3,18 @@ Isaac Sim MCP Bridge Extension
 
 Runs an HTTP server inside Isaac Sim that accepts commands from the MCP server.
 Provides endpoints for scene manipulation, script execution, viewport capture,
-and simulation control.
+and simulation control. The server itself lives in core/http.py; this module
+wires it into Kit.
 """
 
 import asyncio
-import io
-import json
-import sys
-import traceback
 
 import carb
 import omni.ext
-import omni.kit.app
-import omni.usd
 
-MAX_BODY_SIZE = 100 * 1024 * 1024  # 100 MB
-MAX_CONNECTIONS = 20
-
+from .core.http import LOOPBACK_HOSTS, BridgeServer
+from .core.protocol import set_extension_version, version_from_ext_id
+from .core.token import new_token, remove_token, write_token
 from .handlers import (
     handle_apply_force,
     handle_camera_inspect,
@@ -74,15 +69,25 @@ def _get_event_loop() -> asyncio.AbstractEventLoop:
         return asyncio.get_event_loop_policy().get_event_loop()
 
 
+class _CarbLog:
+    """Lets the core server log through carb, so its lines land in Kit's console and log file."""
+
+    info = staticmethod(carb.log_info)
+    warning = staticmethod(carb.log_warn)
+    error = staticmethod(carb.log_error)
+
+
 class Extension(omni.ext.IExt):
     def on_startup(self, ext_id: str):
         self._server = None
-        self._connection_semaphore = asyncio.Semaphore(MAX_CONNECTIONS)
+        set_extension_version(version_from_ext_id(ext_id))
         settings = carb.settings.get_settings()
         self._host = settings.get("/exts/isaacsim.mcp.bridge/host") or "127.0.0.1"
         self._port = settings.get("/exts/isaacsim.mcp.bridge/port") or 8211
+        configured = settings.get("/exts/isaacsim.mcp.bridge/token")
+        self._token = (str(configured).strip() if configured is not None else "") or new_token()
 
-        self._routes = {
+        routes = {
             "/health": handle_health,
             "/execute": handle_execute,
             "/scene/tree": handle_scene_tree,
@@ -128,12 +133,11 @@ class Extension(omni.ext.IExt):
             "/logs": handle_get_logs,
         }
 
-        host = self._host
-        if host not in ("127.0.0.1", "::1", "localhost"):
+        if self._host not in LOOPBACK_HOSTS:
             carb.log_warn(
-                f"[MCP Bridge] WARNING: Binding to non-loopback address {host}. "
-                "The MCP bridge has no authentication — any network client can execute arbitrary code. "
-                "Consider using 127.0.0.1 for security."
+                f"[MCP Bridge] WARNING: Binding to non-loopback address {self._host}. "
+                "Any client on the network that holds the bridge token can run arbitrary code in this app. "
+                "Keep the token secret and the port off untrusted networks, or use 127.0.0.1."
             )
 
         # Start log buffer before anything else so it captures startup messages
@@ -141,6 +145,8 @@ class Extension(omni.ext.IExt):
         self._log_buffer = log_buffer
         self._log_buffer.start()
 
+        self._token_port = None
+        self._server = BridgeServer(routes, self._token, self._host, self._port, log=_CarbLog())
         _get_event_loop().create_task(self._start_server())
         _get_event_loop().create_task(self._init_sensors())
         carb.log_info(f"[MCP Bridge] Starting on {self._host}:{self._port}")
@@ -168,6 +174,8 @@ class Extension(omni.ext.IExt):
             self._server.close()
             carb.log_info("[MCP Bridge] Server shut down")
             self._server = None
+        if self._token_port is not None:
+            remove_token(self._token_port, self._token)
 
     async def _init_sensors(self):
         """Pre-initialize syntheticdata sensors so capture_viewport works on first call."""
@@ -197,130 +205,21 @@ class Extension(omni.ext.IExt):
             carb.log_warn(f"[MCP Bridge] Sensor init failed (non-fatal): {e}")
 
     async def _start_server(self):
+        server = self._server
         try:
-            self._server = await asyncio.start_server(
-                self._handle_connection, self._host, self._port
-            )
-            addr = self._server.sockets[0].getsockname()
-            carb.log_info(f"[MCP Bridge] Listening on {addr[0]}:{addr[1]}")
+            if not await server.start():
+                return  # the extension was shut down while the port was being bound
         except Exception as e:
             carb.log_error(f"[MCP Bridge] Failed to start server: {e}")
-
-    async def _handle_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-        peer = writer.get_extra_info("peername")
-        carb.log_info(f"[MCP Bridge] Connection from {peer}")
-        if not hasattr(self, "_routes"):
-            # Connection arrived before on_startup finished (e.g., hot-reload)
-            carb.log_warn("[MCP Bridge] Connection rejected — server not ready")
-            writer.close()
             return
-        async with self._connection_semaphore:
-            try:
-                while True:
-                    # Read HTTP request
-                    request_line = await reader.readline()
-                    if not request_line:
-                        break
-                    request_line = request_line.decode("utf-8").strip()
-                    if not request_line:
-                        continue
-
-                    # Parse method and path
-                    parts = request_line.split(" ")
-                    if len(parts) < 2:
-                        await self._send_response(writer, 400, {"status": "error", "error": "Bad request"})
-                        continue
-                    method = parts[0]
-                    path = parts[1]
-
-                    # Read headers
-                    content_length = 0
-                    while True:
-                        header_line = await reader.readline()
-                        if header_line in (b"\r\n", b"\n", b""):
-                            break
-                        header = header_line.decode("utf-8").strip()
-                        if header.lower().startswith("content-length:"):
-                            try:
-                                content_length = int(header.split(":", 1)[1].strip())
-                            except ValueError:
-                                content_length = 0
-
-                    if content_length > MAX_BODY_SIZE:
-                        await self._send_response(writer, 413, {
-                            "status": "error",
-                            "error": f"Request body too large ({content_length} bytes, max {MAX_BODY_SIZE})"
-                        })
-                        continue
-
-                    # Read body
-                    body = {}
-                    if content_length > 0:
-                        raw_body = await reader.readexactly(content_length)
-                        try:
-                            body = json.loads(raw_body.decode("utf-8"))
-                        except json.JSONDecodeError:
-                            await self._send_response(writer, 400, {"status": "error", "error": "Invalid JSON body"})
-                            continue
-
-                    # Route to handler
-                    routes = getattr(self, "_routes", None)
-                    if routes is None:
-                        break
-                    handler = routes.get(path)
-                    if handler is None:
-                        await self._send_response(writer, 404, {"status": "error", "error": f"Unknown endpoint: {path}"})
-                        continue
-
-                    if method == "GET" and path == "/health":
-                        try:
-                            result = await asyncio.ensure_future(handle_health(_body={}))
-                            await self._send_response(writer, 200, result)
-                        except Exception as e:
-                            tb = traceback.format_exc()
-                            carb.log_error(f"[MCP Bridge] Health check error: {e}")
-                            await self._send_response(writer, 500, {
-                                "status": "error",
-                                "error": str(e),
-                                "traceback": tb
-                            })
-                        continue
-
-                    if method != "POST":
-                        await self._send_response(writer, 405, {"status": "error", "error": "Method not allowed, use POST"})
-                        continue
-
-                    try:
-                        # Run handler as independent task so _handle_connection
-                        # properly suspends and doesn't block Kit's async tasks
-                        # (viewport updates, property dirty handlers, etc.)
-                        result = await asyncio.ensure_future(handler(body))
-                        await self._send_response(writer, 200, result)
-                    except Exception as e:
-                        tb = traceback.format_exc()
-                        carb.log_error(f"[MCP Bridge] Handler error on {path}: {tb}")
-                        await self._send_response(writer, 500, {"status": "error", "error": str(e), "traceback": tb})
-
-            except asyncio.IncompleteReadError:
-                pass
-            except ConnectionResetError:
-                pass
-            except Exception as e:
-                carb.log_error(f"[MCP Bridge] Connection error: {e}")
-            finally:
-                writer.close()
-                carb.log_info(f"[MCP Bridge] Connection closed from {peer}")
-
-    async def _send_response(self, writer: asyncio.StreamWriter, status_code: int, body: dict):
-        status_texts = {200: "OK", 400: "Bad Request", 404: "Not Found", 405: "Method Not Allowed", 413: "Payload Too Large", 500: "Internal Server Error"}
-        status_text = status_texts.get(status_code, "Unknown")
-        body_bytes = json.dumps(body).encode("utf-8")
-        header = (
-            f"HTTP/1.1 {status_code} {status_text}\r\n"
-            f"Content-Type: application/json\r\n"
-            f"Content-Length: {len(body_bytes)}\r\n"
-            f"Connection: keep-alive\r\n"
-            f"\r\n"
-        )
-        writer.write(header.encode("utf-8") + body_bytes)
-        await writer.drain()
+        # Only once the port is ours, and under the port actually bound: an instance that fails to bind must not
+        # replace the running one's token.
+        try:
+            token_file = write_token(server.port, self._token)
+            self._token_port = server.port
+            carb.log_info(f"[MCP Bridge] Token written to {token_file}")
+        except OSError as e:
+            carb.log_error(
+                f"[MCP Bridge] Could not write the bridge token file ({e}). Set the extension's token setting "
+                "and give the MCP server the same value in OMNIVERSE_MCP_TOKEN."
+            )
