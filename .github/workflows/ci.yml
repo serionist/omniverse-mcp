@@ -1,6 +1,7 @@
 # The gate on every pull request, every push to main and once a day on main. Checks (Linux) runs the gate's quick lane
-# (lock, lint, format, types, the harness, no tool attribution in the commits, gitleaks over them); the tests run on
-# Linux on Python 3.11 to 3.14, on Windows on 3.11 and 3.14, and on macOS on 3.14 (plan D8). CI needs both; it and
+# (lock, lint, format, types, the import contracts and the coverage floor, the harness, no tool attribution in the
+# commits, gitleaks over them); the tests run on Linux on Python 3.11 to 3.14, on Windows on 3.11 and 3.14, and on
+# macOS on 3.14 (plan D8), and the Linux 3.12 leg measures coverage against its floor (plan S6). CI needs both; it and
 # pr-text.yml's PR text are the two checks the ruleset on main requires. The live suites need a Kit app and skip
 # themselves here: hosted CI never runs Kit (plan D11), so a PR that touches the extension, the client or a tool says
 # whether they ran.
@@ -70,7 +71,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest, name: Linux, python: "3.11" }
-          - { os: ubuntu-latest, name: Linux, python: "3.12" }
+          - { os: ubuntu-latest, name: Linux, python: "3.12", coverage: true }
           - { os: ubuntu-latest, name: Linux, python: "3.13" }
           - { os: ubuntu-latest, name: Linux, python: "3.14" }
           - { os: windows-latest, name: Windows, python: "3.11" }
@@ -86,7 +87,13 @@ jobs:
       # uv run makes the environment on the leg's Python, which overrides .python-version's 3.12, and fails on a stale
       # uv.lock before anything is installed.
       - name: Tests
+        if: ${{ !matrix.coverage }}
         run: uv run --locked --python ${{ matrix.python }} pytest
+      - name: Tests, under coverage, and the coverage floor
+        if: ${{ matrix.coverage }}
+        run: |
+          uv run --locked --python ${{ matrix.python }} coverage run -m pytest
+          uv run --locked --python ${{ matrix.python }} coverage report
 
   # The check the ruleset on main requires: the checks and every test leg passed. It runs when one of them failed too,
   # since a skipped job would count as passed.

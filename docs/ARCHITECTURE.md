@@ -82,9 +82,8 @@ The extension is an Omniverse Kit extension that runs inside the application's p
 | File | Purpose |
 |------|---------|
 | `ovmcp/bridge/extension.py` | Kit lifecycle: makes the token, starts the core's HTTP server with the routes |
-| `ovmcp/core/` | Kit-free core, unit-tested without Kit: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `framing.py`, `isolation.py`, `lighting.py`, `serial.py` |
+| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `png.py` (the PNG writer), `logs.py` (the log ring and its query), `framing.py`, `isolation.py`, `lighting.py`, `serial.py`, `usd.py` (typed forms of pxr calls the stubs get wrong) |
 | `ovmcp/bridge/handlers/` | Handler package — split into focused modules (camera, scene, simulation, recording, robot, misc, usd_advanced, logging) with shared utilities in `_utils.py` and `_mcp_bridge.py` |
-| `ovmcp/bridge/formatter.py` | Prim-block text format utilities |
 | `config/extension.toml` | Extension metadata and default settings |
 
 ### HTTP Server
@@ -220,7 +219,7 @@ JSON is hard to search with standard tools. With prim-block format:
 - `grep -A20 '\[/path\]'` gets a prim and its properties
 - Line-oriented format works naturally with file reading tools that support line ranges
 
-The format is implemented in `formatter.py` with functions for:
+The format is implemented in `ovmcp/core/formatter.py` with functions for:
 - `format_value()` -- Convert USD values (Vec3f, Quatd, Matrix4d, etc.) to readable strings
 - `format_prim_block()` -- Format a single prim as a text block
 - `format_scene_dump()` -- Recursively format an entire scene tree

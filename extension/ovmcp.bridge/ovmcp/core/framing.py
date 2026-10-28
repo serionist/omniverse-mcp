@@ -1,7 +1,9 @@
 """inspect_prim's camera: its arguments, its angles, and how far it stands so a prim fills the frame. No Kit."""
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any, cast
 
 MARGIN_PX = 10
 
@@ -36,7 +38,7 @@ class InspectArgs:
     include_segmentation: bool
 
 
-def inspect_args(body: dict) -> InspectArgs:
+def inspect_args(body: dict[str, Any]) -> InspectArgs:
     """inspect_prim's request body, checked; the ValueError says what is wrong with it."""
     try:
         width = int(body.get("width", 800))
@@ -61,18 +63,28 @@ def _angles(angles: object) -> list[tuple[str, float, float]]:
         return [(name, az, el) for name, (az, el) in ANGLES.items()]
     if not isinstance(angles, list):
         raise ValueError("angles must be a list of angle names or [azimuth, elevation] pairs")
-    resolved = []
-    for angle in angles:
+    resolved: list[tuple[str, float, float]] = []
+    for angle in cast("list[object]", angles):
         if isinstance(angle, str):
             if angle not in ANGLES:
                 raise ValueError(f"Unknown angle {angle!r}; the named angles are: {', '.join(ANGLES)}")
             az, el = ANGLES[angle]
             resolved.append((angle, az, el))
-        elif isinstance(angle, (list, tuple)) and len(angle) == 2 and all(_is_number(v) for v in angle):
-            resolved.append((f"az{angle[0]}_el{angle[1]}", angle[0], angle[1]))
+        elif (pair := _pair(angle)) is not None:
+            resolved.append((f"az{pair[0]}_el{pair[1]}", pair[0], pair[1]))
         else:
             raise ValueError(f"Each angle is a name or an [azimuth, elevation] pair of numbers (got {angle!r})")
     return resolved
+
+
+def _pair(angle: object) -> tuple[float, float] | None:
+    """An [azimuth, elevation] pair of finite numbers, as given (an int stays an int, for the angle's name)."""
+    if not isinstance(angle, (list, tuple)):
+        return None
+    pair = cast("Sequence[object]", angle)
+    if len(pair) != 2 or not all(_is_number(v) for v in pair):
+        return None
+    return cast("float", pair[0]), cast("float", pair[1])
 
 
 def _is_number(value: object) -> bool:

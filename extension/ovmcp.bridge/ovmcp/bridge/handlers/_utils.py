@@ -5,8 +5,6 @@ These are internal utilities — not exposed as HTTP endpoints.
 """
 
 import json
-import struct
-import zlib
 
 import omni.kit.app
 import omni.usd
@@ -250,65 +248,6 @@ def _apply_xform(prim, position=None, rotation=None, scale=None):
             xformable.AddScaleOp(precision=prec).Set(Gf.Vec3f(*scale))
     elif old_scale is not None:
         xformable.AddScaleOp(precision=old_scale_prec).Set(old_scale)
-
-
-def _encode_png(img_array) -> bytes:
-    """Encode a numpy array as PNG bytes without requiring PIL."""
-    import numpy as np
-
-    if len(img_array.shape) != 3:
-        return b""
-
-    h, w, c = img_array.shape
-    img = img_array.astype(np.uint8)
-
-    if c == 4:
-        img = img[:, :, :3]
-        c = 3
-
-    def make_chunk(chunk_type: bytes, data: bytes) -> bytes:
-        chunk = chunk_type + data
-        return struct.pack(">I", len(data)) + chunk + struct.pack(">I", zlib.crc32(chunk) & 0xFFFFFFFF)
-
-    ihdr_data = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
-    ihdr = make_chunk(b"IHDR", ihdr_data)
-
-    parts = []
-    for row in range(h):
-        parts.append(b"\x00")
-        parts.append(img[row].tobytes())
-    raw_data = b"".join(parts)
-
-    compressed = zlib.compress(raw_data)
-    idat = make_chunk(b"IDAT", compressed)
-    iend = make_chunk(b"IEND", b"")
-
-    return b"\x89PNG\r\n\x1a\n" + ihdr + idat + iend
-
-
-def _compute_world_bbox(prim) -> tuple[list[float], list[float], list[float]]:
-    """Compute world-space bounding box for a prim.
-
-    Returns (center, dimensions, [min_corner, max_corner]).
-    """
-    bbox_cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), ["default", "render"])
-    bbox = bbox_cache.ComputeWorldBound(prim)
-    box = bbox.ComputeAlignedRange()
-    if box.IsEmpty():
-        # Fallback to prim world position
-        if prim.IsA(UsdGeom.Xformable):
-            xf = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
-            pos = xf.ExtractTranslation()
-            center = [float(pos[0]), float(pos[1]), float(pos[2])]
-        else:
-            center = [0.0, 0.0, 0.0]
-        return center, [0.1, 0.1, 0.1], [center, center]
-
-    min_pt = box.GetMin()
-    max_pt = box.GetMax()
-    center = [(float(min_pt[i]) + float(max_pt[i])) / 2.0 for i in range(3)]
-    dims = [float(max_pt[i]) - float(min_pt[i]) for i in range(3)]
-    return center, dims, [[float(min_pt[i]) for i in range(3)], [float(max_pt[i]) for i in range(3)]]
 
 
 def _compute_mesh_stats(prim) -> dict:

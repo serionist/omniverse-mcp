@@ -7,10 +7,11 @@ prim comparison, and material path updates.
 
 from pxr import Sdf, Usd, UsdGeom, UsdShade
 
+from ovmcp.core.bounds import world_bbox
+
 from ._utils import (
     _collect_materials,
     _compute_mesh_stats,
-    _compute_world_bbox,
     _get_stage,
     _next_update,
 )
@@ -319,7 +320,7 @@ async def handle_compare_prims(body: dict) -> dict:
         await _next_update()
         bbox_cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), ["default", "render"])
         stats_a = _compute_mesh_stats(prim)
-        center_a, dims_a, _ = _compute_world_bbox(prim)
+        center_a, dims_a, _ = world_bbox(prim)
         mats_a = _collect_materials(prim)
 
         # Clear bbox cache before switching variant
@@ -329,7 +330,7 @@ async def handle_compare_prims(body: dict) -> dict:
         vs.SetVariantSelection(variant_b)
         await _next_update()
         stats_b = _compute_mesh_stats(prim)
-        center_b, dims_b, _ = _compute_world_bbox(prim)
+        center_b, dims_b, _ = world_bbox(prim)
         mats_b = _collect_materials(prim)
 
         # Restore original selection
@@ -349,11 +350,11 @@ async def handle_compare_prims(body: dict) -> dict:
             return {"status": "error", "error": f"Prim not found: {prim_path_b}"}
 
         stats_a = _compute_mesh_stats(pa)
-        center_a, dims_a, _ = _compute_world_bbox(pa)
+        center_a, dims_a, _ = world_bbox(pa)
         mats_a = _collect_materials(pa)
 
         stats_b = _compute_mesh_stats(pb)
-        center_b, dims_b, _ = _compute_world_bbox(pb)
+        center_b, dims_b, _ = world_bbox(pb)
         mats_b = _collect_materials(pb)
 
         label_a = prim_path_a

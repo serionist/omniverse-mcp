@@ -14,10 +14,20 @@ Format spec:
 Used uniformly by dump_scene, recording state, and any large data output.
 """
 
+from collections.abc import Iterable, Sequence
+from typing import cast
+
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 
+from .bounds import center_and_size, world_bbox
+from .usd import Vec, children, has_api, is_a
 
-def format_value(val) -> str:
+
+def _join(v: Vec, n: int) -> str:
+    return ", ".join(f"{float(v[i]):.4f}" for i in range(n))
+
+
+def format_value(val: object) -> str:
     """Format a USD property value as a human-readable string."""
     if val is None:
         return "null"
@@ -30,28 +40,25 @@ def format_value(val) -> str:
     if isinstance(val, str):
         return val
     if isinstance(val, (Gf.Vec2f, Gf.Vec2d)):
-        return f"{float(val[0]):.4f}, {float(val[1]):.4f}"
+        return _join(val, 2)
     if isinstance(val, (Gf.Vec3f, Gf.Vec3d)):
-        return f"{float(val[0]):.4f}, {float(val[1]):.4f}, {float(val[2]):.4f}"
+        return _join(val, 3)
     if isinstance(val, (Gf.Vec4f, Gf.Vec4d)):
-        return ", ".join(f"{float(val[i]):.4f}" for i in range(4))
+        return _join(val, 4)
     if isinstance(val, (Gf.Quatf, Gf.Quatd)):
-        r = val.GetReal()
-        im = val.GetImaginary()
-        return f"{float(r):.4f}, {float(im[0]):.4f}, {float(im[1]):.4f}, {float(im[2]):.4f}"
+        return f"{float(val.GetReal()):.4f}, {_join(val.GetImaginary(), 3)}"
     if isinstance(val, Gf.Matrix4d):
-        rows = []
-        for r in range(4):
-            rows.append(", ".join(f"{float(val[r][c]):.4f}" for c in range(4)))
-        return " | ".join(rows)
+        return " | ".join(_join(val[r], 4) for r in range(4))
     if isinstance(val, Sdf.AssetPath):
-        return str(val.resolvedPath or val.path)
+        # The stubs leave out an asset path's two fields.
+        return str(getattr(val, "resolvedPath", "") or getattr(val, "path", ""))
     if isinstance(val, (list, tuple)):
-        if len(val) == 0:
+        items = cast("Sequence[object]", val)
+        if len(items) == 0:
             return "[]"
-        if len(val) <= 8:
-            return ", ".join(format_value(v) for v in val)
-        return ", ".join(format_value(v) for v in val[:8]) + f" ... ({len(val)} items)"
+        if len(items) <= 8:
+            return ", ".join(format_value(v) for v in items)
+        return ", ".join(format_value(v) for v in items[:8]) + f" ... ({len(items)} items)"
     try:
         return str(val)
     except Exception:
@@ -59,7 +66,7 @@ def format_value(val) -> str:
 
 
 def format_prim_block(
-    prim,
+    prim: Usd.Prim,
     include_properties: bool = True,
     include_transform: bool = True,
     include_bounds: bool = False,
@@ -77,24 +84,19 @@ def format_prim_block(
     lines = [f"[{prim.GetPath()}]"]
     lines.append(f"type = {prim.GetTypeName() or 'Xform'}")
 
-    if include_transform and prim.IsA(UsdGeom.Xformable):
+    if include_transform and is_a(prim, UsdGeom.Xformable):
         # Use BBoxCache to get physics-accurate world position.
         # ComputeLocalToWorldTransform reads authored USD transforms which
         # don't reflect PhysX runtime state during simulation.  BBoxCache
         # reads through Fabric and returns the real physics position.
         pos_from_bbox = False
-        if prim.HasAPI(UsdPhysics.RigidBodyAPI):
+        if has_api(prim, UsdPhysics.RigidBodyAPI):
             try:
                 bbox_cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), ["default", "render"])
-                bbox = bbox_cache.ComputeWorldBound(prim)
-                box = bbox.ComputeAlignedRange()
+                box = bbox_cache.ComputeWorldBound(prim).ComputeAlignedRange()
                 if not box.IsEmpty():
-                    min_pt = box.GetMin()
-                    max_pt = box.GetMax()
-                    cx = (float(min_pt[0]) + float(max_pt[0])) / 2.0
-                    cy = (float(min_pt[1]) + float(max_pt[1])) / 2.0
-                    cz = (float(min_pt[2]) + float(max_pt[2])) / 2.0
-                    lines.append(f"pos = {cx:.4f}, {cy:.4f}, {cz:.4f}")
+                    center, _ = center_and_size(box.GetMin(), box.GetMax())
+                    lines.append(f"pos = {_join(center, 3)}")
                     pos_from_bbox = True
             except Exception:
                 pass
@@ -102,39 +104,37 @@ def format_prim_block(
         xformable = UsdGeom.Xformable(prim)
         if not pos_from_bbox:
             world_xform = xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
-            t = world_xform.ExtractTranslation()
-            lines.append(f"pos = {float(t[0]):.4f}, {float(t[1]):.4f}, {float(t[2]):.4f}")
+            lines.append(f"pos = {_join(world_xform.ExtractTranslation(), 3)}")
 
         world_xform = xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
         rotation = world_xform.ExtractRotation()
         if rotation:
             quat = rotation.GetQuat()
-            r = quat.GetReal()
-            im = quat.GetImaginary()
-            lines.append(f"rot = {float(r):.4f}, {float(im[0]):.4f}, {float(im[1]):.4f}, {float(im[2]):.4f}")
+            lines.append(f"rot = {float(quat.GetReal()):.4f}, {_join(quat.GetImaginary(), 3)}")
 
     if include_bounds:
         try:
-            from .handlers import _compute_world_bbox
-
-            center, dims, corners = _compute_world_bbox(prim)
+            center, dims, _ = world_bbox(prim)
             lines.append(f"bbox_center = {center[0]:.4f}, {center[1]:.4f}, {center[2]:.4f}")
             lines.append(f"bbox_size = {dims[0]:.4f}, {dims[1]:.4f}, {dims[2]:.4f}")
         except Exception:
             lines.append("bbox = <unavailable>")
 
-    if prim.HasAPI(UsdPhysics.ArticulationRootAPI):
+    if has_api(prim, UsdPhysics.ArticulationRootAPI):
         lines.append("articulation_root = true")
 
-    if prim.HasAPI(UsdPhysics.RigidBodyAPI):
+    if has_api(prim, UsdPhysics.RigidBodyAPI):
         lines.append("rigid_body = true")
 
     if include_properties:
         for prop in prim.GetProperties():
             name = prop.GetName()
-            if property_filter:
-                if not any(f in name for f in property_filter):
-                    continue
+            if property_filter and not any(f in name for f in property_filter):
+                continue
+            if not isinstance(prop, Usd.Attribute):
+                # A relationship has no value to read; its targets have never been listed here.
+                lines.append(f"{name} = <unreadable>")
+                continue
             try:
                 val = prop.Get()
                 if val is not None:
@@ -146,7 +146,7 @@ def format_prim_block(
 
 
 def format_scene_dump(
-    stage,
+    stage: Usd.Stage,
     root_path: str = "/",
     max_depth: int = 15,
     include_properties: bool = True,
@@ -155,8 +155,6 @@ def format_scene_dump(
     property_filter: list[str] | None = None,
 ) -> str:
     """Format an entire scene subtree as prim-block text."""
-    from pxr import Usd
-
     root_prim = stage.GetPrimAtPath(root_path)
     if not root_prim.IsValid():
         return f"# ERROR: Prim not found: {root_path}\n"
@@ -175,14 +173,14 @@ def format_scene_dump(
         "",
     ]
 
-    def _walk(prim, depth):
+    def _walk(prim: Usd.Prim, depth: int) -> None:
         if depth > max_depth:
             return
 
         type_name = prim.GetTypeName() or "Xform"
         if filter_types and type_name not in filter_types:
             # Still walk children
-            for child in prim.GetChildren():
+            for child in children(prim):
                 _walk(child, depth + 1)
             return
 
@@ -196,7 +194,7 @@ def format_scene_dump(
         lines.append(block)
         lines.append("")  # Blank line between blocks
 
-        for child in prim.GetChildren():
+        for child in children(prim):
             _walk(child, depth + 1)
 
     _walk(root_prim, 0)
@@ -204,7 +202,11 @@ def format_scene_dump(
 
 
 def format_frame_state(
-    prims, frame_index: int, sim_time: float, include_properties: bool = False, property_filter: list[str] | None = None
+    prims: Iterable[Usd.Prim],
+    frame_index: int,
+    sim_time: float,
+    include_properties: bool = False,
+    property_filter: list[str] | None = None,
 ) -> str:
     """Format prim states for a single recording frame.
 
