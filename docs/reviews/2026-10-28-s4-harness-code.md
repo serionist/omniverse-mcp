@@ -37,3 +37,16 @@ No round 2: both majors were fixed with tests, and what is left is minor.
 - **pre-push:** with a dirty tree, the working tree's checks are skipped and the pushed range's 4 commits are
   checked; a commit other than HEAD on a new branch is checked against `origin/main`; a push that only deletes checks
   nothing.
+
+## Round 2
+
+The main session read round 1's fixes (`8612e2e`), after a fresh reviewer could not open the repo (folder ownership). It checked:
+- pre-push's range per pushed ref;
+- the fallback to the base for new branches and unfetched remotes;
+- deletes skipped;
+- tree checks only on a clean, pushed HEAD;
+- co-authors refused only for a tool's address or name.
+
+Verdict: clean.
+
+Live use: this branch's own push ran pre-push (gate quick on the 2 commits sent, 10 checks pass), and a real `git commit` with `Co-Authored-By: Claude <noreply@anthropic.com>` was refused with HEAD unmoved.
