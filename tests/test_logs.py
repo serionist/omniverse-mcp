@@ -28,8 +28,8 @@ def _ring(*messages: tuple[str, int, str], max_entries: int = 2000) -> LogRing:
 
 def test_an_entry_says_where_it_came_from():
     ring = LogRing()
-    ring.add("omni.usd", _Level(3), "usd", "stage.cpp", "open", 42, "Could not open", 99.0)
-    ring.add(None, 1, None, None, None, 0, None, 100.0)
+    ring.add("omni.usd", _Level(1), "usd", "stage.cpp", "open", 42, "Could not open", 99.0)
+    ring.add(None, -1, None, None, None, 0, None, 100.0)
 
     result = ring.get_entries()
 
@@ -86,21 +86,27 @@ def test_count_keeps_the_last_ones():
 
 
 def test_the_filters():
+    # Kit's levels, as omni.log.Level gives them on Isaac Sim 6.2: verbose -2, info -1, warn 0, error 1, fatal 2.
     ring = _ring(
-        ("omni.physx", 0, "verbose step"),
-        ("omni.physx", 2, "Joint limit EXCEEDED"),
-        ("omni.kit.app", 3, "extension failed"),
-        ("ovmcp.bridge", 4, "bridge stopped"),
+        ("omni.physx", -2, "verbose step"),
+        ("omni.usd", -1, "stage opened"),
+        ("omni.physx", 0, "Joint limit EXCEEDED"),
+        ("omni.kit.app", 1, "extension failed"),
+        ("ovmcp.bridge", 2, "bridge stopped"),
     )
 
     def msgs(**filters):
         return [e["msg"] for e in ring.get_entries(**filters)["entries"]]
 
+    assert [e["level"] for e in ring.get_entries()["entries"]] == ["verbose", "info", "warn", "error", "fatal"]
     assert msgs(min_level="warn") == ["Joint limit EXCEEDED", "extension failed", "bridge stopped"]
+    assert msgs(min_level="info") == ["stage opened", "Joint limit EXCEEDED", "extension failed", "bridge stopped"]
+    assert msgs(min_level="fatal") == ["bridge stopped"]
+    assert msgs(min_level="verbose") == msgs()
     assert msgs(min_level="nonsense") == msgs()
     assert msgs(channel="PHYSX") == ["verbose step", "Joint limit EXCEEDED"]
     assert msgs(search="exceeded") == ["Joint limit EXCEEDED"]
-    assert msgs(since_index=1) == ["extension failed", "bridge stopped"]
+    assert msgs(since_index=2) == ["extension failed", "bridge stopped"]
     assert msgs(channel="omni", min_level="error", since_index=0) == ["extension failed"]
 
 

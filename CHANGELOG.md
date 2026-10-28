@@ -42,6 +42,11 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   reads `omniverse-mcp-v1`.
 - **Python 3.11 or newer** for the server.
 
+### Fixed
+
+- **`get_logs` names Kit's log levels right, and `min_level` keeps the right ones.** A warning was labelled
+  `verbose` and an error `info`, and `min_level="warn"` kept only fatal messages.
+
 ### Changed
 
 - **A black capture is no longer relit behind your back.** The bridge used to turn the camera light on and capture

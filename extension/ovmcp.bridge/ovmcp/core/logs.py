@@ -7,8 +7,8 @@ import threading
 from collections import deque
 from typing import Any, SupportsInt
 
-# omni.log.Level's values.
-LEVEL_NAMES = {0: "verbose", 1: "info", 2: "warn", 3: "error", 4: "fatal"}
+# omni.log.Level's values, which are carb's: warn is 0, the quieter levels below it (read on Isaac Sim 6.2).
+LEVEL_NAMES = {-2: "verbose", -1: "info", 0: "warn", 1: "error", 2: "fatal"}
 LEVEL_FROM_NAME = {name: level for level, name in LEVEL_NAMES.items()}
 
 
@@ -64,7 +64,7 @@ class LogRing:
             since_index: only messages numbered above this
             search: a substring of the message, any case
         """
-        min_level_num = LEVEL_FROM_NAME.get(min_level, 0) if min_level else 0
+        min_level_num = LEVEL_FROM_NAME.get(min_level) if min_level else None
 
         # A copy, taken under the lock: Kit adds messages from other threads while this filters (AGENTS.md, Traps).
         with self._lock:
@@ -73,7 +73,7 @@ class LogRing:
 
         if since_index is not None:
             entries = [e for e in entries if e["index"] > since_index]
-        if min_level_num > 0:
+        if min_level_num is not None:
             entries = [e for e in entries if e["level_num"] >= min_level_num]
         if channel:
             channel_lower = channel.lower()
