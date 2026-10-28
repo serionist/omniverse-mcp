@@ -91,7 +91,53 @@ ignore = [
 "tests/**" = [
     "S101",    # assert is how pytest checks
     "PLC0415", # imports inside a test keep a slow or optional import local to it
+    "S104",    # binding to all interfaces is what the Host-check test is about
+    "S105",    # fake tokens
+    "S106",    # fake tokens
+    "S108",    # /tmp paths are fixture data the mock bridge echoes, never opened
 ]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/misc.py" = [
+    "S102", # execute_script runs the caller's Python inside Kit: that is the tool
+    # baseline (see below): "BLE001", "F841"
+    "BLE001",
+    "F841",
+]
+"extension/ovmcp.bridge/ovmcp/core/protocol.py" = [
+    "PLW0603", # the extension's version is module state, set once from the ext_id Kit hands on_startup
+]
+
+# Baseline (S3a, 2026-10-28): what ruff found that no tool fixes. It only shrinks: a change that clears a rule
+# in a file removes it here, and nothing is added to it.
+"extension/ovmcp.bridge/ovmcp/bridge/extension.py" = ["BLE001", "S110"]
+"extension/ovmcp.bridge/ovmcp/bridge/formatter.py" = ["BLE001", "RUF059", "S110", "SIM102"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/__init__.py" = ["RUF022"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/_mcp_bridge.py" = ["RUF013"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/_utils.py" = ["B904", "BLE001", "RUF013", "S110"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/camera.py" = ["ASYNC230", "ASYNC240", "B904", "BLE001", "PTH108", "PTH110", "PTH118", "PTH123", "PTH202", "S110", "SIM105"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/logging.py" = ["BLE001", "S110"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/recording.py" = ["ASYNC230", "ASYNC240", "BLE001", "F841", "PLW0602", "PTH103", "PTH110", "PTH118", "PTH123", "PTH202", "RUF006", "TID252"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/robot.py" = ["BLE001", "S110", "SIM105"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/scene.py" = ["ASYNC230", "ASYNC240", "BLE001", "PTH103", "PTH118", "PTH123", "PTH202", "S110", "TID252"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/simulation.py" = ["BLE001"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/usd_advanced.py" = ["BLE001", "S110", "S112"]
+"extension/ovmcp.bridge/ovmcp/core/http.py" = ["ASYNC109", "BLE001"]
+"extension/ovmcp.bridge/ovmcp/core/token.py" = ["PTH105"]
+"src/omniverse_mcp/bridge_token.py" = ["S105"]
+"src/omniverse_mcp/client.py" = ["B904", "BLE001", "S110", "SIM105"]
+"src/omniverse_mcp/server.py" = ["BLE001", "E402", "PTH103", "PTH109", "PTH118", "PTH123"]
+"src/omniverse_mcp/tools/__init__.py" = ["TID252"]
+"src/omniverse_mcp/tools/camera.py" = ["BLE001", "E501", "PTH103", "PTH109", "PTH117", "PTH118", "PTH123"]
+"src/omniverse_mcp/tools/misc.py" = ["BLE001"]
+"src/omniverse_mcp/tools/recording.py" = ["BLE001", "PTH118"]
+"src/omniverse_mcp/tools/robot.py" = ["BLE001"]
+"src/omniverse_mcp/tools/scene.py" = ["BLE001"]
+"src/omniverse_mcp/tools/simulation.py" = ["BLE001"]
+"src/omniverse_mcp/tools/usd_advanced.py" = ["BLE001", "E501"]
+"tests/test_client.py" = ["RUF059"]
+"tests/test_framing.py" = ["RUF043"]
+"tests/test_integration.py" = ["B904", "BLE001", "S110", "SIM105"]
+"tests/test_isolation.py" = ["B017"]
+"tests/test_scenarios.py" = ["B904", "BLE001", "E501", "E741", "PTH103", "PTH107", "PTH110", "PTH118", "PTH120", "PTH123", "S110", "SIM105"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["omniverse_mcp", "ovmcp"]
