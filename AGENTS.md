@@ -29,6 +29,7 @@ extension it talks to.
 | `docs/plans/`, `docs/reviews/` | plans of non-trivial changes, with the template; review records. Dated records, never current truth |
 | `tools/` | `gate.py` (the gate), `hooks.py` (behind `.githooks/`), `setup.py` (once per clone; `link` for skills); standard library only |
 | `.githooks/` | `commit-msg` refuses attribution, `pre-push` runs gate quick on what the push sends, `post-checkout` and `post-merge` name changed AI setup files |
+| `.github/` | `workflows/`: `ci.yml` (gate quick on Linux; the tests on Linux 3.11-3.14, Windows 3.11 and 3.14, macOS 3.14; its `CI` job), `pr-text.yml` (gate text on a PR's title and description; its `PR text` job), `codeql.yml`; `CI` and `PR text` are the required checks; `dependabot.yml`, the issue forms, the PR template, `CODEOWNERS` |
 | `.claude/` | `CLAUDE.md` (imports this file), `settings.json` (no attribution; allows read-only git and gh, plus the repo's own checks), `skills/` (below) |
 | `.agents/skills/` | links to `.claude/skills/<name>` for Codex, written into git's index by `uv run tools/setup.py link` |
 | `AGENTS.md`, `REVIEW.md` | this file; what a review finding is, and the questions every review answers |
@@ -37,7 +38,7 @@ extension it talks to.
 | `.basedpyright/baseline.json` | the type errors of before basedpyright, which only shrink |
 | `.gitleaks.toml` | the secret scan: gitleaks' own rules, and any exception with its reason |
 | `.editorconfig`, `.gitattributes`, `.gitignore`, `.git-blame-ignore-revs` | UTF-8 and LF everywhere; what git ignores; the reformat commits `git blame` skips |
-| `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `LICENSE` | for users; what changed, under Unreleased; a first contribution's short path; MIT |
+| `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`, `LICENSE` | for users; what changed, under Unreleased; a first contribution's short path; how to report a vulnerability, and what counts; MIT |
 
 A new top-level file or folder adds its row in the same change.
 
@@ -51,7 +52,7 @@ PowerShell unless a PowerShell form stands beside it.
 | once per clone | `uv sync`, then `uv run tools/setup.py` (hooks, `git blame`, skill links) |
 | tests | `uv run pytest` |
 | lint, format, types | `uv run ruff check .`, `uv run ruff format --check .`, `uv run basedpyright` |
-| the gate | `uv run tools/gate.py quick` (lock, lint, format, types, AGENTS.md, skills, attribution, secrets); `full` adds pytest |
+| the gate | `uv run tools/gate.py quick` (lock, lint, format, types, AGENTS.md, skills, attribution, secrets); `full` adds pytest; `text --file -` checks a PR's title and description: no attribution, and the issue named |
 | live suites | `OMNIVERSE_MCP_SIM=1 uv run pytest tests/test_integration.py tests/test_scenarios.py`; PowerShell: `$env:OMNIVERSE_MCP_SIM = "1"`, then `uv run pytest ...` |
 
 - **Live suites** need a Kit app running `ovmcp.bridge` (Kit's extension search path pointed at `extension/`).
@@ -64,7 +65,7 @@ PowerShell unless a PowerShell form stands beside it.
 
 ## How a change lands
 
-1. **An issue** for anything beyond a typo.
+1. **An issue** for every change, a typo included: the PR names it, and `PR text` checks that.
 2. **A plan** in `docs/plans/` for non-trivial work (`docs/plans/README.md` says when), reviewed with `review-plan`
    until approved, then approved by the maintainer.
 3. **A branch** `<issue>-<slug>` from `origin/main`, the plan its first commit.
@@ -86,8 +87,10 @@ The skills in `.claude/skills/` run this loop: `start-work` (1 to 3), `review-pl
 
 ## Commits and PRs
 
-- A plain imperative subject that says what changed; a body that says why, ending `Refs #<n>` or `Closes #<n>`.
+- A plain imperative subject that says what changed; a body that says why, ending `Refs #<n>`, `Closes #<n>` or `Fixes #<n>`.
 - PRs are squash-merged: the PR title becomes the subject on `main`, its description the body.
+- A Dependabot PR's squash message keeps only its title and the bump line: its description quotes other projects'
+  release notes, which `pr-text.yml` doesn't check.
 - No tool attribution anywhere: no AI co-author trailers, no "Generated with" lines, no session links, in commits,
   PR titles or PR bodies. `commit-msg` refuses them, and the gate checks every message on the branch.
 

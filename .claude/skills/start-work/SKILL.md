@@ -18,7 +18,7 @@ start: an issue, a plan when it needs one, the plan approved, and a branch. `fin
    - A number: `gh issue view <n> --comments`, read in full. Closed? Ask before going on.
    - A sentence: look for an open one first, `gh issue list --search "<words>"`. None fits: write the body to
      `.local/issue-body.md` (what and why, no tool attribution) and run
-     `gh issue create --title "<title>" --body-file .local/issue-body.md`. A typo or comment fix needs no issue.
+     `gh issue create --title "<title>" --body-file .local/issue-body.md`. Every change gets an issue, a typo or comment fix too: its PR names it, and `PR text` checks that.
 2. **Read before planning,** never from memory:
    - the code of every folder the change touches, and its tests;
    - both ends of what it changes: for a tool, the tool in `src/omniverse_mcp/tools/`, the client method in
@@ -49,7 +49,7 @@ start: an issue, a plan when it needs one, the plan approved, and a branch. `fin
 
 ## Done means
 
-- The issue exists, unless the change is a typo or comment fix.
+- The issue exists.
 - A change that needs a plan has one, reviewed, approved, and committed first on its branch.
 - The branch exists from `origin/main`, and how to build is chosen.
 

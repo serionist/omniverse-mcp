@@ -1,6 +1,7 @@
 """The gate: the checks a change passes before it lands. People run it, the pre-push hook runs its quick lane.
 
 Usage: uv run tools/gate.py quick|full [--base <ref>] [--head <ref>]
+       uv run tools/gate.py text --file <path>|-
 
 Two kinds of check:
 - the working tree's: the lock file, ruff check, ruff format, basedpyright, AGENTS.md within 150 lines, each skill's
@@ -10,6 +11,10 @@ Two kinds of check:
 
 It prints a table of the checks and exits 1 when any failed; a warning or a skip never fails it. Without gitleaks the
 secret scan is skipped with a warning, unless GATE_REQUIRE_GITLEAKS=1 (as CI sets it), which makes that a failure.
+
+The text lane checks a PR's title and description, which a squash merge makes the commit on main: no tool attribution,
+as commit-msg checks a message, and a `Refs #<n>`, `Closes #<n>` or `Fixes #<n>` line. `-` reads standard input.
+pr-text.yml runs it whenever they change.
 
 Standard library only: the hooks import it from an environment uv has not synced. Before the first tool it runs
 (ruff, basedpyright, pytest) it syncs the environment once from uv.lock, `uv sync --frozen`, so it never re-locks.
@@ -67,9 +72,21 @@ _WHO = re.compile(r"^(?P<name>[^<>]*?)\s*(?:<(?P<email>[^<>]*)>)?$")
 # ("Claude", "Claude Opus 4.6", "GitHub Copilot", "aider (gpt-4o)"); "Claude Martin" is a person.
 _TOOL_EMAIL = re.compile(
     r"^(?:noreply@anthropic\.com|no-?reply@openai\.com|cursoragent@cursor\.com|noreply@aider\.chat"
-    r"|\d+\+copilot@users\.noreply\.github\.com|[^@\s]*\[bot\]@users\.noreply\.github\.com)$",
+    r"|\d+\+copilot@users\.noreply\.github\.com)$",
     re.IGNORECASE,
 )
+# Any GitHub bot address is a tool, unless the trailer is one of the bots GitHub names a co-author when a person
+# pushes onto their PR, under that bot's own name. An allowlist matched exactly on name and address: a new AI bot, or
+# a tool's name with an allowed bot's address, is refused without anyone adding it here (S5 review, F10-F14).
+_BOT_EMAIL = re.compile(r"^(?:\d+\+)?(?P<login>[^@\s]*)\[bot\]@users\.noreply\.github\.com$", re.IGNORECASE)
+_NON_AI_BOTS = frozenset({"dependabot", "github-actions", "renovate"})
+_NON_AI_BOT_NAMES = frozenset(f"{login}[bot]" for login in _NON_AI_BOTS)
+# A bot's name with any other address, `claude[bot] <claude@example.org>`: refused by the same allowlist.
+_BOT_NAME = re.compile(r"^(?P<login>[^\s\[\]]+)\[bot\]$", re.IGNORECASE)
+# The line a PR's description names its issue with; a squash merge keeps it in the commit on main (AGENTS.md, Commits
+# and PRs). A bare one is the PR template's last line left unfilled.
+_ISSUE_REF = re.compile(r"^[^\w]*(?:refs|closes|fixes)\s+#\d+\b", re.IGNORECASE | re.MULTILINE)
+_BARE_ISSUE_REF = re.compile(r"^[^\w]*(?:refs|closes|fixes)\s+#\s*$", re.IGNORECASE | re.MULTILINE)
 _TOOL_NAME = re.compile(
     r"^(?:claude(?:\s+code)?|anthropic|(?:openai\s+)?codex|chatgpt|gpt-?\d[\w.]*|(?:github\s+)?copilot"
     r"|gemini(?:\s+code\s+assist)?|cursor(?:\s+agent)?|devin(?:\s+ai)?|aider|windsurf)"
@@ -151,7 +168,14 @@ def tool_co_author(who: str) -> bool:
     if not match:
         return False
     email = (match.group("email") or "").strip()
-    return bool(_TOOL_EMAIL.match(email)) or bool(_TOOL_NAME.match(match.group("name").strip()))
+    name = match.group("name").strip()
+    bot = _BOT_EMAIL.match(email)
+    if bot:
+        return not (bot.group("login").lower() in _NON_AI_BOTS and name.lower() in _NON_AI_BOT_NAMES)
+    named_bot = _BOT_NAME.match(name)
+    if named_bot and named_bot.group("login").lower() not in _NON_AI_BOTS:
+        return True
+    return bool(_TOOL_EMAIL.match(email)) or bool(_TOOL_NAME.match(name))
 
 
 def attribution_lines(message: str) -> list[str]:
@@ -168,6 +192,16 @@ def attribution_lines(message: str) -> list[str]:
         ):
             found.append(line.strip())
     return found
+
+
+def issue_ref_problems(text: str) -> list[str]:
+    """What is wrong with how a PR's description names its issue: it needs a `Refs #<n>`, `Closes #<n>` or
+    `Fixes #<n>` line."""
+    if _ISSUE_REF.search(text):
+        return []
+    if _BARE_ISSUE_REF.search(text):
+        return ["a `Refs #` or `Closes #` line has no issue number: write `Closes #<n>`, or `Refs #<n>` for one step"]
+    return ["no line names the issue: end the description with `Closes #<n>`, or `Refs #<n>` for one step of it"]
 
 
 def commit_problems(commits: list[tuple[str, str]]) -> list[str]:
@@ -552,6 +586,34 @@ def run_lane(lane: str, scope: Scope) -> int:
     return 0
 
 
+def read_text(file: str) -> str:
+    """The text in file, or on standard input for `-`, read as UTF-8 whatever the console's code page."""
+    if file == "-":
+        return sys.stdin.buffer.read().decode("utf-8", errors="replace")
+    return Path(file).read_text(encoding="utf-8", errors="replace")
+
+
+def report_attribution(text: str, who: str, hint: str, more: list[str] | None = None) -> int:
+    """The commit-msg hook's check and the text lane's. On stderr, `<who>: refused: ...` for each line of text that
+    carries tool attribution and each of the caller's other problems, then the hint; 1 when there is any."""
+    problems = [f"tool attribution: {line}" for line in attribution_lines(text)] + (more or [])
+    for problem in problems:
+        print(f"{who}: refused: {problem}", file=sys.stderr, flush=True)
+    if problems:
+        print(f"{who}: {hint}", file=sys.stderr, flush=True)
+    return 1 if problems else 0
+
+
+def text_lane(text: str) -> int:
+    """The text lane: 1 when a PR's title and description carry tool attribution or name no issue."""
+    hint = "fix the PR's title and description (AGENTS.md, Commits and PRs)"
+    if report_attribution(text, "gate text", hint, issue_ref_problems(text)):
+        say("gate text FAILED")
+        return 1
+    say(f"gate text passed: no tool attribution in {len(text.splitlines())} lines, and the issue is named")
+    return 0
+
+
 def cli_scope(base: str, head: str) -> Scope:
     """base..head; the working tree's checks run when head is the checked-out commit."""
     head_sha = git("rev-parse", "--verify", "--quiet", f"{head}^{{commit}}").stdout.strip()
@@ -563,11 +625,21 @@ def cli_scope(base: str, head: str) -> Scope:
 def main(argv: list[str] | None = None) -> int:
     utf8_streams()
     parser = argparse.ArgumentParser(description="The checks a change passes before it lands.")
-    parser.add_argument("lane", choices=["quick", "full"])
-    parser.add_argument("--base", default=BASE, help=f"the commits checked start after this ref (default {BASE})")
-    parser.add_argument("--head", default="HEAD", help="and end at this one (default HEAD)")
+    parser.add_argument("lane", choices=["quick", "full", "text"])
+    parser.add_argument("--base", help=f"quick and full: the commits checked start after this ref (default {BASE})")
+    parser.add_argument("--head", help="quick and full: and end at this one (default HEAD)")
+    parser.add_argument("--file", help="text: the file to check, or - for standard input")
     args = parser.parse_args(argv)
-    return run_lane(args.lane, cli_scope(args.base, args.head))
+    # A flag the lane doesn't read is refused, so a mistyped command never passes having checked something else.
+    if args.lane == "text":
+        if args.base is not None or args.head is not None:
+            parser.error("text checks one text: --base and --head are for quick and full")
+        if args.file is None:
+            parser.error("text needs --file <path>, or --file - to read standard input")
+        return text_lane(read_text(args.file))
+    if args.file is not None:
+        parser.error(f"{args.lane} checks the branch, not a file: --file is for text")
+    return run_lane(args.lane, cli_scope(args.base or BASE, args.head or "HEAD"))
 
 
 if __name__ == "__main__":
