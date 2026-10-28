@@ -87,7 +87,7 @@ This prevents hallucinated API calls. Without it, `execute_script` code will fre
 | **Camera & Visual** | |
 | `set_camera(position, target)` | Position the viewport camera |
 | `look_at_prim(prim_path, distance, azimuth, elevation)` | Point camera at a prim |
-| `inspect_prim(prim_path, angles, width, height, zoom_offset, isolate, include_segmentation)` | 14-angle orbit capture with auto-fit (prim fills frame). `isolate=True` hides other prims |
+| `inspect_prim(prim_path, angles, width, height, zoom_offset, isolate, include_segmentation)` | 14-angle orbit capture with auto-fit (prim fills frame). `isolate=True` hides other prims, lights stay on |
 | `capture_viewport(width, height, camera_path, include_image)` | Screenshot + bounding boxes + segmentation. Returns current lighting mode |
 | `viewport_light(action, mode)` | Get/set lighting: `"off"`, `"camera"`, `"stage"`, `"Default"`, `"Colored Lights"`, `"Grey Studio"` |
 | **Simulation** | |
