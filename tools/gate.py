@@ -1,6 +1,7 @@
 """The gate: the checks a change passes before it lands. People run it, the pre-push hook runs its quick lane.
 
 Usage: uv run tools/gate.py quick|full [--base <ref>] [--head <ref>]
+       uv run tools/gate.py text --file <path>|-
 
 Two kinds of check:
 - the working tree's: the lock file, ruff check, ruff format, basedpyright, AGENTS.md within 150 lines, each skill's
@@ -10,6 +11,9 @@ Two kinds of check:
 
 It prints a table of the checks and exits 1 when any failed; a warning or a skip never fails it. Without gitleaks the
 secret scan is skipped with a warning, unless GATE_REQUIRE_GITLEAKS=1 (as CI sets it), which makes that a failure.
+
+The text lane checks one text for tool attribution, as commit-msg checks a message: a PR's title and description, which
+a squash merge makes the commit on main. `-` reads standard input. pr-text.yml runs it whenever they change.
 
 Standard library only: the hooks import it from an environment uv has not synced. Before the first tool it runs
 (ruff, basedpyright, pytest) it syncs the environment once from uv.lock, `uv sync --frozen`, so it never re-locks.
@@ -552,6 +556,26 @@ def run_lane(lane: str, scope: Scope) -> int:
     return 0
 
 
+def read_text(file: str) -> str:
+    """The text in file, or on standard input for `-`, read as UTF-8 whatever the console's code page."""
+    if file == "-":
+        return sys.stdin.buffer.read().decode("utf-8", errors="replace")
+    return Path(file).read_text(encoding="utf-8", errors="replace")
+
+
+def text_lane(text: str) -> int:
+    """The text lane: 1 when the text carries tool attribution, with each line that does."""
+    found = attribution_lines(text)
+    if found:
+        say(f"gate text FAILED: tool attribution in {len(found)} line(s)")
+        for line in found:
+            say(f"  {line}")
+        say("Take those lines out of the PR's title and description (AGENTS.md, Commits and PRs).")
+        return 1
+    say(f"gate text passed: no tool attribution in {len(text.splitlines())} lines")
+    return 0
+
+
 def cli_scope(base: str, head: str) -> Scope:
     """base..head; the working tree's checks run when head is the checked-out commit."""
     head_sha = git("rev-parse", "--verify", "--quiet", f"{head}^{{commit}}").stdout.strip()
@@ -563,10 +587,15 @@ def cli_scope(base: str, head: str) -> Scope:
 def main(argv: list[str] | None = None) -> int:
     utf8_streams()
     parser = argparse.ArgumentParser(description="The checks a change passes before it lands.")
-    parser.add_argument("lane", choices=["quick", "full"])
+    parser.add_argument("lane", choices=["quick", "full", "text"])
     parser.add_argument("--base", default=BASE, help=f"the commits checked start after this ref (default {BASE})")
     parser.add_argument("--head", default="HEAD", help="and end at this one (default HEAD)")
+    parser.add_argument("--file", help="text: the file to check, or - for standard input")
     args = parser.parse_args(argv)
+    if args.lane == "text":
+        if args.file is None:
+            parser.error("text needs --file <path>, or --file - to read standard input")
+        return text_lane(read_text(args.file))
     return run_lane(args.lane, cli_scope(args.base, args.head))
 
 

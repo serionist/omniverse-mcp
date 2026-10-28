@@ -1,6 +1,8 @@
 """The harness's own rules: the gate's checks (tools/gate.py), the hooks behind .githooks/ (tools/hooks.py), and the
 skill links tools/setup.py writes into git's index."""
 
+import io
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -167,6 +169,42 @@ def test_list_commits_says_what_to_do_when_the_base_is_missing(tmp_path):
     assert commits == []
     assert problem is not None
     assert "git fetch origin" in problem
+
+
+# The text lane: a PR's title and description, which a squash merge makes the commit on main
+
+PR_TEXT = "Run CI on every pull request\n\n## What and why\n\nThe gate and the tests on every PR.\n\nRefs #2\n"
+CO_AUTHOR = "Co-Authored-By: Claude <noreply@anthropic.com>"
+ROBOT = "🤖 Generated with [Claude Code](https://claude.com/claude-code)"
+
+
+def test_the_text_lane_passes_a_pr_without_attribution(tmp_path, capsys):
+    file = tmp_path / "pr.txt"
+    file.write_text(PR_TEXT, encoding="utf-8")
+    assert gate.main(["text", "--file", str(file)]) == 0
+    assert capsys.readouterr().out.startswith("gate text passed")
+
+
+@pytest.mark.parametrize("line", [CO_AUTHOR, ROBOT], ids=["co-author", "generated with"])
+def test_the_text_lane_refuses_attribution_and_names_the_line(tmp_path, capsys, line):
+    file = tmp_path / "pr.txt"
+    file.write_text(f"{PR_TEXT}\n{line}\n", encoding="utf-8")
+    assert gate.main(["text", "--file", str(file)]) == 1
+    assert f"  {line}" in capsys.readouterr().out.splitlines()
+
+
+def test_the_text_lane_reads_standard_input_as_utf8_whatever_the_console(monkeypatch, capsys):
+    text = f"{PR_TEXT}\n{ROBOT}\n"
+    monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(text.encode("utf-8")), encoding="cp1252"))
+    assert gate.main(["text", "--file", "-"]) == 1
+    assert f"  {ROBOT}" in capsys.readouterr().out.splitlines()
+
+
+def test_the_text_lane_needs_a_file(capsys):
+    with pytest.raises(SystemExit) as exited:
+        gate.main(["text"])
+    assert exited.value.code == 2
+    assert "text needs --file" in capsys.readouterr().err
 
 
 # AGENTS.md
