@@ -1,15 +1,21 @@
 """Scene management tools."""
 
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
+from mcp.server.mcpserver import MCPServer
 from pydantic import Field
+
+from omniverse_mcp.client import BridgeClient
 
 from ._annotations import DESTROYS, EDITS, READS
 from ._bridge import bridge_call
 from ._params import Position, PrimPath, Rotation, Scale
 
+if TYPE_CHECKING:
+    from omniverse_mcp.server import Helpers
 
-def register(mcp, client, h):
+
+def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @mcp.tool(annotations=READS)
     def get_scene_tree(
         root: Annotated[str, Field(description="Prim path to start from")] = "/",

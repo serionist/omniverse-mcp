@@ -1,16 +1,22 @@
 """Miscellaneous tools (execute_script, manage_extensions, get_logs)."""
 
 import json
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
+from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import Field
+
+from omniverse_mcp.client import BridgeClient
 
 from ._annotations import READS, RUNS
 from ._bridge import bridge_call
 
+if TYPE_CHECKING:
+    from omniverse_mcp.server import Helpers
 
-def register(mcp, client, h):
+
+def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @mcp.tool(annotations=RUNS)
     def execute_script(
         code: Annotated[str, Field(description="Python to run inside the Kit app; assign to result to return data")],
@@ -51,7 +57,7 @@ def register(mcp, client, h):
         resp = bridge_call(client.execute, code)
 
         r = resp["result"]
-        parts = []
+        parts: list[str] = []
         if r.get("stdout"):
             parts.append(f"Stdout:\n{r['stdout']}")
         if r.get("stderr"):
