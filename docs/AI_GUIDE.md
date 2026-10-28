@@ -87,9 +87,9 @@ This prevents hallucinated API calls. Without it, `execute_script` code will fre
 | **Camera & Visual** | |
 | `set_camera(position, target)` | Position the viewport camera |
 | `look_at_prim(prim_path, distance, azimuth, elevation)` | Point camera at a prim |
-| `inspect_prim(prim_path, angles, width, height, distance, include_segmentation)` | 14-angle cube-based orbit capture (6 faces + 8 corners) |
-| `capture_viewport(width, height, camera_path, include_image)` | Screenshot + bounding boxes + segmentation (set `include_image=True` to see it inline) |
-| `viewport_light(action, enabled)` | Check/toggle viewport camera light and list scene lights |
+| `inspect_prim(prim_path, angles, width, height, zoom_offset, isolate, include_segmentation)` | 14-angle orbit capture with auto-fit (prim fills frame). `isolate=True` hides other prims, lights stay on |
+| `capture_viewport(width, height, camera_path, include_image)` | Screenshot + bounding boxes + segmentation. Returns current lighting mode |
+| `viewport_light(action, mode)` | Get/set lighting: `"off"`, `"camera"`, `"stage"`, `"Default"`, `"Colored Lights"`, `"Grey Studio"` |
 | **Simulation** | |
 | `sim_control(action)` | play / pause / stop / step |
 | `start_recording(fps, width, height, camera_path, track_prims, property_filter)` | Begin frame capture |
@@ -223,8 +223,8 @@ franka, ur10, carter, jetbot, g1, go1, go2, h1, spot, anymal
 - **Anonymous stages**: Anonymous stages (`anon:...`) mean no file is loaded. Use `execute_script` with `stage.GetRootLayer().realPath` to check the stage URL before operating
 - **Windows file paths**: In `execute_script`, use raw strings (`r"D:\3d\file.usda"`) or forward slashes (`"D:/3d/file.usda"`) -- backslashes without raw strings cause escape sequence issues
 - **Large scene loading**: Datacenter-scale scenes with PointInstancer can take 15+ minutes to load. Don't assume the stage is ready immediately after opening
-- **Black captures**: If `capture_viewport` or `inspect_prim` returns a WARNING about an all-black image, the scene likely has no lights. Use `viewport_light("get")` to check, then `viewport_light("set_camera_light", enabled=true)` to enable the camera light (a non-destructive fill light that follows the camera). Recapture after enabling. For best results, add proper scene lights with `create_prim` (e.g., `DistantLight`, `DomeLight`)
-- **Scene lighting**: Kit 105.1+ has no default stage light. Scenes without lights render black. Use `viewport_light` to diagnose and toggle the camera light, or add lights via `create_prim`
+- **Black captures**: If `capture_viewport` or `inspect_prim` returns a WARNING about an all-black image, use `viewport_light("get")` to check the current mode. Try `viewport_light(action="set", mode="Default")` first (the "Default" light rig provides good general lighting). If that doesn't work, try `mode="camera"` for a fill light that follows the camera. As a last resort, add scene lights with `create_prim` (e.g., `DistantLight`, `DomeLight`). The MCP does NOT auto-fix lighting — you must set it explicitly
+- **Scene lighting**: Kit 105.1+ has no default stage light. Scenes without lights render black. Available lighting modes: `"off"`, `"camera"`, `"stage"`, `"Default"`, `"Colored Lights"`, `"Grey Studio"`. Use `viewport_light(action="set", mode=...)` to switch
 - **Procedural vs Mesh geometry**: `UsdGeom.Cube`, `Sphere`, `Cylinder` etc. are implicit surfaces, not `UsdGeom.Mesh`. `get_mesh_stats` returns 0 faces for these. Only actual `UsdGeom.Mesh` prims (e.g., robot parts, imported models) have countable geometry
 - **sim_control("stop") resets stage**: Stop resets the scene to its pre-play state. Use `sim_control("pause")` if you need to inspect mid-simulation state (positions, joint values, etc.)
 - **Raycast requires playing sim**: `raycast()` uses PhysX which only works when the simulation is playing or has been played. If you get "No hit" unexpectedly, ensure you've called `sim_control("play")` first

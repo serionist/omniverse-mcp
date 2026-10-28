@@ -43,14 +43,14 @@ class MCPBridge:
         return await handle_camera_look_at(body)
 
     async def inspect(self, prim_path: str, angles: list = None,
-                      width: int = 640, height: int = 480, distance: float = None):
-        """Orbit-capture a prim from multiple angles."""
+                      width: int = 640, height: int = 480, *,
+                      zoom_offset: float = 0.0, isolate: bool = False):
+        """Orbit-capture a prim from multiple angles, auto-fitted; zoom_offset moves closer (<0) or further (>0)."""
         from .camera import handle_camera_inspect
-        body = {"prim_path": prim_path, "width": width, "height": height}
+        body = {"prim_path": prim_path, "width": width, "height": height,
+                "zoom_offset": zoom_offset, "isolate": isolate}
         if angles is not None:
             body["angles"] = angles
-        if distance is not None:
-            body["distance"] = distance
         return await handle_camera_inspect(body)
 
     # --- Scene ---

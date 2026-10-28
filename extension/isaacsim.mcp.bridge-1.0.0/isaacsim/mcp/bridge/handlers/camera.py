@@ -10,8 +10,12 @@ import traceback
 import carb
 import omni.kit.app
 import omni.usd
-from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux
+from pxr import Gf, Usd, UsdGeom
 
+from ..core.framing import apply_zoom, bounding_radius, fit_distance, inspect_args, require_perspective
+from ..core.isolation import LIGHT_TYPES, Hidden, is_light, prims_to_hide
+from ..core.lighting import camera_light_switch, current_mode
+from ..core.serial import LazyLock, serial
 from ._utils import (
     CAMERA_SETTLE_FRAMES,
     _compute_world_bbox,
@@ -25,6 +29,19 @@ from ._utils import (
 
 
 SEGMENTATION_RETRY_FRAMES = 10
+
+# Held for the whole of every handler that moves the viewport camera, hides prims or captures, so one request never
+# sees another's half-done viewport. Not re-entrant: these handlers call _capture_frame, never each other.
+_viewport = LazyLock()
+
+_warned: set[str] = set()
+
+
+def _warn_once(key: str, message: str):
+    """Log a warning the first time only, for fallbacks that would otherwise repeat on every call."""
+    if key not in _warned:
+        _warned.add(key)
+        carb.log_warn(message)
 
 
 # ---------------------------------------------------------------------------
@@ -105,16 +122,7 @@ def _is_image_black(png_bytes: bytes, threshold: int = 5) -> bool:
 
 def _has_scene_lights() -> bool:
     """Check if the stage has any active UsdLux light prims."""
-    stage = _get_stage()
-    for prim in stage.Traverse():
-        if prim.IsA(UsdLux.BoundableLightBase) or prim.IsA(UsdLux.NonboundableLightBase):
-            return True
-        # Fallback: check type name for older USD versions
-        type_name = prim.GetTypeName()
-        if type_name in ("DistantLight", "DomeLight", "SphereLight", "RectLight",
-                         "DiskLight", "CylinderLight"):
-            return True
-    return False
+    return any(is_light(prim) for prim in _get_stage().Traverse())
 
 
 def _get_camera_light_enabled() -> bool:
@@ -124,6 +132,102 @@ def _get_camera_light_enabled() -> bool:
         return bool(settings.get("/rtx/useViewLightingMode"))
     except Exception:
         return False
+
+
+def _get_current_lighting_mode() -> str:
+    """Get the current viewport lighting mode.
+
+    Returns one of: "camera", "stage", "off", or a light rig name
+    (e.g., "Default", "Colored Lights", "Grey Studio"); core/lighting.py decides.
+    """
+    menu_mode = None
+    try:
+        from omni.kit.viewport.menubar.lighting.utility import _make_light_mode_setting_key
+        settings = carb.settings.get_settings()
+        menu_mode = settings.get(_make_light_mode_setting_key(omni.usd.get_context()))
+    except Exception as e:
+        _warn_once("lighting-mode", f"[MCP Bridge] Can't read the lighting menu's mode, using the renderer's flag: {e}")
+    return current_mode(_get_camera_light_enabled(), menu_mode)
+
+
+def _get_available_lighting_modes() -> list[str]:
+    """Get all available lighting modes including light rig presets."""
+    modes = ["off", "camera", "stage"]
+    try:
+        from omni.kit.viewport.menubar.lighting.utility import _get_rig_names_and_paths
+        rigs = _get_rig_names_and_paths("omni.kit.viewport.menubar.lighting")
+        if rigs:
+            modes.extend(name for name, _ in rigs)
+    except Exception as e:
+        _warn_once("lighting-rigs", f"[MCP Bridge] Can't list the lighting menu's light rigs: {e}")
+    return modes
+
+
+def _set_lighting_mode(mode: str) -> str | None:
+    """Switch the viewport's lighting mode; the reason it did not change, or None.
+
+    Goes through the lighting menu's command. Without it (headless or minimal
+    Kit apps), "camera" and "stage" fall back to the renderer's camera-light
+    flag, which needs no other extension.
+    """
+    ran = False
+    reason = ""
+    try:
+        import omni.kit.commands
+        outcome = omni.kit.commands.execute("SetLightingMenuModeCommand", lighting_mode=mode)
+        # Kit returns (success, result) and logs, rather than raises, for a missing command.
+        ran = bool(outcome[0] if isinstance(outcome, tuple) else outcome)
+        if not ran:
+            reason = "SetLightingMenuModeCommand did not run (is omni.kit.viewport.menubar.lighting enabled?)"
+    except Exception as e:
+        reason = f"SetLightingMenuModeCommand failed: {e}"
+
+    if not ran and mode not in ("camera", "stage"):
+        return f"Lighting mode not changed to '{mode}': {reason}"
+    # The camera-light flag decides what current_mode() reports, so it follows every mode that takes: on for
+    # "camera", off for the rest. For "camera" and "stage" it also stands in for a missing menu.
+    flag = mode == "camera"
+    carb.settings.get_settings().set("/rtx/useViewLightingMode", flag)
+    if _get_camera_light_enabled() != flag:
+        return f"Lighting mode not changed to '{mode}': the renderer's camera-light flag did not take. {reason}".strip()
+    return None
+
+
+def _viewport_resolution(requested: tuple[int, int]) -> tuple[int, int]:
+    """The pixels the viewport renders, which is what a capture gets; the requested size if it can't be read."""
+    try:
+        import omni.syntheticdata as syn
+        from omni.kit.viewport.utility import get_active_viewport
+
+        viewport = get_active_viewport()
+        if viewport is not None:
+            params = syn.helpers.get_view_params(viewport)
+            return int(params["width"]), int(params["height"])
+    except Exception as e:
+        _warn_once("resolution", f"[MCP Bridge] Could not read the viewport's resolution, framing for "
+                                 f"{requested[0]}x{requested[1]} instead: {e}")
+    return requested
+
+
+def _compute_autofit_distance(dims, camera_path, stage, width, height):
+    """Camera distance at which the prim's bounding sphere fills the captured frame (core/framing.py)."""
+    cam_prim = stage.GetPrimAtPath(camera_path)
+    fl, h_ap, v_ap = 18.14756, 20.955, 15.2908  # Omniverse defaults
+    if cam_prim.IsValid():
+        cam = UsdGeom.Camera(cam_prim)
+        require_perspective(cam.GetProjectionAttr().Get(), camera_path)
+        fl_val = cam.GetFocalLengthAttr().Get()
+        h_val = cam.GetHorizontalApertureAttr().Get()
+        v_val = cam.GetVerticalApertureAttr().Get()
+        if fl_val and fl_val > 0:
+            fl = fl_val
+        if h_val and h_val > 0:
+            h_ap = h_val
+        if v_val and v_val > 0:
+            v_ap = v_val
+
+    res_w, res_h = _viewport_resolution((width, height))
+    return fit_distance(bounding_radius(dims), fl, h_ap, v_ap, res_w, res_h)
 
 
 async def _capture_frame(camera_path: str, width: int, height: int) -> tuple[bytes, bool]:
@@ -189,25 +293,6 @@ async def _capture_frame(camera_path: str, width: int, height: int) -> tuple[byt
             await _reset_renderer(wait_frames=CAMERA_SETTLE_FRAMES)
             png_bytes, is_black = await _do_capture()
 
-        if is_black and not _get_camera_light_enabled():
-            # Scene lights alone may not produce visible output immediately
-            # in RTX Real-Time mode.  Auto-enable the camera light (a non-
-            # destructive viewport fill light) and retry.
-            carb.log_info(
-                "[MCP Bridge] Still black — auto-enabling camera light"
-            )
-            settings = carb.settings.get_settings()
-            settings.set("/rtx/useViewLightingMode", True)
-            # The camera light needs the render pipeline to fully flush.
-            # Reset accumulation, then pump extra frames to ensure the
-            # light change is reflected in the next capture.
-            await _reset_renderer(wait_frames=CAMERA_SETTLE_FRAMES)
-            # Double-capture: first capture flushes the stale render
-            # product, second captures the freshly-lit frame.
-            await _do_capture()
-            await _settle_viewport(CAMERA_SETTLE_FRAMES)
-            png_bytes, is_black = await _do_capture()
-
         return png_bytes, is_black
     finally:
         # Restore original camera if we changed it
@@ -237,8 +322,7 @@ def _compute_screen_bboxes(camera_path: str, img_width: int, img_height: int):
     bbox_cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), ["default", "render"])
     results = []
 
-    skip_types = {"Camera", "DomeLight", "DistantLight", "Scope", "Shader",
-                  "Material", "NodeGraph"}
+    skip_types = {"Camera", "Scope", "Shader", "Material", "NodeGraph", *LIGHT_TYPES}
 
     world_prim = stage.GetPrimAtPath("/World")
     if not world_prim.IsValid():
@@ -401,6 +485,7 @@ def _capture_instance_segmentation():
 # Handler implementations
 # ---------------------------------------------------------------------------
 
+@serial(_viewport)
 async def handle_camera_set(body: dict) -> dict:
     """Set the viewport camera position and target."""
     position = body.get("position")
@@ -440,6 +525,7 @@ async def handle_camera_set(body: dict) -> dict:
     }
 
 
+@serial(_viewport)
 async def handle_camera_look_at(body: dict) -> dict:
     """Point the camera at a prim from a given distance and angle."""
     prim_path = body.get("prim_path", "")
@@ -511,22 +597,23 @@ async def handle_camera_look_at(body: dict) -> dict:
     }
 
 
+@serial(_viewport)
 async def handle_camera_inspect(body: dict) -> dict:
     """Orbit-capture: take screenshots from multiple angles around a prim.
 
+    Auto-fits camera distance so the prim fills the viewport with ~10px margin.
+    Use zoom_offset to adjust: negative=closer, positive=further, 0=auto-fit.
+    Use isolate=True to hide all other scene content during capture.
     Optionally includes instance segmentation at each angle.
-    Uses isaacsim.core.utils.viewports.set_camera_view for reliable camera
-    positioning, with a UsdGeom.Xformable fallback for non-Isaac-Sim apps.
     """
     prim_path = body.get("prim_path", "")
-    angles = body.get("angles", None)
-    width = body.get("width", 800)
-    height = body.get("height", 600)
-    distance = body.get("distance", None)
-    include_segmentation = body.get("include_segmentation", False)
-
     if not prim_path:
         return {"status": "error", "error": "prim_path is required"}
+    try:
+        args = inspect_args(body)
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
+    width, height, zoom_offset, isolate = args.width, args.height, args.zoom_offset, args.isolate
 
     stage = _get_stage()
     prim = stage.GetPrimAtPath(prim_path)
@@ -534,107 +621,92 @@ async def handle_camera_inspect(body: dict) -> dict:
         return {"status": "error", "error": f"Prim not found: {prim_path}"}
 
     center, dims, _ = _compute_world_bbox(prim)
-    max_dim = max(dims) if max(dims) > 0.01 else 1.0
-    if distance is None:
-        distance = max_dim * 2.5
 
-    # Cube-based angle system: 6 face centers + 8 cube corners = 14 angles.
-    # Corners at atan(1/sqrt(2)) ≈ 35.26° elevation.
-    CORNER_EL = 35.26
-    ANGLE_MAP = {
-        # Face centers (6)
-        "front":  (0, 0),
-        "back":   (180, 0),
-        "right":  (90, 0),
-        "left":   (270, 0),
-        "top":    (0, 90),
-        "bottom": (0, -90),
-        # Cube corners (8)
-        "top_front_right":    (45, CORNER_EL),
-        "top_front_left":     (315, CORNER_EL),
-        "top_back_right":     (135, CORNER_EL),
-        "top_back_left":      (225, CORNER_EL),
-        "bottom_front_right": (45, -CORNER_EL),
-        "bottom_front_left":  (315, -CORNER_EL),
-        "bottom_back_right":  (135, -CORNER_EL),
-        "bottom_back_left":   (225, -CORNER_EL),
-    }
-
-    ALL_ANGLES = list(ANGLE_MAP.keys())
-
-    if angles is None or angles == ["all"]:
-        angles = ALL_ANGLES
+    # Auto-fit distance, then zoom_offset: 0=auto-fit, negative=closer, positive=further. The fit refuses an
+    # orthographic camera, and a frame with no room inside its margins, judged on the resolution actually captured.
+    camera_path = _get_active_camera_path()
+    try:
+        distance = apply_zoom(_compute_autofit_distance(dims, camera_path, stage, width, height), zoom_offset)
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
 
     up_axis = UsdGeom.GetStageUpAxis(stage)
-    camera_path = _get_active_camera_path()
 
+    # Isolate: hide everything but the prim and the lights, in the session layer, inside the try so it always undoes
+    hidden = Hidden(stage.GetSessionLayer())
+    isolate_warnings: list[str] = []
     captures = []
-    for angle_name in angles:
-        if angle_name in ANGLE_MAP:
-            az, el = ANGLE_MAP[angle_name]
-        elif isinstance(angle_name, (list, tuple)) and len(angle_name) == 2:
-            az, el = angle_name
-        else:
-            continue
+    try:
+        if isolate:
+            paths, isolate_warnings = prims_to_hide(stage, prim_path)
+            hidden.hide(paths)
+            isolate_warnings += hidden.warnings
+            await _settle_viewport()
 
-        az_rad = math.radians(az)
-        el_rad = math.radians(el)
+        for angle_name, az, el in args.angles:
+            az_rad = math.radians(az)
+            el_rad = math.radians(el)
 
-        if up_axis == "Z":
-            cam_pos = [
-                center[0] + distance * math.cos(el_rad) * math.sin(az_rad),
-                center[1] + distance * math.cos(el_rad) * math.cos(az_rad),
-                center[2] + distance * math.sin(el_rad),
-            ]
-        else:
-            cam_pos = [
-                center[0] + distance * math.cos(el_rad) * math.sin(az_rad),
-                center[1] + distance * math.sin(el_rad),
-                center[2] + distance * math.cos(el_rad) * math.cos(az_rad),
-            ]
+            if up_axis == "Z":
+                cam_pos = [
+                    center[0] + distance * math.cos(el_rad) * math.sin(az_rad),
+                    center[1] + distance * math.cos(el_rad) * math.cos(az_rad),
+                    center[2] + distance * math.sin(el_rad),
+                ]
+            else:
+                cam_pos = [
+                    center[0] + distance * math.cos(el_rad) * math.sin(az_rad),
+                    center[1] + distance * math.sin(el_rad),
+                    center[2] + distance * math.cos(el_rad) * math.cos(az_rad),
+                ]
 
-        # Prefer set_camera_view (reliable); fall back to USD xform (unreliable)
-        try:
-            from isaacsim.core.utils.viewports import set_camera_view
-            set_camera_view(eye=cam_pos, target=center, camera_prim_path=camera_path)
-        except ImportError:
-            _set_camera_xform(camera_path, cam_pos, center)
+            # Prefer set_camera_view (reliable); fall back to USD xform (unreliable)
+            try:
+                from isaacsim.core.utils.viewports import set_camera_view
+                set_camera_view(eye=cam_pos, target=center, camera_prim_path=camera_path)
+            except ImportError:
+                _set_camera_xform(camera_path, cam_pos, center)
 
-        # Wait for camera transform to propagate to renderer
-        await _settle_viewport()
+            # Wait for camera transform to propagate to renderer
+            await _settle_viewport()
 
-        try:
-            png_bytes, is_black = await _capture_frame(camera_path, width, height)
-            b64 = base64.b64encode(png_bytes).decode("utf-8")
-            cap_entry = {
-                "angle": angle_name if isinstance(angle_name, str) else f"az{az}_el{el}",
-                "azimuth": az,
-                "elevation": el,
-                "camera_position": [round(v, 4) for v in cam_pos],
-                "image_base64": b64,
-                "is_black": is_black,
-            }
+            try:
+                png_bytes, is_black = await _capture_frame(camera_path, width, height)
+                b64 = base64.b64encode(png_bytes).decode("utf-8")
+                cap_entry = {
+                    "angle": angle_name,
+                    "azimuth": az,
+                    "elevation": el,
+                    "camera_position": [round(v, 4) for v in cam_pos],
+                    "image_base64": b64,
+                    "is_black": is_black,
+                }
 
-            if include_segmentation:
-                try:
-                    seg_png, legend = _capture_instance_segmentation()
-                    if not seg_png:
-                        # Sensor may need warmup frames — pump and retry
-                        for _ in range(SEGMENTATION_RETRY_FRAMES):
-                            await _next_update()
+                if args.include_segmentation:
+                    try:
                         seg_png, legend = _capture_instance_segmentation()
-                    if seg_png:
-                        cap_entry["segmentation_base64"] = base64.b64encode(seg_png).decode("utf-8")
-                        cap_entry["segmentation_legend"] = legend
-                except Exception:
-                    pass
+                        if not seg_png:
+                            # Sensor may need warmup frames — pump and retry
+                            for _ in range(SEGMENTATION_RETRY_FRAMES):
+                                await _next_update()
+                            seg_png, legend = _capture_instance_segmentation()
+                        if seg_png:
+                            cap_entry["segmentation_base64"] = base64.b64encode(seg_png).decode("utf-8")
+                            cap_entry["segmentation_legend"] = legend
+                    except Exception:
+                        pass
 
-            captures.append(cap_entry)
-        except Exception as e:
-            captures.append({
-                "angle": angle_name if isinstance(angle_name, str) else f"az{az}_el{el}",
-                "error": str(e),
-            })
+                captures.append(cap_entry)
+            except Exception as e:
+                captures.append({
+                    "angle": angle_name,
+                    "error": str(e),
+                })
+    finally:
+        # Put each hidden prim's session-layer visibility back as it was
+        if len(hidden):
+            hidden.restore()
+            await _settle_viewport()
 
     return {
         "status": "success",
@@ -642,11 +714,16 @@ async def handle_camera_inspect(body: dict) -> dict:
             "prim_path": prim_path,
             "center": center,
             "distance": round(distance, 4),
+            "zoom_offset": zoom_offset,
+            "isolate": isolate,
+            "isolate_warnings": isolate_warnings,
+            "lighting_mode": _get_current_lighting_mode(),
             "captures": captures,
         },
     }
 
 
+@serial(_viewport)
 async def handle_capture(body: dict) -> dict:
     width = body.get("width", 1280)
     height = body.get("height", 720)
@@ -671,10 +748,10 @@ async def handle_capture(body: dict) -> dict:
             "camera_path": camera_path,
             "format": "png",
             "is_black": is_black,
+            "lighting_mode": _get_current_lighting_mode(),
         }
         if is_black:
             result["has_scene_lights"] = _has_scene_lights()
-            result["camera_light_on"] = _get_camera_light_enabled()
 
         # 2. Compute screen-space bounding boxes for visible prims
         try:
@@ -709,28 +786,29 @@ async def handle_capture(body: dict) -> dict:
         return {"status": "error", "error": str(e), "traceback": tb}
 
 
+@serial(_viewport)
 async def handle_viewport_light(body: dict) -> dict:
-    """Get or set viewport lighting state.
+    """Get or set viewport lighting mode.
 
     Actions:
-      - "get" (default): return current lighting state
-      - "set_camera_light": enable/disable viewport camera light
+      - "get" (default): return current lighting mode and available modes
+      - "set": set lighting mode (mode parameter required)
+        Available modes: "off", "camera", "stage", or a light rig name
+        (e.g., "Default", "Colored Lights", "Grey Studio").
+      - "set_camera_light": legacy alias — enable/disable camera light
     """
     action = body.get("action", "get")
 
     if action == "get":
-        # Gather lighting state
-        camera_light_on = _get_camera_light_enabled()
+        mode_now = _get_current_lighting_mode()
+        available_modes = _get_available_lighting_modes()
 
         # List scene lights
         scene_lights = []
         stage = _get_stage()
         for prim in stage.Traverse():
-            type_name = prim.GetTypeName()
-            if type_name in ("DistantLight", "DomeLight", "SphereLight", "RectLight",
-                             "DiskLight", "CylinderLight"):
-                light_info = {"path": str(prim.GetPath()), "type": type_name}
-                # Try to get intensity
+            if is_light(prim):
+                light_info = {"path": str(prim.GetPath()), "type": prim.GetTypeName()}
                 intensity_attr = prim.GetAttribute("inputs:intensity")
                 if not intensity_attr or not intensity_attr.HasValue():
                     intensity_attr = prim.GetAttribute("intensity")
@@ -738,34 +816,47 @@ async def handle_viewport_light(body: dict) -> dict:
                     light_info["intensity"] = float(intensity_attr.Get())
                 scene_lights.append(light_info)
 
-        has_lights = len(scene_lights) > 0
-
         return {
             "status": "success",
             "result": {
-                "camera_light_on": camera_light_on,
-                "has_scene_lights": has_lights,
+                "lighting_mode": mode_now,
+                "available_modes": available_modes,
+                "has_scene_lights": len(scene_lights) > 0,
                 "scene_lights": scene_lights,
             },
         }
 
-    elif action == "set_camera_light":
-        enabled = body.get("enabled", True)
+    elif action in ("set", "set_camera_light"):
+        if action == "set":
+            mode = body.get("mode", "")
+            available = _get_available_lighting_modes()
+            if not mode:
+                return {"status": "error", "error": f"mode is required for 'set' action. Available: {', '.join(available)}"}
+            if mode not in available:
+                return {"status": "error", "error": f"Unknown mode: '{mode}'. Available: {', '.join(available)}"}
+        else:
+            # Legacy alias: on is mode "camera"; off leaves a rig alone (core/lighting.py)
+            mode = camera_light_switch(bool(body.get("enabled", True)), _get_current_lighting_mode())
+
         try:
-            settings = carb.settings.get_settings()
-            settings.set("/rtx/useViewLightingMode", bool(enabled))
-            # Reset renderer so the lighting change takes effect immediately
-            # instead of being masked by cached frames.
+            if mode is None:
+                carb.settings.get_settings().set("/rtx/useViewLightingMode", False)
+                message = "Viewport camera light turned off; the lighting mode is unchanged"
+            else:
+                error = _set_lighting_mode(mode)
+                if error:
+                    return {"status": "error", "error": error}
+                message = f"Lighting mode set to '{mode}'"
             await _reset_renderer(wait_frames=CAMERA_SETTLE_FRAMES)
             return {
                 "status": "success",
                 "result": {
-                    "camera_light_on": bool(enabled),
-                    "message": f"Viewport camera light {'enabled' if enabled else 'disabled'}",
+                    "lighting_mode": _get_current_lighting_mode(),
+                    "message": message,
                 },
             }
         except Exception as e:
-            return {"status": "error", "error": f"Failed to set camera light: {e}"}
+            return {"status": "error", "error": f"Failed to set lighting mode: {e}"}
 
     else:
-        return {"status": "error", "error": f"Unknown action: {action}. Use 'get' or 'set_camera_light'"}
+        return {"status": "error", "error": f"Unknown action: {action}. Use 'get', 'set', or 'set_camera_light'"}

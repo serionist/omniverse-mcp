@@ -43,7 +43,7 @@ def register(mcp, client, h):
             mcp.capture_viewport(width, height, camera_path)
             mcp.set_camera(position, target)
             mcp.look_at(prim_path, distance, azimuth, elevation)
-            mcp.inspect(prim_path, angles, width, height, distance)
+            mcp.inspect(prim_path, angles, width, height, zoom_offset=0.0, isolate=False)
             mcp.scene_tree(root, max_depth)
             mcp.prim_properties(prim_path)
             mcp.prim_bounds(prim_path)

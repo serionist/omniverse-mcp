@@ -418,7 +418,7 @@ Point the viewport camera at a prim from a given angle. Auto-computes distance f
 
 ### `inspect_prim`
 
-Orbit-capture: take screenshots from 14 systematic angles around a prim using a cube-based approach (6 face centers + 8 cube corners). Optionally includes instance segmentation at each angle.
+Orbit-capture: take screenshots from 14 systematic angles around a prim using a cube-based approach (6 face centers + 8 cube corners). The camera distance is fitted so the prim's bounding sphere fills the captured frame with a 10px margin. Optionally includes instance segmentation at each angle.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -426,7 +426,8 @@ Orbit-capture: take screenshots from 14 systematic angles around a prim using a 
 | `angles` | list[string] | all 14 | Angle names to capture (see below) |
 | `width` | int | `640` | Image width per capture |
 | `height` | int | `480` | Image height per capture |
-| `distance` | float | `null` | Camera distance (auto from object size) |
+| `zoom_offset` | float | `0.0` | Adjust the fitted distance: `-0.3` is 30% closer, `0.5` is 50% further; must be greater than `-1` |
+| `isolate` | bool | `false` | Hide everything but the prim while capturing (lights stay on); visibility is restored exactly afterwards. What it cannot hide (inside an instance, or with time-sampled visibility) is listed as `WARNING (isolate)` |
 | `include_segmentation` | bool | `false` | Also capture instance segmentation at each angle |
 
 **Available angles (14 total):**
@@ -438,6 +439,8 @@ Orbit-capture: take screenshots from 14 systematic angles around a prim using a 
 Corner angles use elevation = ±35.26° (atan(1/√2)), which is the exact angle from the horizontal to a cube corner.
 
 Each angle is saved as a separate PNG file. When `include_segmentation` is true, each angle also saves a segmentation image + legend. Default captures all 14 angles for full coverage.
+
+`angles` also takes `[azimuth, elevation]` pairs in degrees. An unknown angle name, a non-numeric `width`, `height` or `zoom_offset`, or an orthographic viewport camera (such as `/OmniverseKit_Top`; switch to `/OmniverseKit_Persp`) is refused with an error.
 
 ---
 
@@ -475,24 +478,26 @@ world_dimensions = [1.0, 1.0, 1.0]
 
 > **Note:** Instance segmentation requires `omni.syntheticdata` (included in Isaac Sim). If unavailable, the viewport image and bounding boxes are still returned.
 
-> **Black image detection:** If the captured image is all-black, the response includes a `WARNING` with lighting diagnostics (whether scene lights exist and whether the camera light is on). Use the `viewport_light` tool to check lighting state and enable the camera light if needed, then recapture. No automatic light changes are made.
+> **Black image detection:** If the captured image is all-black, the response includes a `WARNING` with the lighting mode and whether scene lights exist. Use the `viewport_light` tool to check the lighting mode and change it if needed, then recapture. No automatic light changes are made.
 
 ---
 
 ### `viewport_light`
 
-Query or control viewport lighting — camera light and scene lights.
+Query or set the viewport's lighting mode. Non-destructive: it changes how the viewport lights the scene, not the scene.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `action` | string | `"get"` | `"get"` to query state, `"set_camera_light"` to toggle camera light |
-| `enabled` | bool | `true` | Enable or disable camera light (only for `set_camera_light`) |
+| `action` | string | `"get"` | `"get"`, `"set"`, or the legacy `"set_camera_light"` |
+| `mode` | string | `""` | For `set`: `"off"`, `"camera"`, `"stage"`, or a light rig such as `"Default"`, `"Colored Lights"`, `"Grey Studio"` |
+| `enabled` | bool | `true` | For `set_camera_light`: `true` is mode `"camera"`, `false` is `"stage"` |
 
 **Actions:**
-- **get** -- Returns camera light state (on/off), whether scene has lights, and a list of all scene light prims (path, type, intensity)
-- **set_camera_light** -- Enable or disable the viewport camera light (`/rtx/useViewLightingMode`). This is a fill light that follows the camera — non-destructive, does not modify the scene
+- **get** -- Returns the current lighting mode, the available modes, whether the scene has lights, and a list of all scene light prims (path, type, intensity)
+- **set** -- Switches the lighting mode. Light rigs need the viewport's lighting menu (`omni.kit.viewport.menubar.lighting`); without it, `"camera"` and `"stage"` still work, and anything else returns an error rather than a false success
+- **set_camera_light** -- Legacy alias for `set` with `"camera"` or `"stage"`
 
-**When to use:** When `capture_viewport` reports a black image, use `viewport_light("get")` to diagnose, then `viewport_light("set_camera_light", enabled=true)` to enable the camera light and recapture.
+**When to use:** When `capture_viewport` reports a black image, use `viewport_light("get")` to diagnose, then `viewport_light(action="set", mode="Default")` (a light rig) or `mode="camera"` (a light that follows the camera) and recapture.
 
 ---
 
@@ -724,7 +729,7 @@ result = {"center": bounds["result"]["center"], "sim": state["result"]["state"]}
 | `mcp.capture_viewport(width, height, camera_path)` | Capture viewport with bboxes + segmentation |
 | `mcp.set_camera(position, target)` | Position the viewport camera |
 | `mcp.look_at(prim_path, distance, azimuth, elevation)` | Point camera at a prim |
-| `mcp.inspect(prim_path, angles, width, height, distance)` | Orbit-capture from multiple angles |
+| `mcp.inspect(prim_path, angles, width, height, zoom_offset=0.0, isolate=False)` | Orbit-capture from multiple angles, auto-fitted |
 | `mcp.scene_tree(root, max_depth)` | Get scene hierarchy |
 | `mcp.prim_properties(prim_path)` | Get all prim properties |
 | `mcp.prim_bounds(prim_path)` | Get world-space bounding box |

@@ -224,7 +224,7 @@ For a remote setup, set the extension's `token` to a long random value and give 
 
 **MCP server fails to start** -- If using conda, use the direct `python.exe` path (not `conda run`). Set `"PYTHONPATH": ""` in env if you get import errors.
 
-**Viewport capture returns black** -- The response includes a WARNING with lighting diagnostics. Use the `viewport_light` tool to check whether scene lights exist and whether the camera light is on. Enable the camera light with `viewport_light("set_camera_light", enabled=true)` and recapture. Kit 105.1+ has no default stage light, so scenes without explicitly added lights will render black.
+**Viewport capture returns black** -- The response includes a WARNING with the lighting mode. Use `viewport_light("get")` to see the mode and whether the scene has lights, then `viewport_light(action="set", mode="Default")` for a light rig, or `mode="camera"` for a light that follows the camera, and recapture. Kit 105.1+ has no default stage light, so scenes without explicitly added lights will render black.
 
 **Tools return errors** -- Check the Omniverse console for tracebacks. Some tools need the sim to have played once (`get_joint_states`, `raycast`). Robot tools require Isaac Sim specifically.
 

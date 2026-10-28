@@ -1,6 +1,6 @@
 """
 Full scenario tests against live Isaac Sim.
-Covers phases 1-17 plus 24-26 from test_project/scenarios.md.
+Covers phases 1-17, 22-23, and 24-26 from test_project/scenarios.md.
 
 Run: conda run -n isaac-mcp python -m pytest tests/test_scenarios.py -v -s
 """
@@ -224,7 +224,9 @@ class TestScenarios(unittest.TestCase):
         self.assertEqual(len(captures), 3)
         for cap in captures:
             self.assertIn("image_base64", cap)
-        print(f"  3 angles captured")
+        # Auto-fit distance should be computed
+        self.assertGreater(r["result"]["distance"], 0)
+        print(f"  3 angles captured, auto-fit dist={r['result']['distance']:.2f}m")
         self._pass()
 
     # ===== Phase 4: Script Execution =====
@@ -549,7 +551,8 @@ class TestScenarios(unittest.TestCase):
         r = self.c.camera_inspect("/World/G1", angles=["front", "top_front_right"])
         self.assertEqual(r["status"], "success")
         self.assertEqual(len(r["result"]["captures"]), 2)
-        print(f"  Robot inspected from 2 angles")
+        self.assertGreater(r["result"]["distance"], 0)
+        print(f"  Robot inspected from 2 angles, auto-fit dist={r['result']['distance']:.2f}m")
         self._pass()
 
     def test_10_03_invalid_robot(self):
@@ -1128,6 +1131,127 @@ class TestScenarios(unittest.TestCase):
         self.assertEqual(r["status"], "success")
         self.assertEqual(r["result"]["return_value"], "error")
         print(f"  Async error handled gracefully")
+        self._pass()
+
+    # ===== Phase 22: Enhanced Inspect Prim =====
+
+    def test_22_01_inspect_with_segmentation(self):
+        """Phase 22.1: Inspect with Segmentation"""
+        r = self.c.camera_inspect("/World/Franka", angles=["front", "right"],
+                                  include_segmentation=True)
+        self.assertEqual(r["status"], "success")
+        captures = r["result"]["captures"]
+        self.assertEqual(len(captures), 2)
+        for cap in captures:
+            self.assertIn("image_base64", cap)
+            self.assertIn("segmentation_base64", cap)
+        print(f"  2 angles with segmentation captured")
+        self._pass()
+
+    def test_22_02_inspect_cube_corner_angles(self):
+        """Phase 22.2: Inspect with Cube Corner Angles"""
+        r = self.c.camera_inspect("/World/Franka",
+                                  angles=["top_front_right", "top_back_left",
+                                          "bottom_front_right", "bottom"])
+        self.assertEqual(r["status"], "success")
+        self.assertEqual(len(r["result"]["captures"]), 4)
+        self.assertGreater(r["result"]["distance"], 0)
+        print(f"  4 cube-based angles captured, dist={r['result']['distance']:.2f}m")
+        self._pass()
+
+    def test_22_03_inspect_nonexistent_prim(self):
+        """Phase 22.3: Inspect Non-Existent Prim"""
+        r = self.c.camera_inspect("/World/Nonexistent_22")
+        self.assertEqual(r["status"], "error")
+        print(f"  Error on nonexistent prim: OK")
+        self._pass()
+
+    def test_22_04_inspect_with_zoom_offset(self):
+        """Phase 22.4: Inspect with Zoom Offset"""
+        # Zoom closer
+        r1 = self.c.camera_inspect("/World/Franka", angles=["front"], zoom_offset=-0.3)
+        self.assertEqual(r1["status"], "success")
+        d1 = r1["result"]["distance"]
+        # Default distance
+        r2 = self.c.camera_inspect("/World/Franka", angles=["front"])
+        self.assertEqual(r2["status"], "success")
+        d2 = r2["result"]["distance"]
+        # Zoom closer should produce smaller distance
+        self.assertLess(d1, d2)
+        print(f"  zoom_offset=-0.3: dist={d1:.2f}m vs default: dist={d2:.2f}m")
+        self._pass()
+
+    def test_22_05_inspect_with_isolate(self):
+        """Phase 22.5: Inspect with Isolate"""
+        r = self.c.camera_inspect("/World/Franka", angles=["front"], isolate=True)
+        self.assertEqual(r["status"], "success")
+        self.assertTrue(r["result"].get("isolate", False))
+        captures = r["result"]["captures"]
+        self.assertEqual(len(captures), 1)
+        self.assertIn("image_base64", captures[0])
+        print(f"  Isolated inspect captured, dist={r['result']['distance']:.2f}m")
+        self._pass()
+
+    # ===== Phase 23: Viewport Lighting =====
+
+    def test_23_01_get_lighting_state(self):
+        """Phase 23.1: Get Lighting State"""
+        r = self.c.viewport_light("get")
+        self.assertEqual(r["status"], "success")
+        result = r["result"]
+        self.assertIn("lighting_mode", result)
+        self.assertIn("available_modes", result)
+        self.assertIn("has_scene_lights", result)
+        modes = result["available_modes"]
+        self.assertIn("camera", modes)
+        self.assertIn("stage", modes)
+        print(f"  Lighting mode: {result['lighting_mode']}, modes: {modes}")
+        self._pass()
+
+    def test_23_02_set_lighting_mode_default(self):
+        """Phase 23.2: Set Lighting Mode to Default Rig"""
+        r = self.c.viewport_light("set", mode="Default")
+        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["result"]["lighting_mode"], "Default")
+        print(f"  Set to Default rig")
+        self._pass()
+
+    def test_23_03_set_lighting_mode_camera(self):
+        """Phase 23.3: Set Lighting Mode to Camera"""
+        r = self.c.viewport_light("set", mode="camera")
+        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["result"]["lighting_mode"], "camera")
+        print(f"  Set to camera light")
+        self._pass()
+
+    def test_23_04_set_lighting_mode_stage(self):
+        """Phase 23.4: Set Lighting Mode to Stage"""
+        r = self.c.viewport_light("set", mode="stage")
+        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["result"]["lighting_mode"], "stage")
+        print(f"  Set to stage mode")
+        self._pass()
+
+    def test_23_05_set_camera_light_legacy(self):
+        """Phase 23.5: Legacy set_camera_light Action"""
+        r = self.c.viewport_light("set_camera_light", enabled=True)
+        self.assertEqual(r["status"], "success")
+        print(f"  Legacy set_camera_light: OK")
+        self._pass()
+
+    def test_23_06_black_image_warning(self):
+        """Phase 23.6: Black Image Detection (no auto-fix)"""
+        # Set lighting to off
+        self.c.viewport_light("set", mode="off")
+        time.sleep(0.5)
+        cap = self.c.capture_viewport(320, 240)
+        self.assertEqual(cap["status"], "success")
+        # Should detect black but NOT auto-fix
+        is_black = cap["result"].get("is_black", False)
+        lighting_mode = cap["result"].get("lighting_mode", "")
+        print(f"  Lighting off: is_black={is_black}, mode={lighting_mode}")
+        # Restore lighting
+        self.c.viewport_light("set", mode="Default")
         self._pass()
 
     # ===== Phase 26: Camera Frame Settling =====
