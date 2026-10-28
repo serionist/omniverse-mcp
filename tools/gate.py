@@ -70,7 +70,7 @@ PLUGIN_NAME = "omniverse-mcp"  # the plugin's and the marketplace's name
 # What plugin.json may hold. Each other key (mcpServers, hooks, commands, agents) gives the plugin a way to run
 # something the gate doesn't check, as would a file under plugin/ other than these.
 PLUGIN_KEYS = ("name", "version", "description", "author", "homepage", "repository", "license", "keywords")
-PLUGIN_FILES = (".claude-plugin/plugin.json", ".mcp.json", "README.md")
+PLUGIN_FILES = (".claude-plugin/plugin.json", ".claude-plugin/icon.png", ".mcp.json", "README.md")
 # The marketplace's entry may add commands, agents, hooks or servers to the plugin's own, so it holds only these.
 MARKET_ENTRY_KEYS = ("name", "source", "description")
 AI_GUIDE = "docs/AI_GUIDE.md"
