@@ -807,12 +807,19 @@ def test_settings_let_ordinary_commands_through(command):
         "git diff \\Users\\me\\secret.txt a.py",
         "git diff . ..",
         "git diff .. .",
+        'git diff "/c/Users/me/other/x.py" src/x.py',
+        "git diff src/x.py '/home/me/x.py'",
+        'git diff "." ".."',
+        "git diff '.' '..'",
+        'git diff a.py "\\Users\\me\\secret.txt"',
+        'git diff "~/.ssh/id_ed25519" a.py',
     ],
 )
 def test_settings_ask_before_what_can_read_a_file_outside_the_repo(command):
     # git blame reads any file through -S, --contents and their prefixes and bundles, which no deny can keep up with;
     # git diff reads one through a path out of the repository. Claude Code may run both as read-only, so they ask.
-    # These are the usual spellings of a path out, not every one: a quoted `".."/x` or `.\\./x` still gets past.
+    # These are the usual spellings of a path out, quoted or not, but not every one: `.\\./x`, a brace `{.,..}`, a
+    # command substitution, PowerShell's backtick escapes, and `git --no-pager diff` or `git -C . diff` get past.
     assert _matches(command, "ask"), command
 
 
@@ -826,6 +833,12 @@ def test_settings_ask_before_what_can_read_a_file_outside_the_repo(command):
         "git diff --name-only origin/main...HEAD",
         "git diff HEAD~1..HEAD -- tests/test_gate.py",
         "git diff origin/main..HEAD",
+        "git diff -- '*.py'",
+        # review-code's own commands, which a wider ask would make prompt on every review.
+        "git diff --name-only origin/main...HEAD > files.txt",
+        "git diff origin/main...HEAD > scope.diff",
+        "git diff fa967c6..HEAD > delta.diff",
+        "git diff fa967c6..ff3185e > .local/review/gate-holes/delta.diff",
     ],
 )
 def test_settings_let_diffs_inside_the_repo_through(command):
