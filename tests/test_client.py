@@ -682,7 +682,7 @@ class TestBridgeClient(unittest.TestCase):
         old.start()
         client = BridgeClient(host="127.0.0.1", port=old.port, timeout=5.0)
         try:
-            with self.assertRaisesRegex(BridgeError, "older than this MCP server"):
+            with self.assertRaisesRegex(BridgeError, "older than this MCP server.* extension install"):
                 client.health()
             self.assertEqual([path for _, path, _ in old.requests], ["/bridge"])
         finally:

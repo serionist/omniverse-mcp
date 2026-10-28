@@ -8,7 +8,12 @@ This extension runs an HTTP server (default port 8211) inside your Omniverse app
 
 ## Installation
 
-See the [main project README](https://github.com/serionist/omniverse-mcp) for installation instructions.
+The `omniverse-mcp` package carries this extension. `omniverse-mcp extension install` copies the copy of its own
+release to your user data folder and prints the folder to add to Kit's extension search paths (**Window > Extensions**,
+the menu, **Settings**), once; then turn on `ovmcp.bridge` with **Autoload**. Or start Kit with
+`--ext-folder <that folder> --enable ovmcp.bridge`. `omniverse-mcp extension path` prints the folder again.
+
+See the [main project README](https://github.com/serionist/omniverse-mcp) for the whole setup.
 
 ## Configuration
 

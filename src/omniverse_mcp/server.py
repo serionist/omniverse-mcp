@@ -13,6 +13,7 @@ Design principles:
 Usage:
     omniverse-mcp
     omniverse-mcp --host 127.0.0.1 --port 8211
+    omniverse-mcp extension install
     python -m omniverse_mcp
 
 Flags default to OMNIVERSE_MCP_HOST, OMNIVERSE_MCP_PORT and OMNIVERSE_MCP_OUTPUT_DIR. Importing this module does
@@ -33,6 +34,7 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 
+from . import kit_extension
 from .client import BridgeClient
 from .config import parse_args
 from .tools import register_all
@@ -150,6 +152,8 @@ def create_server(host: str, port: int, output_dir: str, client: BridgeClient | 
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(sys.argv[1:] if argv is None else argv)
+    if args.command == "extension":
+        sys.exit(kit_extension.main(args.action))
     # Output dir defaults to ./mcp_output relative to CWD
     output_dir = args.output_dir or os.path.join(os.getcwd(), "mcp_output")
     # The extension writes some files there itself (dump_scene), and doesn't make the folder.

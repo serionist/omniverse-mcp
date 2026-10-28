@@ -21,7 +21,7 @@ extension it talks to.
 
 | Path | What |
 |---|---|
-| `src/omniverse_mcp/` | the server: `server.py` (`create_server()`: MCP server, output files, resources; `main()`), `config.py` (flags, `OMNIVERSE_MCP_*`), `client.py` (the bridge's HTTP client), `bridge_token.py`, `tools/` (the tools by area; `_bridge.py`, the one call to the bridge; `_annotations.py`, the four hints; `_params.py`, shared parameters) |
+| `src/omniverse_mcp/` | the server: `server.py` (`create_server()`: MCP server, output files, resources; `main()`), `config.py` (flags, `OMNIVERSE_MCP_*`), `client.py` (the bridge's HTTP client), `bridge_token.py`, `kit_extension.py` (`extension install\|path`: the extension the wheel carries, copied to the user's folder), `tools/` (the tools by area; `_bridge.py`, the one call to the bridge; `_annotations.py`, the four hints; `_params.py`, shared parameters) |
 | `extension/ovmcp.bridge/` | the extension: `config/extension.toml` (id, version, settings), `ovmcp/bridge/` (`extension.py` with the routes, `handlers/`), `ovmcp/core/` (HTTP, token, framing, isolation, bounds, the formatter, PNG, logs; `usd.py` types what the pxr stubs get wrong), `docs/README.md` |
 | `tests/` | pytest; `test_integration.py` and `test_scenarios.py` are the live suites (markers `sim`, `scenario`), which need Kit; `fixtures/mcp-tools.json`, the tool contract `test_contract.py` checks; `test_tools.py`, each tool against the mock bridge |
 | `test_project/` | an MCP client project for AI-driven scenario runs: `scenarios.md`, `CLAUDE.md`, `.mcp.json.example` |
@@ -112,7 +112,8 @@ in its issue; in `0.x` a minor may break the tool contract, under CHANGELOG's Br
 - tool names, schemas and annotations (`tests/fixtures/mcp-tools.json`);
 - the Kit extension id `ovmcp.bridge` and its settings;
 - the wire protocol: paths, the auth header, the token file's place;
-- the output folder's layout.
+- the output folder's layout;
+- where `extension install` puts the extension: `exts` in the user's data folder, which Kit's search paths hold.
 
 ## Traps
 

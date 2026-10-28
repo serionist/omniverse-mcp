@@ -121,6 +121,8 @@ You only need to do this once -- after that the extension autoloads every time.
 3. Under **Extension Search Paths**, click the green **+** button and paste the full path to the `extension/` folder in the cloned repo (it holds `ovmcp.bridge`)
    - Example: `/home/you/omniverse-mcp/extension` or `C:\Users\you\omniverse-mcp\extension`
    - The **+** button adds a blank row -- click the new row to type/paste the path
+   - Or install a copy that stays as it is until you install again: `uv run omniverse-mcp extension install` in the
+     clone (with pip, `omniverse-mcp extension install`) prints the folder to paste instead
 4. **Close and restart** the app using **File > Exit** (don't just close the terminal -- settings won't save)
 5. Re-open the Extension Manager, search for **"mcp"**, click the **THIRD PARTY** tab, and expand the **User** group to find **Omniverse MCP Bridge** (`ovmcp.bridge`)
 6. Toggle it **ON** and check **Autoload**
@@ -134,7 +136,8 @@ You should see in the console:
 > it pointed inside the old `extension/isaacsim.mcp.bridge-1.0.0` folder, then follow the steps above. See the
 > [changelog](CHANGELOG.md).
 
-> **Updating the extension:** `git pull` in the repo. Changes take effect on next app restart (use **File > Exit**).
+> **Updating the extension:** `git pull` in the repo, then `omniverse-mcp extension install` again if you installed a
+> copy. Changes take effect on next app restart (use **File > Exit**).
 
 ### 3. Add the AI guide to your project
 
@@ -203,7 +206,7 @@ For a remote setup, set the extension's `token` to a long random value and give 
 
 **"Missing or wrong bridge token"** -- The server and the extension must both be up to date (`git pull`, then restart Kit and your MCP client). If Kit runs as another user, in a container or on another machine, use the `token` setting and `OMNIVERSE_MCP_TOKEN` (above).
 
-**"The Kit extension is older than this MCP server"** -- `git pull` updates both; restart Kit so it loads the new extension.
+**"The Kit extension is older than this MCP server"** -- `git pull` updates both, or run the `extension install` command the message names when Kit loads an installed copy; restart Kit so it loads the new extension.
 
 **"Cannot connect to Isaac Sim"** -- Is the app running with MCP Bridge enabled? Check console for `[ext: ovmcp.bridge-0.1.0] startup`. Make sure port 8211 is free.
 
