@@ -128,6 +128,7 @@ What this repo's history already paid for:
 | Kit 105.1+ has no default light, so captures came back black | README | `is_black` check, `viewport_light` |
 | The log buffer's dict changed during a filtered query: `KeyError` | `8d684d6` | Copy before filtering |
 | USD called off the main thread crashes Kit | `misc.py` | Never `run_in_executor` for USD work |
+| Every capture read one temp path, which Kit 110 writes after it says the capture is done: each image was the previous capture's | #32 | A file per capture, read once the PNG is whole (`capture_viewport_png`) |
 
 ## Look up APIs before coding against them
 

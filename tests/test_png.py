@@ -1,11 +1,15 @@
 """The bridge's PNG writer gives a file any PNG reader takes: valid chunks, and the pixels it was given."""
 
+import builtins
+import importlib
 import struct
 import zlib
 
 import numpy as np
 
-from ovmcp.core.png import encode_png
+from ovmcp.core.png import encode_png, is_complete_png
+
+PNG = encode_png(np.zeros((2, 2, 3), dtype=np.uint8))
 
 
 def _read_png(data: bytes) -> tuple[dict[str, int], bytes]:
@@ -57,3 +61,26 @@ def test_other_dtypes_are_cast_to_bytes():
 def test_an_array_that_is_not_an_image_gives_nothing():
     assert encode_png(np.zeros((4, 4), dtype=np.uint8)) == b""
     assert encode_png(np.zeros(0, dtype=np.uint8)) == b""
+
+
+def test_a_whole_png_is_complete_and_a_partly_written_one_is_not():
+    # Kit writes a capture's file after it says the capture is done; the bridge reads it only once it is whole (#32).
+    data = encode_png(np.zeros((4, 6, 3), dtype=np.uint8))
+    assert is_complete_png(data)
+    for cut in (0, 8, len(data) // 2, len(data) - 1):
+        assert not is_complete_png(data[:cut])
+    assert not is_complete_png(b"not a png" + data[8:])
+
+
+def test_the_module_loads_without_numpy(monkeypatch):
+    # Every capture imports it, and the bridge must load in a Kit app without numpy; only encode_png needs it.
+    real = builtins.__import__
+
+    def refuse_numpy(name, *args, **kwargs):
+        if name.split(".")[0] == "numpy":
+            raise ImportError(name)
+        return real(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", refuse_numpy)
+    module = importlib.reload(importlib.import_module("ovmcp.core.png"))
+    assert module.is_complete_png(PNG)

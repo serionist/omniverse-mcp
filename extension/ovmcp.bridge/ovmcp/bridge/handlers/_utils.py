@@ -4,11 +4,18 @@ Shared helper functions used across handler modules.
 These are internal utilities — not exposed as HTTP endpoints.
 """
 
+import contextlib
 import json
+import tempfile
+import time
+import uuid
+from pathlib import Path
 
 import omni.kit.app
 import omni.usd
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade
+
+from ovmcp.core.png import is_complete_png
 
 DEFAULT_CAMERA_PATH = "/OmniverseKit_Persp"
 
@@ -62,6 +69,37 @@ CAMERA_SETTLE_FRAMES = 20
 async def _next_update():
     """Wait for next sim update frame to ensure thread safety."""
     await omni.kit.app.get_app().next_update_async()
+
+
+# How long a capture may take to reach disk. On Kit 110 capture_viewport_to_file's wait_for_result returns before
+# the file is written, so the file is waited for, not the capture.
+CAPTURE_TIMEOUT_SECONDS = 10.0
+
+
+async def capture_viewport_png(viewport) -> bytes:
+    """The viewport's frame as PNG bytes, read once Kit has written all of it. RuntimeError when no whole file arrives.
+
+    Each capture gets a file of its own: with one path for every capture, a capture whose file wasn't written yet read
+    the previous capture's file, so every image was one capture behind (#32).
+    """
+    from omni.kit.viewport.utility import capture_viewport_to_file
+
+    path = Path(tempfile.gettempdir()) / f"ovmcp_capture_{uuid.uuid4().hex}.png"
+    try:
+        await capture_viewport_to_file(viewport, file_path=str(path)).wait_for_result()
+        deadline = time.monotonic() + CAPTURE_TIMEOUT_SECONDS
+        while True:
+            with contextlib.suppress(OSError):
+                data = path.read_bytes()
+                if is_complete_png(data):
+                    return data
+            if time.monotonic() > deadline:
+                raise RuntimeError("Viewport capture produced no output")
+            await _next_update()
+    finally:
+        # A file Kit is still writing can't be deleted on Windows; its name is never read again.
+        with contextlib.suppress(OSError):
+            path.unlink()
 
 
 async def _settle_viewport(frames: int = None):

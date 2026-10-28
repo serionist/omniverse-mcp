@@ -58,6 +58,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ### Fixed
 
+- **A capture shows the view it was asked for.** Every capture went through one temporary file, which Kit 110
+  writes after it reports the capture done, so a capture could return the previous one's image: each of
+  `inspect_prim`'s angles showed the angle before it, its first the view from before the call, and `capture_viewport`
+  and recording frames could be a step behind too. On Kit apps that wrote the file in time this didn't show.
 - **`set_material`'s colours show.** Its OmniPBR shader named only an id, which some Kit apps don't resolve
   (Isaac Sim 6.2 headless among them): every material rendered as Kit's red error material, while the tool reported
   success. The shader now names its MDL source, `OmniPBR.mdl`, and a material made before this gets it the next time
