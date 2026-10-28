@@ -15,6 +15,7 @@ from pxr import Gf, Usd, UsdGeom
 from ..core.framing import apply_zoom, bounding_radius, fit_distance
 from ..core.isolation import LIGHT_TYPES, Hidden, is_light, prims_to_hide
 from ..core.lighting import camera_light_switch, current_mode
+from ..core.serial import LazyLock, serial
 from ._utils import (
     CAMERA_SETTLE_FRAMES,
     _compute_world_bbox,
@@ -28,6 +29,10 @@ from ._utils import (
 
 
 SEGMENTATION_RETRY_FRAMES = 10
+
+# Held for the whole of every handler that moves the viewport camera, hides prims or captures, so one request never
+# sees another's half-done viewport. Not re-entrant: these handlers call _capture_frame, never each other.
+_viewport = LazyLock()
 
 _warned: set[str] = set()
 
@@ -479,6 +484,7 @@ def _capture_instance_segmentation():
 # Handler implementations
 # ---------------------------------------------------------------------------
 
+@serial(_viewport)
 async def handle_camera_set(body: dict) -> dict:
     """Set the viewport camera position and target."""
     position = body.get("position")
@@ -518,6 +524,7 @@ async def handle_camera_set(body: dict) -> dict:
     }
 
 
+@serial(_viewport)
 async def handle_camera_look_at(body: dict) -> dict:
     """Point the camera at a prim from a given distance and angle."""
     prim_path = body.get("prim_path", "")
@@ -589,6 +596,7 @@ async def handle_camera_look_at(body: dict) -> dict:
     }
 
 
+@serial(_viewport)
 async def handle_camera_inspect(body: dict) -> dict:
     """Orbit-capture: take screenshots from multiple angles around a prim.
 
@@ -749,6 +757,7 @@ async def handle_camera_inspect(body: dict) -> dict:
     }
 
 
+@serial(_viewport)
 async def handle_capture(body: dict) -> dict:
     width = body.get("width", 1280)
     height = body.get("height", 720)
