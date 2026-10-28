@@ -47,13 +47,9 @@ def message_text(raw: str) -> str:
 
 def commit_msg(path: str) -> int:
     """Refuse a message with tool attribution; 1 refuses the commit."""
-    found = gate.attribution_lines(message_text(Path(path).read_text(encoding="utf-8", errors="replace")))
-    for line in found:
-        say("commit-msg", f"refused: tool attribution: {line}")
-    if found:
-        say("commit-msg", "take those lines out and commit again (AGENTS.md, Commits and PRs)")
-        return 1
-    return 0
+    text = message_text(Path(path).read_text(encoding="utf-8", errors="replace"))
+    hint = "take those lines out and commit again (AGENTS.md, Commits and PRs)"
+    return gate.report_attribution(text, "commit-msg", hint)
 
 
 def push_ranges(lines: list[str], base: str, known: Callable[[str], bool]) -> list[tuple[str, str]]:
