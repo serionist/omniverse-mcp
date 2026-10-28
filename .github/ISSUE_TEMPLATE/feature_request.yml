@@ -1,0 +1,37 @@
+name: Feature request
+description: Something omniverse-mcp should do.
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where
+      multiple: true
+      options: [The MCP tools, The Kit extension, Setup and install, The docs, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do in your Kit app, and what stops you today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you propose
+      description: The tool, parameter or behaviour you have in mind, and the Kit apps it should work in.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Workarounds you use now (an `execute_script` call, say), or other designs you considered.
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Would you send the PR?
+      description: A change beyond a typo starts here, and a non-trivial one gets a plan the maintainer approves first (CONTRIBUTING.md).
+      options: ["Yes", "Maybe, with guidance", "No"]

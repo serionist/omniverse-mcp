@@ -1,0 +1,72 @@
+name: Bug report
+description: Something the MCP server, a tool or the Kit extension does wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never paste the bridge token: not the contents of a `bridge-<port>.token` file, not `OMNIVERSE_MCP_TOKEN`, not the extension's `token` setting. Anyone who holds it can run code in your Kit app. A security vulnerability goes through a [private report](https://github.com/serionist/omniverse-mcp/security/advisories/new), never an issue.
+  - type: input
+    id: kit
+    attributes:
+      label: Kit app and version
+      placeholder: Isaac Sim 5.1.0
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: Both, if Kit and the MCP server run on different machines.
+      placeholder: Windows 11 24H2
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: MCP client and version
+      placeholder: Claude Code 2.1.0
+    validations:
+      required: true
+  - type: input
+    id: server-version
+    attributes:
+      label: Server version or commit
+      description: "The commit your clone is on: `git rev-parse --short HEAD` in it. Until the first release, every install is a clone."
+      placeholder: 1d471f1
+    validations:
+      required: true
+  - type: input
+    id: extension-version
+    attributes:
+      label: Extension version
+      description: "The `extension_version` that `/bridge` and `/health` report. Kit's console shows it at startup: `[ext: ovmcp.bridge-0.1.0] startup`."
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The tool and its arguments, or what you asked the assistant; the scene it ran on; what came back.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Console log
+      description: Kit's console around the error (Window > Console, or the terminal Kit runs in), and the MCP client's log of the server if it shows one. Take out any token first.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: Nothing above holds the bridge token, or any other key, token or password.
+          required: true

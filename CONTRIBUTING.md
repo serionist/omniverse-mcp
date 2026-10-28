@@ -1,169 +1,63 @@
 # Contributing
 
-Contributions to Omniverse MCP are welcome. This document explains how to get started; [AGENTS.md](AGENTS.md) has the
-full rules, for people and AI agents alike, and [REVIEW.md](REVIEW.md) what a review checks.
+Thanks for helping. This is the short path for a first contribution; [AGENTS.md](AGENTS.md) has the full rules, for
+people and agents alike, and [REVIEW.md](REVIEW.md) what a review checks.
 
-## Development Setup
+## Before you start
 
-### Prerequisites
+- **Open an issue** for anything beyond a typo, with the bug or feature form, and say there that you want to work on
+  it.
+- **Write a plan first** for a non-trivial change: a new tool, a change to the bridge's security or its protocol, work
+  on the server and the extension together. Use the template in [docs/plans/README.md](docs/plans/README.md) and open
+  it as a draft PR. The maintainer approves it before any code.
+- **Leave the one-way doors alone** unless the maintainer agrees in the issue first: the names and flags, the tools'
+  contract, the extension's id and settings, the wire protocol, the output folder's layout (AGENTS.md, One-way doors).
+- **Use invented data.** Tests, examples and logs in a PR never hold a real token, key or password.
+- **Report security issues privately**, never in an issue: see [SECURITY.md](SECURITY.md).
+- **Your contribution is MIT licensed.** Opening a pull request means you agree to license it under the repository's
+  [MIT licence](LICENSE).
 
-- NVIDIA Omniverse Kit-based application, Kit 107 or newer (Isaac Sim 5.x and up)
-- Python 3.11+ and [uv](https://docs.astral.sh/uv/)
-- Git, and [gitleaks](https://github.com/gitleaks/gitleaks) for the gate's secret scan (it warns and skips without it)
+## Build and test
 
-### Setting Up the Development Environment
-
-1. Clone the repository, install the server with its dev tools, and set up the clone once:
-   ```bash
-   git clone https://github.com/serionist/omniverse-mcp.git
-   cd omniverse-mcp
-   uv sync
-   uv run tools/setup.py
-   ```
-   `uv sync` makes `.venv/` with the server installed in editable mode, plus the test tools (`uv.lock` pins them).
-   `uv run tools/setup.py` turns on the git hooks in `.githooks/` (no tool attribution in a commit message; the
-   gate's quick lane before a push) for this clone only, and is safe to run again.
-
-2. Point your Kit app at the extension: **Window > Extensions > Settings > Extension Search Paths**, add the repo's
-   `extension/` folder, then turn on **Omniverse MCP Bridge** (`ovmcp.bridge`) with autoload. Kit loads the files in
-   place, so a restart picks up your edits.
-
-## Project Structure
+You need [uv](https://docs.astral.sh/uv/) (it brings Python), git and [gitleaks](https://github.com/gitleaks/gitleaks).
 
 ```
-src/omniverse_mcp/           # MCP server (standalone Python process)
-  server.py                  # FastMCP server, output helpers, resources
-  client.py                  # HTTP client -- add new endpoint methods here
-  tools/                     # MCP tools by area -- add new tools here
-
-extension/ovmcp.bridge/      # Omniverse Kit extension (runs inside the app)
-  config/extension.toml      # Extension id, version and settings
-  ovmcp/bridge/              # Kit-bound: imports omni, carb, pxr
-    extension.py             # Lifecycle; the route table -- register new routes here
-    handlers/                # Handler implementations -- add new handlers here
-    formatter.py             # Prim-block text format
-  ovmcp/core/                # Kit-free: HTTP server, token, framing, isolation; unit-tested without Kit
-
-tests/                       # pytest; test_integration.py and test_scenarios.py need a running Kit app
+uv sync
+uv run tools/setup.py
+uv run tools/gate.py full
 ```
 
-## Adding a New Tool
+- `uv run tools/setup.py` sets up the clone once: the git hooks (`commit-msg` refuses tool attribution, `pre-push`
+  runs the gate's quick lane), `git blame` past the reformat, the skill links. It is safe to run again.
+- `gate full` runs the lock check, ruff, ruff format, basedpyright, the harness checks, the attribution check and
+  gitleaks, then the unit tests. Without gitleaks it skips the secret scan with a warning; CI runs it.
 
-A new MCP tool requires changes in three places:
+### The live suites
 
-### 1. Add the handler (`extension/ovmcp.bridge/ovmcp/bridge/handlers/<area>.py`)
+`tests/test_integration.py` and `tests/test_scenarios.py` drive a real Kit app: Kit 107 or newer (Isaac Sim 5.x and
+up) with the extension on. Add the repo's `extension/` folder to Kit's extension search paths (**Window > Extensions >
+Settings**), turn on `ovmcp.bridge`, then:
 
-```python
-async def handle_my_feature(data, send_response):
-    """Handle /my/endpoint requests."""
-    param = data.get("param", "default")
-
-    # Access USD stage
-    stage = _get_stage()
-    if not stage:
-        await send_response({"status": "error", "error": "No stage"})
-        return
-
-    # Do work...
-    result = {"key": "value"}
-    await send_response({"status": "success", "result": result})
 ```
-
-### 2. Register the route (`extension/ovmcp.bridge/ovmcp/bridge/extension.py`)
-
-Add the endpoint to the `_routes` dict in the `Extension` class:
-
-```python
-self._routes = {
-    # ... existing routes ...
-    "/my/endpoint": handlers.handle_my_feature,
-}
-```
-
-### 3. Add the HTTP client method (`src/omniverse_mcp/client.py`)
-
-```python
-def my_feature(self, param: str) -> dict:
-    return self._post("/my/endpoint", {"param": param})
-```
-
-### 4. Add the MCP tool (`src/omniverse_mcp/tools/<area>.py`)
-
-```python
-@mcp.tool()
-def my_feature(param: str = "default") -> str:
-    """Description for the AI assistant.
-
-    Args:
-        param: What this parameter does
-    """
-    resp = _client.my_feature(param)
-    if resp["status"] == "error":
-        return f"ERROR: {resp['error']}"
-    r = resp["result"]
-    return f"Result: {r['key']}"
-```
-
-### 5. Update documentation
-
-- Add the tool to `docs/TOOLS.md`
-- Add the route to `docs/ARCHITECTURE.md`
-- Update the tool count in `README.md` if applicable
-
-## Running Tests
-
-### The gate
-
-```bash
-uv run tools/gate.py quick   # lock, ruff, ruff format, basedpyright, AGENTS.md, skills, attribution, secrets
-uv run tools/gate.py full    # quick, then the unit tests
-```
-
-Run `full` before you open a PR; the pre-push hook runs `quick`.
-
-### Unit tests (no Isaac Sim needed)
-
-```bash
-uv run pytest
-```
-
-### Integration tests (requires running Omniverse app with extension enabled)
-
-```bash
 OMNIVERSE_MCP_SIM=1 uv run pytest tests/test_integration.py tests/test_scenarios.py
 ```
 
-Without `OMNIVERSE_MCP_SIM=1` these skip when no Kit app answers; with it, they fail instead.
+In PowerShell, `$env:OMNIVERSE_MCP_SIM = "1"`, then `uv run pytest ...`. Without the variable they skip when no Kit
+answers; with it, they fail. CI never runs them, so a PR that changes the extension, the client or a tool says whether
+they ran and on which Kit app. Without a Kit app, say so in the PR.
 
-### AI-driven scenario tests
+## Open the pull request
 
-Open `test_project/` in an MCP-compatible AI client and run through the scenarios in `test_project/scenarios.md`.
+1. Fork, and branch from `main` as `<issue>-<slug>`, such as `42-capture-timeout`.
+2. Make the change with its tests and docs: `docs/TOOLS.md` for a tool, `docs/ARCHITECTURE.md` for a route, the
+   protocol or the token, the READMEs, a line in [CHANGELOG.md](CHANGELOG.md) when users notice it, AGENTS.md when a
+   path, a command or a rule changes.
+3. Commit with a plain imperative subject that says what changed, and a body that says why. No AI co-author
+   trailers, "Generated with" lines or session links: `commit-msg` refuses them.
+4. Open the PR with [the template](.github/pull_request_template.md) filled in, ending `Closes #<issue>`, or
+   `Refs #<issue>` for one step of it. Its title becomes the commit on `main`.
 
-## Code Style
-
-- Follow existing patterns in the codebase
-- Use type hints for function parameters
-- Keep handler functions async
-- Use the prim-block text format for scene/prim data (not JSON)
-- Write docstrings for MCP tools -- they are shown to AI assistants
-
-## Submitting Changes
-
-1. Fork the repository, and open an issue for anything beyond a typo
-2. Create a branch named `<issue>-<slug>`: `git checkout -b 42-capture-timeout`
-3. Make your changes, with their tests and docs
-4. Run `uv run tools/gate.py full`
-5. Submit a pull request; commits and the PR carry no AI co-author trailers, "Generated with" lines or session links
-
-## Reporting Issues
-
-Please include:
-- Omniverse application and version (e.g., Isaac Sim 5.1)
-- OS and Python version
-- Steps to reproduce
-- Error messages or tracebacks from the application console
-- MCP client being used
-
-## License
-
-By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
+CI runs the gate's quick lane on Linux and the tests on Linux, Windows and macOS, CodeQL scans the code, and a check
+reads the PR's title and description for attribution whenever they change. The maintainer reviews a PR from outside by
+reading it: they never check it out, build or run it on their machine, where it would run next to their credentials
+and their Kit app. Your PR is ready for review when CI is green. The maintainer squash-merges it.

@@ -459,17 +459,23 @@ Improvements taken:
   - open the issue;
   - on this machine, `git config --global --add safe.directory D:/workspaces/omniverse-mcp` (the folder belongs to the
     `Work` account).
-- **S5, PyPI:** a pending trusted publisher for `omniverse-mcp` (this repo, `release.yml`, environment `pypi`).
-- **S5, GitHub environments and rulesets:**
+- **S5, PyPI:** a pending trusted publisher for `omniverse-mcp` (this repo, `release.yml`, environment `pypi`), so
+  nobody takes the name first (R9).
+- **S5, the merge rules,** once the S5 PR's checks have run once (GitHub offers a check by name only after it has run):
+  - a ruleset on `main`: PRs only, and two required checks: `CI` (`ci.yml`'s last job, which fails when `Checks
+    (Linux)` or any `Tests (...)` leg failed) and `PR text` (`pr-text.yml`);
+  - squash merges only, with the commit message set to the PR title and description;
+  - CodeQL's default setup stays off: `codeql.yml` is the advanced setup, and the two would conflict. Its jobs,
+    `Analyze (python)` and `Analyze (actions)`, annotate the PR without being required.
+- **For S9, any time before it:**
   - the `pypi` environment, with you as required reviewer;
-  - a ruleset on `main`: PRs only, with the required checks;
-  - a ruleset on `v*` tags;
-  - squash merges only, with the commit message set to the PR title and description.
+  - a ruleset on `v*` tags.
 - **S5, GitHub security settings:**
-  - private vulnerability reporting;
+  - private vulnerability reporting, which `SECURITY.md` and the issue forms link to: until it is on, nobody outside
+    can report through that link;
   - secret scanning with push protection;
-  - Dependabot alerts.
-- **S5, the repo page:** a description and topics.
+  - Dependabot alerts and security updates (version updates come from `dependabot.yml`, with no setting).
+- **S5, the repo page:** a description and topics, done during S1 and S1b.
 - **S9:** approve the `pypi` deployment.
 
 ## Later
