@@ -6,7 +6,9 @@ Usage: uv run tools/gate.py quick|full [--base <ref>] [--head <ref>]
 Two kinds of check:
 - the working tree's: the lock file, ruff check, ruff format, basedpyright, import-linter's contracts, a coverage
   floor no lower than at the start of each range checked, AGENTS.md within 150 lines, each skill's frontmatter and
-  its Codex link, the hooks stored as executable; full adds pytest under coverage, then the report against the floor.
+  its Codex link, the hooks stored as executable, the plugin (its manifests, one version everywhere, its skills
+  pre-approving read-only tools only, and Claude Code's own `claude plugin validate --strict`); full adds pytest under
+  coverage, then the report against the floor.
   They run when the head is the checked-out commit, and are skipped, with the reason, when the tree is not what is
   checked;
 - the commits': no tool attribution in any message, and no tool as any commit's author or committer, and gitleaks,
@@ -14,7 +16,8 @@ Two kinds of check:
   error fails too.
 
 It prints a table of the checks and exits 1 when any failed; a warning or a skip never fails it. Without gitleaks the
-secret scan is skipped with a warning, unless GATE_REQUIRE_GITLEAKS=1 (as CI sets it), which makes that a failure.
+secret scan is skipped with a warning, unless GATE_REQUIRE_GITLEAKS=1 (as CI sets it), which makes that a failure;
+without Claude Code the plugin is checked but not validated by it, unless GATE_REQUIRE_CLAUDE=1 (as CI sets it).
 
 The text lane checks a PR's title and description, which a squash merge makes the commit on main: no tool attribution,
 as commit-msg checks a message, and a `Refs #<n>`, `Closes #<n>` or `Fixes #<n>` line. `-` reads standard input.
@@ -28,6 +31,7 @@ never re-locks.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -38,6 +42,7 @@ import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, cast
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "origin/main"
@@ -52,6 +57,31 @@ SKILL_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SKILL_NAME_MAX = 64
 DESCRIPTION_MAX = 1024
 GITLEAKS_CONFIG = ".gitleaks.toml"
+# The plugin (plan S8): its marketplace, manifest and server, and the tool contract its skills' allowed-tools are read
+# against. The plugin's and the server key's names are one-way doors (AGENTS.md).
+MARKETPLACE = ".claude-plugin/marketplace.json"
+PLUGIN_DIR = "plugin"
+PLUGIN_MANIFEST = "plugin/.claude-plugin/plugin.json"
+PLUGIN_MCP = "plugin/.mcp.json"
+PLUGIN_SKILLS_DIR = "plugin/skills"
+PLUGIN_SKILL_KEYS = ("name", "description", "allowed-tools")
+PLUGIN_SERVER = "omniverse"
+PLUGIN_NAME = "omniverse-mcp"  # the plugin's and the marketplace's name
+# What plugin.json may hold. Each other key (mcpServers, hooks, commands, agents) gives the plugin a way to run
+# something the gate doesn't check, as would a file under plugin/ other than these.
+PLUGIN_KEYS = ("name", "version", "description", "author", "homepage", "repository", "license", "keywords")
+PLUGIN_FILES = (".claude-plugin/plugin.json", ".mcp.json", "README.md")
+# The marketplace's entry may add commands, agents, hooks or servers to the plugin's own, so it holds only these.
+MARKET_ENTRY_KEYS = ("name", "source", "description")
+AI_GUIDE = "docs/AI_GUIDE.md"
+SKILL_URL = "https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/{}/SKILL.md"
+TOOL_CONTRACT = "tests/fixtures/mcp-tools.json"
+_ALLOWED_ENTRY = re.compile(r"[^\s,(]+(?:\([^)]*\))?")
+# Every version the plugin names: `omniverse-mcp==X.Y.Z` (the server it starts, the extension its setup installs) and
+# `ovmcp.bridge-X.Y.Z` (the extension Kit reports at startup). A placeholder such as <version> starts no digit.
+_PIN = re.compile(r"(?:omniverse-mcp==|ovmcp\.bridge-)([0-9](?:[0-9A-Za-z.+!-]*[0-9A-Za-z])?)")
+# A Markdown link's target: Claude Code installs plugin/ alone, so a relative one leads nowhere.
+_LINK = re.compile(r"\]\(([^)\s]+)")
 GITLEAKS_IGNORE = ".gitleaksignore"
 # The git log options every scan starts with. gitleaks reads `git log -p` as git prints it, and a developer's git
 # config can reshape that: colour codes leave it reading no commit, a short commit id or a missing path prefix loses
@@ -301,18 +331,21 @@ def frontmatter(text: str) -> dict[str, tuple[str, bool]]:
     return fields
 
 
-def skill_problems(folder: str, text: str) -> list[str]:
-    """What is wrong with `.claude/skills/<folder>/SKILL.md` for Claude Code and Codex: the frontmatter holds only
-    `name` (equal to the folder) and `description` ("Use when ...", within 1,024 characters, valid YAML)."""
-    where = f"{SKILLS_DIR}/{folder}/SKILL.md"
+def skill_problems(
+    folder: str, text: str, skills_dir: str = SKILLS_DIR, keys: tuple[str, ...] = SKILL_KEYS
+) -> list[str]:
+    """What is wrong with `<skills_dir>/<folder>/SKILL.md`: the frontmatter holds only the keys given (for the repo's
+    skills, which Codex reads too, `name` and `description`), `name` equal to the folder, and a `description`
+    ("Use when ...", within 1,024 characters, valid YAML)."""
+    where = f"{skills_dir}/{folder}/SKILL.md"
     try:
         fields = frontmatter(text)
     except ValueError as exc:
         return [f"{where}: {exc}"]
     problems = [
-        f"{where}: frontmatter key {key!r}: a skill's frontmatter holds only name and description (write-skill)"
+        f"{where}: frontmatter key {key!r}: a skill's frontmatter here holds only {', '.join(keys)} (write-skill)"
         for key in fields
-        if key not in SKILL_KEYS
+        if key not in keys
     ]
     name = fields.get("name", ("", True))[0]
     if name != folder:
@@ -329,6 +362,61 @@ def skill_problems(folder: str, text: str) -> list[str]:
         problems.append(f"{where}: description has {len(description)} characters; keep it within {DESCRIPTION_MAX}")
     if plain and _PLAIN_YAML_BREAKERS.search(description):
         problems.append(f"{where}: description: plain YAML can't hold a colon or a #: write it as a >- block")
+    return problems
+
+
+def plugin_skill_problems(folder: str, text: str, reads: set[str]) -> list[str]:
+    """A plugin skill: a skill's rules, plus `allowed-tools`, which may name only the plugin server's read-only tools
+    (reads): a tool that edits the stage, writes a file or runs code always asks the user (plan S8)."""
+    problems = skill_problems(folder, text, PLUGIN_SKILLS_DIR, PLUGIN_SKILL_KEYS)
+    try:
+        allowed = frontmatter(text).get("allowed-tools", ("", True))[0]
+    except ValueError:
+        return problems
+    prefix = f"mcp__plugin_{PLUGIN_NAME}_{PLUGIN_SERVER}__"
+    # Entries are separated by spaces or commas; a rule such as Bash(uvx ... install) holds spaces of its own.
+    for entry in _ALLOWED_ENTRY.findall(allowed):
+        if not (entry.startswith(prefix) and entry.removeprefix(prefix) in reads):
+            problems.append(
+                f"{PLUGIN_SKILLS_DIR}/{folder}/SKILL.md: allowed-tools {entry!r} is not a read-only tool of the "
+                f"plugin's server; a tool that edits, writes or runs code asks the user"
+            )
+    return problems
+
+
+def version_problems(versions: dict[str, str | None]) -> list[str]:
+    """One version everywhere (plan D7): each place's version, by where it is, equal to pyproject.toml's."""
+    want = versions.get("pyproject.toml")
+    return [
+        f"{where} has version {got!r} and pyproject.toml {want!r}: a release bumps them together (plan D7)"
+        for where, got in versions.items()
+        if got != want
+    ]
+
+
+def manifest_problems(plugin: dict[str, Any], market: dict[str, Any], servers: dict[str, Any]) -> list[str]:
+    """plugin.json names the plugin and its version; the marketplace lists it once, from ./plugin, as plugin.json
+    describes it; .mcp.json starts one server, under the key tools are named by."""
+    problems = [f"{PLUGIN_MANIFEST} needs {key}" for key in ("name", "version", "description") if not plugin.get(key)]
+    if plugin.get("name") != PLUGIN_NAME:
+        problems.append(f"{PLUGIN_MANIFEST}: the plugin is {PLUGIN_NAME!r}, a one-way door")
+    if market.get("name") != PLUGIN_NAME:
+        problems.append(f"{MARKETPLACE}: the marketplace is {PLUGIN_NAME!r}, as the README's install names it")
+    entries = [e for e in market.get("plugins") or [] if isinstance(e, dict) and e.get("name") == plugin.get("name")]
+    if len(entries) != 1:
+        problems.append(f"{MARKETPLACE} must list the plugin {plugin.get('name')!r} once")
+    else:
+        if entries[0].get("source") != f"./{PLUGIN_DIR}":
+            problems.append(f"{MARKETPLACE}: the plugin's source is ./{PLUGIN_DIR}")
+        if entries[0].get("description") != plugin.get("description"):
+            problems.append(f"{MARKETPLACE}: the plugin's description differs from {PLUGIN_MANIFEST}'s")
+        problems += [
+            f"{MARKETPLACE}: the plugin's key {key!r} isn't checked by the gate"
+            for key in entries[0]
+            if key not in MARKET_ENTRY_KEYS
+        ]
+    if list(servers) != [PLUGIN_SERVER]:
+        problems.append(f"{PLUGIN_MCP} starts one server, {PLUGIN_SERVER!r}, a one-way door; it has {list(servers)}")
     return problems
 
 
@@ -533,6 +621,96 @@ def check_skill_links(_scope: Scope) -> Result:
     return outcome("skill links", link_problems(entries, set(skill_folders())), f"{links} links")
 
 
+def _json(path: Path) -> dict[str, Any]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("it is not a JSON object")
+    return cast(dict[str, Any], data)
+
+
+def plugin_versions(root: Path, plugin: dict[str, Any]) -> dict[str, str | None]:
+    """The version in each place that carries one (plan D7), and each `omniverse-mcp==` pin under plugin/."""
+    with (root / "pyproject.toml").open("rb") as f:
+        versions: dict[str, str | None] = {"pyproject.toml": tomllib.load(f).get("project", {}).get("version")}
+    extension = root / "extension" / "ovmcp.bridge" / "config" / "extension.toml"
+    with extension.open("rb") as f:
+        versions[extension.relative_to(root).as_posix()] = tomllib.load(f).get("package", {}).get("version")
+    versions[PLUGIN_MANIFEST] = plugin.get("version")
+    for path in sorted((root / PLUGIN_DIR).rglob("*")):
+        if path.is_file() and path.suffix in (".json", ".md"):
+            for n, pin in enumerate(_PIN.findall(path.read_text(encoding="utf-8")), 1):
+                versions[f"{path.relative_to(root).as_posix()} (pin {n})"] = pin
+    return versions
+
+
+def plugin_file_problems(root: Path) -> list[str]:
+    """Only the files the gate checks are under plugin/, and no Markdown in it links to a relative path."""
+    problems: list[str] = []
+    base = root / PLUGIN_DIR
+    for path in sorted(p for p in base.rglob("*") if p.is_file()):
+        rel = path.relative_to(base).as_posix()
+        parts = rel.split("/")
+        if rel not in PLUGIN_FILES and not (len(parts) == 3 and parts[0] == "skills" and parts[2] == "SKILL.md"):
+            problems.append(f"{PLUGIN_DIR}/{rel}: a file the gate doesn't check; give it a check first (write-skill)")
+        if path.suffix == ".md":
+            for target in _LINK.findall(path.read_text(encoding="utf-8")):
+                if not target.startswith(("https://", "http://", "#")):
+                    problems.append(
+                        f"{PLUGIN_DIR}/{rel}: the link {target!r} is relative; Claude Code installs {PLUGIN_DIR}/ "
+                        "alone, so link the GitHub URL"
+                    )
+    return problems
+
+
+def check_plugin(_scope: Scope, root: Path = ROOT) -> Result:
+    try:
+        plugin = _json(root / PLUGIN_MANIFEST)
+        market = _json(root / MARKETPLACE)
+        servers = _json(root / PLUGIN_MCP).get("mcpServers") or {}
+        tools = _json(root / TOOL_CONTRACT).get("tools") or {}
+    except (OSError, ValueError) as exc:
+        return Result("plugin", "FAIL", f"a plugin manifest or the tool contract can't be read: {exc}")
+    problems = manifest_problems(plugin, market, servers)
+    problems += [
+        f"{PLUGIN_MANIFEST}: the key {key!r} isn't checked by the gate" for key in plugin if key not in PLUGIN_KEYS
+    ]
+    problems += plugin_file_problems(root)
+    versions = plugin_versions(root, plugin)
+    # The server exactly as the release starts it: another argument (--from a URL) or variable is code the gate can't
+    # vouch for. PYTHONPATH empty: one from the user's shell (Isaac Sim's conda setup sets one) would reach uvx's
+    # Python.
+    server = {"command": "uvx", "args": [f"omniverse-mcp=={versions['pyproject.toml']}"], "env": {"PYTHONPATH": ""}}
+    if servers.get(PLUGIN_SERVER) not in (None, server):
+        problems.append(f"{PLUGIN_MCP}: the server {PLUGIN_SERVER!r} must be exactly {json.dumps(server)}")
+    problems += version_problems(versions)
+    reads = {name for name, tool in tools.items() if tool.get("annotations", {}).get("readOnlyHint")}
+    skills = sorted((root / PLUGIN_SKILLS_DIR).glob("*/SKILL.md"))
+    readme, guide = root / PLUGIN_DIR / "README.md", root / AI_GUIDE
+    listed = readme.read_text(encoding="utf-8") if readme.is_file() else ""
+    guided = guide.read_text(encoding="utf-8") if guide.is_file() else ""
+    for path in skills:
+        name = path.parent.name
+        problems += plugin_skill_problems(name, path.read_text(encoding="utf-8"), reads)
+        if f"`/{PLUGIN_NAME}:{name}`" not in listed:
+            problems.append(f"{PLUGIN_DIR}/README.md does not list `/{PLUGIN_NAME}:{name}` (write-skill)")
+        if SKILL_URL.format(name) not in guided:
+            problems.append(f"{AI_GUIDE} does not link the skill {name}, for clients without the plugin (write-skill)")
+    if problems:
+        return outcome("plugin", problems, "")
+    detail = f"{len(skills)} skills, version {versions['pyproject.toml']}"
+    claude = shutil.which("claude")
+    if not claude:
+        if truthy(os.environ.get("GATE_REQUIRE_CLAUDE")):
+            return Result("plugin", "FAIL", "Claude Code not installed, and GATE_REQUIRE_CLAUDE=1 requires it")
+        return Result("plugin", "warn", f"{detail}; not validated: Claude Code (`claude`) is not on PATH")
+    for target in (PLUGIN_DIR, "."):
+        done = run([claude, "plugin", "validate", "--strict", target], cwd=root)
+        if done.returncode != 0:
+            output = (done.stdout + done.stderr).strip()
+            return Result("plugin", "FAIL", f"claude plugin validate --strict {target} failed", output=output)
+    return Result("plugin", "pass", f"{detail}, validated by Claude Code")
+
+
 def check_hooks(_scope: Scope) -> Result:
     entries = [(mode, path) for mode, _, path in index_entries(HOOKS_DIR)]
     if not entries:
@@ -617,6 +795,7 @@ TREE: list[tuple[str, Check]] = [
     ("AGENTS.md", check_agents_md),
     ("skills", check_skills),
     ("skill links", check_skill_links),
+    ("plugin", check_plugin),
     ("hooks", check_hooks),
 ]
 COMMITS: list[tuple[str, Check]] = [("attribution", check_attribution), ("gitleaks", check_gitleaks)]

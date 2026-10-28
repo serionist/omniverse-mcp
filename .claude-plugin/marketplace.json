@@ -1,0 +1,17 @@
+{
+  "name": "omniverse-mcp",
+  "owner": {
+    "name": "Soma Osvay",
+    "url": "https://github.com/serionist"
+  },
+  "metadata": {
+    "description": "The Omniverse MCP plugin for Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "omniverse-mcp",
+      "source": "./plugin",
+      "description": "Drive NVIDIA Omniverse Kit apps (Isaac Sim, USD Composer) from Claude Code: look at the stage, edit it, run physics, drive robots and record what happens."
+    }
+  ]
+}

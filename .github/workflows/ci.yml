@@ -1,6 +1,6 @@
 # The gate on every pull request, every push to main and once a day on main. Checks (Linux) runs the gate's quick lane
-# (lock, lint, format, types, the import contracts and the coverage floor, the harness, no tool attribution in the
-# commits, gitleaks over them); the tests run on Linux on Python 3.11 to 3.14, on Windows on 3.11 and 3.14, and on
+# (lock, lint, format, types, the import contracts and the coverage floor, the harness, the plugin validated by Claude
+# Code, no tool attribution in the commits, gitleaks over them); the tests run on Linux on Python 3.11 to 3.14, on Windows on 3.11 and 3.14, and on
 # macOS on 3.14 (plan D8), and the Linux 3.12 leg measures coverage against its floor (plan S6). CI needs both; it and
 # pr-text.yml's PR text are the two checks the ruleset on main requires. The live suites need a Kit app and skip
 # themselves here: hosted CI never runs Kit (plan D11), so a PR that touches the extension, the client or a tool says
@@ -46,15 +46,23 @@ jobs:
             https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
           echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tgz" | sha256sum -c -
           sudo tar -xzf /tmp/gitleaks.tgz -C /usr/local/bin gitleaks
+      # The gate validates the plugin and the marketplace with Claude Code itself (plan S8), at a pinned version.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.285
       # The commits checked start after the PR's base, or after the commit main was on before the push. A PR's checkout
       # is the merge of its branch into the base, so that merge is checked too. A push's before is all zeros for a new
       # branch, and a commit no longer in the history after a force push; the daily run has none. Then the head commit
       # alone is checked, since a squash merge is one commit. --locked fails on a stale uv.lock before anything is
-      # installed. GATE_REQUIRE_GITLEAKS makes a missing gitleaks a failure, not a warning.
+      # installed. GATE_REQUIRE_GITLEAKS and GATE_REQUIRE_CLAUDE make a missing gitleaks or Claude Code a failure, not a
+      # warning.
       - name: The gate's quick lane
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           GATE_REQUIRE_GITLEAKS: "1"
+          GATE_REQUIRE_CLAUDE: "1"
         run: |
           if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             echo "::notice::${BASE:-no base} is not in the history; checking HEAD~1..HEAD"

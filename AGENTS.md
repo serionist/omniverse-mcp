@@ -25,12 +25,13 @@ extension it talks to.
 | `extension/ovmcp.bridge/` | the extension: `config/extension.toml` (id, version, settings), `ovmcp/bridge/` (`extension.py` with the routes, `handlers/`), `ovmcp/core/` (HTTP, token, framing, isolation, bounds, the formatter, PNG, logs; `usd.py` types what the pxr stubs get wrong), `docs/README.md` |
 | `tests/` | pytest; `test_integration.py` and `test_scenarios.py` are the live suites (markers `sim`, `scenario`), which need Kit; `fixtures/mcp-tools.json`, the tool contract `test_contract.py` checks; `test_tools.py`, each tool against the mock bridge |
 | `test_project/` | an MCP client project for AI-driven scenario runs: `scenarios.md`, `CLAUDE.md`, `.mcp.json.example` |
-| `docs/` | `ARCHITECTURE.md` (routes, protocol, token, threading), `TOOLS.md` (a heading per tool), `AI_GUIDE.md` (for agents using the tools) |
+| `docs/` | `ARCHITECTURE.md` (routes, protocol, token, threading), `TOOLS.md` (a heading per tool), `AI_GUIDE.md` (for clients without the plugin; points at its skills) |
 | `docs/plans/`, `docs/reviews/` | plans of non-trivial changes, with the template; review records. Dated records, never current truth |
 | `tools/` | `gate.py` (the gate), `hooks.py` (behind `.githooks/`), `setup.py` (once per clone; `link` for skills), standard library only; `golden.py` writes `tests/fixtures/mcp-tools.json` from the server |
 | `.githooks/` | `commit-msg` refuses attribution, `pre-push` runs gate quick on what the push sends, `post-checkout` and `post-merge` name changed AI setup files |
 | `.github/` | `workflows/`: `ci.yml` (gate quick on Linux; the tests on Linux 3.11-3.14, Windows 3.11 and 3.14, macOS 3.14; its `CI` job), `pr-text.yml` (gate text on a PR's title and description; its `PR text` job), `codeql.yml`, `dependabot-auto-merge.yml` (turns on auto-merge for Dependabot's minor and patch updates); `CI` and `PR text` are the required checks; `dependabot.yml`, the issue forms, the PR template, `CODEOWNERS` |
 | `.claude/` | `CLAUDE.md` (imports this file), `settings.json` (no attribution; allows the repo's own checks and read-only git and gh, each named whole but the git ones `tests/test_gate.py` sweeps and gh's reads; asks before `git blame` and the usual spellings of a `git diff` out of the repo; asks and denies twinned for PowerShell), `skills/` (below) |
+| `.claude-plugin/`, `plugin/` | the repo as a Claude Code marketplace (`marketplace.json`) of one plugin: `plugin/.claude-plugin/plugin.json`, `plugin/.mcp.json` (starts `uvx omniverse-mcp==<version>`), `plugin/skills/` (setup and the workflows, for the plugin's users; write-skill), `plugin/README.md` |
 | `.agents/skills/` | links to `.claude/skills/<name>` for Codex, written into git's index by `uv run tools/setup.py link` |
 | `AGENTS.md`, `REVIEW.md` | this file; what a review finding is, and the questions every review answers |
 | `.mcp.json` | Context7 over HTTP; `.claude/settings.local.json.example` turns it on |
@@ -52,7 +53,7 @@ PowerShell unless a PowerShell form stands beside it.
 | once per clone | `uv sync`, then `uv run tools/setup.py` (hooks, `git blame`, skill links) |
 | tests | `uv run pytest`; with coverage, `uv run coverage run -m pytest`, then `uv run coverage report` |
 | lint, format, types, imports | `uv run ruff check .`, `uv run ruff format --check .`, `uv run basedpyright`, `uv run lint-imports` |
-| the gate | `uv run tools/gate.py quick` (lock, lint, format, types, imports, the coverage floor, AGENTS.md, skills, attribution, secrets); `full` adds pytest under coverage, and the floor; `text --file -` checks a PR's title and description: no attribution, and the issue named |
+| the gate | `uv run tools/gate.py quick` (lock, lint, format, types, imports, the coverage floor, AGENTS.md, skills, the plugin, attribution, secrets); `full` adds pytest under coverage, and the floor; `text --file -` checks a PR's title and description: no attribution, and the issue named |
 | the tool contract | `uv run tools/golden.py` after a deliberate change to a tool's name, parameters, bounds or hints, with its CHANGELOG line |
 | live suites | `OMNIVERSE_MCP_SIM=1 uv run pytest tests/test_integration.py tests/test_scenarios.py`; PowerShell: `$env:OMNIVERSE_MCP_SIM = "1"`, then `uv run pytest ...` |
 

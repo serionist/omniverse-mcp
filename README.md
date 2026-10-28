@@ -42,123 +42,101 @@ The tools, by area:
 - **Arbitrary scripting** -- run any Python code inside the sim via `execute_script`; also serves as a fallback if any tool fails
 - **10 built-in robots** -- franka, ur10, carter, jetbot, g1, go1, go2, h1, spot, anymal
 
-## Setup
+## Install
 
-### 1. Clone the repo and install the MCP server
+You need a Kit app of Kit 107 or later (Isaac Sim 5.x and up, USD Composer) and [uv](https://docs.astral.sh/uv/getting-started/installation/),
+which runs the server. Two parts: the MCP server your AI client starts, and the Kit extension `ovmcp.bridge` inside
+the Kit app, both from the same release.
+
+> **Before 0.2.0 is on PyPI,** only the last way, from a clone, works: the plugin and `uvx` fetch the server from PyPI.
+
+### Claude Code: the plugin
+
+```
+/plugin marketplace add serionist/omniverse-mcp
+/plugin install omniverse-mcp@omniverse-mcp
+```
+
+Then run `/omniverse-mcp:setup`: it installs the Kit extension of the plugin's release, walks you through turning it on
+in Kit, and checks the connection. The plugin also brings skills for working on scenes, geometry, simulation and
+scripts, which Claude uses when a request fits ([the plugin](plugin/README.md)).
+
+### Other MCP clients: uvx
+
+Add the server to your client's MCP configuration, such as a project's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "omniverse": { "command": "uvx", "args": ["omniverse-mcp"] }
+  }
+}
+```
+
+Install the extension of the same release and turn it on in Kit (below). `uvx` fetches the newest release the first
+time and keeps it until its cache is refreshed; `uvx omniverse-mcp@latest extension install` fetches the newest server
+and installs its extension. Copy [`docs/AI_GUIDE.md`](docs/AI_GUIDE.md) into
+your client's instruction file (`AGENTS.md`, `.cursorrules`): the context every session needs, with links to the
+skills that hold the workflows and traps; copy the ones your work needs too.
+
+### The Kit extension
+
+```bash
+uvx omniverse-mcp extension install
+```
+
+It copies `ovmcp.bridge` into your user data folder and prints that folder. Then, once, in the Kit app:
+
+1. **Window > Extensions**, the menu (☰) at the top right, **Settings**.
+2. Under **Extension Search Paths**, the green **+**, then paste the folder it printed. The **+** adds an empty row:
+   click it to type.
+3. Search for `ovmcp` under **THIRD PARTY**, and turn **Omniverse MCP Bridge** on, with **Autoload**.
+4. Quit with **File > Exit**, which is when Kit saves these settings, and start it again. The console shows
+   `[ext: ovmcp.bridge-<version>] startup`.
+
+A headless or scripted Kit takes `--ext-folder <that folder> --enable ovmcp.bridge` instead. `omniverse-mcp extension
+path` prints the folder again.
+
+> **Updating:** install the extension again after each server update, and restart Kit and your client. On Windows a
+> running Kit holds the folder: quit it first. With the plugin, `/omniverse-mcp:setup` does this.
+
+> **Used the extension before?** Before 0.2.0 it came from a clone of this repo, and before that it was
+> `isaacsim.mcp.bridge`. Turn the old one off and remove its search path, so Kit loads one copy. See the
+> [changelog](CHANGELOG.md).
+
+### From a clone
+
+For working on omniverse-mcp itself, or before 0.2.0 is on PyPI:
 
 ```bash
 git clone https://github.com/serionist/omniverse-mcp.git
 cd omniverse-mcp
-```
-
-It needs Python 3.11 or newer. Then install it with one of these:
-
-<details open>
-<summary><b>uv</b> (recommended)</summary>
-
-```bash
 uv sync
 ```
 
-**`.mcp.json`** for your project (step 3):
+The client starts the server from the clone, and the Kit extension search path takes the clone's `extension/`
+folder, so a `git pull` updates both (restart Kit and the client after it):
+
 ```json
 {
   "mcpServers": {
-    "omniverse": {
-      "command": "uv",
-      "args": ["run", "--no-sync", "--project", "<REPO_PATH>", "omniverse-mcp"]
-    },
-    "context7": {
-      "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp"]
-    }
+    "omniverse": { "command": "uv", "args": ["run", "--no-sync", "--project", "<REPO_PATH>", "omniverse-mcp"] }
   }
 }
 ```
-Replace `<REPO_PATH>` with the full path of the clone. `--no-sync` starts the server from the environment `uv sync`
-built, so a client never waits on a download at start, and the server still writes its files under your project's
-`mcp_output/`.
 
-</details>
+`--no-sync` starts the server from the environment `uv sync` built, so a client never waits on a download at start,
+and the server still writes its files under your project's `mcp_output/`. [CONTRIBUTING](CONTRIBUTING.md) has the rest.
 
-<details>
-<summary><b>pip</b>, in a venv or a conda environment</summary>
+### Go
 
-```bash
-python -m venv .venv                # or: conda create -n omniverse-mcp python=3.12 -y && conda activate omniverse-mcp
-source .venv/bin/activate           # Windows: .venv\Scripts\activate
-pip install .
-```
+With the Kit app running, open your AI client in the project and ask: *"What's in the scene right now?"*
 
-**`.mcp.json`** for your project (step 3):
-```json
-{
-  "mcpServers": {
-    "omniverse": {
-      "command": "<ENV_PATH>/bin/omniverse-mcp",
-      "env": { "PYTHONPATH": "" }
-    },
-    "context7": {
-      "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp"]
-    }
-  }
-}
-```
-Replace `<ENV_PATH>` with the environment's folder: run `python -c "import sys; print(sys.prefix)"` with it active. On
-Windows the command is `<ENV_PATH>\Scripts\omniverse-mcp.exe`.
+## Context7 for scripts
 
-</details>
-
-> **Updating:** `git pull && uv sync`, or `git pull && pip install .` with pip. Then restart your MCP client.
-
-### 2. Add the extension to your Omniverse app
-
-You only need to do this once -- after that the extension autoloads every time.
-
-1. Open Isaac Sim (or any Kit app)
-2. Go to **Window > Extensions**, then click the **hamburger menu** (☰) in the top-right and choose **Settings**
-3. Under **Extension Search Paths**, click the green **+** button and paste the full path to the `extension/` folder in the cloned repo (it holds `ovmcp.bridge`)
-   - Example: `/home/you/omniverse-mcp/extension` or `C:\Users\you\omniverse-mcp\extension`
-   - The **+** button adds a blank row -- click the new row to type/paste the path
-   - Or install a copy that stays as it is until you install again: `uv run omniverse-mcp extension install` in the
-     clone (with pip, `omniverse-mcp extension install`) prints the folder to paste instead
-4. **Close and restart** the app using **File > Exit** (don't just close the terminal -- settings won't save)
-5. Re-open the Extension Manager, search for **"mcp"**, click the **THIRD PARTY** tab, and expand the **User** group to find **Omniverse MCP Bridge** (`ovmcp.bridge`)
-6. Toggle it **ON** and check **Autoload**
-
-You should see in the console:
-```
-[ext: ovmcp.bridge-0.1.0] startup
-```
-
-> **Used the extension before?** It was `isaacsim.mcp.bridge` before the rename (#8). Turn it off, remove its search path if
-> it pointed inside the old `extension/isaacsim.mcp.bridge-1.0.0` folder, then follow the steps above. See the
-> [changelog](CHANGELOG.md).
-
-> **Updating the extension:** `git pull` in the repo, then `omniverse-mcp extension install` again if you installed a
-> copy. Changes take effect on next app restart (use **File > Exit**).
-
-### 3. Add the AI guide to your project
-
-Copy [`docs/AI_GUIDE.md`](docs/AI_GUIDE.md) into your project's AI instruction file so the assistant knows the recommended workflow, available tools, and common pitfalls:
-
-| Client | Where to paste |
-|--------|----------------|
-| Claude Code | `CLAUDE.md` in project root |
-| Cursor | `.cursorrules` in project root |
-| Windsurf | `.windsurfrules` in project root |
-| Other | Check your client's docs |
-
-### 4. Go
-
-1. Make sure your Omniverse app is running (extension autoloads)
-2. Open your AI client in a project with `.mcp.json`
-3. Ask: *"What's in the scene right now?"*
-
-## Why Context7?
-
-AI models are not trained on Omniverse/Isaac Sim APIs and will hallucinate function names, parameters, and patterns. [Context7](https://github.com/upstash/context7) provides up-to-date API docs on demand so the AI can look up the correct API before writing `execute_script` code. This dramatically improves reliability. Requires Node.js.
+Models are not trained on Omniverse and Isaac Sim APIs, and guess their names. With [Context7](https://context7.com)
+as a second MCP server, the assistant looks the API up (library `isaac-sim/isaacsim`) before writing `execute_script`
+code; the server's instructions and the `script` skill ask it to.
 
 ## Examples
 
@@ -174,17 +152,23 @@ AI models are not trained on Omniverse/Isaac Sim APIs and will hallucinate funct
 
 ## Configuration
 
-### MCP Server Flags
+### The server
 
 ```
---host          Kit extension host (default: 127.0.0.1, or OMNIVERSE_MCP_HOST)
---port          Kit extension port (default: 8211, or OMNIVERSE_MCP_PORT)
---output-dir    Directory for file outputs (default: ./mcp_output/, or OMNIVERSE_MCP_OUTPUT_DIR)
+omniverse-mcp [--host HOST] [--port PORT] [--output-dir DIR]    the MCP server, over stdio
+omniverse-mcp extension install                                 install the Kit extension of this release
+omniverse-mcp extension path                                    print the folder Kit's search paths need
+
+--host          Kit extension host (default: OMNIVERSE_MCP_HOST, else 127.0.0.1)
+--port          Kit extension port (default: OMNIVERSE_MCP_PORT, else 8211)
+--output-dir    Directory for file outputs (default: OMNIVERSE_MCP_OUTPUT_DIR, else ./mcp_output/)
 ```
 
-### Extension Settings
+The plugin's server takes the same variables from the environment Claude Code starts in.
 
-In `extension.toml`:
+### The extension's settings
+
+Kit settings, in the extension's `config/extension.toml` or on Kit's command line (`--/exts/ovmcp.bridge/port=8212`):
 ```toml
 [settings]
 exts."ovmcp.bridge".host = "127.0.0.1"
@@ -204,13 +188,13 @@ For a remote setup, set the extension's `token` to a long random value and give 
 
 ## Troubleshooting
 
-**"Missing or wrong bridge token"** -- The server and the extension must both be up to date (`git pull`, then restart Kit and your MCP client). If Kit runs as another user, in a container or on another machine, use the `token` setting and `OMNIVERSE_MCP_TOKEN` (above).
+**"Missing or wrong bridge token"** -- Is Kit running the extension on this machine, as your user? If Kit runs as another user, in a container or on another machine, use the `token` setting and `OMNIVERSE_MCP_TOKEN` (above).
 
-**"The Kit extension is older than this MCP server"** -- `git pull` updates both, or run the `extension install` command the message names when Kit loads an installed copy; restart Kit so it loads the new extension.
+**"The Kit extension is older than this MCP server", or "speaks bridge protocol"** -- The server and the extension come from different releases. Run the command the message names (or `git pull` in a clone), then restart Kit so it loads the new extension.
 
-**"Cannot connect to Isaac Sim"** -- Is the app running with MCP Bridge enabled? Check console for `[ext: ovmcp.bridge-0.1.0] startup`. Make sure port 8211 is free.
+**"Kit app connection failed", refused or timed out** -- Is the Kit app running, with the extension on? Its console shows `[ext: ovmcp.bridge-<version>] startup`. The server looks for it on port 8211 unless `OMNIVERSE_MCP_PORT` or `--port` says otherwise.
 
-**MCP server fails to start** -- If using conda, use the environment's `omniverse-mcp` executable (not `conda run`). Set `"PYTHONPATH": ""` in env if you get import errors.
+**The plugin's server doesn't start** -- `/mcp` in Claude Code shows its error. Is `uv` on the PATH Claude Code starts with? Before 0.2.0 is on PyPI, use a clone (Install, From a clone).
 
 **Viewport capture returns black** -- The response includes a WARNING with the lighting mode. Use `viewport_light("get")` to see the mode and whether the scene has lights, then `viewport_light(action="set", mode="Default")` for a light rig, or `mode="camera"` for a light that follows the camera, and recapture. Kit 105.1+ has no default stage light, so scenes without explicitly added lights will render black.
 
@@ -220,9 +204,10 @@ For a remote setup, set the extension's `token` to a long random value and give 
 
 - [Tool Reference](docs/TOOLS.md) -- Every tool, with its parameters, hints and examples
 - [Architecture](docs/ARCHITECTURE.md) -- How the two-process bridge works
-- [AI Assistant Guide](docs/AI_GUIDE.md) -- Template for your project's AI instructions
+- [The plugin](plugin/README.md) -- What the Claude Code plugin brings, and its skills
+- [AI Assistant Guide](docs/AI_GUIDE.md) -- For other clients' instruction files
 - [Contributing](CONTRIBUTING.md) -- How to contribute
 
-## License
+## Licence
 
-[MIT](LICENSE)
+[MIT](LICENSE). Not affiliated with or endorsed by NVIDIA; Omniverse and Isaac Sim are NVIDIA's trademarks.

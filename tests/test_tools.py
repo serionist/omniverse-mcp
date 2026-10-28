@@ -4,6 +4,7 @@ what they do with it."""
 
 import asyncio
 from dataclasses import dataclass
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ import golden
 import pytest
 from mcp import Client
 
+from omniverse_mcp import kit_extension
 from omniverse_mcp.client import BridgeClient
 from omniverse_mcp.server import create_server
 
@@ -381,7 +383,8 @@ CASES = [
         "/sim/state",
         {"state": "stopped", "up_axis": "Z", "sim_time": 0.0, "fps": 60.0, "prim_count": 3, "meters_per_unit": 1.0},
         {},
-        ("state = stopped", "up_axis = Z"),
+        # The mock bridge's handshake answers extension 1.0.0, another release than this server's.
+        ("state = stopped", "up_axis = Z", "extension_version = 1.0.0", "note = the Kit extension is 1.0.0"),
     ),
     Case(
         "set_physics_properties",
@@ -534,3 +537,23 @@ def test_manage_extensions_enables_one(bridge: MockIsaacServer, tmp_path: Path):
         bridge,
         tmp_path,
     )
+
+
+def test_get_sim_state_says_nothing_more_when_the_extension_is_this_release(bridge: MockIsaacServer, tmp_path: Path):
+    # The extension this checkout carries, which is what a server started from it installs.
+    release = kit_extension.carried_version()
+    bridge.set_response("/bridge", {"status": "success", "result": {"protocol": 1, "extension_version": release}})
+    bridge.set_response("/sim/state", {"status": "success", "result": {"state": "stopped"}})
+    client = BridgeClient(port=bridge.port, token="invented-test-token")
+    try:
+
+        async def call():
+            async with Client(create_server("127.0.0.1", bridge.port, str(tmp_path), client=client)) as c:
+                return await c.call_tool("get_sim_state", {})
+
+        result = asyncio.run(call())
+    finally:
+        client.close()
+    text = "\n".join(getattr(c, "text", "") for c in result.content)
+    assert f"extension_version = {release}\nserver_version = {version('omniverse-mcp')}" in text
+    assert "note = " not in text

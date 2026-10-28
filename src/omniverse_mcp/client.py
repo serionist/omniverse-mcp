@@ -41,6 +41,9 @@ class BridgeClient:
         # One request at a time: the MCP SDK runs tools on worker threads, several at once, and they share this one
         # socket; one at a time also keeps two tools' USD edits from interleaving in Kit.
         self._lock = threading.Lock()
+        # The extension's version from the last handshake. Another version on the same protocol is not refused
+        # (plan Q2), so get_sim_state reports it: an update that keeps the protocol leaves Kit on the old one.
+        self.extension_version: str | None = None
 
     def _connect(self) -> socket.socket:
         sock = socket.create_connection((self.host, self.port), timeout=10.0)
@@ -123,6 +126,7 @@ class BridgeClient:
             # The next request reconnects and asks again.
             self._disconnect()
             raise BridgeError(problem)
+        self.extension_version = str(result.get("extension_version", "unknown"))
 
     def _build(self, path: str, body: dict[str, Any] | None, method: str) -> bytes:
         body_bytes = b""

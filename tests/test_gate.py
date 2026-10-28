@@ -516,6 +516,215 @@ def test_a_plain_description_without_a_colon_or_a_hash_passes():
     assert gate.skill_problems("start-work", plain("Use when someone starts work, as in issue 12")) == []
 
 
+# The plugin
+
+PREFIX = "mcp__plugin_omniverse-mcp_omniverse__"
+READS = {"get_sim_state", "capture_viewport"}
+PLUGIN_SKILL = f"""---
+name: scene
+description: >-
+  Use when working on a scene.
+allowed-tools: >-
+  {PREFIX}get_sim_state
+  {PREFIX}capture_viewport
+---
+"""
+
+
+def test_a_plugin_skill_that_pre_approves_reads_passes():
+    assert gate.plugin_skill_problems("scene", PLUGIN_SKILL, READS) == []
+    assert (
+        gate.plugin_skill_problems("scene", PLUGIN_SKILL.replace(f"\n  {PREFIX}capture", f", {PREFIX}capture"), READS)
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    ("allowed", "expected"),
+    [
+        (f"{PREFIX}set_prim_transform", f"{PREFIX}set_prim_transform"),
+        (f"{PREFIX}execute_script", f"{PREFIX}execute_script"),
+        ("Bash(uvx omniverse-mcp==0.1.0 extension install)", "Bash(uvx"),
+        ("mcp__plugin_other_omniverse__get_sim_state", "mcp__plugin_other_omniverse__get_sim_state"),
+    ],
+    ids=["an edit", "a script", "a shell command", "another plugin"],
+)
+def test_a_plugin_skill_pre_approves_nothing_but_reads(allowed, expected):
+    text = PLUGIN_SKILL.replace(f"  {PREFIX}capture_viewport", f"  {allowed}")
+    (problem,) = gate.plugin_skill_problems("scene", text, READS)
+    assert expected in problem
+    assert "not a read-only tool" in problem
+
+
+def test_a_plugin_skill_keeps_the_skill_rules():
+    (problem,) = gate.plugin_skill_problems("setup", PLUGIN_SKILL, READS)
+    assert "must equal the folder name" in problem
+    (problem,) = gate.plugin_skill_problems(
+        "scene", PLUGIN_SKILL.replace("name: scene", "name: scene\nmodel: x"), READS
+    )
+    assert "holds only name, description, allowed-tools" in problem
+
+
+def test_versions_agree_with_pyproject():
+    assert gate.version_problems({"pyproject.toml": "0.2.0", "plugin/.mcp.json (pin 1)": "0.2.0"}) == []
+    (problem,) = gate.version_problems({"pyproject.toml": "0.2.0", "plugin/.mcp.json (pin 1)": "0.1.0"})
+    assert "plugin/.mcp.json (pin 1) has version '0.1.0' and pyproject.toml '0.2.0'" in problem
+
+
+PLUGIN = {"name": "omniverse-mcp", "version": "0.1.0", "description": "Drive Kit."}
+MARKET = {
+    "name": "omniverse-mcp",
+    "plugins": [{"name": "omniverse-mcp", "source": "./plugin", "description": "Drive Kit."}],
+}
+SERVERS = {"omniverse": {"command": "uvx", "args": ["omniverse-mcp==0.1.0"]}}
+
+
+def test_the_manifests_agree():
+    assert gate.manifest_problems(PLUGIN, MARKET, SERVERS) == []
+
+
+@pytest.mark.parametrize(
+    ("plugin", "market", "servers", "expected"),
+    [
+        ({**PLUGIN, "version": ""}, MARKET, SERVERS, "needs version"),
+        ({**PLUGIN, "name": "omniverse"}, MARKET, SERVERS, "the plugin is 'omniverse-mcp'"),
+        (PLUGIN, {**MARKET, "plugins": []}, SERVERS, "must list the plugin 'omniverse-mcp' once"),
+        (PLUGIN, {**MARKET, "plugins": [{**MARKET["plugins"][0], "source": "./other"}]}, SERVERS, "source is ./plugin"),
+        (PLUGIN, {**MARKET, "plugins": [{**MARKET["plugins"][0], "description": "x"}]}, SERVERS, "description differs"),
+        (PLUGIN, {**MARKET, "name": "omniverse"}, SERVERS, "the marketplace is 'omniverse-mcp'"),
+        (PLUGIN, MARKET, {"isaac": SERVERS["omniverse"]}, "starts one server, 'omniverse'"),
+    ],
+    ids=["no version", "renamed plugin", "not listed", "source", "description", "renamed marketplace", "server key"],
+)
+def test_the_manifests_disagree(plugin, market, servers, expected):
+    problems = gate.manifest_problems(plugin, market, servers)
+    assert any(expected in p for p in problems), problems
+
+
+def test_the_repos_plugin_passes_without_claude_as_a_warning(monkeypatch):
+    monkeypatch.setattr(gate.shutil, "which", lambda name: None)
+    monkeypatch.delenv("GATE_REQUIRE_CLAUDE", raising=False)
+    result = gate.check_plugin(gate.Scope([]))
+    assert (result.status, result.detail) == ("warn", result.detail)
+    assert "not validated: Claude Code (`claude`) is not on PATH" in result.detail
+    monkeypatch.setenv("GATE_REQUIRE_CLAUDE", "1")
+    assert gate.check_plugin(gate.Scope([])).status == "FAIL"
+
+
+def test_claude_validates_the_plugin_and_the_marketplace(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, cwd=gate.ROOT, stdin=None):
+        calls.append(cmd[1:])
+        failed = cmd[-1] == "."
+        return subprocess.CompletedProcess(cmd, 1 if failed else 0, stdout="✘ marketplace" if failed else "", stderr="")
+
+    monkeypatch.setattr(gate.shutil, "which", lambda name: "claude")
+    monkeypatch.setattr(gate, "run", fake_run)
+    result = gate.check_plugin(gate.Scope([]))
+    assert calls == [["plugin", "validate", "--strict", "plugin"], ["plugin", "validate", "--strict", "."]]
+    assert (result.status, result.detail) == ("FAIL", "claude plugin validate --strict . failed")
+    assert "✘ marketplace" in result.output
+
+
+def test_a_plugin_claude_validates_passes(monkeypatch):
+    monkeypatch.setattr(gate.shutil, "which", lambda name: "claude")
+    monkeypatch.setattr(gate, "run", lambda cmd, cwd=gate.ROOT, stdin=None: subprocess.CompletedProcess(cmd, 0, "", ""))
+    result = gate.check_plugin(gate.Scope([]))
+    assert result.status == "pass"
+    assert result.detail.endswith("validated by Claude Code")
+
+
+def _plugin_tree(tmp_path: Path) -> Path:
+    """The files check_plugin reads, copied from the repo."""
+    files = ("pyproject.toml", "extension/ovmcp.bridge/config/extension.toml", gate.TOOL_CONTRACT, gate.MARKETPLACE)
+    for rel in (*files, gate.AI_GUIDE):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_bytes((gate.ROOT / rel).read_bytes())
+    for path in (gate.ROOT / gate.PLUGIN_DIR).rglob("*"):
+        if path.is_file():
+            target = tmp_path / path.relative_to(gate.ROOT)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(path.read_bytes())
+    return tmp_path
+
+
+def test_a_pin_out_of_step_fails_the_plugin(tmp_path, monkeypatch):
+    root = _plugin_tree(tmp_path)
+    monkeypatch.setattr(gate.shutil, "which", lambda name: None)
+    setup_skill = root / gate.PLUGIN_SKILLS_DIR / "setup" / "SKILL.md"
+    text = setup_skill.read_text(encoding="utf-8")
+    version = gate.plugin_versions(gate.ROOT, gate._json(gate.ROOT / gate.PLUGIN_MANIFEST))["pyproject.toml"]
+    assert f"omniverse-mcp=={version}" in text
+    setup_skill.write_text(text.replace(f"omniverse-mcp=={version}", "omniverse-mcp==9.9.9", 1), encoding="utf-8")
+    result = gate.check_plugin(gate.Scope([]), root=root)
+    assert result.status == "FAIL"
+    assert "plugin/skills/setup/SKILL.md (pin 1) has version '9.9.9'" in result.output + result.detail
+
+
+def test_a_plugin_server_without_its_pin_fails(tmp_path, monkeypatch):
+    root = _plugin_tree(tmp_path)
+    monkeypatch.setattr(gate.shutil, "which", lambda name: None)
+    (root / gate.PLUGIN_MCP).write_text(
+        json.dumps({"mcpServers": {"omniverse": {"command": "uvx", "args": ["omniverse-mcp"]}}}), encoding="utf-8"
+    )
+    result = gate.check_plugin(gate.Scope([]), root=root)
+    assert "must be exactly" in result.output + result.detail
+
+
+@pytest.mark.parametrize(
+    ("rel", "old", "new", "expected"),
+    [
+        ("plugin/skills/setup/SKILL.md", "ovmcp.bridge-{version}", "ovmcp.bridge-9.9.9", "has version '9.9.9'"),
+        ("plugin/README.md", "`/omniverse-mcp:scene`", "`/omniverse-mcp:look`", "does not list `/omniverse-mcp:scene`"),
+        (gate.AI_GUIDE, "skills/geometry/SKILL.md", "skills/geo/SKILL.md", "does not link the skill geometry"),
+        (
+            "plugin/README.md",
+            "## Install",
+            "[x](../docs/TOOLS.md)\n## Install",
+            "the link '../docs/TOOLS.md' is relative",
+        ),
+        ("plugin/hooks/hooks.json", None, "{}", "plugin/hooks/hooks.json: a file the gate doesn't check"),
+        (gate.PLUGIN_MANIFEST, '"license"', '"mcpServers": {}, "license"', "the key 'mcpServers' isn't checked"),
+        (gate.MARKETPLACE, None, "{not json", "can't be read"),
+        (gate.MARKETPLACE, '"source"', '"hooks": {}, "source"', "the plugin's key 'hooks' isn't checked"),
+        (gate.PLUGIN_MCP, '"args": [', '"args": [\n"--from", "git+https://example.org/x",', "must be exactly"),
+        (gate.PLUGIN_MCP, '"PYTHONPATH": ""', '"PYTHONPATH": "", "X": "1"', "must be exactly"),
+    ],
+    ids=[
+        "extension pin",
+        "README",
+        "AI guide",
+        "relative link",
+        "a hooks file",
+        "a manifest key",
+        "unreadable",
+        "a marketplace key",
+        "a server argument",
+        "a server variable",
+    ],
+)
+def test_the_plugin_check_finds(rel, old, new, expected, tmp_path, monkeypatch):
+    root = _plugin_tree(tmp_path)
+    monkeypatch.setattr(gate.shutil, "which", lambda name: None)
+    monkeypatch.delenv("GATE_REQUIRE_CLAUDE", raising=False)
+    assert gate.check_plugin(gate.Scope([]), root=root).status == "warn"
+    path = root / rel
+    if old is not None:
+        # The release's version where a case names it, so the cases hold after the next bump.
+        old = old.format(version=gate.plugin_versions(root, gate._json(root / gate.PLUGIN_MANIFEST))["pyproject.toml"])
+    if old is None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(new, encoding="utf-8")
+    else:
+        text = path.read_text(encoding="utf-8")
+        assert old in text
+        path.write_text(text.replace(old, new, 1), encoding="utf-8")
+    result = gate.check_plugin(gate.Scope([]), root=root)
+    assert result.status == "FAIL"
+    assert expected in result.output + result.detail
+
+
 # Skill links
 
 LINK = ("120000", ".agents/skills/start-work", "../../.claude/skills/start-work")

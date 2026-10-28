@@ -941,5 +941,23 @@ def test_a_reply_cut_short_is_not_sent_again():
     assert bridge.paths == ["/bridge", "/health", "/health"]
 
 
+def test_the_extension_version_follows_each_handshake():
+    # A Kit restart with another release on the same protocol isn't refused; get_sim_state reports what this keeps.
+    bridge = MockIsaacServer()
+    bridge.start()
+    client = BridgeClient(port=bridge.port, token="invented-test-token", timeout=5.0)
+    try:
+        for release in ("0.1.0", "0.2.0"):
+            bridge.set_response(
+                "/bridge", {"status": "success", "result": {"protocol": 1, "extension_version": release}}
+            )
+            client._disconnect()
+            client.health()
+            assert client.extension_version == release
+    finally:
+        client.close()
+        bridge.stop()
+
+
 if __name__ == "__main__":
     unittest.main()
