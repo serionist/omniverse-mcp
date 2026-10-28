@@ -117,7 +117,7 @@ class TestIsaacSimClient(unittest.TestCase):
         cls.mock.set_response("/sim/capture", {"status": "success", "result": {"image_base64": "iVBORw0KGgo=", "width": 1280, "height": 720, "camera_path": "/OmniverseKit_Persp", "format": "png", "screen_bboxes": [{"prim_path": "/World/Cube", "type": "Cube", "screen_bbox": [120.0, 200.0, 480.0, 600.0], "world_center": [0.0, 0.5, 0.0], "world_dimensions": [1.0, 1.0, 1.0]}], "segmentation_base64": "iVBORw0KGgo=", "segmentation_legend": {"/World/Cube": [255, 159, 0]}}})
         cls.mock.set_response("/camera/set", {"status": "success", "result": {"camera_path": "/OmniverseKit_Persp", "position": [5, 3, 5], "target": [0, 0, 0]}})
         cls.mock.set_response("/camera/look_at", {"status": "success", "result": {"camera_path": "/OmniverseKit_Persp", "camera_position": [2, 1.5, 2], "target": [0, 0.5, 0], "distance": 3.0, "azimuth": 45.0, "elevation": 30.0}})
-        cls.mock.set_response("/camera/inspect", {"status": "success", "result": {"prim_path": "/World/Cube", "center": [0, 0.5, 0], "distance": 2.5, "captures": [{"angle": "front", "azimuth": 0, "elevation": 20, "camera_position": [0, 1, 2.3], "image_base64": "iVBORw0KGgo="}]}})
+        cls.mock.set_response("/camera/inspect", {"status": "success", "result": {"prim_path": "/World/Cube", "center": [0, 0.5, 0], "distance": 2.5, "zoom_offset": 0.0, "isolate": False, "captures": [{"angle": "front", "azimuth": 0, "elevation": 20, "camera_position": [0, 1, 2.3], "image_base64": "iVBORw0KGgo="}]}})
         cls.mock.set_response("/recording/start", {"status": "success", "result": {"session_id": "rec_123", "output_dir": "/tmp/rec_123", "fps": 5, "resolution": [640, 480], "camera_path": "/OmniverseKit_Persp"}})
         cls.mock.set_response("/recording/stop", {"status": "success", "result": {"session_id": "rec_123", "output_dir": "/tmp/rec_123", "frame_count": 15, "duration_seconds": 3.0, "metadata_file": "/tmp/rec_123/metadata.json"}})
         cls.mock.set_response("/recording/frame", {"status": "success", "result": {"frame_index": 0, "image_base64": "iVBORw0KGgo=", "format": "png", "sim_time": 0.0, "wall_time": 0.0}})
@@ -136,7 +136,7 @@ class TestIsaacSimClient(unittest.TestCase):
         cls.mock.set_response("/scene/create_variant_structure", {"status": "success", "result": {"prim_path": "/World/Server", "variant_set_name": "model", "variants_created": ["focused", "shell"], "default_selection": "focused"}})
         cls.mock.set_response("/scene/compare", {"status": "success", "result": {"a": {"label": "/World/A", "total_faces": 10000, "total_vertices": 8000, "total_triangles": 20000, "mesh_count": 5, "bounds_center": [0, 0, 0], "bounds_dimensions": [1, 1, 1], "materials": ["/World/Looks/Mat1"]}, "b": {"label": "/World/B", "total_faces": 2000, "total_vertices": 1500, "total_triangles": 4000, "mesh_count": 3, "bounds_center": [0, 0, 0], "bounds_dimensions": [1, 1, 1], "materials": ["/World/Looks/Mat1"]}, "delta": {"faces": -8000, "vertices": -6500, "triangles": -16000, "meshes": -2, "face_reduction_pct": -80.0}}})
         cls.mock.set_response("/scene/update_material_paths", {"status": "success", "result": {"prim_path": "/World", "old_prefix": "/Old/Looks", "new_prefix": "/World/Looks", "updated_count": 5, "updated_prims": ["/World/Server/Body", "/World/Server/Door"]}})
-        cls.mock.set_response("/viewport/light", {"status": "success", "result": {"camera_light_on": False, "has_scene_lights": True, "scene_lights": [{"path": "/World/DistantLight", "type": "DistantLight", "intensity": 1000}]}})
+        cls.mock.set_response("/viewport/light", {"status": "success", "result": {"lighting_mode": "stage", "available_modes": ["off", "camera", "stage", "Default", "Colored Lights", "Grey Studio"], "has_scene_lights": True, "scene_lights": [{"path": "/World/DistantLight", "type": "DistantLight", "intensity": 1000}]}})
         cls.mock.set_response("/logs", {"status": "success", "result": {"entries": [{"index": 0, "level": "warn", "channel": "omni.physx", "module": "PhysX", "source": "physx.cpp:42", "func": "init", "msg": "Test warning", "timestamp": 1709912345.0}], "count": 1, "total_captured": 100, "buffer_size": 2000}})
         cls.mock.start()
 
@@ -444,6 +444,20 @@ class TestIsaacSimClient(unittest.TestCase):
         self.assertEqual(r["status"], "success")
         _, _, body = self.mock.requests[-1]
         self.assertNotIn("angles", body)
+        self.assertNotIn("zoom_offset", body)  # 0.0 default not sent
+        self.assertNotIn("isolate", body)  # False default not sent
+
+    def test_camera_inspect_with_zoom_offset(self):
+        r = self.client.camera_inspect("/World/Cube", angles=["front"], zoom_offset=-0.3)
+        self.assertEqual(r["status"], "success")
+        _, _, body = self.mock.requests[-1]
+        self.assertAlmostEqual(body["zoom_offset"], -0.3)
+
+    def test_camera_inspect_with_isolate(self):
+        r = self.client.camera_inspect("/World/Cube", angles=["front"], isolate=True)
+        self.assertEqual(r["status"], "success")
+        _, _, body = self.mock.requests[-1]
+        self.assertTrue(body["isolate"])
 
     def test_camera_inspect_with_segmentation(self):
         r = self.client.camera_inspect("/World/Cube", angles=["front"], include_segmentation=True)
@@ -454,12 +468,20 @@ class TestIsaacSimClient(unittest.TestCase):
     def test_viewport_light_get(self):
         r = self.client.viewport_light("get")
         self.assertEqual(r["status"], "success")
-        self.assertIn("camera_light_on", r["result"])
+        self.assertIn("lighting_mode", r["result"])
+        self.assertIn("available_modes", r["result"])
         self.assertIn("scene_lights", r["result"])
         _, _, body = self.mock.requests[-1]
         self.assertEqual(body["action"], "get")
 
-    def test_viewport_light_set(self):
+    def test_viewport_light_set_mode(self):
+        r = self.client.viewport_light("set", mode="Default")
+        self.assertEqual(r["status"], "success")
+        _, _, body = self.mock.requests[-1]
+        self.assertEqual(body["action"], "set")
+        self.assertEqual(body["mode"], "Default")
+
+    def test_viewport_light_set_camera_light_legacy(self):
         r = self.client.viewport_light("set_camera_light", enabled=True)
         self.assertEqual(r["status"], "success")
         _, _, body = self.mock.requests[-1]

@@ -60,16 +60,16 @@ def register(mcp, client, h):
         # 1. Save viewport image
         filepath = h.save_png(r["image_base64"], "viewport")
         capture_id = h.capture_counter  # snapshot counter for consistent filenames
-        lines.append(f"Viewport: {r['width']}x{r['height']} -> {filepath}")
+        lighting_mode = r.get("lighting_mode", "unknown")
+        lines.append(f"Viewport: {r['width']}x{r['height']} (lighting: {lighting_mode}) -> {filepath}")
         if r.get("is_black"):
             has_lights = r.get("has_scene_lights", False)
-            cam_light = r.get("camera_light_on", False)
-            if not has_lights and not cam_light:
-                lines.append("WARNING: Image is all-black. Scene has no lights and camera light is off. Use viewport_light tool to enable camera light.")
-            elif not has_lights:
-                lines.append("WARNING: Image is all-black. Scene has no lights (camera light is on but may need a recapture).")
+            if lighting_mode == "off":
+                lines.append("WARNING: Image is all-black. Lighting mode is 'off'. Use viewport_light(action='set', mode='Default') to add light.")
+            elif not has_lights and lighting_mode == "stage":
+                lines.append("WARNING: Image is all-black. No scene lights and mode is 'stage'. Use viewport_light(action='set', mode='Default') to add light.")
             else:
-                lines.append("WARNING: Image is all-black. Scene has lights but image is still dark — renderer may need warmup. Try recapturing.")
+                lines.append(f"WARNING: Image is all-black (lighting: {lighting_mode}). Renderer may need warmup — try recapturing, or change lighting mode with viewport_light.")
 
         # 2. Save screen-space bounding boxes
         bboxes = r.get("screen_bboxes", [])
@@ -169,11 +169,13 @@ def register(mcp, client, h):
         angles: list[str] | None = None,
         width: int = 640,
         height: int = 480,
-        distance: float | None = None,
+        zoom_offset: float = 0.0,
+        isolate: bool = False,
         include_segmentation: bool = False,
     ) -> str:
         """Orbit-capture: take screenshots from 14 systematic angles around a prim (cube-based).
 
+        Auto-fits camera distance so the prim fills the viewport with ~10px margin.
         Captures from all 6 face centers + 8 cube corners by default, giving full coverage.
         Saves each angle as a PNG file. Use Read tool to view images.
 
@@ -186,16 +188,20 @@ def register(mcp, client, h):
                     "bottom_back_left". Pass a subset list to capture fewer angles.
             width: Image width per capture
             height: Image height per capture
-            distance: Camera distance (auto-computed from object size if omitted)
+            zoom_offset: Adjust auto-fit distance. 0=auto-fit (default), negative=closer,
+                        positive=further. E.g., -0.3 = 30% closer, 0.5 = 50% further.
+            isolate: Hide all other scene content during capture (restore after)
             include_segmentation: Also capture instance segmentation at each angle
         """
-        resp = _call(client.camera_inspect, prim_path, angles, width, height, distance, include_segmentation)
+        resp = _call(client.camera_inspect, prim_path, angles, width, height, zoom_offset, isolate, include_segmentation)
         err = _check_error(resp)
         if err:
             return err
 
         r = resp["result"]
-        lines = [f"Inspect {prim_path} (dist={r['distance']}m)"]
+        zoom_info = f", zoom_offset={r['zoom_offset']}" if r.get('zoom_offset', 0) != 0 else ""
+        isolate_info = ", isolated" if r.get('isolate') else ""
+        lines = [f"Inspect {prim_path} (dist={r['distance']}m{zoom_info}{isolate_info})"]
         warned = False
         for cap in r["captures"]:
             if "error" in cap:
@@ -220,22 +226,24 @@ def register(mcp, client, h):
         return "\n".join(lines)
 
     @mcp.tool()
-    def viewport_light(action: str = "get", enabled: bool = True) -> str:
-        """Query or control viewport lighting (camera light + scene lights).
+    def viewport_light(action: str = "get", mode: str = "", enabled: bool = True) -> str:
+        """Query or control viewport lighting mode.
 
         Actions:
-        - "get": Return current lighting state (camera light on/off, scene lights list)
-        - "set_camera_light": Enable or disable the viewport camera light (a fill light
-          that follows the camera — non-destructive, does not modify the scene)
+        - "get": Return current lighting mode, available modes, and scene lights
+        - "set": Set lighting mode. Available modes: "off", "camera", "stage",
+          "Default", "Colored Lights", "Grey Studio" (light rigs)
+        - "set_camera_light": Legacy — enable/disable camera light
 
-        When capture_viewport returns a black image, use this tool to check lighting
-        and enable the camera light if needed, then recapture.
+        When capture_viewport returns a black image, use this tool to check and change
+        the lighting mode, then recapture.
 
         Args:
-            action: "get" or "set_camera_light"
+            action: "get", "set", or "set_camera_light"
+            mode: Lighting mode to set (for "set" action)
             enabled: Whether to enable (true) or disable (false) camera light (for set_camera_light)
         """
-        resp = _call(client.viewport_light, action, enabled)
+        resp = _call(client.viewport_light, action, mode, enabled)
         err = _check_error(resp)
         if err:
             return err
@@ -243,18 +251,24 @@ def register(mcp, client, h):
         r = resp["result"]
         lines = []
         if action == "get":
-            lines.append(f"Camera light: {'ON' if r.get('camera_light_on') else 'OFF'}")
+            lines.append(f"Lighting mode: {r.get('lighting_mode', 'unknown')}")
+            available = r.get("available_modes", [])
+            if available:
+                lines.append(f"Available modes: {', '.join(available)}")
             lines.append(f"Scene has lights: {'yes' if r.get('has_scene_lights') else 'no'}")
             scene_lights = r.get("scene_lights", [])
             if scene_lights:
                 lines.append(f"Scene lights ({len(scene_lights)}):")
                 for lt in scene_lights:
                     lines.append(f"  {lt['path']} ({lt['type']}, intensity={lt.get('intensity', 'N/A')})")
-            else:
-                lines.append("No scene lights found. Consider enabling camera light or adding a light with create_prim.")
+        elif action == "set":
+            lines.append(f"Lighting mode: {r.get('lighting_mode', 'unknown')}")
+            if r.get("message"):
+                lines.append(r["message"])
         elif action == "set_camera_light":
-            state = "enabled" if r.get("camera_light_on") else "disabled"
-            lines.append(f"Camera light {state}. Recapture viewport to see the effect.")
+            lines.append(f"Lighting mode: {r.get('lighting_mode', 'unknown')}")
+            if r.get("message"):
+                lines.append(r["message"])
         else:
             lines.append(json.dumps(r, indent=2))
         return "\n".join(lines)

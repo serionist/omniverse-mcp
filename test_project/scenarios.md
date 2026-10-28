@@ -88,8 +88,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 
 ### 3.5 Multi-Angle Inspect
 - Call `inspect_prim("/World/RedCube", angles=["front", "right", "top"])`
-- Verify: returns 3 images from different angles
-- The cube should be visible and centered in each
+- Verify: returns 3 images from different angles, auto-fit distance > 0
+- The cube should fill the frame (auto-fit computes distance from FOV + bounding sphere)
 
 ---
 
@@ -256,7 +256,7 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 
 ### 10.2 Inspect Robot
 - `inspect_prim("/World/G1", angles=["front", "right", "top_front_right"])`
-- Verify: 3 images showing the robot from cube-based angles
+- Verify: 3 images showing the robot from cube-based angles, auto-fit distance > 0
 
 ### 10.3 Record Robot with State Tracking
 - `start_recording(fps=10, track_prims=["/World/G1"], property_filter=["joint", "pos"])`
@@ -558,6 +558,13 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 
 ## Phase 22: Enhanced Inspect Prim
 
+> **Auto-fit:** `inspect_prim` computes camera distance from the prim's bounding sphere and camera FOV,
+> so the prim fills the viewport with ~10px margin. The `zoom_offset` parameter adjusts this:
+> negative = closer, positive = further, 0 = auto-fit default.
+>
+> **Isolate:** `isolate=True` hides all other `/World` children during capture (via session layer),
+> then restores them. The target prim renders alone against an empty background.
+
 ### 22.1 Inspect with Segmentation
 - `inspect_prim("/World/TestCube", angles=["front", "right"], include_segmentation=True)`
 - Verify: each capture has segmentation image + legend in addition to the viewport image
@@ -569,28 +576,59 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 ### 22.3 Inspect Non-Existent Prim
 - `inspect_prim("/World/Nonexistent")` → error
 
+### 22.4 Inspect with Zoom Offset
+- `inspect_prim("/World/Franka", angles=["front"], zoom_offset=-0.3)` → closer (30% shorter distance)
+- `inspect_prim("/World/Franka", angles=["front"])` → default auto-fit
+- Verify: zoom_offset=-0.3 produces a smaller distance than the default
+- The zoomed-in capture should show the prim larger in the frame
+
+### 22.5 Inspect with Isolate
+- `inspect_prim("/World/Franka", angles=["front"], isolate=True)`
+- Verify: response includes `isolate=true`, prim captures successfully
+- Other scene prims should not be visible in the captured image
+- After capture, other prims should be restored (check with `capture_viewport`)
+
 ---
 
 ## Phase 23: Viewport Lighting
 
+> **Lighting modes:** The MCP exposes all Omniverse viewport lighting options:
+> `"off"`, `"camera"`, `"stage"`, and light rig presets (`"Default"`, `"Colored Lights"`, `"Grey Studio"`).
+>
+> **No auto-fix:** The MCP never auto-switches lighting. It detects and warns about black images,
+> but the user/AI must explicitly set the desired mode.
+
 ### 23.1 Get Lighting State
 - `viewport_light("get")`
-- Verify: returns camera_light_on (bool), has_scene_lights (bool), scene_lights list
+- Verify: returns `lighting_mode` (string), `available_modes` (list), `has_scene_lights` (bool), `scene_lights` (list)
+- `available_modes` should include at least `"off"`, `"camera"`, `"stage"`
 
-### 23.2 Enable Camera Light
+### 23.2 Set Lighting Mode — Default Rig
+- `viewport_light("set", mode="Default")`
+- Verify: `lighting_mode="Default"` in response
+- `capture_viewport()` → scene should be lit with the Default light rig
+
+### 23.3 Set Lighting Mode — Camera Light
+- `viewport_light("set", mode="camera")`
+- Verify: `lighting_mode="camera"` in response
+
+### 23.4 Set Lighting Mode — Stage
+- `viewport_light("set", mode="stage")`
+- Verify: `lighting_mode="stage"` in response
+- With no scene lights, this should render dark/black
+
+### 23.5 Legacy set_camera_light Action
 - `viewport_light("set_camera_light", enabled=True)`
-- Verify: camera_light_on=true in response
-- `capture_viewport()` → scene should be lit
-
-### 23.3 Disable Camera Light
+- Verify: success (backward compatibility)
 - `viewport_light("set_camera_light", enabled=False)`
-- Verify: camera_light_on=false in response
+- Verify: success
 
-### 23.4 Black Image Detection
-- Delete all lights if any exist
-- Disable camera light: `viewport_light("set_camera_light", enabled=False)`
-- `capture_viewport()` → should include WARNING about all-black image with lighting diagnostics
-- Enable camera light: `viewport_light("set_camera_light", enabled=True)`
+### 23.6 Black Image Detection (No Auto-Fix)
+- Set lighting to off: `viewport_light("set", mode="off")`
+- `capture_viewport()` → should include WARNING about all-black image
+- The MCP should NOT auto-enable camera light or change the mode
+- Response should include `lighting_mode` field showing current mode
+- Fix it manually: `viewport_light("set", mode="Default")`
 - `capture_viewport()` → image should now be lit, no WARNING
 
 ---
