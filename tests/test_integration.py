@@ -233,7 +233,10 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
             position = [0.0, 0.0, 0.0]
             position[axis] = height
             self.client.create_prim(f"/World/IntTestPair/{name}", "Cube", position=position, scale=flat)
-            self.assertEqual(self.client.set_material(f"/World/IntTestPair/{name}", color=colour)["status"], "success")
+            # Under the pair, so deleting it takes them too.
+            material = f"/World/IntTestPair/Looks/{name}_Mat"
+            made = self.client.set_material(f"/World/IntTestPair/{name}", color=colour, material_path=material)
+            self.assertEqual(made["status"], "success", made)
         self.client.create_prim("/World/IntTestPair/Dome", "DomeLight")
         # A light's intensity defaults to 1, too dim to tell red from blue; the viewport's own light isn't the test's.
         lit = self.client.execute(
