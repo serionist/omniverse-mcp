@@ -1,0 +1,59 @@
+"""The bridge's PNG writer gives a file any PNG reader takes: valid chunks, and the pixels it was given."""
+
+import struct
+import zlib
+
+import numpy as np
+
+from ovmcp.core.png import encode_png
+
+
+def _read_png(data: bytes) -> tuple[dict[str, int], bytes]:
+    """IHDR's fields and the decompressed image data, checking the signature and every chunk's CRC."""
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    pos, chunks = 8, []
+    while pos < len(data):
+        (length,) = struct.unpack(">I", data[pos : pos + 4])
+        kind, body = data[pos + 4 : pos + 8], data[pos + 8 : pos + 8 + length]
+        (crc,) = struct.unpack(">I", data[pos + 8 + length : pos + 12 + length])
+        assert crc == zlib.crc32(kind + body) & 0xFFFFFFFF, kind
+        chunks.append((kind, body))
+        pos += 12 + length
+    assert [kind for kind, _ in chunks] == [b"IHDR", b"IDAT", b"IEND"]
+    width, height, depth, colour, compression, filtering, interlace = struct.unpack(">IIBBBBB", chunks[0][1])
+    header = {"width": width, "height": height, "depth": depth, "colour": colour, "interlace": interlace}
+    assert (compression, filtering) == (0, 0)
+    return header, zlib.decompress(chunks[1][1])
+
+
+def test_an_rgb_image_round_trips():
+    image = np.arange(2 * 3 * 3, dtype=np.uint8).reshape(2, 3, 3)
+
+    header, raw = _read_png(encode_png(image))
+
+    assert header == {"width": 3, "height": 2, "depth": 8, "colour": 2, "interlace": 0}
+    # Each row: filter type 0, then the row's RGB bytes.
+    assert raw == b"\x00" + image[0].tobytes() + b"\x00" + image[1].tobytes()
+
+
+def test_alpha_is_dropped():
+    image = np.zeros((1, 2, 4), dtype=np.uint8)
+    image[0, 0] = [10, 20, 30, 255]
+    image[0, 1] = [40, 50, 60, 0]
+
+    _, raw = _read_png(encode_png(image))
+
+    assert raw == bytes([0, 10, 20, 30, 40, 50, 60])
+
+
+def test_other_dtypes_are_cast_to_bytes():
+    image = np.full((1, 1, 3), 200, dtype=np.int32)
+
+    _, raw = _read_png(encode_png(image))
+
+    assert raw == bytes([0, 200, 200, 200])
+
+
+def test_an_array_that_is_not_an_image_gives_nothing():
+    assert encode_png(np.zeros((4, 4), dtype=np.uint8)) == b""
+    assert encode_png(np.zeros(0, dtype=np.uint8)) == b""

@@ -9,7 +9,7 @@ import json
 import logging
 import traceback
 from collections.abc import Awaitable, Callable
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from .protocol import PROTOCOL, extension_version
 
@@ -21,7 +21,7 @@ IDLE_TIMEOUT = 300.0  # seconds an authenticated, kept-alive connection may wait
 HEADER_TIMEOUT = 10.0  # seconds a new connection has to send a request with the token, and any request its headers
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
-Handler = Callable[[dict], Awaitable[dict]]
+Handler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
 STATUS_TEXTS = {
     200: "OK",
@@ -52,7 +52,7 @@ def host_name(host_header: str) -> str:
     return value
 
 
-def _error(message: str) -> dict:
+def _error(message: str) -> dict[str, Any]:
     return {"status": "error", "error": message}
 
 
@@ -97,7 +97,7 @@ class BridgeServer:
     def checks_host(self) -> bool:
         return self.host in LOOPBACK_HOSTS
 
-    def info(self) -> dict:
+    def info(self) -> dict[str, Any]:
         """What GET /bridge answers: the client's handshake."""
         return {"protocol": PROTOCOL, "extension_version": extension_version()}
 
@@ -229,7 +229,7 @@ class BridgeServer:
             try:
                 # Run the handler as its own task so this connection's task suspends properly and doesn't block
                 # Kit's async work (viewport updates, property widgets); awaiting it inline broke Kit's UI.
-                result = await asyncio.ensure_future(handler(body))
+                result = await asyncio.ensure_future(handler(cast("dict[str, Any]", body)))
                 await self._send(writer, 200, result)
             except Exception as e:
                 tb = traceback.format_exc()
@@ -247,7 +247,9 @@ class BridgeServer:
             headers[name.strip().lower()] = value.strip()
         raise ValueError(f"More than {MAX_HEADERS} headers")
 
-    async def _send(self, writer: asyncio.StreamWriter, status_code: int, body: dict, close: bool = False) -> None:
+    async def _send(
+        self, writer: asyncio.StreamWriter, status_code: int, body: dict[str, Any], close: bool = False
+    ) -> None:
         body_bytes = json.dumps(body).encode("utf-8")
         header = (
             f"HTTP/1.1 {status_code} {STATUS_TEXTS.get(status_code, 'Unknown')}\r\n"

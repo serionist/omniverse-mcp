@@ -13,6 +13,8 @@ import time
 import carb
 import omni.kit.app
 
+from ovmcp.core.formatter import format_frame_state
+
 from ._utils import _get_active_camera_path, _get_stage, _next_update
 
 # ---------------------------------------------------------------------------
@@ -186,8 +188,6 @@ async def handle_recording_start(body: dict) -> dict:
             # Capture prim state if tracking
             if _recording_state["track_prims"]:
                 try:
-                    from ..formatter import format_frame_state
-
                     stage = _get_stage()
                     if stage:
                         prims = [stage.GetPrimAtPath(p) for p in _recording_state["track_prims"]]

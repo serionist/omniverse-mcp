@@ -53,6 +53,7 @@ omniverse-mcp = "omniverse_mcp.server:main"
 [dependency-groups]
 dev = [
     "basedpyright==1.40.2",
+    "numpy==2.4.6",
     "pytest==9.2.0",
     "ruff==0.17.1",
     "types-usd==24.5.2",
@@ -128,17 +129,17 @@ ignore = [
 # Baseline (S3a, 2026-10-28): what ruff found that no tool fixes. It only shrinks: a change that clears a rule
 # in a file removes it here, and nothing is added to it.
 "extension/ovmcp.bridge/ovmcp/bridge/extension.py" = ["BLE001", "S110"]
-"extension/ovmcp.bridge/ovmcp/bridge/formatter.py" = ["BLE001", "RUF059", "S110", "SIM102"]
 "extension/ovmcp.bridge/ovmcp/bridge/handlers/__init__.py" = ["RUF022"]
 "extension/ovmcp.bridge/ovmcp/bridge/handlers/_mcp_bridge.py" = ["RUF013"]
 "extension/ovmcp.bridge/ovmcp/bridge/handlers/_utils.py" = ["B904", "BLE001", "RUF013", "S110"]
 "extension/ovmcp.bridge/ovmcp/bridge/handlers/camera.py" = ["ASYNC230", "ASYNC240", "B904", "BLE001", "PTH108", "PTH110", "PTH118", "PTH123", "PTH202", "S110", "SIM105"]
 "extension/ovmcp.bridge/ovmcp/bridge/handlers/logging.py" = ["BLE001", "S110"]
-"extension/ovmcp.bridge/ovmcp/bridge/handlers/recording.py" = ["ASYNC230", "ASYNC240", "BLE001", "F841", "PLW0602", "PTH103", "PTH110", "PTH118", "PTH123", "PTH202", "RUF006", "TID252"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/recording.py" = ["ASYNC230", "ASYNC240", "BLE001", "F841", "PLW0602", "PTH103", "PTH110", "PTH118", "PTH123", "PTH202", "RUF006"]
 "extension/ovmcp.bridge/ovmcp/bridge/handlers/robot.py" = ["BLE001", "S110", "SIM105"]
-"extension/ovmcp.bridge/ovmcp/bridge/handlers/scene.py" = ["ASYNC230", "ASYNC240", "BLE001", "PTH103", "PTH118", "PTH123", "PTH202", "S110", "TID252"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/scene.py" = ["ASYNC230", "ASYNC240", "BLE001", "PTH103", "PTH118", "PTH123", "PTH202", "S110"]
 "extension/ovmcp.bridge/ovmcp/bridge/handlers/simulation.py" = ["BLE001"]
 "extension/ovmcp.bridge/ovmcp/bridge/handlers/usd_advanced.py" = ["BLE001", "S110", "S112"]
+"extension/ovmcp.bridge/ovmcp/core/formatter.py" = ["BLE001", "S110"]
 "extension/ovmcp.bridge/ovmcp/core/http.py" = ["ASYNC109", "BLE001"]
 "extension/ovmcp.bridge/ovmcp/core/token.py" = ["PTH105"]
 "src/omniverse_mcp/bridge_token.py" = ["S105"]
@@ -165,6 +166,8 @@ known-first-party = ["omniverse_mcp", "ovmcp"]
 # shrink, the same ratchet as ruff's per-file ignores. New code is checked in full.
 [tool.basedpyright]
 typeCheckingMode = "standard"
+# The extension core is new code, typed in full (plan S6); src/omniverse_mcp follows in S7.
+strict = ["extension/ovmcp.bridge/ovmcp/core"]
 pythonVersion = "3.11"
 include = ["src", "tests", "tools", "extension/ovmcp.bridge/ovmcp/core"]
 # The Kit-bound modules import omni, carb and isaacsim, which have no stubs outside Kit.

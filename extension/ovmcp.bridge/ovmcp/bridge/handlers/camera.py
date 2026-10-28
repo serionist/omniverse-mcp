@@ -12,15 +12,15 @@ import omni.kit.app
 import omni.usd
 from pxr import Gf, Usd, UsdGeom
 
+from ovmcp.core.bounds import box_corners, center_and_size, screen_box, world_bbox
 from ovmcp.core.framing import apply_zoom, bounding_radius, fit_distance, inspect_args, require_perspective
 from ovmcp.core.isolation import LIGHT_TYPES, Hidden, is_light, prims_to_hide
 from ovmcp.core.lighting import camera_light_switch, current_mode
+from ovmcp.core.png import encode_png
 from ovmcp.core.serial import LazyLock, serial
 
 from ._utils import (
     CAMERA_SETTLE_FRAMES,
-    _compute_world_bbox,
-    _encode_png,
     _get_active_camera_path,
     _get_stage,
     _next_update,
@@ -365,42 +365,20 @@ def _compute_screen_bboxes(camera_path: str, img_width: int, img_height: int):
         min_pt = box.GetMin()
         max_pt = box.GetMax()
 
-        # 8 corners of world-space bbox
-        corners = []
-        for i in range(8):
-            x = float(max_pt[0]) if (i & 1) else float(min_pt[0])
-            y = float(max_pt[1]) if (i & 2) else float(min_pt[1])
-            z = float(max_pt[2]) if (i & 4) else float(min_pt[2])
-            corners.append([x, y, z])
-
-        pts = np.array(corners, dtype=np.float64)
+        pts = np.array(box_corners(min_pt, max_pt), dtype=np.float64)
+        # (8, 3): x and y as fractions of the viewport, then depth
         projected = syn.helpers.world_to_image(pts, viewport, vp_params)
-        # projected is (N, 3): normalized [0,1] coords + depth
-
-        xs = projected[:, 0] * vp_w
-        ys = projected[:, 1] * vp_h
-
-        sx_min, sx_max = float(np.min(xs)), float(np.max(xs))
-        sy_min, sy_max = float(np.min(ys)), float(np.max(ys))
-
-        # Skip if entirely off-screen
-        if sx_max < 0 or sx_min > vp_w or sy_max < 0 or sy_min > vp_h:
+        screen_bbox = screen_box(projected.tolist(), (vp_w, vp_h), (img_width, img_height))
+        if screen_bbox is None:
             continue
 
-        # Clamp to viewport bounds, then scale to requested output size
-        sx_min = max(0.0, sx_min) * img_width / vp_w
-        sy_min = max(0.0, sy_min) * img_height / vp_h
-        sx_max = min(float(vp_w), sx_max) * img_width / vp_w
-        sy_max = min(float(vp_h), sy_max) * img_height / vp_h
-
-        center = [(float(min_pt[i]) + float(max_pt[i])) / 2.0 for i in range(3)]
-        dims = [float(max_pt[i]) - float(min_pt[i]) for i in range(3)]
+        center, dims = center_and_size(min_pt, max_pt)
 
         results.append(
             {
                 "prim_path": path_str,
                 "type": type_name,
-                "screen_bbox": [round(sx_min, 1), round(sy_min, 1), round(sx_max, 1), round(sy_max, 1)],
+                "screen_bbox": screen_bbox,
                 "world_center": [round(c, 4) for c in center],
                 "world_dimensions": [round(d, 4) for d in dims],
             }
@@ -483,7 +461,7 @@ def _capture_instance_segmentation():
         if prim_path not in color_legend:
             color_legend[prim_path] = [r, g, b]
 
-    png_bytes = _encode_png(color_img)
+    png_bytes = encode_png(color_img)
     return png_bytes, color_legend
 
 
@@ -550,7 +528,7 @@ async def handle_camera_look_at(body: dict) -> dict:
     if not prim.IsValid():
         return {"status": "error", "error": f"Prim not found: {prim_path}"}
 
-    center, dims, _ = _compute_world_bbox(prim)
+    center, dims, _ = world_bbox(prim)
     max_dim = max(dims) if max(dims) > 0.01 else 1.0
 
     if distance is None:
@@ -630,7 +608,7 @@ async def handle_camera_inspect(body: dict) -> dict:
     if not prim.IsValid():
         return {"status": "error", "error": f"Prim not found: {prim_path}"}
 
-    center, dims, _ = _compute_world_bbox(prim)
+    center, dims, _ = world_bbox(prim)
 
     # Auto-fit distance, then zoom_offset: 0=auto-fit, negative=closer, positive=further. The fit refuses an
     # orthographic camera, and a frame with no room inside its margins, judged on the resolution actually captured.
