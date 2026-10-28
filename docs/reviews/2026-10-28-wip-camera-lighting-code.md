@@ -1,7 +1,7 @@
 ---
 subject: wip/2026-03-08-camera-lighting (inspect_prim auto-fit and isolate, viewport_light modes)
 base: main (ceb6dd9)
-head: e1b352d
+head: c54bc34 (fixes on 2-s1b-camera-lighting; reviewed at e1b352d)
 date: 2026-10-28
 round: 1
 tier: standard (one fresh reviewer; findings checked against the code by the main session)
@@ -15,20 +15,25 @@ finding rests on Kit or RTX behaviour that only a live Isaac Sim settles.
 
 | # | Sev | Where (`handlers/camera.py`) | Finding | Status |
 |---|---|---|---|---|
-| F1 | major | `_compute_autofit_distance` 162-201, `_capture_frame` 242 | Auto-fit takes the vertical FOV from `verticalAperture` and the margin from the requested width and height, but `_capture_frame` ignores both and captures at the viewport's own size; RTX derives the vertical FOV from `horizontalAperture` and the viewport's aspect. On a 16:9 viewport the fit is too close vertically: tall prims lose head and feet. | Confirmed that width and height are unused; the RTX aperture rule needs Kit |
-| F2 | major | 199-201 | `d = r / tan(θ)` lets the bounding sphere spill past the frame; a sphere fits only when `d >= r / sin(θ)` (about 8% at θ = 22.8°). The docstring calls it exact. | Confirmed (maths) |
-| F3 | major | `_hide_other_prims` 204-228 | `isolate` hides every other `/World` child, lights included, so isolated captures can come back dark. | Confirmed that lights are hidden; their effect needs Kit |
-| F4 | major | 216-220 | Isolation sees only direct children of `/World`: target `/World` hides everything; a nested target keeps its siblings; prims outside `/World` never hide. | Confirmed |
-| F5 | major | 672-678, 231-239 | Prims are hidden before the `try`, so a failure while hiding or settling leaves them hidden. The restore's `attr.Clear()` drops any session-layer visibility opinion that was there before, not only ours. | Confirmed |
-| F6 | major | 877-907 | `set` and `set_camera_light` call `SetLightingMenuModeCommand` and ignore its result. Kit logs and returns `(False, None)` for a missing command rather than raising, so both report success when nothing changed. The old `set_camera_light` set `/rtx/useViewLightingMode` directly and needed no menubar extension. | Needs Kit (headless apps without `omni.kit.viewport.menubar.lighting`) |
-| F7 | minor | `_get_current_lighting_mode` 136 | Reads only the menubar's setting through a private function and never `/rtx/useViewLightingMode`, so it misreports a camera light turned on elsewhere; `_get_available_lighting_modes` swallows a changed private API and drops the rig presets. | Confirmed by reading |
-| F8 | minor | `_mcp_bridge.py` 52 | `mcp.inspect(..., distance=...)` still sends `distance`, which the handler no longer reads. | Confirmed |
-| F9 | minor | 193 | `width` or `height` of 20 or less: division by zero or a negative distance; `zoom_offset <= -1` puts the camera inside the prim. | Confirmed (maths) |
-| F10 | minor | `README.md` 212 | Still tells users `viewport_light("set_camera_light", enabled=true)` and names the old `camera_light_on` field. | Confirmed |
+| F1 | major | `_compute_autofit_distance` 162-201, `_capture_frame` 242 | Auto-fit takes the vertical FOV from `verticalAperture` and the margin from the requested width and height, but `_capture_frame` ignores both and captures at the viewport's own size; RTX derives the vertical FOV from `horizontalAperture` and the viewport's aspect. On a 16:9 viewport the fit is too close vertically: tall prims lose head and feet. | Fixed, needs Kit to confirm (`85853cd`). The maths is in `core/framing.py` (tested). Margins use the viewport's resolution from `syn.helpers.get_view_params`, the call `_compute_screen_bboxes` already makes; the requested size is the fallback, with a one-time warning. Context7 did not say which vertical field of view RTX uses, so the fit takes the narrower of `verticalAperture` and the horizontal aperture at the frame's aspect, and holds either way. |
+| F2 | major | 199-201 | `d = r / tan(θ)` lets the bounding sphere spill past the frame; a sphere fits only when `d >= r / sin(θ)` (about 8% at θ = 22.8°). The docstring calls it exact. | Fixed (`85853cd`): `r / sin(θ)`, tested against the projected outline. |
+| F3 | major | `_hide_other_prims` 204-228 | `isolate` hides every other `/World` child, lights included, so isolated captures can come back dark. | Fixed, needs Kit to confirm (`b9b9c61`): lights, cameras and prims that hold a light are never hidden; a light-holding prim's other children are hidden instead. Tested on usd-core; that RTX then lights the isolated prim needs Kit. |
+| F4 | major | 216-220 | Isolation sees only direct children of `/World`: target `/World` hides everything; a nested target keeps its siblings; prims outside `/World` never hide. | Fixed (`b9b9c61`): `core/isolation.py` walks from the root to the target and hides the siblings at every level; `/World` hides only what is outside it, `/` hides nothing. Tested on usd-core. |
+| F5 | major | 672-678, 231-239 | Prims are hidden before the `try`, so a failure while hiding or settling leaves them hidden. The restore's `attr.Clear()` drops any session-layer visibility opinion that was there before, not only ours. | Fixed (`b9b9c61`): hiding runs inside the `try`; each prim's session-layer opinion (none, a spec without a default, or a value) is recorded and put back exactly, and only the specs isolation created are removed. Tests compare the session layer byte for byte, including after a partial hide. |
+| F6 | major | 877-907 | `set` and `set_camera_light` call `SetLightingMenuModeCommand` and ignore its result. Kit logs and returns `(False, None)` for a missing command rather than raising, so both report success when nothing changed. The old `set_camera_light` set `/rtx/useViewLightingMode` directly and needed no menubar extension. | Fixed, needs Kit to confirm (`bae962f`): the command's result is checked; for `"camera"` and `"stage"` a failure falls back to `/rtx/useViewLightingMode`; anything else that did not change returns an error. Checked with Kit mocked. The `(success, result)` return shape was not confirmed by Context7; the code also accepts a plain truthy return. |
+| F7 | minor | `_get_current_lighting_mode` 136 | Reads only the menubar's setting through a private function and never `/rtx/useViewLightingMode`, so it misreports a camera light turned on elsewhere; `_get_available_lighting_modes` swallows a changed private API and drops the rig presets. | Fixed (`bae962f`): `/rtx/useViewLightingMode` is read first; both private-API lookups log once with `carb.log_warn` when they fail. |
+| F8 | minor | `_mcp_bridge.py` 52 | `mcp.inspect(..., distance=...)` still sends `distance`, which the handler no longer reads. | Fixed (`c54bc34`): it takes `zoom_offset` and `isolate`; the execute_script docstring and TOOLS.md match. |
+| F9 | minor | 193 | `width` or `height` of 20 or less: division by zero or a negative distance; `zoom_offset <= -1` puts the camera inside the prim. | Fixed (`85853cd`): both are refused with a clear error, in the handler and in `core/framing.py`. Tested. |
+| F10 | minor | `README.md` 212 | Still tells users `viewport_light("set_camera_light", enabled=true)` and names the old `camera_light_on` field. | Fixed (`c54bc34`): README and TOOLS.md give `viewport_light(action="set", mode=...)`. |
 
 Improvements (no severity): `set_camera_light` duplicates `set` and could map `enabled` to a mode; the light-type list
-is written out three times (`_has_scene_lights`, the `get` action, `_compute_screen_bboxes`).
+is written out three times (`_has_scene_lights`, the `get` action, `_compute_screen_bboxes`). Both taken: the alias
+maps `enabled` to a mode and shares the `set` path (`bae962f`); one `LIGHT_TYPES` tuple and `is_light()` serve all
+three places (`b9b9c61`).
 
 ## Outcome
 
-Pending the maintainer (plan D13): keep and fix, cut to the parts that hold, or drop.
+Kept (D13) and fixed on `2-s1b-camera-lighting`: all ten findings and both improvements. F1, F3 and F6 rest on Kit
+behaviour and wait for the sim suite with `OMNIVERSE_MCP_SIM=1` on Isaac Sim 5.1. Seen while fixing, not in scope:
+`capture_viewport` reports the requested width and height and scales its bounding boxes to them, while the image comes
+out at the viewport's resolution.
