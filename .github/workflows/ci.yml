@@ -1,22 +1,28 @@
-# The gate on every pull request and every push to main. Checks (Linux) runs the gate's quick lane (lock, lint, format,
-# types, the harness, no tool attribution in the commits, gitleaks over them); the tests run on Linux on Python 3.11 to
-# 3.14, on Windows on 3.11 and 3.14, and on macOS on 3.14 (plan D8). CI needs both; it and pr-text.yml's PR text are the
-# two checks the ruleset on main requires. The live suites need a Kit app and skip themselves here: hosted CI never runs
-# Kit (plan D11), so a PR that touches the extension, the client or a tool says whether they ran.
+# The gate on every pull request, every push to main and once a day on main. Checks (Linux) runs the gate's quick lane
+# (lock, lint, format, types, the harness, no tool attribution in the commits, gitleaks over them); the tests run on
+# Linux on Python 3.11 to 3.14, on Windows on 3.11 and 3.14, and on macOS on 3.14 (plan D8). CI needs both; it and
+# pr-text.yml's PR text are the two checks the ruleset on main requires. The live suites need a Kit app and skip
+# themselves here: hosted CI never runs Kit (plan D11), so a PR that touches the extension, the client or a tool says
+# whether they ran.
+#
+# The daily run is for Dependabot's merges: dependabot-auto-merge.yml turns on auto-merge with the workflow's token,
+# and a push made with that token starts no run, so main is tested within a day of one instead (plan D16).
 name: CI
 
 on:
   pull_request:
   push:
     branches: [main]
+  schedule:
+    - cron: "23 6 * * *"
 
 permissions:
   contents: read
 
 concurrency:
-  # Superseded PR runs are cancelled. Each push to main runs in a group of its own and keeps its own result: one group
-  # for main would cancel a waiting run when the next push came.
-  group: ci-${{ github.ref }}-${{ github.event_name == 'push' && github.sha || 'pr' }}
+  # Superseded PR runs are cancelled. Each run on main, a push or the daily one, has a group per commit and keeps its
+  # own result: one group for main would cancel a waiting run when the next push came.
+  group: ci-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -41,16 +47,16 @@ jobs:
           sudo tar -xzf /tmp/gitleaks.tgz -C /usr/local/bin gitleaks
       # The commits checked start after the PR's base, or after the commit main was on before the push. A PR's checkout
       # is the merge of its branch into the base, so that merge is checked too. A push's before is all zeros for a new
-      # branch, and a commit no longer in the history after a force push: then the pushed commit alone is checked,
-      # since a squash merge is one commit. --locked fails on a stale uv.lock
-      # before anything is installed. GATE_REQUIRE_GITLEAKS makes a missing gitleaks a failure, not a warning.
+      # branch, and a commit no longer in the history after a force push; the daily run has none. Then the head commit
+      # alone is checked, since a squash merge is one commit. --locked fails on a stale uv.lock before anything is
+      # installed. GATE_REQUIRE_GITLEAKS makes a missing gitleaks a failure, not a warning.
       - name: The gate's quick lane
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           GATE_REQUIRE_GITLEAKS: "1"
         run: |
           if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-            echo "::notice::$BASE is not in the history; checking HEAD~1..HEAD"
+            echo "::notice::${BASE:-no base} is not in the history; checking HEAD~1..HEAD"
             BASE=HEAD~1
           fi
           uv run --locked tools/gate.py quick --base "$BASE"
