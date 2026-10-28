@@ -57,7 +57,7 @@ Taken by @serionist on 2026-10-28 unless the row says otherwise.
 | D5 | Security first | S1 lands before anything else, on today's names, so a clone of `main` is safe as early as possible. |
 | D6 | MCP SDK v2, pinned exactly | `mcp==2.3.0`, as docket. Majors move by hand; Dependabot ignores them. |
 | D7 | One version | SemVer. One literal version in `pyproject.toml`, `extension.toml`, `plugin.json` and the plugin's uvx pin; the gate fails when they differ, the release fails when the tag differs. First release `0.2.0`. In `0.x` a minor may break the tool contract, under CHANGELOG's Breaking. (Recommended.) |
-| D8 | Python 3.11 and up | 3.10 reaches end of life this month; Isaac Sim 5.x ships 3.11; `usd-core` needs 3.11. Development on 3.12. CI on 3.11-3.14. (Recommended.) |
+| D8 | Python 3.11 and up for the server | 3.10 reaches end of life this month; `usd-core` needs 3.11. Development on 3.12. CI on 3.11-3.14. The extension runs on its Kit app's Python, which is 3.10 on Kit 105 and 106: its floor is Q1. (Recommended; amended by plan review round 1.) |
 | D9 | The extension ships in the wheel | `omniverse-mcp extension install` copies it to one per-user folder that Kit's search path points at once. Server and extension then come from the same release. (Recommended.) |
 | D10 | A Kit-free extension core | HTTP, auth, formatting, geometry maths and the PNG writer move to a core that imports no `omni`, `carb` or `isaacsim`, enforced by import-linter and tested on `usd-core` in CI. (Recommended.) |
 | D11 | Live-sim tests stay off hosted CI | `sim` and `scenario` markers; skipped unless `OMNIVERSE_MCP_SIM=1`, and failing instead of skipping when it is set and Kit is not reachable. A PR that touches the extension says whether they ran. (Recommended.) |
@@ -75,11 +75,15 @@ Taken by @serionist on 2026-10-28 unless the row says otherwise.
 | Import package | `isaac_sim_mcp` | `omniverse_mcp`, in `src/omniverse_mcp/` |
 | Console script | `omniverse-mcp` | `omniverse-mcp` (serves stdio), `omniverse-mcp extension install\|path` |
 | MCP server name | `Isaac Sim` | `omniverse` |
+| Server flags | `--isaac-host`, `--isaac-port`, `--output-dir` | `--host`, `--port`, `--output-dir` |
+| MCP resources | `isaac://scene/tree`, `isaac://sim/state` | `omniverse://scene/tree`, `omniverse://sim/state` |
+| Output file headers | `# Isaac Sim MCP ...` | `# Omniverse MCP ...` |
 | Plugin and marketplace | none | `omniverse-mcp`, both |
 | Plugin server key | none | `omniverse`, so tools are `mcp__plugin_omniverse-mcp_omniverse__<tool>` |
 | Kit extension id | `isaacsim.mcp.bridge` (NVIDIA's namespace) | `ovmcp.bridge` |
 | Extension folder | `extension/isaacsim.mcp.bridge-1.0.0/` | `extension/ovmcp.bridge/` (R1) |
-| Kit settings | `/exts/isaacsim.mcp.bridge/*` | `/exts/ovmcp.bridge/*` |
+| Kit settings | `/exts/isaacsim.mcp.bridge/*` | `/exts/ovmcp.bridge/*`; the unused `scene_tree_max_depth` goes |
+| Kit python modules | `isaacsim.mcp.bridge` (the core under it, behind an import guard) | `ovmcp.bridge` (Kit-bound) and `ovmcp.core` (Kit-free), so the core imports without running the Kit module |
 | Environment | none | `OMNIVERSE_MCP_HOST`, `OMNIVERSE_MCP_PORT`, `OMNIVERSE_MCP_OUTPUT_DIR`, `OMNIVERSE_MCP_TOKEN` |
 
 `ovmcp` and not `omniverse_mcp.bridge`: the extension's top-level module must not be the server's, or the core tests
@@ -96,10 +100,16 @@ can call `/execute` and run Python inside Kit.
   the file on shutdown.
 - **Every request** carries `Authorization: Bearer <token>`, compared with `hmac.compare_digest`; else 401.
 - **Origin:** any request with an `Origin` header gets 403. Browsers send one on every POST; our client never does.
-- **Host:** the `Host` header must name the bound address or `localhost`; else 403 (DNS rebinding).
+- **Host:** when the bridge is bound to loopback, the `Host` header must name a loopback address or `localhost`;
+  else 403 (DNS rebinding). Off loopback the Host is not checked, so a remote server can use any name; the token
+  guards it.
 - **The server** takes `OMNIVERSE_MCP_TOKEN`, else the token file for its port, and reads the file again after a 401,
   since a Kit restart makes a new token. Each refusal says what to do.
-- **Kit-free:** parsing, auth and routing move to `bridge/core/http.py`, tested with plain asyncio in CI.
+- **Kit-free:** parsing, auth and routing move to `bridge/core/http.py`, tested with plain asyncio in CI. Until S2
+  the core sits under the Kit module, whose `__init__` imports the extension only when `omni` is there.
+- **Refusals close the connection** before the body is read, so a refused body is never parsed as the next request.
+- **The extension stays on Python 3.10** (Kit 105 and 106 apps): its version comes from the `ext_id` Kit hands
+  `on_startup`, not from `tomllib`.
 
 Not chosen:
 
@@ -112,9 +122,10 @@ Not chosen:
 ### Versions and the handshake (D7)
 
 - `/health` returns `extension_version` and `protocol`. `protocol` is an integer constant on each side; a test keeps
-  them equal.
-- The server checks once per connection. On a mismatch every tool fails with `ToolError`: "The Kit extension is 0.1.0
-  and the server is 0.2.0: run `omniverse-mcp extension install` and restart Kit."
+  them equal. It changes only when a request or response changes shape.
+- The server checks once per connection (S1). An extension that reports no `protocol`, or another one, is refused
+  with a message that says which side to update. A different `extension_version` alone is not refused (Q2). From S8
+  the message gives the command that works for the user's install: `uvx omniverse-mcp==X.Y.Z extension install`.
 - Literal versions, not versions from tags as in WriteableFileProviders: `plugin.json` must hold one, and Claude Code
   moves users to a new plugin version only when it changes. The release PR bumps all four.
 
@@ -144,6 +155,11 @@ Not chosen:
 - **Docs drift:** a test checks that every tool has its heading in `docs/TOOLS.md` and the other way round. The README
   stops stating a count (it says 42 and 40 today; the code registers 41).
 - **Output files** stay as they are: images and long text are written to the output folder and their paths returned.
+  `capture_viewport(include_image=True)` keeps returning the image inline as well.
+- **Concurrency:** SDK v2 runs synchronous tools on worker threads, several at once (`func_metadata.py:162-164`,
+  `jsonrpc_dispatcher.py:622-623` in `mcp` 2.3.0); v1 ran them one at a time on the event loop. A lock around the
+  client's requests keeps calls serial: one socket, and no two USD edits in Kit at once. The output-file counters
+  become thread-safe. A test sends two calls at once to the mock bridge.
 
 ### Testability (S6)
 
@@ -151,9 +167,10 @@ Not chosen:
   `sim` and `scenario` (D11).
 - **Live tests:** `test_integration.py` and `test_scenarios.py` get `pytestmark`. Results go to `test_project/results/`
   as today (ignored).
-- **Extension core:** `extension/ovmcp.bridge/ovmcp/bridge/core/`: HTTP and auth, formatter, bounding-box and
-  projection maths, the PNG writer, the log filters. It imports the standard library and `pxr` only. The handlers stay
-  in the Kit-bound modules and call into it.
+- **Extension core:** `extension/ovmcp.bridge/ovmcp/core/`, beside the Kit-bound `ovmcp/bridge/`: HTTP and auth,
+  formatter, bounding-box corner and clamp maths, the PNG writer, the log filters. It imports the standard library,
+  `pxr` and `numpy` (Kit ships it; dev dependencies add it). Projection through `omni.syntheticdata` stays Kit-bound.
+  The handlers stay in the Kit-bound modules and call into it. Tests put `extension/ovmcp.bridge` on the path.
 - **Coverage:** over `src/omniverse_mcp` and the core. The floor is what S6 measures, in `pyproject.toml`; the gate
   refuses a floor lower than `origin/main`'s.
 - **Style:** existing unittest tests stay; new tests are plain pytest.
@@ -169,15 +186,16 @@ Not chosen:
   - every ignore carries its reason;
   - tests may use `S101`;
   - `ruff format` is enforced.
-  - The one reformat is its own commit, listed in `.git-blame-ignore-revs`. What S3 cannot fix by machine goes into
-    per-file ignores that only shrink.
-- **pyright:** `standard`; `strict` on `src/omniverse_mcp` and the extension core. The Kit-bound modules are excluded:
-  there are no stubs for `omni` and `carb`.
+  - The one reformat is its own PR, so its squash commit is the reformat alone; a follow-up PR lists that commit's
+    `main` SHA in `.git-blame-ignore-revs`. What S3 cannot fix by machine goes into per-file ignores that only shrink.
+  - The extension keeps `target-version = "py310"` per path, for Kit 105 and 106 apps (Q1).
+- **pyright:** `standard` from S3; `strict` on `src/omniverse_mcp` from S7, which rewrites the server anyway, and on the
+  extension core from S6. The Kit-bound modules are excluded: there are no stubs for `omni` and `carb`.
 - **Gate:** `tools/gate.py`, standard library only, run as `uv run tools/gate.py quick|full`.
 
   | Lane | Runs |
   |---|---|
-  | quick | lock check, ruff check, ruff format check, pyright, import-linter, versions agree (D7), AGENTS.md within 150 lines, skills' name equals folder and each has a description, marketplace and manifest agree, gitleaks on the branch, no attribution in the branch's messages |
+  | quick | lock check, ruff check, ruff format check, pyright, AGENTS.md within 150 lines, skills' name equals folder and each has a description, gitleaks on the branch, no attribution in the branch's messages; later steps add their own checks: import-linter (S6), versions agree and marketplace and manifest agree (S8) |
   | full | quick, then pytest with coverage and the floor, then `claude plugin validate --strict` when the CLI is there |
 
 - **Hooks** (`.githooks/`, turned on by `uv run tools/setup.py`):
@@ -233,6 +251,8 @@ Traps, from this repo's own history:
   - checks: gate quick on Linux, with gitleaks installed against its sha256, and Claude Code pinned for
     `plugin validate`;
   - tests: Linux on 3.11, 3.12, 3.13 and 3.14, Windows on 3.11 and 3.14; coverage and the floor on one leg.
+- **`pr-text.yml`:** checks the PR title and body for attribution on every edit, since the squash commit is built from
+  them (D1); the repo's squash message is set to the PR title and description.
 - **`codeql.yml`:** `python` and `actions`, `security-extended`, on PRs, `main` and weekly.
 - **`dependabot.yml`:** `uv` and `github-actions`; weekly; a 7-day cooldown; minor and patch grouped.
 - **`release.yml`** on `v*` tags:
@@ -244,7 +264,9 @@ Traps, from this repo's own history:
      - the wheel holds the extension.
   2. **ci:** a green `ci.yml` run on the tagged commit.
   3. **publish:** the `pypi` environment (a required reviewer), trusted publishing with `pypa/gh-action-pypi-publish`,
-     which also attests. An `-rc.N` tag goes to TestPyPI instead.
+     which also attests. An `-rc.N` tag goes to TestPyPI instead, and is exempt from the CHANGELOG and plugin-pin
+     checks. The rc is tried with `uvx --from <the downloaded wheel>`, never with TestPyPI as an index, which would let
+     a name like `mcp` resolve there.
   4. **github-release:**
      - notes are the CHANGELOG section;
      - the wheel, the sdist and a zip of the extension are attached;
@@ -266,8 +288,13 @@ Traps, from this repo's own history:
   - `allowed-tools` pre-approves `READS` tools only, never `execute_script`. The split is settled in S8 with write-skill.
 - **`docs/AI_GUIDE.md`** stays for clients without skills and points at the skill files.
 - **Extension delivery:** `omniverse-mcp extension install` copies the extension from the wheel to
-  `<user data dir>/omniverse-mcp/exts/` and prints the folder to add to Kit's search paths once. Later installs
-  overwrite it in place. `extension path` prints the folder. A git checkout can still point Kit at `extension/`.
+  `<user data dir>/omniverse-mcp/exts/` and prints the folder to add to Kit's search paths once. It copies to a
+  temporary folder and swaps it in, so no stale module survives an upgrade. `extension path` prints the folder. In a
+  checkout (an editable install, where the wheel's copy is absent) it takes `<repo>/extension/ovmcp.bridge`; a test
+  covers both. A git checkout can still point Kit at `extension/`.
+- **Turning it on in Kit:** the setup skill walks the user through the Extension Manager (search path, enable,
+  autoload), or Kit's `--ext-folder <path>` launch flag. It never edits Kit's `user.config.json` while Kit runs: Kit
+  rewrites it on exit.
 
 Not chosen:
 
@@ -306,14 +333,15 @@ Each step is one PR, buildable and testable on its own.
 | Step | What | Proven by |
 |---|---|---|
 | S0 | Strip attribution from history; push `main`; open this plan's issue; decide D13 | No attribution in `git log --format=%B main`; every commit's tree equal to the one it replaces |
-| S1 | Bridge token, Origin and Host checks, `protocol` in `/health`; HTTP layer Kit-free | Unit tests: no token gets 401, an `Origin` gets 403, a foreign `Host` gets 403, a wrong token gets 401; the sim suite passes with tokens |
-| S1b | The March work, if kept (D13) | Its tests, plus its review record |
-| S2 | Rename and layout (D2), hatchling, uv and `uv.lock`, Python 3.11 and up; no change in behaviour | Unit tests; the wheel holds the extension; the sim suite on Isaac Sim 5.1 |
-| S3 | ruff, ruff format, pyright, `.editorconfig`, `.gitattributes`; the reformat commit | Gate checks clean on the branch |
+| S1 | Bridge token, Origin and Host checks, `protocol` in `/health` and the client's check; HTTP layer Kit-free; live tests fail instead of skipping when `OMNIVERSE_MCP_SIM=1` | Unit tests: no token gets 401, an `Origin` gets 403, a foreign `Host` gets 403, a wrong token gets 401, the client finds a new token after a Kit restart and refuses another protocol; the sim suite with `OMNIVERSE_MCP_SIM=1` and none skipped |
+| S1b | The March work (D13) with its review's fixes | Its tests, plus its review record |
+| S2 | Rename and layout (D2, every row of Names), hatchling, uv and `uv.lock`, Python 3.11 and up for the server; `ovmcp.bridge` starts at the server's version, so the four versions agree from here; README, CONTRIBUTING and a committed `test_project/.mcp.json.example` move with the names | Unit tests; the wheel holds the extension; the sim suite on Isaac Sim 5.1 |
+| S3a | ruff and ruff format config, the reformat alone | `ruff check` and `ruff format --check` clean |
+| S3b | `.git-blame-ignore-revs` with S3a's `main` SHA; pyright `standard`; `.editorconfig`, `.gitattributes` | `pyright` clean |
 | S4 | AGENTS.md, REVIEW.md, `.claude/`, skills, plan and review READMEs, gate, hooks, `setup.py`, `.gitleaks.toml` | Gate quick passes; a test that `commit-msg` refuses each attribution form |
-| S5 | `ci.yml`, CodeQL, Dependabot, issue forms, PR template, CODEOWNERS, SECURITY, CHANGELOG, CONTRIBUTING | CI green on the PR itself |
-| S6 | Markers, the Kit-free core, the import-linter contract, `usd-core` tests, the coverage floor | Core tests run in CI; the floor is set |
-| S7 | SDK v2, annotations, `ToolError`, the golden file, docs drift tests, no work at import | The golden test; one in-memory client test per tool against the mock bridge |
+| S5 | `ci.yml` (tests without a floor yet), `pr-text.yml`, CodeQL, Dependabot, issue forms, PR template, CODEOWNERS, SECURITY, CONTRIBUTING | CI green on the PR itself |
+| S6 | Markers, the Kit-free core in `ovmcp/core`, the import-linter contract, `usd-core` tests, the coverage floor in CI and the gate | Core tests run in CI; the floor is set |
+| S7 | SDK v2, annotations, `ToolError`, the request lock, the golden file (tools and resources), docs drift tests, no work at import, pyright strict on the server | The golden test; one in-memory client test per tool against the mock bridge; two calls at once stay serial |
 | S8 | The plugin, skills, `extension install`, the README rewrite | `claude plugin validate --strict` in CI; `extension install` into a temp folder; the setup skill on a clean machine, by hand |
 | S9 | `release.yml`, `docs/releasing.md`, `v0.2.0-rc.1` to TestPyPI, then `v0.2.0` | The rc installs with `uvx` from TestPyPI and passes the sim suite |
 
@@ -321,7 +349,7 @@ Each step is one PR, buildable and testable on its own.
 
 | Suite | Runs where | New or changed |
 |---|---|---|
-| Unit (`tests/`) | CI, every PR | Auth and HTTP (S1), version check (S2), golden and docs drift (S7), in-memory client per tool (S7), `extension install` (S8), hook tests (S4) |
+| Unit (`tests/`) | CI, every PR | Auth, HTTP and the protocol check (S1), golden and docs drift (S7), in-memory client per tool and serial calls (S7), `extension install` from a wheel and from a checkout (S8), hook tests (S4) |
 | Extension core (`usd-core`) | CI, every PR | New in S6 |
 | `sim` (`test_integration.py`) | By hand, against Kit with the extension | Marker and token (S1, S6) |
 | `scenario` (`test_scenarios.py`, `test_project/`) | By hand | Marker (S6) |
@@ -342,7 +370,7 @@ Each step is one PR, buildable and testable on its own.
 |---|---|---|
 | R1 | Kit may need the `-<version>` suffix on the extension folder (`c6454e6` added it) | Check on Isaac Sim 5.1 before S2 merges. If it does, the folder keeps the suffix and the release renames it |
 | R2 | How Claude Code starts a plugin's stdio server: working folder, environment, `${VAR}` in `args` | Check with a probe plugin and `claude plugin validate --strict` before S8, as docket did for its HTTP entry |
-| R3 | SDK v2 may run synchronous tools on the event loop, which blocks on the socket client | Check the SDK in S7; if it does, client calls go to a worker thread |
+| R3 | SDK v2 runs synchronous tools on worker threads, several at once, over the client's one socket | Resolved in plan review round 1: S7's request lock (Design / SDK v2) |
 | R4 | The two forks keep the old commits, trailers included | Accepted; they cannot be changed from here |
 | R5 | The force push breaks clones that track `main` | Accepted; the issue and CHANGELOG say how to move over |
 | R6 | Live-sim tests never run in CI | Accepted (D11); the PR template asks whether they ran |
@@ -352,7 +380,47 @@ Each step is one PR, buildable and testable on its own.
 
 ## Plan review
 
-Pending. review-plan arrives in S4, so this round runs as a fresh agent with docket's plan lenses.
+### Round 1
+
+- **How:** standard tier, one fresh agent with docket's review-plan method and lenses (review-plan arrives here in S4),
+  on 2026-10-28.
+- **Verdict:** needs-fixes, with 4 majors and 10 minors.
+- **Now:** all applied except the owner calls, which wait on the maintainer.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P1 | major | The core under `ovmcp/bridge/` cannot be imported without running the Kit module's `__init__` | Fixed: `ovmcp/core/` from S2; an import guard until then (S1) |
+| P2 | major | A Host check against the bound address refuses every remote request | Fixed: Host checked only on loopback binds (as built in S1) |
+| P3 | major | SDK v2 runs sync tools concurrently on threads sharing one socket; capture counters race | Fixed: S7's request lock and thread-safe counters; R3 resolved |
+| P4 | major | The marketplace serves `main`, whose uvx pin can name a version not on PyPI (release window, failed release, rc) | Owner call Q3 |
+| P5 | minor | Kit 105/106 apps run Python 3.10; `tomllib` in the core would break the extension there | Fixed in S1 (version from `ext_id`); the declared floor is owner call Q1 |
+| P6 | minor | The handshake could refuse on version or on protocol; the message's command fails for plugin users | Fixed: refuse on protocol (Q2), S8's message gives the uvx command |
+| P7 | minor | Proofs that depend on later steps: S3 on the gate, the gate on S8's files, CI on S6's floor, versions unequal from the start | Fixed: each check lands with its files; versions agree from S2 |
+| P8 | minor | Live tests turn a 401 into a skip, so S1's proof passes with every test skipped | Fixed in S1: `OMNIVERSE_MCP_SIM=1` makes them fail |
+| P9 | minor | The rename misses the flags, resources, output headers and a dead setting | Fixed: rows added to Names; resources go into the golden file |
+| P10 | minor | `extension install` finds no extension in an editable checkout | Fixed: falls back to the repo's folder; tested both ways |
+| P11 | minor | How the setup skill turns the extension on is unspecified | Fixed: Extension Manager or `--ext-folder`; never `user.config.json` while Kit runs |
+| P12 | minor | A squash merge drops the reformat commit's SHA | Fixed: S3a alone, S3b lists its `main` SHA |
+| P13 | minor | Attribution in a PR body reaches `main` through the squash message | Fixed: `pr-text.yml` and the squash-message setting (S5) |
+| P14 | minor | The PNG writer and bbox maths use numpy; projection uses Kit | Fixed: the core may use numpy; projection stays Kit-bound |
+
+Owner calls:
+
+| # | Question | Recommendation | Answer |
+|---|---|---|---|
+| Q1 | Which Kit apps does the extension support? | Kit 105.1 and up (Python 3.10), enforced by ruff's per-path target | Pending |
+| Q2 | Refuse on a protocol mismatch only, or on any version difference? | Protocol only; warn on versions | Pending |
+| Q3 | How does the marketplace pin the plugin to a released version? | A `git-subdir` source pinned to the release tag, moved in a PR after PyPI has it | Pending |
+| Q4 | macOS for the server? | One macOS unit-test leg, or say it is unsupported | Pending |
+
+Improvements taken:
+- the extension's version from `ext_id`;
+- auth before the body is read, and refusals close the connection;
+- pyright strict in S7;
+- an atomic `extension install`;
+- the rc tried from its wheel;
+- `test_project/.mcp.json.example`;
+- docs moving with the rename in S2.
 
 ## Progress log
 
@@ -361,6 +429,7 @@ Pending. review-plan arrives in S4, so this round runs as a fresh agent with doc
 | 2026-10-28 | S0 | Local: unpushed `154d567` rebased onto `origin/main` (PR #1's pin), then all 12 commits rewritten without attribution, every tree unchanged. The March work is on `wip/2026-03-08-camera-lighting`. Backups: `backup/main-before-rewrite`, `backup/origin-main-before-rewrite`. Not pushed. |
 | 2026-10-28 | S0 | The March work reviewed: needs-fixes, 6 majors and 4 minors ([record](../reviews/2026-10-28-wip-camera-lighting-code.md)); 3 rest on Kit behaviour and need a live Isaac Sim. |
 | 2026-10-28 | S0 | The maintainer approved the force push, the plan and keeping the March work (D13). `main` pushed with `--force-with-lease` (`b3cd7c5` → `ceb6dd9`); no attribution left on the remote. Issue #2 opened. S0 done. |
+| 2026-10-28 | S1 | Built on `2-s1-bridge-token`: the core server with the token, Origin and Host checks; the client's token lookup, re-read and protocol check; live tests that fail under `OMNIVERSE_MCP_SIM=1`. 99 unit tests pass; the extension's wiring checked with Kit mocked. Plan review round 1 applied (above). Not yet run against a live Kit. |
 
 ## For the maintainers
 
@@ -373,7 +442,8 @@ Pending. review-plan arrives in S4, so this round runs as a fresh agent with doc
 - **S5, GitHub environments and rulesets:**
   - the `pypi` and `testpypi` environments, with you as required reviewer;
   - a ruleset on `main`: PRs only, with the required checks;
-  - a ruleset on `v*` tags.
+  - a ruleset on `v*` tags;
+  - squash merges only, with the commit message set to the PR title and description.
 - **S5, GitHub security settings:**
   - private vulnerability reporting;
   - secret scanning with push protection;
@@ -384,7 +454,7 @@ Pending. review-plan arrives in S4, so this round runs as a fresh agent with doc
 ## Later
 
 - NVIDIA's extension registry.
-- Image results inline for clients that cannot read files.
+- Inline images for the other image tools (`inspect_prim`, `get_recording_frame`); `capture_viewport` has them.
 - Live-sim runs on a self-hosted GPU runner.
 - The AI scenario suite as a skill.
 - `1.0.0` once the tool contract has held for a few releases.
