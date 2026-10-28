@@ -1,0 +1,10 @@
+#!/bin/sh
+# After a merge or a pull, names the AI setup files that changed, so an agent re-reads them. Turned on by
+# `uv run tools/setup.py`. Only informs: always exits 0.
+cd "$(git rev-parse --show-toplevel)" || exit 0
+if ! command -v uv >/dev/null 2>&1; then
+    echo "post-merge: uv not found, hook skipped" >&2
+    exit 0
+fi
+[ -f tools/hooks.py ] && uv run --quiet --no-sync tools/hooks.py post-merge "$@"
+exit 0
