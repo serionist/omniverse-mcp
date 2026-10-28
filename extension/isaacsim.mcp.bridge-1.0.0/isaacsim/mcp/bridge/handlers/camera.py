@@ -799,7 +799,7 @@ async def handle_viewport_light(body: dict) -> dict:
     action = body.get("action", "get")
 
     if action == "get":
-        current_mode = _get_current_lighting_mode()
+        mode_now = _get_current_lighting_mode()
         available_modes = _get_available_lighting_modes()
 
         # List scene lights
@@ -818,7 +818,7 @@ async def handle_viewport_light(body: dict) -> dict:
         return {
             "status": "success",
             "result": {
-                "lighting_mode": current_mode,
+                "lighting_mode": mode_now,
                 "available_modes": available_modes,
                 "has_scene_lights": len(scene_lights) > 0,
                 "scene_lights": scene_lights,
