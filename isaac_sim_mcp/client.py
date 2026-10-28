@@ -343,9 +343,10 @@ class IsaacSimClient:
         return self.request("/camera/look_at", body)
 
     def camera_inspect(self, prim_path: str, angles: list | None = None,
-                       width: int = 640, height: int = 480,
+                       width: int = 640, height: int = 480, *,
                        zoom_offset: float = 0.0, isolate: bool = False,
                        include_segmentation: bool = False) -> dict:
+        # Keyword-only: zoom_offset now sits where distance was, and an old positional distance must not become one.
         body: dict[str, Any] = {"prim_path": prim_path, "width": width, "height": height}
         if angles is not None:
             body["angles"] = angles
@@ -502,8 +503,7 @@ class IsaacSimClient:
 
     # ----- Viewport light -----
 
-    def viewport_light(self, action: str = "get", mode: str = "",
-                       enabled: bool = True) -> dict:
+    def viewport_light(self, action: str = "get", enabled: bool = True, *, mode: str = "") -> dict:
         body: dict[str, Any] = {"action": action}
         if action == "set" and mode:
             body["mode"] = mode

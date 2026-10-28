@@ -465,6 +465,11 @@ class TestIsaacSimClient(unittest.TestCase):
         _, _, body = self.mock.requests[-1]
         self.assertTrue(body.get("include_segmentation"))
 
+    def test_camera_inspect_refuses_an_old_positional_distance(self):
+        # The 5th positional used to be distance; it must not be read as a zoom_offset.
+        with self.assertRaises(TypeError):
+            self.client.camera_inspect("/World/Cube", None, 640, 480, 5.0)
+
     def test_viewport_light_get(self):
         r = self.client.viewport_light("get")
         self.assertEqual(r["status"], "success")
@@ -487,6 +492,12 @@ class TestIsaacSimClient(unittest.TestCase):
         _, _, body = self.mock.requests[-1]
         self.assertEqual(body["action"], "set_camera_light")
         self.assertTrue(body["enabled"])
+
+    def test_viewport_light_legacy_positional_enabled(self):
+        # The old signature was viewport_light(action, enabled); mode must not take enabled's slot.
+        self.client.viewport_light("set_camera_light", False)
+        _, _, body = self.mock.requests[-1]
+        self.assertEqual(body, {"action": "set_camera_light", "enabled": False})
 
     def test_get_logs(self):
         r = self.client.get_logs(count=10, min_level="warn")

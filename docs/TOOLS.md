@@ -727,7 +727,7 @@ result = {"center": bounds["result"]["center"], "sim": state["result"]["state"]}
 | `mcp.capture_viewport(width, height, camera_path)` | Capture viewport with bboxes + segmentation |
 | `mcp.set_camera(position, target)` | Position the viewport camera |
 | `mcp.look_at(prim_path, distance, azimuth, elevation)` | Point camera at a prim |
-| `mcp.inspect(prim_path, angles, width, height, zoom_offset, isolate)` | Orbit-capture from multiple angles, auto-fitted |
+| `mcp.inspect(prim_path, angles, width, height, zoom_offset=, isolate=)` | Orbit-capture from multiple angles, auto-fitted |
 | `mcp.scene_tree(root, max_depth)` | Get scene hierarchy |
 | `mcp.prim_properties(prim_path)` | Get all prim properties |
 | `mcp.prim_bounds(prim_path)` | Get world-space bounding box |

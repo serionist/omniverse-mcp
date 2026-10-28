@@ -193,7 +193,8 @@ def register(mcp, client, h):
             isolate: Hide all other scene content during capture (restore after)
             include_segmentation: Also capture instance segmentation at each angle
         """
-        resp = _call(client.camera_inspect, prim_path, angles, width, height, zoom_offset, isolate, include_segmentation)
+        resp = _call(client.camera_inspect, prim_path, angles, width, height,
+                     zoom_offset=zoom_offset, isolate=isolate, include_segmentation=include_segmentation)
         err = _check_error(resp)
         if err:
             return err
@@ -243,7 +244,7 @@ def register(mcp, client, h):
             mode: Lighting mode to set (for "set" action)
             enabled: Whether to enable (true) or disable (false) camera light (for set_camera_light)
         """
-        resp = _call(client.viewport_light, action, mode, enabled)
+        resp = _call(client.viewport_light, action, enabled, mode=mode)
         err = _check_error(resp)
         if err:
             return err
