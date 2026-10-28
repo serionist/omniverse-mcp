@@ -721,8 +721,8 @@ def test_identities_come_from_git_with_the_author_a_commit_was_given(tmp_path, m
 # also stops what Claude Code runs on its own as read-only (git's read-only forms among them).
 
 SETTINGS = json.loads((Path(__file__).resolve().parents[1] / ".claude" / "settings.json").read_text(encoding="utf-8"))
-# The only allows a ` *` may end: commands whose options and paths were swept for reading a file outside the
-# repository (below) or that only ask GitHub. Any other allow names its whole command.
+# The only allows a ` *` may end: git commands whose options and paths are swept for reading a file outside the
+# repository (below), and gh commands that only read from GitHub. Any other allow names its whole command.
 SPACED_STAR_ALLOWS = {
     "git status *",
     "git log *",
@@ -791,19 +791,28 @@ def test_settings_let_ordinary_commands_through(command):
         "git blame a.py",
         "git blame --cont ../outside/secret.txt a.py",
         "git blame -wS ../outside/secret.txt a.py",
-        # Two paths, one outside the repository, and git diffs them as files (no-index) without the flag (#19).
+        # Two paths, one outside the repository, and git diffs them as files (no-index) without the flag (#19); the
+        # path out may come first or second.
         "git diff origin/main...HEAD/../../../outside/secret.txt ../outside/empty.txt",
         "git diff --stat a.py ../outside/secret.txt",
         "git diff a.py /etc/passwd",
+        "git diff /c/Users/me/other/x.py src/x.py",
         "git diff a.py ~/.ssh/id_ed25519",
+        "git diff ~/.ssh/id_ed25519 a.py",
+        "git diff $HOME/.ssh/id_ed25519 a.py",
         "git diff a.py C:/Users/me/.ssh/id_ed25519",
+        "git diff C:/Users/me/.ssh/id_ed25519 a.py",
         "git diff a.py C:\\Users\\me\\secret.txt",
         "git diff a.py ..\\outside\\secret.txt",
+        "git diff \\Users\\me\\secret.txt a.py",
+        "git diff . ..",
+        "git diff .. .",
     ],
 )
 def test_settings_ask_before_what_can_read_a_file_outside_the_repo(command):
     # git blame reads any file through -S, --contents and their prefixes and bundles, which no deny can keep up with;
     # git diff reads one through a path out of the repository. Claude Code may run both as read-only, so they ask.
+    # These are the usual spellings of a path out, not every one: a quoted `".."/x` or `.\\./x` still gets past.
     assert _matches(command, "ask"), command
 
 
