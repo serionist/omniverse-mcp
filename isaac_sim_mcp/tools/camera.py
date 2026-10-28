@@ -273,11 +273,7 @@ def register(mcp, client, h):
                 lines.append(f"Scene lights ({len(scene_lights)}):")
                 for lt in scene_lights:
                     lines.append(f"  {lt['path']} ({lt['type']}, intensity={lt.get('intensity', 'N/A')})")
-        elif action == "set":
-            lines.append(f"Lighting mode: {r.get('lighting_mode', 'unknown')}")
-            if r.get("message"):
-                lines.append(r["message"])
-        elif action == "set_camera_light":
+        elif action in ("set", "set_camera_light"):
             lines.append(f"Lighting mode: {r.get('lighting_mode', 'unknown')}")
             if r.get("message"):
                 lines.append(r["message"])

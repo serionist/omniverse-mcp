@@ -12,7 +12,7 @@ import omni.kit.app
 import omni.usd
 from pxr import Gf, Usd, UsdGeom
 
-from ..core.framing import MARGIN_PX, apply_zoom, bounding_radius, fit_distance
+from ..core.framing import apply_zoom, bounding_radius, fit_distance
 from ..core.isolation import LIGHT_TYPES, Hidden, is_light, prims_to_hide
 from ..core.lighting import camera_light_switch, current_mode
 from ._utils import (
@@ -607,8 +607,6 @@ async def handle_camera_inspect(body: dict) -> dict:
 
     if not prim_path:
         return {"status": "error", "error": "prim_path is required"}
-    if width <= 2 * MARGIN_PX or height <= 2 * MARGIN_PX:
-        return {"status": "error", "error": f"width and height must be over {2 * MARGIN_PX} pixels"}
 
     stage = _get_stage()
     prim = stage.GetPrimAtPath(prim_path)
@@ -617,7 +615,8 @@ async def handle_camera_inspect(body: dict) -> dict:
 
     center, dims, _ = _compute_world_bbox(prim)
 
-    # Auto-fit distance, then zoom_offset: 0=auto-fit, negative=closer, positive=further
+    # Auto-fit distance, then zoom_offset: 0=auto-fit, negative=closer, positive=further. The fit refuses a frame with
+    # no room inside its margins, judged on the resolution actually captured, not the one requested.
     camera_path = _get_active_camera_path()
     try:
         distance = apply_zoom(_compute_autofit_distance(dims, camera_path, stage, width, height), zoom_offset)

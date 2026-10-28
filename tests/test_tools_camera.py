@@ -96,3 +96,13 @@ def test_a_black_isolated_inspect_says_what_isolate_hid(tmp_path):
     out = fns["inspect_prim"]("/World/Lamp", isolate=True)
     assert "viewport_light(action='set', mode='camera')" in out
     assert "hid the other prims, though not the lights" in out
+
+
+@pytest.mark.parametrize("action", ["set", "set_camera_light"])
+def test_viewport_light_reports_the_resulting_mode(tmp_path, action):
+    answer = {"status": "success", "result": {"lighting_mode": "Default",
+                                              "message": "Viewport camera light turned off; the lighting mode is unchanged"}}
+    fns, client = _tools(tmp_path, {"viewport_light": answer})
+    out = fns["viewport_light"](action=action, mode="Default", enabled=False)
+    assert out.splitlines() == ["Lighting mode: Default", answer["result"]["message"]]
+    assert client.calls == [("viewport_light", (action, False), {"mode": "Default"})]

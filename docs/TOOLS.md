@@ -424,8 +424,8 @@ Orbit-capture: take screenshots from 14 systematic angles around a prim using a 
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Target prim |
 | `angles` | list[string] | all 14 | Angle names to capture (see below) |
-| `width` | int | `640` | Image width per capture; over 20 |
-| `height` | int | `480` | Image height per capture; over 20 |
+| `width` | int | `640` | Image width per capture |
+| `height` | int | `480` | Image height per capture |
 | `zoom_offset` | float | `0.0` | Adjust the fitted distance: `-0.3` is 30% closer, `0.5` is 50% further; must be greater than `-1` |
 | `isolate` | bool | `false` | Hide everything but the prim while capturing (lights stay on); visibility is restored exactly afterwards |
 | `include_segmentation` | bool | `false` | Also capture instance segmentation at each angle |
