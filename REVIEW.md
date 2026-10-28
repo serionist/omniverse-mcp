@@ -71,4 +71,7 @@ Rules:
   added, a question or a lens removed, attribution let through, a permission widened.
 - A change that only makes a check stricter needs no more than a normal review.
 - The `Read` denies in `.claude/settings.json` don't cover Bash: an allowed command that can print any file (a
-  `git diff --no-index`, `git blame --contents` or `-S`) gets around them. Keep Bash allows to narrow forms.
+  `git diff --no-index`, `git blame --contents` or `-S`) gets around them. An allow names its whole command; a ` *`
+  is only for a command `tests/test_gate.py` sweeps. Claude Code runs git's read-only forms without any allow, so
+  what can read a file outside the repo gets an `ask`. Bash rules don't reach PowerShell: each ask and deny has a
+  `PowerShell(...)` twin.
