@@ -15,6 +15,7 @@ from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
 from ovmcp.core.bounds import world_bbox
 from ovmcp.core.formatter import format_prim_block, format_scene_dump, format_value
+from ovmcp.core.material import ensure_material
 
 from ._utils import (
     _apply_xform,
@@ -350,26 +351,6 @@ async def handle_delete_prim(body: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _ensure_material(stage, mat_path: str):
-    """Get or create an OmniPBR material at the given path. Returns (material, shader)."""
-    prim = stage.GetPrimAtPath(mat_path)
-    if prim.IsValid():
-        mat = UsdShade.Material(prim)
-        shader = UsdShade.Shader(stage.GetPrimAtPath(f"{mat_path}/Shader"))
-        if mat and shader:
-            return mat, shader
-
-    mat = UsdShade.Material.Define(stage, mat_path)
-    shader = UsdShade.Shader.Define(stage, f"{mat_path}/Shader")
-    shader.CreateIdAttr("OmniPBR")
-
-    # Wire shader output to material surface
-    shader.CreateOutput("out", Sdf.ValueTypeNames.Token)
-    mat.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "out")
-
-    return mat, shader
-
-
 async def handle_set_material(body: dict) -> dict:
     """Apply a PBR material to a prim.
 
@@ -410,7 +391,7 @@ async def handle_set_material(body: dict) -> dict:
     if not mat_path:
         mat_path = f"/World/Looks/{prim_name}_Mat"
 
-    mat, shader = _ensure_material(stage, mat_path)
+    mat, shader = ensure_material(stage, mat_path)
 
     # Set PBR properties
     shader.CreateInput("diffuse_color_constant", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(r, g, b))
