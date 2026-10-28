@@ -438,6 +438,7 @@ Improvements taken:
 | 2026-10-28 | S0 | The maintainer approved the force push, the plan and keeping the March work (D13). `main` pushed with `--force-with-lease` (`b3cd7c5` → `ceb6dd9`); no attribution left on the remote. Issue #2 opened. S0 done. |
 | 2026-10-28 | S1 | Built on `2-s1-bridge-token`: the core server with the token, Origin and Host checks; the client's token lookup, re-read and protocol check; live tests that fail under `OMNIVERSE_MCP_SIM=1`. 99 unit tests pass; the extension's wiring checked with Kit mocked. Plan review round 1 applied (above). Not yet run against a live Kit. |
 | 2026-10-28 | S1 | Draft PR #3. The maintainer answered Q1-Q4. review-code round 1 ([record](../reviews/2026-10-28-s1-bridge-token-code.md)): needs-fixes, 3 majors and 6 minors, all fixed; the protocol check became a `GET /bridge` handshake on every new connection. 107 unit tests pass; a second Kit on the same port checked with Kit mocked. |
+| 2026-10-28 | S1 | review-code round 2: 3 majors (a disabled bridge still served open connections, a timed-out script was resent, unlimited connections without the token) and 5 minors, fixed in `7199b96`; 114 unit tests pass. Live on Isaac Sim 6.2 (`D:\isaac`, headless; the maintainer accepted the Omniverse EULA for these runs): integration 10/10. The scenario suite matches `main`'s baseline. Its failures are Isaac Sim 6.2 problems that predate S1: a hang in the G1 robot's physics, Y-up gravity tests on a Z-up stage, and `draw_debug`. Details in the review record. |
 
 ## For the maintainers
 
