@@ -30,3 +30,16 @@ Fixed in `ff3739b` (code and tests) and `b1bc7cd` (docs).
 - **Tests:** `uv run pytest -q -p no:cacheprovider` gives 209 passed, 123 skipped.
 - **Wheel:** `uv build` holds `omniverse_mcp/_extension/ovmcp.bridge/config/extension.toml` and `omniverse_mcp/config.py`, and no `.pyc`.
 - **Old flag:** `uv run --no-sync --project <wt> omniverse-mcp --isaac-port 9000` stops with "--isaac-port was renamed --port".
+
+## Round 2
+
+The main session read round 1's fixes, `69af0c0..4fcdfc0`, after a fresh reviewer could not open the repo (folder ownership). Verdict: clean.
+
+| # | Sev | Where | Finding | Status |
+|---|---|---|---|---|
+| R1 | minor | `server.py` | The server parses `sys.argv` when it is imported, and an unknown argument is now an error. Anything that imports the module under its own argv (`mcp dev`, a test runner) would exit. Nothing does today. | Later: S7 moves the parsing into `main()` ("no work at import"). |
+
+Live after the fixes, on Isaac Sim 6.2:
+- integration 27/27;
+- `/bridge` reports `0.1.0`;
+- the wheel and sdist hold no `.pyc`, although Kit's `__pycache__` is on disk.
