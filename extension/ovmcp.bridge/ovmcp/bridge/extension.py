@@ -1,9 +1,9 @@
 """
-Isaac Sim MCP Bridge Extension
+Omniverse MCP Bridge Extension
 
 Runs an HTTP server inside Isaac Sim that accepts commands from the MCP server.
 Provides endpoints for scene manipulation, script execution, viewport capture,
-and simulation control. The server itself lives in core/http.py; this module
+and simulation control. The server itself lives in ovmcp/core/http.py; this module
 wires it into Kit.
 """
 
@@ -12,9 +12,9 @@ import asyncio
 import carb
 import omni.ext
 
-from .core.http import LOOPBACK_HOSTS, BridgeServer
-from .core.protocol import set_extension_version, version_from_ext_id
-from .core.token import new_token, remove_token, write_token
+from ovmcp.core.http import LOOPBACK_HOSTS, BridgeServer
+from ovmcp.core.protocol import set_extension_version, version_from_ext_id
+from ovmcp.core.token import new_token, remove_token, write_token
 from .handlers import (
     handle_apply_force,
     handle_camera_inspect,
@@ -82,9 +82,9 @@ class Extension(omni.ext.IExt):
         self._server = None
         set_extension_version(version_from_ext_id(ext_id))
         settings = carb.settings.get_settings()
-        self._host = settings.get("/exts/isaacsim.mcp.bridge/host") or "127.0.0.1"
-        self._port = settings.get("/exts/isaacsim.mcp.bridge/port") or 8211
-        configured = settings.get("/exts/isaacsim.mcp.bridge/token")
+        self._host = settings.get("/exts/ovmcp.bridge/host") or "127.0.0.1"
+        self._port = settings.get("/exts/ovmcp.bridge/port") or 8211
+        configured = settings.get("/exts/ovmcp.bridge/token")
         self._token = (str(configured).strip() if configured is not None else "") or new_token()
 
         routes = {

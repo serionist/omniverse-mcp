@@ -11,7 +11,7 @@ import threading
 import time
 import unittest
 
-from isaac_sim_mcp.client import BridgeError, IsaacSimClient
+from omniverse_mcp.client import BridgeError, IsaacSimClient
 
 
 class MockIsaacServer:

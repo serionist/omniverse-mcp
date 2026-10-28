@@ -15,7 +15,7 @@ import carb
 import omni.kit.app
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics
 
-from ..core.protocol import PROTOCOL, extension_version
+from ovmcp.core.protocol import PROTOCOL, extension_version
 from ._utils import _get_stage, _next_update
 
 

@@ -109,8 +109,8 @@ async def handle_recording_start(body: dict) -> dict:
     if tracked_prim_paths:
         state_path = os.path.join(session_dir, "state.txt")
         with open(state_path, "w") as f:
-            f.write(f"# Isaac Sim MCP Recording State\n")
-            f.write(f"# format = isaacsim-mcp-v1\n")
+            f.write(f"# Omniverse MCP Recording State\n")
+            f.write(f"# format = omniverse-mcp-v1\n")
             f.write(f"# session = {session_id}\n")
             f.write(f"# fps = {fps}\n")
             f.write(f"# tracked_prims = {len(tracked_prim_paths)}\n")

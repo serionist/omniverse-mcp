@@ -1,15 +1,15 @@
 """The token file and the protocol constant: what the extension writes, the MCP server reads."""
 
-import re
 import sys
+import tomllib
 
 import pytest
-from isaacsim.mcp.bridge.core import protocol as ext_protocol
-from isaacsim.mcp.bridge.core import token as ext_token
+from ovmcp.core import protocol as ext_protocol
+from ovmcp.core import token as ext_token
 
-from isaac_sim_mcp import bridge_token, client
+from omniverse_mcp import bridge_token, client
 
-from .conftest import EXTENSION_ROOT
+from .conftest import EXTENSION_ROOT, REPO_ROOT
 
 
 def test_both_sides_agree_on_the_token_path(state):
@@ -74,17 +74,20 @@ def test_both_sides_speak_the_same_protocol():
     assert client.PROTOCOL == ext_protocol.PROTOCOL
 
 
-def test_extension_folder_name_matches_its_id_and_version():
-    # Kit derives the ext_id it hands on_startup from these; version_from_ext_id reads it back.
-    toml = (EXTENSION_ROOT / "config" / "extension.toml").read_text(encoding="utf-8")
-    version = re.search(r'^version\s*=\s*"([^"]+)"', toml, re.MULTILINE).group(1)
-    assert EXTENSION_ROOT.name == f"{ext_protocol.EXTENSION_NAME}-{version}"
-    assert ext_protocol.version_from_ext_id(EXTENSION_ROOT.name) == version
+def test_extension_and_server_carry_one_version():
+    # Kit hands on_startup "<name>-<version>" from extension.toml; the server's version is pyproject.toml's (plan D7).
+    with (EXTENSION_ROOT / "config" / "extension.toml").open("rb") as f:
+        extension_version = tomllib.load(f)["package"]["version"]
+    with (REPO_ROOT / "pyproject.toml").open("rb") as f:
+        server_version = tomllib.load(f)["project"]["version"]
+    assert extension_version == server_version
+    ext_id = f"{ext_protocol.EXTENSION_NAME}-{extension_version}"
+    assert ext_protocol.version_from_ext_id(ext_id) == extension_version
 
 
 @pytest.mark.parametrize(
     ("ext_id", "version"),
-    [("isaacsim.mcp.bridge-1.0.0", "1.0.0"), ("isaacsim.mcp.bridge-0.2.0-rc.1", "0.2.0-rc.1"), ("other-1.0", "unknown")],
+    [("ovmcp.bridge-0.1.0", "0.1.0"), ("ovmcp.bridge-0.2.0-rc.1", "0.2.0-rc.1"), ("other-1.0", "unknown")],
 )
 def test_version_from_ext_id(ext_id, version):
     assert ext_protocol.version_from_ext_id(ext_id) == version

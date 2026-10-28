@@ -162,8 +162,8 @@ def format_scene_dump(stage, root_path: str = "/", max_depth: int = 15,
     prim_count = sum(1 for _ in Usd.PrimRange(root_prim))
 
     lines = [
-        f"# Isaac Sim MCP Scene Dump",
-        f"# format = isaacsim-mcp-v1",
+        f"# Omniverse MCP Scene Dump",
+        f"# format = omniverse-mcp-v1",
         f"# root = {root_path}",
         f"# prim_count = {prim_count}",
         f"# up_axis = {UsdGeom.GetStageUpAxis(stage)}",

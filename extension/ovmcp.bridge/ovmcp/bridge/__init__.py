@@ -1,8 +1,4 @@
-# Kit imports this package and instantiates the Extension it finds. Outside Kit (the core's unit tests) there is
-# no omni, and only isaacsim.mcp.bridge.core is used.
-try:
-    import omni.ext  # noqa: F401
-except ImportError:
-    pass
-else:
-    from .extension import Extension  # noqa: F401
+# Kit imports this module and instantiates the Extension it finds. The Kit-free core is ovmcp.core.
+from .extension import Extension
+
+__all__ = ["Extension"]

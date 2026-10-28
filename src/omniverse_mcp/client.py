@@ -1,5 +1,5 @@
 """
-HTTP client for communicating with the Isaac Sim MCP Bridge extension.
+HTTP client for communicating with the Omniverse MCP Bridge extension (ovmcp.bridge).
 
 Uses persistent HTTP connections with keep-alive for efficiency.
 """
@@ -15,7 +15,7 @@ from .bridge_token import ENV_TOKEN, read_token, token_path
 logger = logging.getLogger(__name__)
 
 # The bridge protocol this server speaks. The extension answers its own to GET /bridge; its copy is
-# isaacsim.mcp.bridge.core.protocol.PROTOCOL, and tests/test_bridge_token.py keeps them equal.
+# ovmcp.core.protocol.PROTOCOL, and tests/test_bridge_token.py keeps them equal.
 PROTOCOL = 1
 
 
@@ -151,7 +151,7 @@ class IsaacSimClient:
 
         raise ConnectionError(
             f"Failed to communicate with Isaac Sim at {self.host}:{self.port}. "
-            "Ensure Isaac Sim is running with the isaacsim.mcp.bridge extension enabled."
+            "Ensure Isaac Sim is running with the ovmcp.bridge extension enabled."
         )
 
     def _read_response(self) -> tuple[int, dict]:

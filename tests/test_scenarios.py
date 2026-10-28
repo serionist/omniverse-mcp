@@ -10,7 +10,7 @@ import os
 import time
 import unittest
 
-from isaac_sim_mcp.client import IsaacSimClient
+from omniverse_mcp.client import IsaacSimClient
 
 
 def _skip_if_no_sim():
@@ -410,7 +410,7 @@ class TestScenarios(unittest.TestCase):
         with open(state_file) as f:
             content = f.read()
 
-        self.assertIn("# Isaac Sim MCP Recording State", content)
+        self.assertIn("# Omniverse MCP Recording State", content)
         self.assertIn("=== FRAME", content)
         self.assertIn("[/World/RedCube]", content)
         self.assertIn("pos =", content)
@@ -489,7 +489,7 @@ class TestScenarios(unittest.TestCase):
         with open(file_path) as f:
             content = f.read()
 
-        self.assertIn("# Isaac Sim MCP Scene Dump", content)
+        self.assertIn("# Omniverse MCP Scene Dump", content)
         self.assertIn("=== SCENE", content)
         self.assertIn("[/World/RedCube]", content)
         self.assertIn("type = Cube", content)

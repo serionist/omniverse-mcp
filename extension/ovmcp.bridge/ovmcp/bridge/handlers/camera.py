@@ -12,10 +12,10 @@ import omni.kit.app
 import omni.usd
 from pxr import Gf, Usd, UsdGeom
 
-from ..core.framing import apply_zoom, bounding_radius, fit_distance, inspect_args, require_perspective
-from ..core.isolation import LIGHT_TYPES, Hidden, is_light, prims_to_hide
-from ..core.lighting import camera_light_switch, current_mode
-from ..core.serial import LazyLock, serial
+from ovmcp.core.framing import apply_zoom, bounding_radius, fit_distance, inspect_args, require_perspective
+from ovmcp.core.isolation import LIGHT_TYPES, Hidden, is_light, prims_to_hide
+from ovmcp.core.lighting import camera_light_switch, current_mode
+from ovmcp.core.serial import LazyLock, serial
 from ._utils import (
     CAMERA_SETTLE_FRAMES,
     _compute_world_bbox,

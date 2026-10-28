@@ -3,7 +3,7 @@
 import math
 
 import pytest
-from isaacsim.mcp.bridge.core.framing import (
+from ovmcp.core.framing import (
     ANGLES,
     MARGIN_PX,
     apply_zoom,

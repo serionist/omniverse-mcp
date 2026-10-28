@@ -1,11 +1,12 @@
-"""Puts the Kit extension's folder on sys.path, so tests import its Kit-free core (isaacsim.mcp.bridge.core)."""
+"""Puts the Kit extension's folder on sys.path, so tests import its Kit-free core (ovmcp.core)."""
 
 import sys
 from pathlib import Path
 
 import pytest
 
-EXTENSION_ROOT = Path(__file__).resolve().parents[1] / "extension" / "isaacsim.mcp.bridge-1.0.0"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+EXTENSION_ROOT = REPO_ROOT / "extension" / "ovmcp.bridge"
 sys.path.insert(0, str(EXTENSION_ROOT))
 
 

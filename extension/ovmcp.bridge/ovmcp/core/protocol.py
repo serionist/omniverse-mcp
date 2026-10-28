@@ -1,10 +1,10 @@
 """What the bridge tells the MCP server about itself in /health."""
 
 # Raised when the server and the extension stop understanding each other's requests. The server's copy is
-# isaac_sim_mcp.client.PROTOCOL; tests/test_bridge_token.py keeps them equal.
+# omniverse_mcp.client.PROTOCOL; tests/test_bridge_token.py keeps them equal.
 PROTOCOL = 1
 
-EXTENSION_NAME = "isaacsim.mcp.bridge"
+EXTENSION_NAME = "ovmcp.bridge"
 
 _version = "unknown"
 

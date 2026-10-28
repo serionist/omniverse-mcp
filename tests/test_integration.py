@@ -1,7 +1,7 @@
 """
-Integration test for the Isaac Sim MCP Bridge.
+Integration test for the Omniverse MCP Bridge (ovmcp.bridge).
 
-Requires Isaac Sim to be running with the isaacsim.mcp.bridge extension enabled.
+Requires Isaac Sim to be running with the ovmcp.bridge extension enabled.
 
 Usage:
     python -m pytest tests/test_integration.py -v
@@ -14,7 +14,7 @@ import sys
 import time
 import unittest
 
-from isaac_sim_mcp.client import IsaacSimClient
+from omniverse_mcp.client import IsaacSimClient
 
 
 class TestIsaacSimIntegration(unittest.TestCase):
@@ -33,7 +33,7 @@ class TestIsaacSimIntegration(unittest.TestCase):
                 raise
             raise unittest.SkipTest(
                 f"Cannot connect to Isaac Sim at 127.0.0.1:8211. "
-                f"Start Isaac Sim with isaacsim.mcp.bridge extension. Error: {e}"
+                f"Start Isaac Sim with the ovmcp.bridge extension. Error: {e}"
             )
         # Ensure sim is stopped and create a clean scene
         cls.client.sim_control("stop")

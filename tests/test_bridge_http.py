@@ -7,10 +7,10 @@ import threading
 import time
 
 import pytest
-from isaacsim.mcp.bridge.core.http import MAX_BODY_SIZE, MAX_PENDING, BridgeServer, host_name
-from isaacsim.mcp.bridge.core.token import write_token
+from ovmcp.core.http import MAX_BODY_SIZE, MAX_PENDING, BridgeServer, host_name
+from ovmcp.core.token import write_token
 
-from isaac_sim_mcp.client import PROTOCOL, BridgeError, IsaacSimClient
+from omniverse_mcp.client import PROTOCOL, BridgeError, IsaacSimClient
 
 TOKEN = "t0k3n"
 

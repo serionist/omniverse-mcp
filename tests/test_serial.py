@@ -2,7 +2,7 @@
 
 import asyncio
 
-from isaacsim.mcp.bridge.core.serial import LazyLock, serial
+from ovmcp.core.serial import LazyLock, serial
 
 
 def _run(coro):

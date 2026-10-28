@@ -1,5 +1,6 @@
 [package]
-version = "1.0.0"
+# Equal to pyproject.toml's version; tests/test_bridge_token.py keeps them equal.
+version = "0.1.0"
 category = "Simulation"
 title = "Omniverse MCP Bridge"
 description = "HTTP bridge enabling AI assistants to control Omniverse applications via the Model Context Protocol"
@@ -10,12 +11,11 @@ readme = "docs/README.md"
 "omni.kit.uiapp" = { optional = true }
 
 [[python.module]]
-name = "isaacsim.mcp.bridge"
+name = "ovmcp.bridge"
 
 [settings]
-exts."isaacsim.mcp.bridge".host = "127.0.0.1"
-exts."isaacsim.mcp.bridge".port = 8211
+exts."ovmcp.bridge".host = "127.0.0.1"
+exts."ovmcp.bridge".port = 8211
 # Empty: a new random token at every start, written to the token file. Set it only for a remote MCP server,
 # which then gets the same value in OMNIVERSE_MCP_TOKEN.
-exts."isaacsim.mcp.bridge".token = ""
-exts."isaacsim.mcp.bridge".scene_tree_max_depth = 8
+exts."ovmcp.bridge".token = ""

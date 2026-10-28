@@ -1,6 +1,6 @@
 """The bridge token: made at startup, written where the MCP server running as the same user can read it.
 
-`state_dir` and `token_path` must give the same answer as `isaac_sim_mcp/bridge_token.py` on the server side;
+`state_dir` and `token_path` must give the same answer as `src/omniverse_mcp/bridge_token.py` on the server side;
 `tests/test_bridge_token.py` keeps them equal.
 """
 

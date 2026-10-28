@@ -1,4 +1,4 @@
-"""Allow running as `python -m isaac_sim_mcp`."""
+"""Allow running as `python -m omniverse_mcp`."""
 from .server import main
 
 main()

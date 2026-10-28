@@ -1,8 +1,8 @@
 """
-Isaac Sim MCP Server
+Omniverse MCP Server
 
 Standalone MCP server that bridges AI assistants to a running Isaac Sim instance
-via the isaacsim.mcp.bridge extension.
+via the ovmcp.bridge Kit extension.
 
 Design principles:
 - Images are always saved as PNG files, returning paths (never base64 inline).
@@ -11,8 +11,11 @@ Design principles:
 - Small responses are returned inline as text.
 
 Usage:
-    python -m isaac_sim_mcp
-    python -m isaac_sim_mcp --isaac-host 127.0.0.1 --isaac-port 8211
+    omniverse-mcp
+    omniverse-mcp --host 127.0.0.1 --port 8211
+    python -m omniverse_mcp
+
+Flags default to OMNIVERSE_MCP_HOST, OMNIVERSE_MCP_PORT and OMNIVERSE_MCP_OUTPUT_DIR.
 """
 
 import argparse
@@ -31,10 +34,14 @@ logger = logging.getLogger(__name__)
 # CLI args (parsed before FastMCP takes stdio)
 # ---------------------------------------------------------------------------
 
-_parser = argparse.ArgumentParser(description="Isaac Sim MCP Server", add_help=False)
-_parser.add_argument("--isaac-host", default="127.0.0.1", help="Isaac Sim extension host")
-_parser.add_argument("--isaac-port", type=int, default=8211, help="Isaac Sim extension port")
-_parser.add_argument("--output-dir", default="", help="Directory for file-based outputs (scene dumps, recordings)")
+_parser = argparse.ArgumentParser(description="Omniverse MCP Server", add_help=False)
+_parser.add_argument("--host", default=os.environ.get("OMNIVERSE_MCP_HOST", "127.0.0.1"),
+                     help="Kit extension host (OMNIVERSE_MCP_HOST)")
+# argparse applies type=int to a string default too, so a bad OMNIVERSE_MCP_PORT gets its usage error.
+_parser.add_argument("--port", type=int, default=os.environ.get("OMNIVERSE_MCP_PORT", "8211"),
+                     help="Kit extension port (OMNIVERSE_MCP_PORT)")
+_parser.add_argument("--output-dir", default=os.environ.get("OMNIVERSE_MCP_OUTPUT_DIR", ""),
+                     help="Directory for file-based outputs: scene dumps, recordings (OMNIVERSE_MCP_OUTPUT_DIR)")
 _args, _remaining = _parser.parse_known_args()
 
 # Output dir defaults to ./mcp_output relative to CWD
@@ -49,7 +56,7 @@ FILE_THRESHOLD = 1000
 # ---------------------------------------------------------------------------
 
 mcp = FastMCP(
-    "Isaac Sim",
+    "omniverse",
     instructions=(
         "Connected to NVIDIA Isaac Sim 5.1. Controls USD scene, simulation, viewport, robots.\n"
         "Use Context7 MCP (library 'isaac-sim/isaacsim') before writing execute_script code.\n\n"
@@ -59,7 +66,7 @@ mcp = FastMCP(
     ),
 )
 
-_client = IsaacSimClient(host=_args.isaac_host, port=_args.isaac_port)
+_client = IsaacSimClient(host=_args.host, port=_args.port)
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +132,7 @@ register_all(mcp, _client, _helpers)
 # Resources
 # ---------------------------------------------------------------------------
 
-@mcp.resource("isaac://scene/tree")
+@mcp.resource("omniverse://scene/tree")
 def scene_tree_resource() -> str:
     """Current scene hierarchy."""
     try:
@@ -137,7 +144,7 @@ def scene_tree_resource() -> str:
         return f"Error: Isaac Sim not reachable - {e}"
 
 
-@mcp.resource("isaac://sim/state")
+@mcp.resource("omniverse://sim/state")
 def sim_state_resource() -> str:
     """Current simulation state."""
     try:
