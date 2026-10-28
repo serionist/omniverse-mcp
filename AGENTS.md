@@ -22,7 +22,7 @@ extension it talks to.
 | Path | What |
 |---|---|
 | `src/omniverse_mcp/` | the server: `server.py` (`create_server()`: MCP server, output files, resources; `main()`), `config.py` (flags, `OMNIVERSE_MCP_*`), `client.py` (the bridge's HTTP client), `bridge_token.py`, `kit_extension.py` (`extension install\|path`: the extension the wheel carries, copied to the user's folder), `tools/` (the tools by area; `_bridge.py`, the one call to the bridge; `_annotations.py`, the four hints; `_params.py`, shared parameters) |
-| `extension/ovmcp.bridge/` | the extension: `config/extension.toml` (id, version, settings), `ovmcp/bridge/` (`extension.py` with the routes, `handlers/`), `ovmcp/core/` (HTTP, token, framing, isolation, bounds, the formatter, PNG, logs; `usd.py` types what the pxr stubs get wrong), `docs/README.md` |
+| `extension/ovmcp.bridge/` | the extension: `config/extension.toml` (id, version, settings), `ovmcp/bridge/` (`extension.py` with the routes, `handlers/`), `ovmcp/core/` (HTTP, token, framing, isolation, bounds, the formatter, PNG, logs, materials; `usd.py` types what the pxr stubs get wrong), `docs/README.md` |
 | `tests/` | pytest; `test_integration.py` and `test_scenarios.py` are the live suites (markers `sim`, `scenario`), which need Kit; `fixtures/mcp-tools.json`, the tool contract `test_contract.py` checks; `test_tools.py`, each tool against the mock bridge |
 | `test_project/` | an MCP client project for AI-driven scenario runs: `scenarios.md`, `CLAUDE.md`, `.mcp.json.example` |
 | `docs/` | `ARCHITECTURE.md` (routes, protocol, token, threading), `TOOLS.md` (a heading per tool), `AI_GUIDE.md` (for clients without the plugin; points at its skills) |

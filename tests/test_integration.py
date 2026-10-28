@@ -238,6 +238,14 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         result = self.client.set_material("/World/IntTestCube", color=[1, 0, 0], roughness=0.3)
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["result"]["color"], [1, 0, 0])
+        # Named by its MDL source, which Kit resolves; an id alone rendered Kit's red error material (#30).
+        path = f"{result['result']['material_path']}/Shader"
+        shader = self.client.execute(
+            "from pxr import UsdShade\n"
+            f"s = UsdShade.Shader(omni.usd.get_context().get_stage().GetPrimAtPath('{path}'))\n"
+            "result = [str(s.GetImplementationSource()), s.GetSourceAsset('mdl').path]"
+        )
+        self.assertEqual(shader["result"]["return_value"], ["sourceAsset", "OmniPBR.mdl"])
         print(f"  Material set: color={result['result']['color']}, roughness={result['result']['roughness']}")
 
     def test_20_visibility(self):
