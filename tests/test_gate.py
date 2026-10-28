@@ -716,14 +716,37 @@ def test_identities_come_from_git_with_the_author_a_commit_was_given(tmp_path, m
     ]
 
 
-# Claude Code's settings. Its rules match a command as a glob; these check what they are meant to catch with
-# fnmatchcase, the nearest the standard library has.
+# Claude Code's settings. Its rules match the command's text as a glob, `*` any text; these check what each rule is
+# meant to catch with fnmatchcase, the nearest the standard library has. deny wins over ask, ask over allow, and an ask
+# also stops what Claude Code runs on its own as read-only (git's read-only forms among them).
 
 SETTINGS = json.loads((Path(__file__).resolve().parents[1] / ".claude" / "settings.json").read_text(encoding="utf-8"))
+# The only allows a ` *` may end: git commands whose options and paths are swept for reading a file outside the
+# repository (below), and gh commands that only read from GitHub. Any other allow names its whole command.
+SPACED_STAR_ALLOWS = {
+    "git status *",
+    "git log *",
+    "git show *",
+    "git ls-files *",
+    "git rev-parse *",
+    "git merge-base *",
+    "git worktree list *",
+    "gh issue view *",
+    "gh issue list *",
+    "gh pr view *",
+    "gh pr diff *",
+    "gh pr checks *",
+    "gh pr list *",
+}
 
 
-def _bash_rules(kind: str) -> list[str]:
-    return [rule[5:-1] for rule in SETTINGS["permissions"][kind] if rule.startswith("Bash(")]
+def _rules(kind: str, tool: str = "Bash") -> list[str]:
+    prefix = f"{tool}("
+    return [rule[len(prefix) : -1] for rule in SETTINGS["permissions"][kind] if rule.startswith(prefix)]
+
+
+def _matches(command: str, kind: str) -> bool:
+    return any(fnmatch.fnmatchcase(command, rule) for rule in _rules(kind))
 
 
 @pytest.mark.parametrize(
@@ -745,7 +768,7 @@ def _bash_rules(kind: str) -> list[str]:
 )
 def test_settings_deny_what_skips_the_hooks_or_prints_any_file(command):
     # The hooks behind commit-msg and pre-push, and the Read denies, are what these would get around (#17).
-    assert any(fnmatch.fnmatchcase(command, rule) for rule in _bash_rules("deny")), command
+    assert _matches(command, "deny"), command
 
 
 @pytest.mark.parametrize(
@@ -759,13 +782,134 @@ def test_settings_deny_what_skips_the_hooks_or_prints_any_file(command):
     ],
 )
 def test_settings_let_ordinary_commands_through(command):
-    assert not any(fnmatch.fnmatchcase(command, rule) for rule in _bash_rules("deny")), command
+    assert not _matches(command, "deny"), command
 
 
-def test_git_blame_asks_first():
-    # It reads files git doesn't track through -S and --ignore-revs-file, and short options can be run together
-    # (-wS), which no glob catches: so it is never allowed without asking.
-    assert not any(fnmatch.fnmatchcase("git blame a.py", rule) for rule in _bash_rules("allow"))
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git blame a.py",
+        "git blame --cont ../outside/secret.txt a.py",
+        "git blame -wS ../outside/secret.txt a.py",
+        # Two paths, one outside the repository, and git diffs them as files (no-index) without the flag (#19); the
+        # path out may come first or second.
+        "git diff origin/main...HEAD/../../../outside/secret.txt ../outside/empty.txt",
+        "git diff --stat a.py ../outside/secret.txt",
+        "git diff a.py /etc/passwd",
+        "git diff /c/Users/me/other/x.py src/x.py",
+        "git diff a.py ~/.ssh/id_ed25519",
+        "git diff ~/.ssh/id_ed25519 a.py",
+        "git diff $HOME/.ssh/id_ed25519 a.py",
+        "git diff a.py C:/Users/me/.ssh/id_ed25519",
+        "git diff C:/Users/me/.ssh/id_ed25519 a.py",
+        "git diff a.py C:\\Users\\me\\secret.txt",
+        "git diff a.py ..\\outside\\secret.txt",
+        "git diff \\Users\\me\\secret.txt a.py",
+        "git diff . ..",
+        "git diff .. .",
+        'git diff "/c/Users/me/other/x.py" src/x.py',
+        "git diff src/x.py '/home/me/x.py'",
+        'git diff "." ".."',
+        "git diff '.' '..'",
+        'git diff a.py "\\Users\\me\\secret.txt"',
+        'git diff "~/.ssh/id_ed25519" a.py',
+    ],
+)
+def test_settings_ask_before_what_can_read_a_file_outside_the_repo(command):
+    # git blame reads any file through -S, --contents and their prefixes and bundles, which no deny can keep up with;
+    # git diff reads one through a path out of the repository. Claude Code may run both as read-only, so they ask.
+    # These are the usual spellings of a path out, quoted or not, but not every one: `.\\./x`, a brace `{.,..}`, a
+    # command substitution, PowerShell's backtick escapes, and `git --no-pager diff` or `git -C . diff` get past.
+    assert _matches(command, "ask"), command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git diff",
+        "git diff --stat",
+        "git diff --cached",
+        "git diff origin/main...HEAD",
+        "git diff --name-only origin/main...HEAD",
+        "git diff HEAD~1..HEAD -- tests/test_gate.py",
+        "git diff origin/main..HEAD",
+        "git diff -- '*.py'",
+        # review-code's own commands, which a wider ask would make prompt on every review.
+        "git diff --name-only origin/main...HEAD > files.txt",
+        "git diff origin/main...HEAD > scope.diff",
+        "git diff fa967c6..HEAD > delta.diff",
+        "git diff fa967c6..ff3185e > .local/review/gate-holes/delta.diff",
+    ],
+)
+def test_settings_let_diffs_inside_the_repo_through(command):
+    assert not _matches(command, "ask"), command
+    assert not _matches(command, "deny"), command
+
+
+def test_every_allow_is_exact_or_a_swept_command():
+    # A `*` glued to a word lets git read more into the command than the rule meant: `git diff origin/main...HEAD*`
+    # took a path that left the repository (#19). A ` *` is kept for the commands the sweep below covers.
+    for rule in _rules("allow"):
+        if "*" in rule:
+            assert rule in SPACED_STAR_ALLOWS, f"{rule}: name the whole command, or sweep it and list it"
+    assert all(rule.startswith("Bash(") for rule in SETTINGS["permissions"]["allow"] if "(" in rule)
+
+
+def test_powershell_has_every_bash_ask_and_deny():
+    # The Bash rules don't reach Claude Code's PowerShell tool, which has rules of its own.
+    for kind in ("ask", "deny"):
+        assert set(_rules(kind, "PowerShell")) == set(_rules(kind)), kind
+
+
+# What keeps a ` *` must print nothing of a file outside the repository, whatever follows it. A throwaway repository
+# with an invented secret one folder up, and the options and paths that could read it.
+OUTSIDE = "../outside/secret.txt"
+SWEEP = [
+    ["status", OUTSIDE],
+    ["status", "--porcelain", "--", OUTSIDE],
+    ["status", f"--pathspec-from-file={OUTSIDE}"],
+    ["log", OUTSIDE],
+    ["log", "-p", "--", OUTSIDE],
+    ["log", f"-L1,1:{OUTSIDE}"],
+    ["log", "--no-index", OUTSIDE, "../outside/empty.txt"],
+    ["log", f"--pathspec-from-file={OUTSIDE}"],
+    ["log", f"-O{OUTSIDE}", "-p", "-1"],
+    ["log", f"--notes={OUTSIDE}", "-1"],
+    ["show", OUTSIDE],
+    ["show", f"HEAD:{OUTSIDE}"],
+    ["show", "--no-index", OUTSIDE],
+    ["show", f"--pathspec-from-file={OUTSIDE}"],
+    ["show", f"-O{OUTSIDE}"],
+    ["ls-files", OUTSIDE],
+    ["ls-files", "--error-unmatch", f"--pathspec-from-file={OUTSIDE}"],
+    ["ls-files", "--others", "--ignored", f"--exclude-from={OUTSIDE}"],
+    ["ls-files", "--others", f"--exclude-per-directory={OUTSIDE}"],
+    ["rev-parse", "--git-path", OUTSIDE],
+    ["rev-parse", f"--since={OUTSIDE}"],
+    ["merge-base", "HEAD", OUTSIDE],
+    ["merge-base", "--fork-point", "HEAD", OUTSIDE],
+    ["worktree", "list", "--porcelain", "../outside"],
+]
+
+
+@pytest.fixture(scope="module")
+def outside_secret(tmp_path_factory):
+    base = tmp_path_factory.mktemp("sweep")
+    (base / "outside").mkdir()
+    (base / "outside" / "secret.txt").write_text("INVENTED_SWEEP_SECRET=not-real\nsecond = 1\n", encoding="utf-8")
+    (base / "outside" / "empty.txt").write_text("", encoding="utf-8")
+    repo = base / "repo"
+    repo.mkdir()
+    run = new_repo(repo)
+    commit_file(run, repo, "a.txt", "Base")
+    return repo
+
+
+@pytest.mark.parametrize("args", SWEEP, ids=" ".join)
+def test_swept_commands_print_nothing_of_a_file_outside_the_repo(outside_secret, args):
+    done = gate.git(*args, cwd=outside_secret)
+    assert "INVENTED_SWEEP_SECRET" not in done.stdout + done.stderr
+    assert any(fnmatch.fnmatchcase(f"git {' '.join(args)}", rule) for rule in SPACED_STAR_ALLOWS)
 
 
 # The pre-push hook
