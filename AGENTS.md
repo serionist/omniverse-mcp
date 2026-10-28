@@ -96,8 +96,9 @@ The skills in `.claude/skills/` run this loop: `start-work` (1 to 3), `review-pl
   projects' release notes, which `pr-text.yml` doesn't check. A minor or patch update merges itself once `CI` and
   `PR text` pass, unless its PR is a draft, and `dependabot-auto-merge.yml` writes that line; a major waits for the
   maintainer, who cuts the message at merge.
-- No tool attribution anywhere: no AI co-author trailers, no "Generated with" lines, no session links, in commits,
-  PR titles or PR bodies. `commit-msg` refuses them, and the gate checks every message on the branch.
+- No tool attribution anywhere: no AI co-author trailers, no "Generated with" lines, no session links, no tool as a
+  commit's author or committer, in commits, PR titles or PR bodies. `commit-msg` refuses them, and the gate checks
+  every commit on the branch.
 
 ## One-way doors
 

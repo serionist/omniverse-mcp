@@ -3,7 +3,7 @@
 Usage (from a shim): uv run --no-sync tools/hooks.py commit-msg|pre-push|post-checkout|post-merge [git's arguments]
 
 - commit-msg refuses a message with tool attribution: a co-author that is a tool, a "Generated with" line, a tool's
-  session trailer or link (AGENTS.md, Commits and PRs).
+  session trailer or link; and a tool as the commit's author or committer (AGENTS.md, Commits and PRs).
 - pre-push runs the gate's quick lane on what the push sends: the commits' checks on each pushed range, and the
   working tree's checks only when the push sends HEAD and the tree has nothing else in it.
 - post-checkout and post-merge name the AI setup files that changed, so an agent re-reads them. They only inform:
@@ -21,9 +21,18 @@ from pathlib import Path, PurePosixPath
 
 import gate
 
-# The line above the diff `git commit -v` adds, behind whatever comment character is set; git drops it and all
-# below it. Everything above, comment lines included, is the message: with -m git keeps comment lines.
+# The line above the diff `git commit -v` adds. git drops it and everything below it only for -v, commit.verbose or
+# --cleanup=scissors, and only behind its own comment character, none of which a hook can see; otherwise it keeps
+# them, a trailer included. So below a scissors line behind any character, every line a diff can't hold is read too.
+# Everything above, comment lines included, is the message: with -m git keeps comment lines.
 SCISSORS = re.compile(r"^\S+ -{24} >8 -{24}\s*$")
+# The lines of the diff below the scissors line: its headers, its hunks, and the lines of each hunk.
+DIFF_LINE = re.compile(
+    r"^(?:[-+ ]|@@|diff --git |index |(?:old|new|new file|deleted file) mode |(?:dis)?similarity index |"
+    r"(?:rename|copy) (?:from|to) |Binary files |\\ No newline)"
+)
+# `git var GIT_AUTHOR_IDENT` ends with the time and the zone: `Name <email> 1793204818 +0100`.
+IDENT_TIME = re.compile(r"\s+\d+\s+[+-]\d{4}\s*$")
 ZERO_SHA = re.compile(r"^0+$")
 # What an agent reads as its rules when a session starts (REVIEW.md, The harness).
 AGENT_SETUP_PREFIXES = (".claude/", ".agents/")
@@ -36,20 +45,38 @@ def say(hook: str, text: str) -> None:
 
 
 def message_text(raw: str) -> str:
-    """The message git may record: everything above the scissors line, comment lines included."""
-    kept = []
+    """The message as far as git may record it: every line above a scissors line, comment lines included, and below
+    it every line that a diff can't hold."""
+    kept, below = [], False
     for line in raw.splitlines():
-        if SCISSORS.match(line):
-            break
-        kept.append(line)
+        if not below and SCISSORS.match(line):
+            below = True
+        elif not (below and DIFF_LINE.match(line)):
+            kept.append(line)
     return "\n".join(kept).strip()
 
 
-def commit_msg(path: str) -> int:
-    """Refuse a message with tool attribution; 1 refuses the commit."""
+def identities(cwd: Path = gate.ROOT) -> list[tuple[str, str]]:
+    """(role, `Name <email>`) of the commit being made: git hands hooks `--author` through GIT_AUTHOR_*. One git can't
+    work out (no user.name, as in CI) is left out; git refuses that commit itself."""
+    found = []
+    for role, var in (("author", "GIT_AUTHOR_IDENT"), ("committer", "GIT_COMMITTER_IDENT")):
+        done = gate.git("var", var, cwd=cwd)
+        if done.returncode == 0 and done.stdout.strip():
+            found.append((role, IDENT_TIME.sub("", done.stdout.strip())))
+    return found
+
+
+def commit_msg(path: str, people: list[tuple[str, str]] | None = None) -> int:
+    """Refuse a message with tool attribution, or a tool as the commit's author or committer; 1 refuses the commit.
+    people stands in for identities(), which asks git."""
     text = message_text(Path(path).read_text(encoding="utf-8", errors="replace"))
+    people = identities() if people is None else people
+    tools = [f"a tool as the commit's {role}: {who}" for role, who in people if gate.tool_co_author(who)]
     hint = "take those lines out and commit again (AGENTS.md, Commits and PRs)"
-    return gate.report_attribution(text, "commit-msg", hint)
+    if tools:
+        hint = "give the commit a person as author and committer, and commit again (AGENTS.md, Commits and PRs)"
+    return gate.report_attribution(text, "commit-msg", hint, tools)
 
 
 def push_ranges(lines: list[str], base: str, known: Callable[[str], bool]) -> list[tuple[str, str]]:
