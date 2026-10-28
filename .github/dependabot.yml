@@ -1,0 +1,40 @@
+# Dependabot version updates, weekly on Monday: the Python packages in pyproject.toml and uv.lock, and the actions the
+# workflows pin by SHA. Minor and patch updates come grouped, one PR a week for each; a major comes on a PR of its own.
+# Each is a PR like any other: CI must pass and the maintainer merges it (AGENTS.md, How a change lands). Security
+# updates come as soon as an advisory is published, whatever the schedule, once the maintainer turns them on in the
+# repository's settings; the cooldown holds version updates only.
+version: 2
+
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Wait a week after a version is published before proposing it, so a broken or compromised release is pulled first.
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      python:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      # The MCP SDK's majors move by hand, in a PR of their own: the server is moved to SDK v2 and pinned exactly
+      # (plan D6), since a major changes the tools' contract.
+      - dependency-name: mcp
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    # Dependabot moves the pinned SHA and the version comment beside it together.
+    groups:
+      actions:
+        patterns: ["*"]
+        update-types: [minor, patch]
