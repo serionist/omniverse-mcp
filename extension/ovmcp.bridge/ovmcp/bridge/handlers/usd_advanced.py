@@ -5,8 +5,7 @@ Handles flatten, export, variant selection, variant structure creation,
 prim comparison, and material path updates.
 """
 
-import carb
-from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
+from pxr import Sdf, Usd, UsdGeom, UsdShade
 
 from ._utils import (
     _collect_materials,
@@ -15,7 +14,6 @@ from ._utils import (
     _get_stage,
     _next_update,
 )
-
 
 # ---------------------------------------------------------------------------
 # /scene/flatten

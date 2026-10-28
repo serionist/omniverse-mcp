@@ -155,7 +155,7 @@ class BridgeServer:
                 timeout = max(deadline - loop.time(), 0.0) if writer in self._pending else self.idle_timeout
                 if not await self._serve_one(reader, writer, timeout):
                     break
-        except (asyncio.IncompleteReadError, ConnectionResetError, asyncio.TimeoutError):
+        except (TimeoutError, asyncio.IncompleteReadError, ConnectionResetError):
             pass
         except Exception as e:
             self._log.error(f"[MCP Bridge] Connection error: {e}")

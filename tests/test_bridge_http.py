@@ -7,10 +7,10 @@ import threading
 import time
 
 import pytest
+
+from omniverse_mcp.client import PROTOCOL, BridgeClient, BridgeError
 from ovmcp.core.http import MAX_BODY_SIZE, MAX_PENDING, BridgeServer, host_name
 from ovmcp.core.token import write_token
-
-from omniverse_mcp.client import PROTOCOL, BridgeError, BridgeClient
 
 TOKEN = "t0k3n"
 

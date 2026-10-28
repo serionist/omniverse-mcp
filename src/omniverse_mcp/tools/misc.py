@@ -104,15 +104,14 @@ def register(mcp, client, h):
                 lines.append(f"  ... and {r['count'] - 50} more")
             text = "\n".join(lines)
             return h.text_response(text, "extensions")
-        else:
-            if not extension_id:
-                return "ERROR: extension_id is required for enable/disable"
-            resp = _call(client.extensions_manage, extension_id, action)
-            err = _check_error(resp)
-            if err:
-                return err
-            r = resp["result"]
-            return f"Extension {r['extension_id']}: {r['action']}d (enabled={r['enabled']})"
+        if not extension_id:
+            return "ERROR: extension_id is required for enable/disable"
+        resp = _call(client.extensions_manage, extension_id, action)
+        err = _check_error(resp)
+        if err:
+            return err
+        r = resp["result"]
+        return f"Extension {r['extension_id']}: {r['action']}d (enabled={r['enabled']})"
 
     @mcp.tool()
     def get_logs(

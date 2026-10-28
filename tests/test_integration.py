@@ -10,8 +10,6 @@ Usage:
 
 import json
 import os
-import sys
-import time
 import unittest
 
 from omniverse_mcp.client import BridgeClient
@@ -110,7 +108,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         # Delete
         result = self.client.delete_prim("/World/MCPTestCube")
         self.assertEqual(result["status"], "success")
-        print(f"  Deleted: /World/MCPTestCube")
+        print("  Deleted: /World/MCPTestCube")
 
     def test_08_set_transform(self):
         # Create a test prim
@@ -124,7 +122,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
             scale=2.0,
         )
         self.assertEqual(result["status"], "success")
-        print(f"  Transform set for /World/MCPTestXform")
+        print("  Transform set for /World/MCPTestXform")
 
         # Clean up
         self.client.delete_prim("/World/MCPTestXform")
@@ -223,19 +221,19 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         result = self.client.viewport_light("set", mode="camera")
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["result"]["lighting_mode"], "camera")
-        print(f"  Set to camera mode")
+        print("  Set to camera mode")
 
         # Set to Default rig
         result = self.client.viewport_light("set", mode="Default")
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["result"]["lighting_mode"], "Default")
-        print(f"  Set to Default rig")
+        print("  Set to Default rig")
 
     def test_18_viewport_light_legacy(self):
         """Legacy set_camera_light action still works."""
         result = self.client.viewport_light("set_camera_light", enabled=True)
         self.assertEqual(result["status"], "success")
-        print(f"  Legacy set_camera_light OK")
+        print("  Legacy set_camera_light OK")
 
     # ===== Materials & Visibility =====
 
@@ -252,7 +250,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         # Show
         result = self.client.set_visibility("/World/IntTestCube", visible=True)
         self.assertEqual(result["status"], "success")
-        print(f"  Visibility toggle OK")
+        print("  Visibility toggle OK")
 
     def test_21_clone_prim(self):
         result = self.client.clone_prim("/World/IntTestCube", "/World/IntTestClone")
@@ -292,12 +290,12 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
     def test_25_invalid_prim(self):
         result = self.client.prim_properties("/World/Nonexistent_IntTest")
         self.assertEqual(result["status"], "error")
-        print(f"  Error on invalid prim: OK")
+        print("  Error on invalid prim: OK")
 
     def test_26_invalid_sim_action(self):
         result = self.client.sim_control("invalid_action_xyz")
         self.assertEqual(result["status"], "error")
-        print(f"  Error on invalid action: OK")
+        print("  Error on invalid action: OK")
 
     # ===== Cleanup =====
 
@@ -311,7 +309,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
             "/World/Looks",
         ]:
             self.client.delete_prim(path)
-        print(f"  Cleanup done")
+        print("  Cleanup done")
 
 
 if __name__ == "__main__":

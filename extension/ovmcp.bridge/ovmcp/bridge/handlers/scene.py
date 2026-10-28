@@ -15,14 +15,12 @@ from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
 from ._utils import (
     _apply_xform,
-    _collect_materials,
     _compute_mesh_stats,
     _compute_world_bbox,
     _get_stage,
     _next_update,
     _serialize_value,
 )
-
 
 # ---------------------------------------------------------------------------
 # /scene/tree
@@ -447,7 +445,7 @@ async def handle_clone_prim(body: dict) -> dict:
     source_path = body.get("source_path", "")
     target_path = body.get("target_path", "")
     count = body.get("count", 1)
-    offset = body.get("offset", None)  # [x, y, z] per-copy offset
+    offset = body.get("offset")  # [x, y, z] per-copy offset
 
     if not source_path:
         return {"status": "error", "error": "No source_path provided"}

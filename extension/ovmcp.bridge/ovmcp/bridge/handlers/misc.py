@@ -16,8 +16,8 @@ import omni.kit.app
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics
 
 from ovmcp.core.protocol import PROTOCOL, extension_version
-from ._utils import _get_stage, _next_update
 
+from ._utils import _get_stage, _next_update
 
 # ---------------------------------------------------------------------------
 # /health
@@ -116,7 +116,7 @@ async def handle_execute(body: dict) -> dict:
     stdout_text = captured_out.getvalue()
     stderr_text = captured_err.getvalue()
 
-    script_result = local_ns.get("result", None)
+    script_result = local_ns.get("result")
     if script_result is not None:
         try:
             json.dumps(script_result)

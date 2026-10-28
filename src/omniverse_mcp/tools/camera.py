@@ -3,7 +3,7 @@
 import json
 import os
 
-from mcp.types import TextContent, ImageContent
+from mcp.types import ImageContent, TextContent
 
 # What to do about a black capture. Camera mode needs no other extension; a rig needs the viewport's lighting menu.
 LIGHTING_ADVICE = (
@@ -96,7 +96,7 @@ def register(mcp, client, h):
             bbox_path = os.path.join(bbox_dir, f"viewport_{capture_id:04d}_bboxes.txt")
             with open(bbox_path, "w", encoding="utf-8") as f:
                 f.write(f"# Screen-space bounding boxes ({r['width']}x{r['height']})\n")
-                f.write(f"# Format: [x_min, y_min, x_max, y_max] in pixels\n\n")
+                f.write("# Format: [x_min, y_min, x_max, y_max] in pixels\n\n")
                 for b in bboxes:
                     sb = b["screen_bbox"]
                     f.write(f"[{b['prim_path']}]\n")

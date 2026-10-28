@@ -15,7 +15,6 @@ import omni.kit.app
 
 from ._utils import _get_active_camera_path, _get_stage, _next_update
 
-
 # ---------------------------------------------------------------------------
 # Global recording state (shared across handlers)
 # ---------------------------------------------------------------------------
@@ -64,7 +63,7 @@ async def handle_recording_start(body: dict) -> dict:
     height = body.get("height", 480)
     camera_path = body.get("camera_path", "")
     track_prims = body.get("track_prims", [])
-    property_filter = body.get("property_filter", None)
+    property_filter = body.get("property_filter")
 
     if not output_dir:
         return {"status": "error", "error": "output_dir is required"}
@@ -116,15 +115,15 @@ async def handle_recording_start(body: dict) -> dict:
     if tracked_prim_paths:
         state_path = os.path.join(session_dir, "state.txt")
         with open(state_path, "w") as f:
-            f.write(f"# Omniverse MCP Recording State\n")
-            f.write(f"# format = omniverse-mcp-v1\n")
+            f.write("# Omniverse MCP Recording State\n")
+            f.write("# format = omniverse-mcp-v1\n")
             f.write(f"# session = {session_id}\n")
             f.write(f"# fps = {fps}\n")
             f.write(f"# tracked_prims = {len(tracked_prim_paths)}\n")
             if property_filter:
                 f.write(f"# property_filter = {', '.join(property_filter)}\n")
             f.write(f"# track_roots = {', '.join(track_prims)}\n")
-            f.write(f"\n")
+            f.write("\n")
 
     # Register a physics callback to capture frames
     callback_name = f"mcp_recording_{session_id}"
@@ -144,6 +143,7 @@ async def handle_recording_start(body: dict) -> dict:
         frame_idx = _recording_state["frame_count"]
         try:
             import tempfile
+
             from omni.kit.viewport.utility import capture_viewport_to_file, get_active_viewport
 
             viewport = get_active_viewport()

@@ -14,8 +14,6 @@ Format spec:
 Used uniformly by dump_scene, recording state, and any large data output.
 """
 
-from typing import Any
-
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 
 
@@ -123,7 +121,7 @@ def format_prim_block(
             lines.append(f"bbox_center = {center[0]:.4f}, {center[1]:.4f}, {center[2]:.4f}")
             lines.append(f"bbox_size = {dims[0]:.4f}, {dims[1]:.4f}, {dims[2]:.4f}")
         except Exception:
-            lines.append(f"bbox = <unavailable>")
+            lines.append("bbox = <unavailable>")
 
     if prim.HasAPI(UsdPhysics.ArticulationRootAPI):
         lines.append("articulation_root = true")
@@ -166,8 +164,8 @@ def format_scene_dump(
     prim_count = sum(1 for _ in Usd.PrimRange(root_prim))
 
     lines = [
-        f"# Omniverse MCP Scene Dump",
-        f"# format = omniverse-mcp-v1",
+        "# Omniverse MCP Scene Dump",
+        "# format = omniverse-mcp-v1",
         f"# root = {root_path}",
         f"# prim_count = {prim_count}",
         f"# up_axis = {UsdGeom.GetStageUpAxis(stage)}",

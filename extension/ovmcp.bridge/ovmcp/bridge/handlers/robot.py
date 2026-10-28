@@ -6,10 +6,9 @@ Handles robot creation, info, joint states, and joint target setting.
 
 from typing import Any
 
-from pxr import Usd, UsdGeom, UsdPhysics
+from pxr import Usd, UsdPhysics
 
 from ._utils import _apply_xform, _get_stage, _next_update
-
 
 # ---------------------------------------------------------------------------
 # Robot asset registry
@@ -77,8 +76,7 @@ async def handle_create_robot(body: dict) -> dict:
     if not prim.IsValid():
         return {"status": "error", "error": f"Failed to create robot at {prim_path}"}
 
-    if prim_path in _articulation_cache:
-        del _articulation_cache[prim_path]
+    _articulation_cache.pop(prim_path, None)
 
     _apply_xform(prim, position, body.get("rotation"))
 
@@ -322,7 +320,7 @@ def _set_drive_target(joint_prim, value: float) -> bool:
             drive.CreateStiffnessAttr(1000.0)
             drive.CreateDampingAttr(100.0)
         return True
-    elif joint_prim.IsA(UsdPhysics.PrismaticJoint):
+    if joint_prim.IsA(UsdPhysics.PrismaticJoint):
         drive = UsdPhysics.DriveAPI.Apply(joint_prim, "linear")
         drive.CreateTargetPositionAttr(float(value))
         if drive.GetStiffnessAttr().Get() is None:

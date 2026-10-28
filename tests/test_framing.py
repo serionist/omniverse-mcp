@@ -3,6 +3,7 @@
 import math
 
 import pytest
+
 from ovmcp.core.framing import (
     ANGLES,
     MARGIN_PX,

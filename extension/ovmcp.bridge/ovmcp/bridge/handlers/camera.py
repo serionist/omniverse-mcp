@@ -16,6 +16,7 @@ from ovmcp.core.framing import apply_zoom, bounding_radius, fit_distance, inspec
 from ovmcp.core.isolation import LIGHT_TYPES, Hidden, is_light, prims_to_hide
 from ovmcp.core.lighting import camera_light_switch, current_mode
 from ovmcp.core.serial import LazyLock, serial
+
 from ._utils import (
     CAMERA_SETTLE_FRAMES,
     _compute_world_bbox,
@@ -26,7 +27,6 @@ from ._utils import (
     _reset_renderer,
     _settle_viewport,
 )
-
 
 SEGMENTATION_RETRY_FRAMES = 10
 
@@ -110,9 +110,10 @@ def _set_camera_xform(camera_path: str, eye: list[float], target: list[float]):
 def _is_image_black(png_bytes: bytes, threshold: int = 5) -> bool:
     """Check if a PNG image is all black (no lighting or renderer not warmed up)."""
     try:
+        import io as _io
+
         import numpy as np
         from PIL import Image
-        import io as _io
 
         img = Image.open(_io.BytesIO(png_bytes)).convert("RGB")
         arr = np.array(img)
@@ -537,7 +538,7 @@ async def handle_camera_set(body: dict) -> dict:
 async def handle_camera_look_at(body: dict) -> dict:
     """Point the camera at a prim from a given distance and angle."""
     prim_path = body.get("prim_path", "")
-    distance = body.get("distance", None)  # Auto-compute if not provided
+    distance = body.get("distance")  # Auto-compute if not provided
     azimuth = body.get("azimuth", 45.0)  # degrees, 0=front
     elevation = body.get("elevation", 30.0)  # degrees above horizontal
 
@@ -838,7 +839,7 @@ async def handle_viewport_light(body: dict) -> dict:
             },
         }
 
-    elif action in ("set", "set_camera_light"):
+    if action in ("set", "set_camera_light"):
         if action == "set":
             mode = body.get("mode", "")
             available = _get_available_lighting_modes()

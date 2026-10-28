@@ -6,10 +6,7 @@ Uses omni.log.add_message_consumer() to subscribe to all log messages
 """
 
 import threading
-import time
 from collections import deque
-from typing import Optional
-
 
 # Log level mapping (omni.log.Level values)
 _LEVEL_NAMES = {0: "verbose", 1: "info", 2: "warn", 3: "error", 4: "fatal"}
@@ -70,10 +67,10 @@ class LogBuffer:
     def get_entries(
         self,
         count: int = 50,
-        min_level: Optional[str] = None,
-        channel: Optional[str] = None,
-        since_index: Optional[int] = None,
-        search: Optional[str] = None,
+        min_level: str | None = None,
+        channel: str | None = None,
+        since_index: int | None = None,
+        search: str | None = None,
     ) -> dict:
         """Query recent log entries.
 
