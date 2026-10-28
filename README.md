@@ -1,10 +1,28 @@
-# Omniverse MCP
+<p align="center">
+  <img src="docs/images/logo.svg" width="96" alt="">
+</p>
 
-<p>
+<h1 align="center">Omniverse MCP</h1>
+
+<p align="center">
+  Drive NVIDIA Omniverse Kit apps (Isaac Sim, USD Composer) from Claude Code and any MCP client:<br>
+  look at the stage, edit it, run physics, drive robots and record what happens.
+</p>
+
+<p align="center">
   <a href="https://github.com/serionist/omniverse-mcp/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/serionist/omniverse-mcp/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/serionist/omniverse-mcp/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/serionist/omniverse-mcp/actions/workflows/codeql.yml/badge.svg?branch=main"></a>
   <a href="LICENSE"><img alt="Licence: MIT" src="https://img.shields.io/badge/licence-MIT-blue"></a>
   <a href="https://www.python.org/downloads/"><img alt="Python 3.11 | 3.12 | 3.13 | 3.14" src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue"></a>
+</p>
+
+<p align="center">
+  <img src="docs/images/hero-viewport.jpg" width="49%" alt="A Franka arm on a table with a red, a green and a blue block and a yellow ball, as capture_viewport returns it from Isaac Sim">
+  <img src="docs/images/hero-segmentation.png" width="49%" alt="The same view's instance segmentation: each link of the arm, the table, each block and the ball in its own colour">
+</p>
+<p align="center">
+  <sub>One <code>capture_viewport</code> call in Isaac Sim 6.2: the frame, and every prim in its own colour, with the legend and the
+  screen boxes that tell the assistant what it sees.</sub>
 </p>
 
 An [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server that gives AI assistants full control over NVIDIA Omniverse applications -- including **Isaac Sim 5.1+**, USD Composer, and any Omniverse Kit-based app. Inspect scenes, manipulate objects, control robots, run physics simulations, capture viewports, record sessions, and manage extensions.
@@ -41,6 +59,14 @@ The tools, by area:
 - **File-based output** -- large scene dumps in grep-friendly text format, images saved as PNGs
 - **Arbitrary scripting** -- run any Python code inside the sim via `execute_script`; also serves as a fallback if any tool fails
 - **10 built-in robots** -- franka, ur10, carter, jetbot, g1, go1, go2, h1, spot, anymal
+
+<p align="center">
+  <img src="docs/images/inspect-orbit.jpg" width="100%" alt="The workcell from four corners, as inspect_prim frames it with everything else hidden">
+</p>
+<p align="center">
+  <sub><code>inspect_prim(prim_path="/World/Workcell", angles=[the four top corners], isolate=True)</code>: one call, every side,
+  framed to fit, the rest of the stage hidden.</sub>
+</p>
 
 ## Install
 
