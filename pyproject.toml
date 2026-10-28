@@ -52,8 +52,10 @@ omniverse-mcp = "omniverse_mcp.server:main"
 
 [dependency-groups]
 dev = [
+    "basedpyright==1.40.2",
     "pytest==9.2.0",
     "ruff==0.17.1",
+    "types-usd==24.5.2",
     "usd-core==26.11",
 ]
 
@@ -141,3 +143,13 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["omniverse_mcp", "ovmcp"]
+
+# basedpyright is pyright with a baseline: the errors of today live in .basedpyright/baseline.json and may only
+# shrink, the same ratchet as ruff's per-file ignores. New code is checked in full.
+[tool.basedpyright]
+typeCheckingMode = "standard"
+pythonVersion = "3.11"
+include = ["src", "tests", "extension/ovmcp.bridge/ovmcp/core"]
+# The Kit-bound modules import omni, carb and isaacsim, which have no stubs outside Kit.
+exclude = ["extension/ovmcp.bridge/ovmcp/bridge", "**/__pycache__", ".venv"]
+extraPaths = ["extension/ovmcp.bridge"]
