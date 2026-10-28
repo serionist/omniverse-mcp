@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import socket
+import threading
 from typing import Any
 
 from .bridge_token import ENV_TOKEN, read_token, token_path
@@ -36,6 +37,9 @@ class BridgeClient:
         # after a 401: Kit may start after this server, and makes a new token at every start.
         self._fixed_token = token is not None
         self._token = token if token is not None else read_token(port)
+        # One request at a time: the MCP SDK runs tools on worker threads, several at once, and they share this one
+        # socket; one at a time also keeps two tools' USD edits from interleaving in Kit.
+        self._lock = threading.Lock()
 
     def _connect(self):
         if self._sock is not None:
@@ -53,9 +57,10 @@ class BridgeClient:
 
     def request(self, path: str, body: dict | None = None, method: str = "POST") -> dict:
         """Send an HTTP request and return the parsed JSON response."""
-        status, data = self._exchange(path, body, method)
-        if status == 401 and self._reload_token():
+        with self._lock:
             status, data = self._exchange(path, body, method)
+            if status == 401 and self._reload_token():
+                status, data = self._exchange(path, body, method)
         if status in (401, 403):
             raise BridgeError(self._refusal(status, data))
         return data
@@ -584,4 +589,5 @@ class BridgeClient:
         return self.request("/viewport/light", body)
 
     def close(self):
-        self._disconnect()
+        with self._lock:
+            self._disconnect()

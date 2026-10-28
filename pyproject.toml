@@ -38,7 +38,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "mcp>=1.0.0,<2.0.0",
+    "mcp==2.3.0",
 ]
 
 [project.urls]
@@ -99,7 +99,7 @@ source = ["src/omniverse_mcp", "extension/ovmcp.bridge/ovmcp/core"]
 branch = true
 
 [tool.coverage.report]
-fail_under = 59
+fail_under = 76
 precision = 2  # the floor is compared with the total as shown, not rounded to a whole percent
 show_missing = true
 

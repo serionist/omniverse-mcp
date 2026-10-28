@@ -1,27 +1,9 @@
 """Robot tools."""
 
+from ._bridge import bridge_call
+
 
 def register(mcp, client, h):
-    def _call(fn, *args, **kwargs):
-        """Call client method with connection error handling."""
-        try:
-            resp = fn(*args, **kwargs)
-        except Exception as e:
-            return {"status": "error", "error": f"Kit app connection failed: {e}"}
-        return resp
-
-    def _check_error(resp):
-        """Check response for errors, including traceback."""
-        if resp["status"] == "error":
-            msg = f"ERROR: {resp['error']}"
-            tb = resp.get("traceback", "")
-            if tb:
-                # Include first 5 lines of traceback for diagnosis
-                tb_lines = tb.strip().split("\n")
-                msg += "\n" + "\n".join(tb_lines[-5:])
-            return msg
-        return None
-
     @mcp.tool()
     def create_robot(
         robot_type: str,
@@ -40,10 +22,7 @@ def register(mcp, client, h):
             position: [x, y, z] spawn position
             rotation: Euler or quaternion
         """
-        resp = _call(client.create_robot, robot_type, prim_path, position, rotation)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.create_robot, robot_type, prim_path, position, rotation)
         r = resp["result"]
         parts = [f"Robot '{r['robot_type']}' created at {r['prim_path']}"]
         parts.append(f"USD: {r['usd_path']}")
@@ -62,10 +41,7 @@ def register(mcp, client, h):
         Args:
             prim_path: Root prim of the robot (e.g., "/World/G1")
         """
-        resp = _call(client.get_robot_info, prim_path)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.get_robot_info, prim_path)
         r = resp["result"]
         lines = [
             f"Robot: {r['prim_path']}",
@@ -96,10 +72,7 @@ def register(mcp, client, h):
         Args:
             prim_path: Root prim of the robot
         """
-        resp = _call(client.get_joint_states, prim_path)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.get_joint_states, prim_path)
         r = resp["result"]
         lines = [f"Joint states for {r['prim_path']} ({r['dof_count']} DOF):"]
         names = r.get("names", [])
@@ -125,10 +98,7 @@ def register(mcp, client, h):
             targets: Joint targets as {joint_name: value} dict or [v0, v1, ...] list.
                      Values in degrees for revolute, meters for prismatic joints.
         """
-        resp = _call(client.set_joint_targets, prim_path, targets)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.set_joint_targets, prim_path, targets)
         r = resp["result"]
         lines = [f"Set {r['targets_set']} joint targets on {r['prim_path']}"]
         if r.get("failed"):

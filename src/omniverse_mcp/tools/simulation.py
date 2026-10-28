@@ -2,28 +2,10 @@
 
 from typing import Any
 
+from ._bridge import bridge_call
+
 
 def register(mcp, client, h):
-    def _call(fn, *args, **kwargs):
-        """Call client method with connection error handling."""
-        try:
-            resp = fn(*args, **kwargs)
-        except Exception as e:
-            return {"status": "error", "error": f"Kit app connection failed: {e}"}
-        return resp
-
-    def _check_error(resp):
-        """Check response for errors, including traceback."""
-        if resp["status"] == "error":
-            msg = f"ERROR: {resp['error']}"
-            tb = resp.get("traceback", "")
-            if tb:
-                # Include first 5 lines of traceback for diagnosis
-                tb_lines = tb.strip().split("\n")
-                msg += "\n" + "\n".join(tb_lines[-5:])
-            return msg
-        return None
-
     @mcp.tool()
     def sim_control(action: str) -> str:
         """Control simulation: play, pause, stop, or step.
@@ -31,20 +13,14 @@ def register(mcp, client, h):
         Args:
             action: "play" | "pause" | "stop" | "step"
         """
-        resp = _call(client.sim_control, action)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.sim_control, action)
         r = resp["result"]
         return f"'{r['action']}' executed. Sim is now: {r['current_state']}"
 
     @mcp.tool()
     def get_sim_state() -> str:
         """Get simulation state: playing/paused/stopped, time, FPS, prim count, up axis."""
-        resp = _call(client.sim_state)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.sim_state)
         r = resp["result"]
         lines = [
             f"state = {r.get('state', 'unknown')}",
@@ -73,10 +49,7 @@ def register(mcp, client, h):
             friction: Static/dynamic friction coefficient (0-1)
             restitution: Bounciness (0=no bounce, 1=full bounce)
         """
-        resp = _call(client.set_physics_properties, prim_path, mass, density, friction, restitution)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.set_physics_properties, prim_path, mass, density, friction, restitution)
         r = resp["result"]
         return f"Physics on {r['prim_path']}: {', '.join(r['applied'])}"
 
@@ -95,10 +68,7 @@ def register(mcp, client, h):
             position: World-space application point (default: center of mass)
             impulse: True for impulse (instantaneous), False for force (continuous)
         """
-        resp = _call(client.apply_force, prim_path, force, position, impulse)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.apply_force, prim_path, force, position, impulse)
         r = resp["result"]
         mode = "impulse" if r.get("impulse") else "force"
         return f"Applied {mode} {r['force']} to {r['prim_path']} (method: {r['method']})"
@@ -116,10 +86,7 @@ def register(mcp, client, h):
             direction: [dx, dy, dz] ray direction (will be normalized)
             max_distance: Maximum ray length (default 1000m)
         """
-        resp = _call(client.raycast, origin, direction, max_distance)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.raycast, origin, direction, max_distance)
         r = resp["result"]
         if not r["hit"]:
             return "No hit"
@@ -172,10 +139,7 @@ def register(mcp, client, h):
         if size != 5.0:
             kwargs["size"] = size
 
-        resp = _call(client.draw_debug, shape, **kwargs)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.draw_debug, shape, **kwargs)
         r = resp["result"]
         drawn = r.get("drawn", [])
         labels = [d.get("type", str(d)) if isinstance(d, dict) else str(d) for d in drawn]

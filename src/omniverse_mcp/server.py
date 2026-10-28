@@ -15,66 +15,51 @@ Usage:
     omniverse-mcp --host 127.0.0.1 --port 8211
     python -m omniverse_mcp
 
-Flags default to OMNIVERSE_MCP_HOST, OMNIVERSE_MCP_PORT and OMNIVERSE_MCP_OUTPUT_DIR.
+Flags default to OMNIVERSE_MCP_HOST, OMNIVERSE_MCP_PORT and OMNIVERSE_MCP_OUTPUT_DIR. Importing this module does
+nothing: main() reads the flags, and create_server() builds a server, as the tests do.
 """
 
 import base64
+import binascii
 import json
-import logging
 import os
 import sys
+import threading
+from collections.abc import Callable, Sequence
+from importlib.metadata import version
+from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 
-from .client import BridgeClient
+from .client import BridgeClient, BridgeError
 from .config import parse_args
-
-logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# CLI args (parsed before FastMCP takes stdio)
-# ---------------------------------------------------------------------------
-
-_args = parse_args(sys.argv[1:])
-
-# Output dir defaults to ./mcp_output relative to CWD
-OUTPUT_DIR = _args.output_dir or os.path.join(os.getcwd(), "mcp_output")
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+from .tools import register_all
 
 # Responses longer than this are written to files
 FILE_THRESHOLD = 1000
 
-# ---------------------------------------------------------------------------
-# MCP Server
-# ---------------------------------------------------------------------------
-
-mcp = FastMCP(
-    "omniverse",
-    instructions=(
-        "Connected to an NVIDIA Omniverse Kit app (Isaac Sim, USD Composer, ...). "
-        "Controls USD scene, simulation, viewport, robots.\n"
-        "Use Context7 MCP (library 'isaac-sim/isaacsim') before writing execute_script code.\n\n"
-        "OUTPUT: Images saved as PNGs. Large text written to files. Paths are project-relative.\n"
-        "Use Read tool to view images and large responses.\n\n"
-        "Data uses prim-block format: [/prim/path] headers, key = value lines. Grep-friendly."
-    ),
+INSTRUCTIONS = (
+    "Connected to an NVIDIA Omniverse Kit app (Isaac Sim, USD Composer, ...). "
+    "Controls USD scene, simulation, viewport, robots.\n"
+    "Use Context7 MCP (library 'isaac-sim/isaacsim') before writing execute_script code.\n\n"
+    "OUTPUT: Images saved as PNGs. Large text written to files. Paths are project-relative.\n"
+    "Use Read tool to view images and large responses.\n\n"
+    "Data uses prim-block format: [/prim/path] headers, key = value lines. Grep-friendly."
 )
 
-_client = BridgeClient(host=_args.host, port=_args.port)
 
+class Helpers:
+    """The output folder the tools write images and long text to, and the counters that name the files.
 
-# ---------------------------------------------------------------------------
-# Helpers (passed to tool modules via Helpers object)
-# ---------------------------------------------------------------------------
-
-
-class _Helpers:
-    """Shared helper methods passed to tool registration functions."""
+    The SDK runs tools on worker threads, several at once, so the counters are taken under a lock.
+    """
 
     def __init__(self, output_dir: str):
         self.output_dir = output_dir
         self.capture_counter = 0
         self.response_counter = 0
+        self._lock = threading.Lock()
 
     def rel(self, path: str) -> str:
         """Convert absolute path to project-relative using mcp_output/... shorthand."""
@@ -83,17 +68,21 @@ class _Helpers:
         except ValueError:
             return path
 
+    def _next(self, counter: str) -> int:
+        with self._lock:
+            value = getattr(self, counter) + 1
+            setattr(self, counter, value)
+            return value
+
     def save_png(self, image_base64: str, prefix: str = "capture") -> str:
-        """Decode base64 PNG and save to mcp_output/captures/. Returns relative path."""
-        cap_dir = os.path.join(self.output_dir, "captures")
-        os.makedirs(cap_dir, exist_ok=True)
-        self.capture_counter += 1
-        filename = f"{prefix}_{self.capture_counter:04d}.png"
-        filepath = os.path.join(cap_dir, filename)
+        """Decode base64 PNG and save to mcp_output/captures/. Returns relative path; ToolError on bad data."""
         try:
             data = base64.b64decode(image_base64)
-        except Exception as e:
-            return f"ERROR: Failed to decode image data: {e}"
+        except (binascii.Error, ValueError) as e:
+            raise ToolError(f"Failed to decode image data: {e}") from e
+        cap_dir = os.path.join(self.output_dir, "captures")
+        os.makedirs(cap_dir, exist_ok=True)
+        filepath = os.path.join(cap_dir, f"{prefix}_{self._next('capture_counter'):04d}.png")
         with open(filepath, "wb") as f:
             f.write(data)
         return self.rel(filepath)
@@ -104,62 +93,48 @@ class _Helpers:
             return text
         out_dir = os.path.join(self.output_dir, "responses")
         os.makedirs(out_dir, exist_ok=True)
-        self.response_counter += 1
-        filename = f"{label}_{self.response_counter:04d}.txt"
-        filepath = os.path.join(out_dir, filename)
+        filepath = os.path.join(out_dir, f"{label}_{self._next('response_counter'):04d}.txt")
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(text)
         line_count = text.count("\n") + 1
         return f"Wrote {label} ({len(text):,} chars, {line_count} lines) -> {self.rel(filepath)}"
 
 
-_helpers = _Helpers(OUTPUT_DIR)
+def create_server(host: str, port: int, output_dir: str, client: BridgeClient | None = None) -> MCPServer:
+    """The MCP server, its tools and resources, talking to the bridge at host:port; client stands in for tests."""
+    bridge = client or BridgeClient(host=host, port=port)
+    mcp = MCPServer("omniverse", instructions=INSTRUCTIONS, version=version("omniverse-mcp"))
+    register_all(mcp, bridge, Helpers(output_dir))
 
-# ---------------------------------------------------------------------------
-# Register all tools from submodules
-# ---------------------------------------------------------------------------
-
-from .tools import register_all
-
-register_all(mcp, _client, _helpers)
-
-
-# ---------------------------------------------------------------------------
-# Resources
-# ---------------------------------------------------------------------------
-
-
-@mcp.resource("omniverse://scene/tree")
-def scene_tree_resource() -> str:
-    """Current scene hierarchy."""
-    try:
-        resp = _client.scene_tree("/", 5, fmt="text")
+    def _resource(fn: Callable[..., dict[str, Any]], *args: Any, **kwargs: Any) -> dict[str, Any]:
+        try:
+            resp = fn(*args, **kwargs)
+        except (OSError, BridgeError) as e:
+            raise ResourceError(f"The Kit app is not reachable: {e}") from e
         if resp["status"] == "error":
-            return f"Error: {resp['error']}"
-        return resp["result"]["text"]
-    except Exception as e:
-        return f"Error: the Kit app is not reachable - {e}"
+            raise ResourceError(str(resp["error"]))
+        return resp["result"]
+
+    @mcp.resource("omniverse://scene/tree")
+    def scene_tree_resource() -> str:
+        """Current scene hierarchy."""
+        return _resource(bridge.scene_tree, "/", 5, fmt="text")["text"]
+
+    @mcp.resource("omniverse://sim/state")
+    def sim_state_resource() -> str:
+        """Current simulation state."""
+        return json.dumps(_resource(bridge.sim_state), indent=2)
+
+    return mcp
 
 
-@mcp.resource("omniverse://sim/state")
-def sim_state_resource() -> str:
-    """Current simulation state."""
-    try:
-        resp = _client.sim_state()
-        if resp["status"] == "error":
-            return f"Error: {resp['error']}"
-        return json.dumps(resp["result"], indent=2)
-    except Exception as e:
-        return f"Error: the Kit app is not reachable - {e}"
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
-
-def main():
-    mcp.run()
+def main(argv: Sequence[str] | None = None) -> None:
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    # Output dir defaults to ./mcp_output relative to CWD
+    output_dir = args.output_dir or os.path.join(os.getcwd(), "mcp_output")
+    # The extension writes some files there itself (dump_scene), and doesn't make the folder.
+    os.makedirs(output_dir, exist_ok=True)
+    create_server(args.host, args.port, output_dir).run()
 
 
 if __name__ == "__main__":

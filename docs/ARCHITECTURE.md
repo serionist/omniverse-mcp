@@ -30,14 +30,16 @@ The MCP server is a standalone Python process that:
 
 | File | Purpose |
 |------|---------|
-| `server.py` | FastMCP server, file output helpers (`_Helpers`), MCP resources |
-| `client.py` | HTTP/1.1 client with keep-alive connections to the extension |
+| `server.py` | `create_server()`: the MCP server on SDK v2 (`MCPServer`), file output helpers (`Helpers`), MCP resources; `main()` reads the flags and runs it. Importing it does nothing |
+| `client.py` | HTTP/1.1 client with keep-alive connections to the extension; one request at a time, since the SDK runs tools on worker threads |
 | `tools/` | Tool modules — each registers its MCP tools via `register(mcp, client, helpers)` |
 | `__main__.py` | Entry point for `python -m omniverse_mcp`; the `omniverse-mcp` command runs `server.main` |
 
 ### Tool modules (`tools/`)
 
-Tools are split into focused modules, each with its own `_call`/`_check_error` error wrappers:
+Tools are split into focused modules. Each calls the bridge through `_bridge.py`'s `bridge_call()`, which returns
+the bridge's answer or raises `ToolError`: the client gets an error result (`isError`) with the bridge's message and
+the last five lines of its traceback, or why the Kit app couldn't be reached.
 
 | Module | Tools |
 |--------|-------|

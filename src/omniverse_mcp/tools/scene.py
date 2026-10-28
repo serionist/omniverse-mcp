@@ -1,27 +1,9 @@
 """Scene management tools."""
 
+from ._bridge import bridge_call
+
 
 def register(mcp, client, h):
-    def _call(fn, *args, **kwargs):
-        """Call client method with connection error handling."""
-        try:
-            resp = fn(*args, **kwargs)
-        except Exception as e:
-            return {"status": "error", "error": f"Kit app connection failed: {e}"}
-        return resp
-
-    def _check_error(resp):
-        """Check response for errors, including traceback."""
-        if resp["status"] == "error":
-            msg = f"ERROR: {resp['error']}"
-            tb = resp.get("traceback", "")
-            if tb:
-                # Include first 5 lines of traceback for diagnosis
-                tb_lines = tb.strip().split("\n")
-                msg += "\n" + "\n".join(tb_lines[-5:])
-            return msg
-        return None
-
     @mcp.tool()
     def get_scene_tree(root: str = "/", max_depth: int = 5) -> str:
         """Get the USD scene hierarchy as grep-friendly prim-block text.
@@ -33,10 +15,7 @@ def register(mcp, client, h):
             root: Starting prim path (default "/")
             max_depth: Traversal depth (default 5, max 15)
         """
-        resp = _call(client.scene_tree, root, min(max_depth, 15), fmt="text")
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.scene_tree, root, min(max_depth, 15), fmt="text")
         r = resp["result"]
         text = r["text"]
         return h.text_response(text, "scene_tree")
@@ -61,7 +40,7 @@ def register(mcp, client, h):
             filter_types: Only include prims of these types (e.g., ["Mesh", "Xform"])
             property_filter: Only include properties containing these substrings (e.g., ["joint", "pos"])
         """
-        resp = _call(
+        resp = bridge_call(
             client.scene_dump,
             h.output_dir,
             root,
@@ -70,9 +49,6 @@ def register(mcp, client, h):
             filter_types or [],
             property_filter=property_filter,
         )
-        err = _check_error(resp)
-        if err:
-            return err
         r = resp["result"]
         return f"Dumped {r['prim_count']} prims ({r['file_size_bytes']:,} bytes) -> {h.rel(r['file_path'])}"
 
@@ -85,10 +61,7 @@ def register(mcp, client, h):
         Args:
             prim_path: Full USD path (e.g., "/World/Robot")
         """
-        resp = _call(client.prim_properties, prim_path, fmt="text")
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.prim_properties, prim_path, fmt="text")
         text = resp["result"]["text"]
         return h.text_response(text, f"prim_{prim_path.replace('/', '_')}")
 
@@ -101,10 +74,7 @@ def register(mcp, client, h):
         Args:
             prim_path: Full USD path
         """
-        resp = _call(client.prim_bounds, prim_path)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.prim_bounds, prim_path)
         r = resp["result"]
         return (
             f"[{r['prim_path']}]\n"
@@ -130,10 +100,7 @@ def register(mcp, client, h):
             rotation: Euler [rx, ry, rz] degrees or quaternion [w, x, y, z]
             scale: Uniform (float) or [sx, sy, sz]
         """
-        resp = _call(client.set_transform, prim_path, position, rotation, scale)
-        err = _check_error(resp)
-        if err:
-            return err
+        bridge_call(client.set_transform, prim_path, position, rotation, scale)
         return f"Transform updated for {prim_path}"
 
     @mcp.tool()
@@ -172,10 +139,7 @@ def register(mcp, client, h):
         if enable_physics:
             kwargs["enable_physics"] = True
 
-        resp = _call(client.create_prim, prim_path, prim_type, **kwargs)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.create_prim, prim_path, prim_type, **kwargs)
         r = resp["result"]
         return f"Created {r['type']} at {r['prim_path']}"
 
@@ -186,10 +150,7 @@ def register(mcp, client, h):
         Args:
             prim_path: Full USD path to delete
         """
-        resp = _call(client.delete_prim, prim_path)
-        err = _check_error(resp)
-        if err:
-            return err
+        bridge_call(client.delete_prim, prim_path)
         return f"Deleted {prim_path}"
 
     @mcp.tool()
@@ -214,10 +175,7 @@ def register(mcp, client, h):
             metallic: 0.0 (plastic/dielectric) to 1.0 (metal), default 0.0
             material_path: Custom material prim path (auto-generated under /World/Looks/ if omitted)
         """
-        resp = _call(client.set_material, prim_path, color, opacity, roughness, metallic, material_path)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.set_material, prim_path, color, opacity, roughness, metallic, material_path)
         r = resp["result"]
         parts = [f"color=[{r['color'][0]:.2f},{r['color'][1]:.2f},{r['color'][2]:.2f}]"]
         if r.get("opacity", 1.0) < 1.0:
@@ -241,10 +199,7 @@ def register(mcp, client, h):
             count: Number of copies (default 1). Paths auto-suffixed: _001, _002, ...
             offset: [x, y, z] per-copy offset. Each clone shifts by this amount from the previous.
         """
-        resp = _call(client.clone_prim, source_path, target_path, count, offset)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.clone_prim, source_path, target_path, count, offset)
         r = resp["result"]
         clones = r["clones"]
         if len(clones) == 1:
@@ -259,10 +214,7 @@ def register(mcp, client, h):
             prim_path: Target prim
             visible: True to show, False to hide
         """
-        resp = _call(client.set_visibility, prim_path, visible)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.set_visibility, prim_path, visible)
         r = resp["result"]
         state = "visible" if r["visible"] else "hidden"
         return f"{r['prim_path']} is now {state}"
@@ -274,18 +226,12 @@ def register(mcp, client, h):
         Args:
             file_path: Destination file path. If empty, saves to current file (overwrite).
         """
-        resp = _call(client.save_scene, file_path)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.save_scene, file_path)
         r = resp["result"]
         return f"Scene saved ({r['action']}) -> {r['file_path']}"
 
     @mcp.tool()
     def new_scene() -> str:
         """Create a fresh empty scene with a /World root prim and Y-up axis."""
-        resp = _call(client.new_scene)
-        err = _check_error(resp)
-        if err:
-            return err
+        bridge_call(client.new_scene)
         return "New scene created with /World root prim (Y-up)"

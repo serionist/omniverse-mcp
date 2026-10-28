@@ -1,27 +1,9 @@
 """Advanced USD tools (mesh stats, flatten, export, variants, compare, material paths)."""
 
+from ._bridge import bridge_call
+
 
 def register(mcp, client, h):
-    def _call(fn, *args, **kwargs):
-        """Call client method with connection error handling."""
-        try:
-            resp = fn(*args, **kwargs)
-        except Exception as e:
-            return {"status": "error", "error": f"Kit app connection failed: {e}"}
-        return resp
-
-    def _check_error(resp):
-        """Check response for errors, including traceback."""
-        if resp["status"] == "error":
-            msg = f"ERROR: {resp['error']}"
-            tb = resp.get("traceback", "")
-            if tb:
-                # Include first 5 lines of traceback for diagnosis
-                tb_lines = tb.strip().split("\n")
-                msg += "\n" + "\n".join(tb_lines[-5:])
-            return msg
-        return None
-
     @mcp.tool()
     def get_mesh_stats(prim_path: str) -> str:
         """Get face/vertex/triangle counts for a mesh prim or subtree.
@@ -32,10 +14,7 @@ def register(mcp, client, h):
         Args:
             prim_path: Prim to analyze (includes all descendant meshes)
         """
-        resp = _call(client.mesh_stats, prim_path)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.mesh_stats, prim_path)
         r = resp["result"]
         lines = [
             f"[{r['prim_path']}]",
@@ -63,10 +42,7 @@ def register(mcp, client, h):
             root: Starting prim path
             max_depth: Max traversal depth (default 10)
         """
-        resp = _call(client.face_count_tree, root, max_depth)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.face_count_tree, root, max_depth)
         r = resp["result"]
         return h.text_response(r["text"], "face_count_tree")
 
@@ -80,10 +56,7 @@ def register(mcp, client, h):
             output_path: Where to write the flattened USD file
             input_path: Source USD file (default: current stage)
         """
-        resp = _call(client.flatten_usd, output_path, input_path)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.flatten_usd, output_path, input_path)
         r = resp["result"]
         return f"Flattened {r['input_path']} ({r['layer_count']} layers) -> {r['output_path']}"
 
@@ -98,10 +71,7 @@ def register(mcp, client, h):
             prim_path: Root of the subtree to export
             output_path: Destination file (.usd/.usda/.usdc — defaults to .usdc)
         """
-        resp = _call(client.export_prim, prim_path, output_path)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.export_prim, prim_path, output_path)
         r = resp["result"]
         return (
             f"Exported {r['prim_path']} -> {r['output_path']}\n"
@@ -120,10 +90,7 @@ def register(mcp, client, h):
             variant_set: Name of the variant set (e.g., "model")
             variant_name: Variant to select (e.g., "shell")
         """
-        resp = _call(client.set_variant_selection, prim_path, variant_set, variant_name)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.set_variant_selection, prim_path, variant_set, variant_name)
         r = resp["result"]
         return (
             f"Variant switched: {r['prim_path']} {r['variant_set']}={r['new_selection']} "
@@ -148,10 +115,7 @@ def register(mcp, client, h):
             variant_names: List of variant names to create (e.g., ["focused", "shell"])
             default_variant: Which variant to select by default (default: first in list)
         """
-        resp = _call(client.create_variant_structure, prim_path, variant_set_name, variant_names, default_variant)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.create_variant_structure, prim_path, variant_set_name, variant_names, default_variant)
         r = resp["result"]
         return (
             f"Created variant set '{r['variant_set_name']}' on {r['prim_path']}\n"
@@ -185,10 +149,7 @@ def register(mcp, client, h):
             variant_a: First variant name (mode 2)
             variant_b: Second variant name (mode 2)
         """
-        resp = _call(client.compare_prims, prim_path_a, prim_path_b, prim_path, variant_set, variant_a, variant_b)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.compare_prims, prim_path_a, prim_path_b, prim_path, variant_set, variant_a, variant_b)
         r = resp["result"]
         a, b, d = r["a"], r["b"], r["delta"]
 
@@ -222,10 +183,7 @@ def register(mcp, client, h):
             new_prefix: Replacement prefix (e.g., "/World/Materials")
             prim_path: Root of subtree to update (default: entire stage)
         """
-        resp = _call(client.update_material_paths, old_prefix, new_prefix, prim_path)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.update_material_paths, old_prefix, new_prefix, prim_path)
         r = resp["result"]
         lines = [
             f"Updated {r['updated_count']} references in {len(r['updated_prims'])} prims",
