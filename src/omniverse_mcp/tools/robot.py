@@ -1,17 +1,23 @@
 """Robot tools."""
 
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
+from mcp.server.mcpserver import MCPServer
 from pydantic import Field
+
+from omniverse_mcp.client import BridgeClient
 
 from ._annotations import EDITS, READS
 from ._bridge import bridge_call
 from ._params import Position, Rotation
 
+if TYPE_CHECKING:
+    from omniverse_mcp.server import Helpers
+
 RobotRoot = Annotated[str, Field(description='The robot\'s root prim, e.g. "/World/G1"')]
 
 
-def register(mcp, client, h):
+def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @mcp.tool(annotations=EDITS)
     def create_robot(
         robot_type: Annotated[str, Field(description="A robot's name (franka, g1, spot, ...) or a USD file's path")],

@@ -41,13 +41,13 @@ class BridgeClient:
         # socket; one at a time also keeps two tools' USD edits from interleaving in Kit.
         self._lock = threading.Lock()
 
-    def _connect(self):
-        if self._sock is not None:
-            return
-        self._sock = socket.create_connection((self.host, self.port), timeout=10.0)
-        self._sock.settimeout(self.timeout)
+    def _connect(self) -> socket.socket:
+        sock = socket.create_connection((self.host, self.port), timeout=10.0)
+        sock.settimeout(self.timeout)
+        self._sock = sock
+        return sock
 
-    def _disconnect(self):
+    def _disconnect(self) -> None:
         if self._sock is not None:
             try:
                 self._sock.close()
@@ -55,7 +55,7 @@ class BridgeClient:
                 pass
             self._sock = None
 
-    def request(self, path: str, body: dict | None = None, method: str = "POST") -> dict:
+    def request(self, path: str, body: dict[str, Any] | None = None, method: str = "POST") -> dict[str, Any]:
         """Send an HTTP request and return the parsed JSON response."""
         with self._lock:
             status, data = self._exchange(path, body, method)
@@ -75,7 +75,7 @@ class BridgeClient:
             return True
         return False
 
-    def _refusal(self, status: int, data: dict) -> str:
+    def _refusal(self, status: int, data: dict[str, Any]) -> str:
         message = data.get("error", f"HTTP {status}")
         if status != 401:
             return message
@@ -94,10 +94,10 @@ class BridgeClient:
             f"{self.port}, or did the extension fail to write it? Kit's log says which."
         )
 
-    def _check_handshake(self, status: int, data: dict) -> None:
+    def _check_handshake(self, status: int, data: dict[str, Any]) -> None:
         """Refuse an extension that speaks another protocol, before any request runs on it."""
         problem = None
-        result = data.get("result") or {}
+        result: dict[str, Any] = data.get("result") or {}
         if status == 404:
             problem = (
                 f"The Kit extension is older than this MCP server: it has no bridge handshake, the server "
@@ -117,7 +117,7 @@ class BridgeClient:
             self._disconnect()
             raise BridgeError(problem)
 
-    def _build(self, path: str, body: dict | None, method: str) -> bytes:
+    def _build(self, path: str, body: dict[str, Any] | None, method: str) -> bytes:
         body_bytes = b""
         if body is not None:
             body_bytes = json.dumps(body).encode("utf-8")
@@ -135,23 +135,24 @@ class BridgeClient:
         )
         return (request_line + headers).encode("utf-8") + body_bytes
 
-    def _exchange(self, path: str, body: dict | None, method: str) -> tuple[int, dict]:
+    def _exchange(self, path: str, body: dict[str, Any] | None, method: str) -> tuple[int, dict[str, Any]]:
         raw_request = self._build(path, body, method)
         for attempt in range(2):
-            reused = self._sock is not None
+            sock = self._sock
+            reused = sock is not None
             self._received = False
             try:
-                if self._sock is None:
-                    self._connect()
+                if sock is None:
+                    sock = self._connect()
                     # Every new connection starts with the handshake, a request without a body: a stale token is
                     # refused there, and a Kit restarted with another extension is caught before the request runs.
-                    self._sock.sendall(self._build("/bridge", None, "GET"))
-                    status, data = self._read_response()
+                    sock.sendall(self._build("/bridge", None, "GET"))
+                    status, data = self._read_response(sock)
                     if status in (401, 403):
                         return status, data
                     self._check_handshake(status, data)
-                self._sock.sendall(raw_request)
-                return self._read_response()
+                sock.sendall(raw_request)
+                return self._read_response(sock)
             except OSError as e:
                 self._disconnect()
                 # Retry only a kept-alive connection gone stale: the bridge closed it before reading the request, so
@@ -166,11 +167,11 @@ class BridgeClient:
             "Ensure the Kit app (Isaac Sim, USD Composer, ...) is running with the ovmcp.bridge extension enabled."
         )
 
-    def _read_response(self) -> tuple[int, dict]:
+    def _read_response(self, sock: socket.socket) -> tuple[int, dict[str, Any]]:
         """Read an HTTP response from the socket: its status code and JSON body."""
         buf = b""
         while b"\r\n\r\n" not in buf:
-            chunk = self._sock.recv(4096)
+            chunk = sock.recv(4096)
             if not chunk:
                 raise ConnectionError("Connection closed by the ovmcp.bridge extension")
             self._received = True
@@ -204,7 +205,7 @@ class BridgeClient:
         bytes_read = len(body_start)
         while bytes_read < content_length:
             remaining = content_length - bytes_read
-            chunk = self._sock.recv(min(remaining, 65536))
+            chunk = sock.recv(min(remaining, 65536))
             if not chunk:
                 raise ConnectionError("Connection closed mid-response")
             chunks.append(chunk)
@@ -221,17 +222,17 @@ class BridgeClient:
 
     # ----- Core endpoints -----
 
-    def health(self) -> dict:
+    def health(self) -> dict[str, Any]:
         return self.request("/health", {}, method="GET")
 
-    def execute(self, code: str) -> dict:
+    def execute(self, code: str) -> dict[str, Any]:
         return self.request("/execute", {"code": code})
 
     # ----- Scene endpoints -----
 
     def scene_tree(
         self, root: str = "/", max_depth: int = 8, include_properties: bool = False, fmt: str = "json"
-    ) -> dict:
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {"root": root, "max_depth": max_depth, "include_properties": include_properties}
         if fmt != "json":
             body["format"] = fmt
@@ -245,7 +246,7 @@ class BridgeClient:
         include_properties: bool = True,
         filter_types: list[str] | None = None,
         property_filter: list[str] | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "output_dir": output_dir,
             "root": root,
@@ -258,16 +259,22 @@ class BridgeClient:
             body["property_filter"] = property_filter
         return self.request("/scene/dump", body)
 
-    def prim_properties(self, prim_path: str, fmt: str = "json") -> dict:
+    def prim_properties(self, prim_path: str, fmt: str = "json") -> dict[str, Any]:
         body: dict[str, Any] = {"prim_path": prim_path}
         if fmt != "json":
             body["format"] = fmt
         return self.request("/scene/prim", body)
 
-    def prim_bounds(self, prim_path: str) -> dict:
+    def prim_bounds(self, prim_path: str) -> dict[str, Any]:
         return self.request("/scene/bounds", {"prim_path": prim_path})
 
-    def set_transform(self, prim_path: str, position=None, rotation=None, scale=None) -> dict:
+    def set_transform(
+        self,
+        prim_path: str,
+        position: list[float] | None = None,
+        rotation: list[float] | None = None,
+        scale: list[float] | float | None = None,
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {"prim_path": prim_path}
         if position is not None:
             body["position"] = position
@@ -277,11 +284,11 @@ class BridgeClient:
             body["scale"] = scale
         return self.request("/scene/transform", body)
 
-    def create_prim(self, prim_path: str, prim_type: str = "Xform", **kwargs) -> dict:
-        body = {"prim_path": prim_path, "prim_type": prim_type, **kwargs}
+    def create_prim(self, prim_path: str, prim_type: str = "Xform", **kwargs: Any) -> dict[str, Any]:
+        body: dict[str, Any] = {"prim_path": prim_path, "prim_type": prim_type, **kwargs}
         return self.request("/scene/create", body)
 
-    def delete_prim(self, prim_path: str) -> dict:
+    def delete_prim(self, prim_path: str) -> dict[str, Any]:
         return self.request("/scene/delete", {"prim_path": prim_path})
 
     def set_material(
@@ -292,7 +299,7 @@ class BridgeClient:
         roughness: float = 0.5,
         metallic: float = 0.0,
         material_path: str = "",
-    ) -> dict:
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "prim_path": prim_path,
             "color": color,
@@ -306,27 +313,33 @@ class BridgeClient:
 
     def clone_prim(
         self, source_path: str, target_path: str = "", count: int = 1, offset: list[float] | None = None
-    ) -> dict:
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {"source_path": source_path, "target_path": target_path, "count": count}
         if offset is not None:
             body["offset"] = offset
         return self.request("/scene/clone", body)
 
-    def set_visibility(self, prim_path: str, visible: bool = True) -> dict:
+    def set_visibility(self, prim_path: str, visible: bool = True) -> dict[str, Any]:
         return self.request("/scene/visibility", {"prim_path": prim_path, "visible": visible})
 
-    def save_scene(self, file_path: str = "") -> dict:
+    def save_scene(self, file_path: str = "") -> dict[str, Any]:
         body: dict[str, Any] = {}
         if file_path:
             body["file_path"] = file_path
         return self.request("/scene/save", body)
 
-    def new_scene(self) -> dict:
+    def new_scene(self) -> dict[str, Any]:
         return self.request("/scene/new", {})
 
     # ----- Robot -----
 
-    def create_robot(self, robot_type: str, prim_path: str = "", position=None, rotation=None) -> dict:
+    def create_robot(
+        self,
+        robot_type: str,
+        prim_path: str = "",
+        position: list[float] | None = None,
+        rotation: list[float] | None = None,
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {"robot_type": robot_type}
         if prim_path:
             body["prim_path"] = prim_path
@@ -336,13 +349,15 @@ class BridgeClient:
             body["rotation"] = rotation
         return self.request("/robot/create", body)
 
-    def get_robot_info(self, prim_path: str) -> dict:
+    def get_robot_info(self, prim_path: str) -> dict[str, Any]:
         return self.request("/robot/info", {"prim_path": prim_path})
 
-    def get_joint_states(self, prim_path: str) -> dict:
+    def get_joint_states(self, prim_path: str) -> dict[str, Any]:
         return self.request("/robot/joint_states", {"prim_path": prim_path})
 
-    def set_joint_targets(self, prim_path: str, targets=None) -> dict:
+    def set_joint_targets(
+        self, prim_path: str, targets: dict[str, float] | list[float] | None = None
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {"prim_path": prim_path}
         if targets is not None:
             body["targets"] = targets
@@ -350,13 +365,13 @@ class BridgeClient:
 
     # ----- Simulation -----
 
-    def sim_control(self, action: str) -> dict:
+    def sim_control(self, action: str) -> dict[str, Any]:
         return self.request("/sim/control", {"action": action})
 
-    def sim_state(self) -> dict:
+    def sim_state(self) -> dict[str, Any]:
         return self.request("/sim/state", {})
 
-    def capture_viewport(self, width: int = 640, height: int = 480, camera_path: str = "") -> dict:
+    def capture_viewport(self, width: int = 640, height: int = 480, camera_path: str = "") -> dict[str, Any]:
         body: dict[str, Any] = {"width": width, "height": height}
         if camera_path:
             body["camera_path"] = camera_path
@@ -364,7 +379,7 @@ class BridgeClient:
 
     # ----- Camera -----
 
-    def camera_set(self, position: list[float], target: list[float] | None = None) -> dict:
+    def camera_set(self, position: list[float], target: list[float] | None = None) -> dict[str, Any]:
         body: dict[str, Any] = {"position": position}
         if target is not None:
             body["target"] = target
@@ -372,7 +387,7 @@ class BridgeClient:
 
     def camera_look_at(
         self, prim_path: str, distance: float | None = None, azimuth: float = 45.0, elevation: float = 30.0
-    ) -> dict:
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {"prim_path": prim_path, "azimuth": azimuth, "elevation": elevation}
         if distance is not None:
             body["distance"] = distance
@@ -381,14 +396,14 @@ class BridgeClient:
     def camera_inspect(
         self,
         prim_path: str,
-        angles: list | None = None,
+        angles: list[str] | None = None,
         width: int = 640,
         height: int = 480,
         *,
         zoom_offset: float = 0.0,
         isolate: bool = False,
         include_segmentation: bool = False,
-    ) -> dict:
+    ) -> dict[str, Any]:
         # Keyword-only: zoom_offset now sits where distance was, and an old positional distance must not become one.
         body: dict[str, Any] = {"prim_path": prim_path, "width": width, "height": height}
         if angles is not None:
@@ -412,7 +427,7 @@ class BridgeClient:
         camera_path: str = "",
         track_prims: list[str] | None = None,
         property_filter: list[str] | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {"output_dir": output_dir, "fps": fps, "width": width, "height": height}
         if camera_path:
             body["camera_path"] = camera_path
@@ -422,10 +437,10 @@ class BridgeClient:
             body["property_filter"] = property_filter
         return self.request("/recording/start", body)
 
-    def recording_stop(self) -> dict:
+    def recording_stop(self) -> dict[str, Any]:
         return self.request("/recording/stop", {})
 
-    def recording_frame(self, session_dir: str = "", frame_index: int = 0) -> dict:
+    def recording_frame(self, session_dir: str = "", frame_index: int = 0) -> dict[str, Any]:
         body: dict[str, Any] = {"frame_index": frame_index}
         if session_dir:
             body["session_dir"] = session_dir
@@ -433,7 +448,7 @@ class BridgeClient:
 
     # ----- Extensions -----
 
-    def extensions_list(self, enabled_only: bool = False, search: str = "") -> dict:
+    def extensions_list(self, enabled_only: bool = False, search: str = "") -> dict[str, Any]:
         body: dict[str, Any] = {}
         if enabled_only:
             body["enabled_only"] = True
@@ -441,7 +456,7 @@ class BridgeClient:
             body["search"] = search
         return self.request("/extensions/list", body)
 
-    def extensions_manage(self, extension_id: str, action: str) -> dict:
+    def extensions_manage(self, extension_id: str, action: str) -> dict[str, Any]:
         return self.request("/extensions/manage", {"extension_id": extension_id, "action": action})
 
     # ----- Physics -----
@@ -453,7 +468,7 @@ class BridgeClient:
         density: float | None = None,
         friction: float | None = None,
         restitution: float | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {"prim_path": prim_path}
         if mass is not None:
             body["mass"] = mass
@@ -467,13 +482,13 @@ class BridgeClient:
 
     def apply_force(
         self, prim_path: str, force: list[float], position: list[float] | None = None, impulse: bool = False
-    ) -> dict:
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {"prim_path": prim_path, "force": force, "impulse": impulse}
         if position is not None:
             body["position"] = position
         return self.request("/physics/apply_force", body)
 
-    def raycast(self, origin: list[float], direction: list[float], max_distance: float = 1000.0) -> dict:
+    def raycast(self, origin: list[float], direction: list[float], max_distance: float = 1000.0) -> dict[str, Any]:
         return self.request(
             "/physics/raycast",
             {
@@ -485,28 +500,28 @@ class BridgeClient:
 
     # ----- Debug -----
 
-    def draw_debug(self, shape_type: str, **kwargs) -> dict:
-        body = {"type": shape_type, **kwargs}
+    def draw_debug(self, shape_type: str, **kwargs: Any) -> dict[str, Any]:
+        body: dict[str, Any] = {"type": shape_type, **kwargs}
         return self.request("/debug/draw", body)
 
     # ----- New scene tools -----
 
-    def mesh_stats(self, prim_path: str) -> dict:
+    def mesh_stats(self, prim_path: str) -> dict[str, Any]:
         return self.request("/scene/mesh_stats", {"prim_path": prim_path})
 
-    def face_count_tree(self, root: str = "/World", max_depth: int = 10) -> dict:
+    def face_count_tree(self, root: str = "/World", max_depth: int = 10) -> dict[str, Any]:
         return self.request("/scene/face_count_tree", {"root": root, "max_depth": max_depth})
 
-    def flatten_usd(self, output_path: str, input_path: str = "") -> dict:
+    def flatten_usd(self, output_path: str, input_path: str = "") -> dict[str, Any]:
         body: dict[str, Any] = {"output_path": output_path}
         if input_path:
             body["input_path"] = input_path
         return self.request("/scene/flatten", body)
 
-    def export_prim(self, prim_path: str, output_path: str) -> dict:
+    def export_prim(self, prim_path: str, output_path: str) -> dict[str, Any]:
         return self.request("/scene/export", {"prim_path": prim_path, "output_path": output_path})
 
-    def set_variant_selection(self, prim_path: str, variant_set: str, variant_name: str) -> dict:
+    def set_variant_selection(self, prim_path: str, variant_set: str, variant_name: str) -> dict[str, Any]:
         return self.request(
             "/scene/variant_selection",
             {
@@ -518,7 +533,7 @@ class BridgeClient:
 
     def create_variant_structure(
         self, prim_path: str, variant_set_name: str, variant_names: list[str], default_variant: str = ""
-    ) -> dict:
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "prim_path": prim_path,
             "variant_set_name": variant_set_name,
@@ -536,7 +551,7 @@ class BridgeClient:
         variant_set: str = "",
         variant_a: str = "",
         variant_b: str = "",
-    ) -> dict:
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {}
         if prim_path_a:
             body["prim_path_a"] = prim_path_a
@@ -552,7 +567,7 @@ class BridgeClient:
             body["variant_b"] = variant_b
         return self.request("/scene/compare", body)
 
-    def update_material_paths(self, old_prefix: str, new_prefix: str, prim_path: str = "/") -> dict:
+    def update_material_paths(self, old_prefix: str, new_prefix: str, prim_path: str = "/") -> dict[str, Any]:
         return self.request(
             "/scene/update_material_paths",
             {
@@ -566,7 +581,7 @@ class BridgeClient:
 
     def get_logs(
         self, count: int = 50, min_level: str = "", channel: str = "", since_index: int | None = None, search: str = ""
-    ) -> dict:
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {"count": count}
         if min_level:
             body["min_level"] = min_level
@@ -580,7 +595,7 @@ class BridgeClient:
 
     # ----- Viewport light -----
 
-    def viewport_light(self, action: str = "get", enabled: bool = True, *, mode: str = "") -> dict:
+    def viewport_light(self, action: str = "get", enabled: bool = True, *, mode: str = "") -> dict[str, Any]:
         body: dict[str, Any] = {"action": action}
         if action == "set" and mode:
             body["mode"] = mode
@@ -588,6 +603,6 @@ class BridgeClient:
             body["enabled"] = enabled
         return self.request("/viewport/light", body)
 
-    def close(self):
+    def close(self) -> None:
         with self._lock:
             self._disconnect()

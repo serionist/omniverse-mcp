@@ -1,9 +1,12 @@
 """The camera tools' text for the AI: warnings and advice, from canned bridge answers."""
 
 import re
+from typing import cast
 
 import pytest
+from mcp.server.mcpserver import MCPServer
 
+from omniverse_mcp.client import BridgeClient
 from omniverse_mcp.server import Helpers
 from omniverse_mcp.tools import camera
 
@@ -37,7 +40,7 @@ class _Client:
 
 def _tools(tmp_path, answers, helpers=None):
     tools, client = _Tools(), _Client(answers)
-    camera.register(tools, client, helpers or Helpers(str(tmp_path)))
+    camera.register(cast(MCPServer, tools), cast(BridgeClient, client), helpers or Helpers(str(tmp_path)))
     return tools.fns, client
 
 

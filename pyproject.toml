@@ -99,7 +99,7 @@ source = ["src/omniverse_mcp", "extension/ovmcp.bridge/ovmcp/core"]
 branch = true
 
 [tool.coverage.report]
-fail_under = 79
+fail_under = 92
 precision = 2  # the floor is compared with the total as shown, not rounded to a whole percent
 show_missing = true
 
@@ -201,8 +201,8 @@ forbidden_modules = ["ovmcp"]
 # shrink, the same ratchet as ruff's per-file ignores. New code is checked in full.
 [tool.basedpyright]
 typeCheckingMode = "standard"
-# The extension core is new code, typed in full (plan S6); src/omniverse_mcp follows in S7.
-strict = ["extension/ovmcp.bridge/ovmcp/core"]
+# The extension core (plan S6) and the server (S7c) are typed in full.
+strict = ["extension/ovmcp.bridge/ovmcp/core", "src/omniverse_mcp"]
 pythonVersion = "3.11"
 include = ["src", "tests", "tools", "extension/ovmcp.bridge/ovmcp/core"]
 # The Kit-bound modules import omni, carb and isaacsim, which have no stubs outside Kit.
