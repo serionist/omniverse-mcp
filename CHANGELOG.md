@@ -22,6 +22,12 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   further.
 - **`viewport_light("get")` reports `lighting_mode`** and the available modes, in place of `camera_light_on`.
 
+### Changed
+
+- **`inspect_prim` refuses what it cannot do instead of guessing:** an unknown angle name (it used to be skipped),
+  a non-numeric `width`, `height` or `zoom_offset`, and an orthographic viewport camera, where distance frames
+  nothing.
+
 ### Added
 
 - **`inspect_prim` frames the prim for you.** The camera stands where the prim's bounding sphere fills the captured

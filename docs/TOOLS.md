@@ -440,6 +440,8 @@ Corner angles use elevation = ±35.26° (atan(1/√2)), which is the exact angle
 
 Each angle is saved as a separate PNG file. When `include_segmentation` is true, each angle also saves a segmentation image + legend. Default captures all 14 angles for full coverage.
 
+`angles` also takes `[azimuth, elevation]` pairs in degrees. An unknown angle name, a non-numeric `width`, `height` or `zoom_offset`, or an orthographic viewport camera (such as `/OmniverseKit_Top`; switch to `/OmniverseKit_Persp`) is refused with an error.
+
 ---
 
 ### `capture_viewport`

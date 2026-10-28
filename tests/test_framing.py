@@ -3,7 +3,15 @@
 import math
 
 import pytest
-from isaacsim.mcp.bridge.core.framing import MARGIN_PX, apply_zoom, bounding_radius, fit_distance
+from isaacsim.mcp.bridge.core.framing import (
+    ANGLES,
+    MARGIN_PX,
+    apply_zoom,
+    bounding_radius,
+    fit_distance,
+    inspect_args,
+    require_perspective,
+)
 
 # Kit's default perspective camera.
 FOCAL, H_AP, V_AP = 18.14756, 20.955, 15.2908
@@ -75,3 +83,44 @@ def test_zoom_into_the_prim_is_refused(zoom):
 def test_bounding_radius():
     assert bounding_radius((2.0, 2.0, 1.0)) == pytest.approx(1.5)
     assert bounding_radius((0.0, 0.0, 0.0)) == 0.5
+
+
+def test_inspect_args_defaults():
+    args = inspect_args({"prim_path": "/World/Box"})
+    assert (args.width, args.height, args.zoom_offset, args.isolate, args.include_segmentation) == (800, 600, 0.0, False, False)
+    assert [name for name, _, _ in args.angles] == list(ANGLES)
+
+
+def test_inspect_args_take_names_pairs_and_numeric_strings():
+    args = inspect_args({"angles": ["front", [30, 15]], "width": "1280", "height": 720.0, "zoom_offset": "-0.25"})
+    assert args.angles == [("front", 0, 0), ("az30_el15", 30, 15)]
+    assert (args.width, args.height, args.zoom_offset) == (1280, 720, -0.25)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"zoom_offset": "closer"},
+        {"zoom_offset": None},
+        {"zoom_offset": [1]},
+        {"width": "wide"},
+        {"height": {"px": 600}},
+        {"zoom_offset": float("nan")},
+        {"zoom_offset": float("inf")},
+        {"angles": "front"},
+        {"angles": ["frnot"]},
+        {"angles": [[30]]},
+        {"angles": [[30, "up"]]},
+        {"angles": [[True, 0]]},
+        {"angles": [7]},
+    ],
+)
+def test_bad_inspect_args_are_a_value_error_not_a_type_error(body):
+    with pytest.raises(ValueError):
+        inspect_args(body)
+
+
+def test_an_orthographic_camera_is_refused_with_what_to_do():
+    with pytest.raises(ValueError, match="/OmniverseKit_Top is orthographic.*/OmniverseKit_Persp"):
+        require_perspective("orthographic", "/OmniverseKit_Top")
+    require_perspective("perspective", "/OmniverseKit_Persp")

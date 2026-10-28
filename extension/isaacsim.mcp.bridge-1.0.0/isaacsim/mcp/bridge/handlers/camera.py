@@ -12,7 +12,7 @@ import omni.kit.app
 import omni.usd
 from pxr import Gf, Usd, UsdGeom
 
-from ..core.framing import apply_zoom, bounding_radius, fit_distance
+from ..core.framing import apply_zoom, bounding_radius, fit_distance, inspect_args, require_perspective
 from ..core.isolation import LIGHT_TYPES, Hidden, is_light, prims_to_hide
 from ..core.lighting import camera_light_switch, current_mode
 from ..core.serial import LazyLock, serial
@@ -215,6 +215,7 @@ def _compute_autofit_distance(dims, camera_path, stage, width, height):
     fl, h_ap, v_ap = 18.14756, 20.955, 15.2908  # Omniverse defaults
     if cam_prim.IsValid():
         cam = UsdGeom.Camera(cam_prim)
+        require_perspective(cam.GetProjectionAttr().Get(), camera_path)
         fl_val = cam.GetFocalLengthAttr().Get()
         h_val = cam.GetHorizontalApertureAttr().Get()
         v_val = cam.GetVerticalApertureAttr().Get()
@@ -606,15 +607,13 @@ async def handle_camera_inspect(body: dict) -> dict:
     Optionally includes instance segmentation at each angle.
     """
     prim_path = body.get("prim_path", "")
-    angles = body.get("angles", None)
-    width = body.get("width", 800)
-    height = body.get("height", 600)
-    zoom_offset = body.get("zoom_offset", 0.0)
-    isolate = body.get("isolate", False)
-    include_segmentation = body.get("include_segmentation", False)
-
     if not prim_path:
         return {"status": "error", "error": "prim_path is required"}
+    try:
+        args = inspect_args(body)
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
+    width, height, zoom_offset, isolate = args.width, args.height, args.zoom_offset, args.isolate
 
     stage = _get_stage()
     prim = stage.GetPrimAtPath(prim_path)
@@ -623,40 +622,13 @@ async def handle_camera_inspect(body: dict) -> dict:
 
     center, dims, _ = _compute_world_bbox(prim)
 
-    # Auto-fit distance, then zoom_offset: 0=auto-fit, negative=closer, positive=further. The fit refuses a frame with
-    # no room inside its margins, judged on the resolution actually captured, not the one requested.
+    # Auto-fit distance, then zoom_offset: 0=auto-fit, negative=closer, positive=further. The fit refuses an
+    # orthographic camera, and a frame with no room inside its margins, judged on the resolution actually captured.
     camera_path = _get_active_camera_path()
     try:
         distance = apply_zoom(_compute_autofit_distance(dims, camera_path, stage, width, height), zoom_offset)
     except ValueError as e:
         return {"status": "error", "error": str(e)}
-
-    # Cube-based angle system: 6 face centers + 8 cube corners = 14 angles.
-    # Corners at atan(1/sqrt(2)) ≈ 35.26° elevation.
-    CORNER_EL = 35.26
-    ANGLE_MAP = {
-        # Face centers (6)
-        "front":  (0, 0),
-        "back":   (180, 0),
-        "right":  (90, 0),
-        "left":   (270, 0),
-        "top":    (0, 90),
-        "bottom": (0, -90),
-        # Cube corners (8)
-        "top_front_right":    (45, CORNER_EL),
-        "top_front_left":     (315, CORNER_EL),
-        "top_back_right":     (135, CORNER_EL),
-        "top_back_left":      (225, CORNER_EL),
-        "bottom_front_right": (45, -CORNER_EL),
-        "bottom_front_left":  (315, -CORNER_EL),
-        "bottom_back_right":  (135, -CORNER_EL),
-        "bottom_back_left":   (225, -CORNER_EL),
-    }
-
-    ALL_ANGLES = list(ANGLE_MAP.keys())
-
-    if angles is None or angles == ["all"]:
-        angles = ALL_ANGLES
 
     up_axis = UsdGeom.GetStageUpAxis(stage)
 
@@ -671,14 +643,7 @@ async def handle_camera_inspect(body: dict) -> dict:
             isolate_warnings += hidden.warnings
             await _settle_viewport()
 
-        for angle_name in angles:
-            if angle_name in ANGLE_MAP:
-                az, el = ANGLE_MAP[angle_name]
-            elif isinstance(angle_name, (list, tuple)) and len(angle_name) == 2:
-                az, el = angle_name
-            else:
-                continue
-
+        for angle_name, az, el in args.angles:
             az_rad = math.radians(az)
             el_rad = math.radians(el)
 
@@ -709,7 +674,7 @@ async def handle_camera_inspect(body: dict) -> dict:
                 png_bytes, is_black = await _capture_frame(camera_path, width, height)
                 b64 = base64.b64encode(png_bytes).decode("utf-8")
                 cap_entry = {
-                    "angle": angle_name if isinstance(angle_name, str) else f"az{az}_el{el}",
+                    "angle": angle_name,
                     "azimuth": az,
                     "elevation": el,
                     "camera_position": [round(v, 4) for v in cam_pos],
@@ -717,7 +682,7 @@ async def handle_camera_inspect(body: dict) -> dict:
                     "is_black": is_black,
                 }
 
-                if include_segmentation:
+                if args.include_segmentation:
                     try:
                         seg_png, legend = _capture_instance_segmentation()
                         if not seg_png:
@@ -734,7 +699,7 @@ async def handle_camera_inspect(body: dict) -> dict:
                 captures.append(cap_entry)
             except Exception as e:
                 captures.append({
-                    "angle": angle_name if isinstance(angle_name, str) else f"az{az}_el{el}",
+                    "angle": angle_name,
                     "error": str(e),
                 })
     finally:
