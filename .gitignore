@@ -34,3 +34,11 @@ Thumbs.db
 # Local overrides
 test_project/.mcp.json
 test_project/.claude/
+
+# Claude Code local state: machine-specific settings and keys.
+.claude/settings.local.json
+.claude/worktrees/
+CLAUDE.local.md
+
+# Scratch files the skills write: review packs, issue and PR bodies.
+.local/
