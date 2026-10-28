@@ -786,6 +786,7 @@ async def handle_capture(body: dict) -> dict:
         return {"status": "error", "error": str(e), "traceback": tb}
 
 
+@serial(_viewport)
 async def handle_viewport_light(body: dict) -> dict:
     """Get or set viewport lighting mode.
 

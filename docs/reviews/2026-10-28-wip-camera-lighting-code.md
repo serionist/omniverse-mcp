@@ -114,3 +114,15 @@ On Isaac Sim 6.2.0, headless, at `5aed93e`.
 | R1: two `inspect_prim(isolate=True)` calls on sibling prims, at once, from two connections, run twice | Both succeed with their own target in every capture; the second waits for the first (0.8 s of its own, 0.7 s queued); both prims visible afterwards. One earlier attempt, the session's first segmentation, missed the target in one capture; it did not happen again in four calls, alone or together. |
 | R4: `inspect_prim` with `/OmniverseKit_Top` active | Error: "The viewport camera /OmniverseKit_Top is orthographic, so its distance frames nothing. Switch the viewport to a perspective camera such as /OmniverseKit_Persp and inspect again." |
 | R5: `set` to off, stage, camera, then `get` | Each took; R5 stays as is. |
+
+### Review-code round 3 (PR #4)
+
+Low tier, one fresh reviewer, on `75a15d4`.
+
+**Verdict:** one finding, fixed.
+
+| # | Sev | Where | Finding | Status |
+|---|---|---|---|---|
+| R1 | minor | `handle_viewport_light` | Lighting changes did not take the viewport lock the other viewport handlers hold. A `set` arriving during an inspect could relight it between two angles. | Fixed: `@serial(_viewport)`. It calls no other locked handler, so it cannot deadlock. |
+
+The review loop ends here: the round found no blocker and no major.
