@@ -5,7 +5,7 @@ head: cd49e97
 date: 2026-10-28
 round: 1
 tier: standard (one fresh reviewer; the major sent to its own fresh refuter)
-verdict: needs-fixes
+verdict: clean (round 2)
 ---
 
 # Review: S8, the plugin
@@ -82,3 +82,42 @@ scratch data folder; the maintainer's own Isaac Sim on 8211 was not touched.
 
 `uv run tools/gate.py full` passed on `cd49e97` (647 tests, 93.34%) and on `eda5d3f` (656 tests, 93.32%), the
 `plugin` check validated by Claude Code 2.1.312; CI's Checks job validated it with 2.1.285.
+
+## Round 2
+
+- **Where:** the fixes, `cd49e97..eda5d3f`, with round 1's findings; one fresh reviewer, on 2026-10-28.
+- **Verdict:** clean. Every round-1 fix holds, each with its test (F3 to F5, F7 and F8 are prose). Six new minors,
+  fixed in `9fa1ee6`, and checked in this session: no round 3 for minors.
+
+| # | Sev | Where | Finding | Status |
+|---|---|---|---|---|
+| F11 | minor | `plugin/skills/setup/SKILL.md` | Round 1's fix let the skill skip step 3 "when the folder is already on Kit's search path (an update)", a condition it can't see: a user whose Kit loads a clone's copy would install, skip step 3 (the only place that says to turn the old copy off), and loop. | Fixed: step 3 is skipped only when the install printed "in place of <version>"; step 4 sends a Kit that still loads another copy to step 3. Checked end to end. |
+| F12 | minor | `tools/simulation.py`, `get_sim_state` | In a clone started with `--no-sync`, as the README configures, the package metadata keeps the last sync's version: after a pull across a release, `get_sim_state` reported a mismatch, and an install into a folder that Kit doesn't search. | Fixed: it compares Kit's version with the extension this server carries (`kit_extension.carried_version()`, the same string Kit reports); `server_version` stays for display. `test_get_sim_state_says_nothing_more_when_the_extension_is_this_release`. |
+| F13 | minor | `tests/test_gate.py`, `test_the_plugin_check_finds` | The `extension pin` case named `0.1.0`, so the release bump would break it; with `GATE_REQUIRE_CLAUDE=1` exported its baseline failed. | Fixed: the case takes the release's version; the test clears the variable. |
+| F14 | minor | `tools/gate.py`, `manifest_problems`, `check_plugin` | The marketplace's plugin entry may add hooks, commands or servers, and `.mcp.json`'s server was checked only for its key and a pin anywhere: `"hooks"` in the entry, or `"--from", "git+https://..."` in the args, passed. | Fixed: the entry holds only `name`, `source` and `description`, and the server is exactly `uvx omniverse-mcp==<version>` with `PYTHONPATH` empty; `[a marketplace key]`, `[a server argument]`, `[a server variable]`. |
+| F15 | minor | the plan, For the maintainers | It still said the pending publisher keeps the name from being taken, against R9. | Fixed. |
+| F16 | minor | write-skill | Step 4 lets a skill keep a file beside `SKILL.md`; the gate refuses any under `plugin/`. | Fixed: a plugin skill is `SKILL.md` alone, and write-skill says why. |
+
+Refuted: `extension_version` stale across reconnects or Kit restarts (each new connection handshakes, a refusal
+closes the connection); `PYTHONPATH` empty breaking anything (CPython ignores it; the end-to-end runs went through
+it); a symlinked folder past the allowlist (`rglob` doesn't follow it, Claude Code refuses one leading out); S8b's icon
+refused (by design: S8b adds its path and key); `_PIN` matching a non-version; the docs disagreeing with the code.
+
+Improvements:
+
+- **A client test for the refresh:** taken, `test_the_extension_version_follows_each_handshake`.
+- **"Kit app connection failed" starts every failure,** a token or protocol refusal too: taken; setup step 4 says
+  so and keys its last case on a refused or timed-out connection, as the README does.
+- **List `plugin/` from git, so a stray `.DS_Store` doesn't fail the gate:** left: a tree outside git (the tests')
+  would need a second path, and the message names the file to delete.
+
+### Live run
+
+On `9fa1ee6`, Isaac Sim 6.2.0 on port 8212 started again from the installed extension: the live suites' first run
+after the start, 108 passed, with #6's two, #7's three and `test_13_camera_inspect_auto_fit` failing (a capture right
+after Kit starts, as #27); the second, 111 passed with #7's three failing. `/omniverse-mcp:setup` end to end on a
+fresh wheel: no `note`, so done, with the versions it read.
+
+### Checks
+
+`uv run tools/gate.py full` passed on `9fa1ee6`: 660 tests, 93.30%.
