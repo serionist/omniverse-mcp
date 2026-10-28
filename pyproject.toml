@@ -53,6 +53,7 @@ omniverse-mcp = "omniverse_mcp.server:main"
 [dependency-groups]
 dev = [
     "pytest==9.2.0",
+    "ruff==0.17.1",
     "usd-core==26.11",
 ]
 
@@ -65,3 +66,32 @@ packages = ["src/omniverse_mcp"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/", "extension/", "tests/", "docs/", "README.md", "CHANGELOG.md", "LICENSE"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"  # Kit 107+ embeds 3.11 (plan D8), the server needs 3.11 too
+extend-exclude = ["test_project/results"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "S", "C4", "PTH", "PL", "N", "RET", "TID", "ASYNC", "BLE"]
+ignore = [
+    "PLR0911", # too many returns: handlers return early on each bad input, which reads better than nesting
+    "PLR0912", # too many branches: the same, for handlers that check many optional fields
+    "PLR0913", # too many arguments: MCP tools mirror their parameters one to one
+    "PLR0915", # too many statements: long handlers are split in S6 and S7, not by a size rule
+    "PLR2004", # magic values: pixel margins, angles and HTTP codes read clearer inline
+    "PLR0917", # too many positional arguments: the client's methods mirror the bridge's request fields
+]
+
+[tool.ruff.lint.per-file-ignores]
+"extension/**" = [
+    "PLC0415", # Kit modules are imported where they are used: some exist only in some Kit apps, and importing
+               # them when the extension loads would fail or slow Kit's startup
+]
+"tests/**" = [
+    "S101",    # assert is how pytest checks
+    "PLC0415", # imports inside a test keep a slow or optional import local to it
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["omniverse_mcp", "ovmcp"]
