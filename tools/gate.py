@@ -6,7 +6,9 @@ Usage: uv run tools/gate.py quick|full [--base <ref>] [--head <ref>]
 Two kinds of check:
 - the working tree's: the lock file, ruff check, ruff format, basedpyright, import-linter's contracts, a coverage
   floor no lower than at the start of each range checked, AGENTS.md within 150 lines, each skill's frontmatter and
-  its Codex link, the hooks stored as executable; full adds pytest under coverage, then the report against the floor.
+  its Codex link, the hooks stored as executable, the plugin (its manifests, one version everywhere, its skills
+  pre-approving read-only tools only, and Claude Code's own `claude plugin validate --strict`); full adds pytest under
+  coverage, then the report against the floor.
   They run when the head is the checked-out commit, and are skipped, with the reason, when the tree is not what is
   checked;
 - the commits': no tool attribution in any message, and no tool as any commit's author or committer, and gitleaks,
@@ -14,7 +16,8 @@ Two kinds of check:
   error fails too.
 
 It prints a table of the checks and exits 1 when any failed; a warning or a skip never fails it. Without gitleaks the
-secret scan is skipped with a warning, unless GATE_REQUIRE_GITLEAKS=1 (as CI sets it), which makes that a failure.
+secret scan is skipped with a warning, unless GATE_REQUIRE_GITLEAKS=1 (as CI sets it), which makes that a failure;
+without Claude Code the plugin is checked but not validated by it, unless GATE_REQUIRE_CLAUDE=1 (as CI sets it).
 
 The text lane checks a PR's title and description, which a squash merge makes the commit on main: no tool attribution,
 as commit-msg checks a message, and a `Refs #<n>`, `Closes #<n>` or `Fixes #<n>` line. `-` reads standard input.
@@ -28,6 +31,7 @@ never re-locks.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -38,6 +42,7 @@ import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, cast
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "origin/main"
@@ -52,6 +57,20 @@ SKILL_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SKILL_NAME_MAX = 64
 DESCRIPTION_MAX = 1024
 GITLEAKS_CONFIG = ".gitleaks.toml"
+# The plugin (plan S8): its marketplace, manifest and server, and the tool contract its skills' allowed-tools are read
+# against. The plugin's and the server key's names are one-way doors (AGENTS.md).
+MARKETPLACE = ".claude-plugin/marketplace.json"
+PLUGIN_DIR = "plugin"
+PLUGIN_MANIFEST = "plugin/.claude-plugin/plugin.json"
+PLUGIN_MCP = "plugin/.mcp.json"
+PLUGIN_SKILLS_DIR = "plugin/skills"
+PLUGIN_SKILL_KEYS = ("name", "description", "allowed-tools")
+PLUGIN_SERVER = "omniverse"
+PLUGIN_DIR_NAME = "omniverse-mcp"  # the plugin's and the marketplace's name
+TOOL_CONTRACT = "tests/fixtures/mcp-tools.json"
+# Every `omniverse-mcp==X.Y.Z` the plugin names: the server it starts, the extension its setup installs.
+_ALLOWED_ENTRY = re.compile(r"[^\s,(]+(?:\([^)]*\))?")
+_PIN = re.compile(r"omniverse-mcp==([0-9A-Za-z.+!-]*[0-9A-Za-z])")
 GITLEAKS_IGNORE = ".gitleaksignore"
 # The git log options every scan starts with. gitleaks reads `git log -p` as git prints it, and a developer's git
 # config can reshape that: colour codes leave it reading no commit, a short commit id or a missing path prefix loses
@@ -301,18 +320,21 @@ def frontmatter(text: str) -> dict[str, tuple[str, bool]]:
     return fields
 
 
-def skill_problems(folder: str, text: str) -> list[str]:
-    """What is wrong with `.claude/skills/<folder>/SKILL.md` for Claude Code and Codex: the frontmatter holds only
-    `name` (equal to the folder) and `description` ("Use when ...", within 1,024 characters, valid YAML)."""
-    where = f"{SKILLS_DIR}/{folder}/SKILL.md"
+def skill_problems(
+    folder: str, text: str, skills_dir: str = SKILLS_DIR, keys: tuple[str, ...] = SKILL_KEYS
+) -> list[str]:
+    """What is wrong with `<skills_dir>/<folder>/SKILL.md`: the frontmatter holds only the keys given (for the repo's
+    skills, which Codex reads too, `name` and `description`), `name` equal to the folder, and a `description`
+    ("Use when ...", within 1,024 characters, valid YAML)."""
+    where = f"{skills_dir}/{folder}/SKILL.md"
     try:
         fields = frontmatter(text)
     except ValueError as exc:
         return [f"{where}: {exc}"]
     problems = [
-        f"{where}: frontmatter key {key!r}: a skill's frontmatter holds only name and description (write-skill)"
+        f"{where}: frontmatter key {key!r}: a skill's frontmatter here holds only {', '.join(keys)} (write-skill)"
         for key in fields
-        if key not in SKILL_KEYS
+        if key not in keys
     ]
     name = fields.get("name", ("", True))[0]
     if name != folder:
@@ -329,6 +351,56 @@ def skill_problems(folder: str, text: str) -> list[str]:
         problems.append(f"{where}: description has {len(description)} characters; keep it within {DESCRIPTION_MAX}")
     if plain and _PLAIN_YAML_BREAKERS.search(description):
         problems.append(f"{where}: description: plain YAML can't hold a colon or a #: write it as a >- block")
+    return problems
+
+
+def plugin_skill_problems(folder: str, text: str, reads: set[str]) -> list[str]:
+    """A plugin skill: a skill's rules, plus `allowed-tools`, which may name only the plugin server's read-only tools
+    (reads): a tool that edits the stage, writes a file or runs code always asks the user (plan S8)."""
+    problems = skill_problems(folder, text, PLUGIN_SKILLS_DIR, PLUGIN_SKILL_KEYS)
+    try:
+        allowed = frontmatter(text).get("allowed-tools", ("", True))[0]
+    except ValueError:
+        return problems
+    prefix = f"mcp__plugin_{PLUGIN_DIR_NAME}_{PLUGIN_SERVER}__"
+    # Entries are separated by spaces or commas; a rule such as Bash(uvx ... install) holds spaces of its own.
+    for entry in _ALLOWED_ENTRY.findall(allowed):
+        if not (entry.startswith(prefix) and entry.removeprefix(prefix) in reads):
+            problems.append(
+                f"{PLUGIN_SKILLS_DIR}/{folder}/SKILL.md: allowed-tools {entry!r} is not a read-only tool of the "
+                f"plugin's server; a tool that edits, writes or runs code asks the user"
+            )
+    return problems
+
+
+def version_problems(versions: dict[str, str | None]) -> list[str]:
+    """One version everywhere (plan D7): each place's version, by where it is, equal to pyproject.toml's."""
+    want = versions.get("pyproject.toml")
+    return [
+        f"{where} has version {got!r} and pyproject.toml {want!r}: a release bumps them together (plan D7)"
+        for where, got in versions.items()
+        if got != want
+    ]
+
+
+def manifest_problems(plugin: dict[str, Any], market: dict[str, Any], servers: dict[str, Any]) -> list[str]:
+    """plugin.json names the plugin and its version; the marketplace lists it once, from ./plugin, as plugin.json
+    describes it; .mcp.json starts one server, under the key tools are named by."""
+    problems = [f"{PLUGIN_MANIFEST} needs {key}" for key in ("name", "version", "description") if not plugin.get(key)]
+    if plugin.get("name") != PLUGIN_DIR_NAME:
+        problems.append(f"{PLUGIN_MANIFEST}: the plugin is {PLUGIN_DIR_NAME!r}, a one-way door")
+    if market.get("name") != PLUGIN_DIR_NAME:
+        problems.append(f"{MARKETPLACE}: the marketplace is {PLUGIN_DIR_NAME!r}, as the README's install names it")
+    entries = [e for e in market.get("plugins") or [] if isinstance(e, dict) and e.get("name") == plugin.get("name")]
+    if len(entries) != 1:
+        problems.append(f"{MARKETPLACE} must list the plugin {plugin.get('name')!r} once")
+    else:
+        if entries[0].get("source") != f"./{PLUGIN_DIR}":
+            problems.append(f"{MARKETPLACE}: the plugin's source is ./{PLUGIN_DIR}")
+        if entries[0].get("description") != plugin.get("description"):
+            problems.append(f"{MARKETPLACE}: the plugin's description differs from {PLUGIN_MANIFEST}'s")
+    if list(servers) != [PLUGIN_SERVER]:
+        problems.append(f"{PLUGIN_MCP} starts one server, {PLUGIN_SERVER!r}, a one-way door; it has {list(servers)}")
     return problems
 
 
@@ -533,6 +605,67 @@ def check_skill_links(_scope: Scope) -> Result:
     return outcome("skill links", link_problems(entries, set(skill_folders())), f"{links} links")
 
 
+def _json(path: Path) -> dict[str, Any]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("it is not a JSON object")
+    return cast(dict[str, Any], data)
+
+
+def plugin_versions(root: Path, plugin: dict[str, Any]) -> dict[str, str | None]:
+    """The version in each place that carries one (plan D7), and each `omniverse-mcp==` pin under plugin/."""
+    with (root / "pyproject.toml").open("rb") as f:
+        versions: dict[str, str | None] = {"pyproject.toml": tomllib.load(f).get("project", {}).get("version")}
+    extension = root / "extension" / "ovmcp.bridge" / "config" / "extension.toml"
+    with extension.open("rb") as f:
+        versions[extension.relative_to(root).as_posix()] = tomllib.load(f).get("package", {}).get("version")
+    versions[PLUGIN_MANIFEST] = plugin.get("version")
+    for path in sorted((root / PLUGIN_DIR).rglob("*")):
+        if path.is_file() and path.suffix in (".json", ".md"):
+            for n, pin in enumerate(_PIN.findall(path.read_text(encoding="utf-8")), 1):
+                versions[f"{path.relative_to(root).as_posix()} (pin {n})"] = pin
+    return versions
+
+
+def check_plugin(_scope: Scope, root: Path = ROOT) -> Result:
+    try:
+        plugin = _json(root / PLUGIN_MANIFEST)
+        market = _json(root / MARKETPLACE)
+        servers = _json(root / PLUGIN_MCP).get("mcpServers") or {}
+        tools = _json(root / TOOL_CONTRACT).get("tools") or {}
+    except (OSError, ValueError) as exc:
+        return Result("plugin", "FAIL", f"a plugin manifest or the tool contract can't be read: {exc}")
+    problems = manifest_problems(plugin, market, servers)
+    versions = plugin_versions(root, plugin)
+    if not any(where.startswith(PLUGIN_MCP) for where in versions):
+        problems.append(f"{PLUGIN_MCP} must start the server of this release, omniverse-mcp==<version>")
+    problems += version_problems(versions)
+    reads = {name for name, tool in tools.items() if tool.get("annotations", {}).get("readOnlyHint")}
+    skills = sorted((root / PLUGIN_SKILLS_DIR).glob("*/SKILL.md"))
+    readme = root / PLUGIN_DIR / "README.md"
+    listed = readme.read_text(encoding="utf-8") if readme.is_file() else ""
+    for path in skills:
+        problems += plugin_skill_problems(path.parent.name, path.read_text(encoding="utf-8"), reads)
+        if f"`/{PLUGIN_DIR_NAME}:{path.parent.name}`" not in listed:
+            problems.append(
+                f"{PLUGIN_DIR}/README.md does not list `/{PLUGIN_DIR_NAME}:{path.parent.name}` (write-skill)"
+            )
+    if problems:
+        return outcome("plugin", problems, "")
+    detail = f"{len(skills)} skills, version {versions['pyproject.toml']}"
+    claude = shutil.which("claude")
+    if not claude:
+        if truthy(os.environ.get("GATE_REQUIRE_CLAUDE")):
+            return Result("plugin", "FAIL", "Claude Code not installed, and GATE_REQUIRE_CLAUDE=1 requires it")
+        return Result("plugin", "warn", f"{detail}; not validated: Claude Code (`claude`) is not on PATH")
+    for target in (PLUGIN_DIR, "."):
+        done = run([claude, "plugin", "validate", "--strict", target], cwd=root)
+        if done.returncode != 0:
+            output = (done.stdout + done.stderr).strip()
+            return Result("plugin", "FAIL", f"claude plugin validate --strict {target} failed", output=output)
+    return Result("plugin", "pass", f"{detail}, validated by Claude Code")
+
+
 def check_hooks(_scope: Scope) -> Result:
     entries = [(mode, path) for mode, _, path in index_entries(HOOKS_DIR)]
     if not entries:
@@ -617,6 +750,7 @@ TREE: list[tuple[str, Check]] = [
     ("AGENTS.md", check_agents_md),
     ("skills", check_skills),
     ("skill links", check_skill_links),
+    ("plugin", check_plugin),
     ("hooks", check_hooks),
 ]
 COMMITS: list[tuple[str, Check]] = [("attribution", check_attribution), ("gitleaks", check_gitleaks)]

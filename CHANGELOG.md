@@ -73,6 +73,12 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ### Added
 
+- **A Claude Code plugin,** with this repo as its marketplace: `/plugin marketplace add serionist/omniverse-mcp`,
+  then `/plugin install omniverse-mcp@omniverse-mcp`. It starts the server of its release with `uvx`, and brings
+  skills: `/omniverse-mcp:setup` installs the Kit extension and checks the connection; `scene`, `geometry`,
+  `simulate` and `script` hold the workflows and traps `docs/AI_GUIDE.md` used to. A skill pre-approves read-only
+  tools only. It works once 0.2.0 is on PyPI.
+- **`docs/AI_GUIDE.md` is short:** the context every client needs, and links to the skills for the workflows.
 - **`omniverse-mcp extension install`** copies the Kit extension of the server's own release to your user data
   folder, in place of an older one, and prints the folder Kit's extension search paths need; `omniverse-mcp extension
   path` prints it again. When the server and the extension speak different bridge protocols, the server's message

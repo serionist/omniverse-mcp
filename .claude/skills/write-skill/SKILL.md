@@ -1,9 +1,10 @@
 ---
 name: write-skill
 description: >-
-  Use when someone asks for a new skill, a slash command or a reusable agent recipe in this repo, or to fix a skill
-  that is wrong or out of date. Keeps every skill usable by Claude Code and Codex alike, links it into .agents/skills
-  and lists it in AGENTS.md.
+  Use when someone asks for a new skill, a slash command or a reusable agent recipe in this repo, a skill of the
+  Claude Code plugin (plugin/skills), or to fix a skill that is wrong or out of date. Keeps every repo skill usable
+  by Claude Code and Codex alike, links it into .agents/skills and lists it in AGENTS.md; keeps a plugin skill to
+  read-only tools in allowed-tools and lists it in plugin/README.md.
 ---
 
 # Write a skill
@@ -41,6 +42,23 @@ calls, not in prose the agent has to get right.
    the folder, the description set, "Use when ..." first, within 1,024 characters), that `AGENTS.md` names the skill,
    and that each skill has its link and each link leads to a skill. The rest is review.
 
+## Plugin skills
+
+`plugin/skills/<name>/SKILL.md` serves the plugin's users, in Claude Code, not this repo's developers. Steps 1 to 4
+hold, with these differences:
+
+- **`allowed-tools`** may join `name` and `description`, as a `>-` block naming only tools whose `readOnlyHint` is
+  true in `tests/fixtures/mcp-tools.json`, as `mcp__plugin_omniverse-mcp_omniverse__<tool>`: a tool that edits the
+  stage, writes a file or runs code always asks the user. Never `execute_script`, never a shell command.
+- **Links** are full GitHub URLs: Claude Code installs `plugin/` without the rest of the repo.
+- **A version** is written as the plugin pins it, `omniverse-mcp==<version>`; the gate holds every pin under
+  `plugin/` equal to `pyproject.toml`'s, and a release bumps them together.
+- **No link and no AGENTS.md line:** list it as `/omniverse-mcp:<name>` in `plugin/README.md`'s table instead, and in
+  `docs/AI_GUIDE.md`'s, which other clients read.
+
+Gate quick checks all of it, then runs `claude plugin validate --strict` on the plugin and the marketplace when
+Claude Code is installed.
+
 ## Done means
 
 - The skill fires on the requests in its description and on nothing unrelated.
@@ -49,8 +67,8 @@ calls, not in prose the agent has to get right.
 
 ## Never
 
-- Claude-only syntax in a skill: `!` shell injection, `$ARGUMENTS`, `${CLAUDE_SKILL_DIR}`, `${CLAUDE_PROJECT_DIR}`,
-  or `allowed-tools`.
+- Claude-only syntax in a repo skill: `!` shell injection, `$ARGUMENTS`, `${CLAUDE_SKILL_DIR}`,
+  `${CLAUDE_PROJECT_DIR}`, or `allowed-tools`. A plugin skill takes `allowed-tools` for read-only tools only.
 - A skill that restates a rule instead of pointing at it: name the section of `AGENTS.md` or `REVIEW.md`.
 - A rule kept only in a skill's prose when a check could keep it: add the check to `tools/gate.py`, with its test.
 - `ln -s` from Git Bash, or a copied folder, for the link: use `setup.py link`.

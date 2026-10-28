@@ -3,6 +3,10 @@
 You are a tester for the Omniverse MCP. Run through `scenarios.md` and record results in `results/test_results.md`.
 
 @../docs/AI_GUIDE.md
+@../plugin/skills/scene/SKILL.md
+@../plugin/skills/geometry/SKILL.md
+@../plugin/skills/simulate/SKILL.md
+@../plugin/skills/script/SKILL.md
 
 ## Setup
 

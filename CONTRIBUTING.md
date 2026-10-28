@@ -62,6 +62,7 @@ doors): `uv run tools/golden.py` rewrites `tests/fixtures/mcp-tools.json` once t
 | `src/omniverse_mcp/tools/<area>.py` | the `@mcp.tool(annotations=...)` function in the area's `register()`, with `READS`, `EDITS`, `DESTROYS` or `RUNS` and every parameter `Annotated` with its description and bounds; its docstring is what the assistant reads |
 | `docs/TOOLS.md`, `docs/ARCHITECTURE.md`, `CHANGELOG.md` | the tool's heading, the route, a line under Unreleased |
 | `tests/` | its case in `test_tools.py` (the route, the body, the text from a canned answer), the golden file, and a case in the live suite, `test_integration.py` |
+| `plugin/skills/` | the skill whose workflow uses it; a read-only tool may join that skill's `allowed-tools` |
 
 ## Open the pull request
 

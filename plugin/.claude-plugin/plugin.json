@@ -1,0 +1,13 @@
+{
+  "name": "omniverse-mcp",
+  "version": "0.1.0",
+  "description": "Drive NVIDIA Omniverse Kit apps (Isaac Sim, USD Composer) from Claude Code: look at the stage, edit it, run physics, drive robots and record what happens.",
+  "author": {
+    "name": "Soma Osvay",
+    "url": "https://github.com/serionist"
+  },
+  "homepage": "https://github.com/serionist/omniverse-mcp",
+  "repository": "https://github.com/serionist/omniverse-mcp",
+  "license": "MIT",
+  "keywords": ["omniverse", "isaac-sim", "usd", "robotics", "simulation", "mcp"]
+}
