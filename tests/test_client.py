@@ -5,7 +5,12 @@ Uses a mock HTTP server to test all endpoints without needing Isaac Sim.
 Run: python -m pytest tests/test_client.py -v
 """
 
+import json
+import socket
+import threading
 import unittest
+
+import pytest
 
 from omniverse_mcp.client import BridgeClient, BridgeError
 
@@ -853,6 +858,87 @@ class TestBridgeClient(unittest.TestCase):
         self.assertEqual(body["count"], 50)
         self.assertNotIn("min_level", body)
         self.assertNotIn("channel", body)
+
+
+def _reply(path: str) -> bytes:
+    result = {"protocol": 1, "extension_version": "1.0.0"} if path == "/bridge" else {}
+    data = json.dumps({"status": "success", "result": result}).encode()
+    return b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\nConnection: keep-alive\r\n\r\n" % len(data) + data
+
+
+def _read_request(conn: socket.socket) -> str:
+    """The path of the next request on the connection, its body read and dropped."""
+    buf = b""
+    while b"\r\n\r\n" not in buf:
+        buf += conn.recv(4096)
+    head, _, rest = buf.partition(b"\r\n\r\n")
+    lines = head.decode().split("\r\n")
+    length = next((int(line.split(":", 1)[1]) for line in lines if line.lower().startswith("content-length:")), 0)
+    while len(rest) < length:
+        rest += conn.recv(4096)
+    return lines[0].split(" ")[1]
+
+
+class _ScriptedBridge(threading.Thread):
+    """A bridge that takes connections one after another, each answering requests as its script says: "ok" answers in
+    full, "cut" sends half the answer; then it closes the connection, as a bridge that drops a kept-alive one. A
+    connection the client never makes ends the script after a second."""
+
+    def __init__(self, *connections: list[str]):
+        super().__init__(daemon=True)
+        self.listener = socket.create_server(("127.0.0.1", 0))
+        self.port = self.listener.getsockname()[1]
+        self.connections = connections
+        self.paths: list[str] = []
+        self.accepted = 0
+
+    def run(self) -> None:
+        with self.listener:
+            self.listener.settimeout(1.0)
+            for steps in self.connections:
+                try:
+                    conn, _ = self.listener.accept()
+                except TimeoutError:
+                    return
+                self.accepted += 1
+                with conn:
+                    for step in steps:
+                        path = _read_request(conn)
+                        self.paths.append(path)
+                        reply = _reply(path)
+                        conn.sendall(reply if step == "ok" else reply[: len(reply) // 2])
+
+
+def test_a_dropped_kept_alive_connection_is_retried_once_with_a_new_handshake():
+    bridge = _ScriptedBridge(["ok", "ok"], ["ok", "ok"])
+    bridge.start()
+    client = BridgeClient(port=bridge.port, token="invented-test-token", timeout=5.0)
+    try:
+        client.health()
+        # The bridge has closed the connection; the client finds out on the next request, before any reply.
+        assert client.health()["status"] == "success"
+    finally:
+        client.close()
+        bridge.join(5)
+    assert bridge.accepted == 2
+    assert bridge.paths == ["/bridge", "/health", "/bridge", "/health"]
+
+
+def test_a_reply_cut_short_is_not_sent_again():
+    # A second connection stands ready, so a retry would succeed and show.
+    bridge = _ScriptedBridge(["ok", "ok", "cut"], ["ok", "ok"])
+    bridge.start()
+    client = BridgeClient(port=bridge.port, token="invented-test-token", timeout=5.0)
+    try:
+        client.health()
+        # The request may have run: sending it again could run a script twice.
+        with pytest.raises(ConnectionError):
+            client.health()
+    finally:
+        client.close()
+        bridge.join(5)
+    assert bridge.accepted == 1
+    assert bridge.paths == ["/bridge", "/health", "/health"]
 
 
 if __name__ == "__main__":

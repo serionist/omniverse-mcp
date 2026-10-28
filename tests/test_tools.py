@@ -19,6 +19,8 @@ from .mock_bridge import MockIsaacServer
 HANDSHAKE = {"status": "success", "result": {"protocol": 1, "extension_version": "1.0.0"}}
 # The 8-byte PNG signature: enough for the server, which writes the bytes as they come.
 PNG = "iVBORw0KGgo="
+# Stands for the server's output folder in what a case expects sent: each test has its own.
+OUTPUT = "<output>"
 
 
 @dataclass(frozen=True)
@@ -49,7 +51,7 @@ CASES = [
         {"filter_types": ["Mesh"], "property_filter": ["joint"]},
         "/scene/dump",
         {"prim_count": 12, "file_size_bytes": 4096, "file_path": "scene_dump.txt"},
-        {"filter_types": ["Mesh"], "property_filter": ["joint"], "include_properties": True},
+        {"output_dir": OUTPUT, "filter_types": ["Mesh"], "property_filter": ["joint"], "include_properties": True},
         ("Dumped 12 prims (4,096 bytes)",),
     ),
     Case(
@@ -57,7 +59,8 @@ CASES = [
         {"prim_path": "/World/Cube"},
         "/scene/prim",
         {"text": "[/World/Cube]\ntype = Cube\n"},
-        {"prim_path": "/World/Cube"},
+        # The bridge sends text only when asked; without it the tool would read a key that isn't there.
+        {"prim_path": "/World/Cube", "format": "text"},
         ("type = Cube",),
     ),
     Case(
@@ -418,7 +421,7 @@ CASES = [
         {"fps": 10, "track_prims": ["/World/G1"]},
         "/recording/start",
         {"session_id": "rec_1", "fps": 10, "output_dir": "rec_1", "track_prims": ["/World/G1", "/World/G1/base"]},
-        {"fps": 10, "track_prims": ["/World/G1"]},
+        {"output_dir": str(Path(OUTPUT) / "recordings"), "fps": 10, "track_prims": ["/World/G1"]},
         ("Recording rec_1 at 10fps", "Tracking 2 prims"),
     ),
     Case(
@@ -427,7 +430,7 @@ CASES = [
         "/recording/stop",
         {"frame_count": 3, "duration_seconds": 0.6, "output_dir": "rec_1", "state_file": "rec_1/state.txt"},
         {},
-        ("Stopped. 3 frames, 0.6s", "State: "),
+        ("Stopped. 3 frames, 0.6s", "State: rec_1/state.txt"),
     ),
     Case(
         "get_recording_frame",
@@ -487,8 +490,7 @@ def test_every_tool_has_a_case():
     assert sorted(set(cases) - tools) == [], "these cases name no tool"
 
 
-@pytest.mark.parametrize("case", CASES, ids=str)
-def test_the_tool_calls_its_route_and_reads_the_answer(case: Case, bridge: MockIsaacServer, tmp_path: Path):
+def _check(case: Case, bridge: MockIsaacServer, tmp_path: Path) -> None:
     bridge.set_response(case.route, {"status": "success", "result": case.answer})
     bridge.requests.clear()
     client = BridgeClient(port=bridge.port, token="invented-test-token")
@@ -506,7 +508,29 @@ def test_the_tool_calls_its_route_and_reads_the_answer(case: Case, bridge: MockI
     assert not result.is_error, text
     calls = [(path, body) for _, path, body in bridge.requests if path != "/bridge"]
     assert [path for path, _ in calls] == [case.route]
-    body = calls[0][1] or {}
-    assert {k: body.get(k) for k in case.sent} == case.sent
+    body = calls[0][1]
+    sent = {k: v.replace(OUTPUT, str(tmp_path)) if isinstance(v, str) else v for k, v in case.sent.items()}
+    assert {k: body.get(k) for k in sent} == sent
     for part in case.says:
         assert part in text
+
+
+@pytest.mark.parametrize("case", CASES, ids=str)
+def test_the_tool_calls_its_route_and_reads_the_answer(case: Case, bridge: MockIsaacServer, tmp_path: Path):
+    _check(case, bridge, tmp_path)
+
+
+def test_manage_extensions_enables_one(bridge: MockIsaacServer, tmp_path: Path):
+    # The table's case lists; enabling takes the other route.
+    _check(
+        Case(
+            "manage_extensions",
+            {"action": "enable", "extension_id": "omni.invented"},
+            "/extensions/manage",
+            {"extension_id": "omni.invented", "action": "enable", "enabled": True},
+            {"extension_id": "omni.invented", "action": "enable"},
+            ("Extension omni.invented: enabled (enabled=True)",),
+        ),
+        bridge,
+        tmp_path,
+    )

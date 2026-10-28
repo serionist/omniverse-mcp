@@ -201,7 +201,8 @@ forbidden_modules = ["ovmcp"]
 # shrink, the same ratchet as ruff's per-file ignores. New code is checked in full.
 [tool.basedpyright]
 typeCheckingMode = "standard"
-# The extension core (plan S6) and the server (S7c) are typed in full.
+# Strict where all the code is ours and every import has types: the extension's Kit-free core and the server.
+# Tests stay standard, their fakes loose on purpose.
 strict = ["extension/ovmcp.bridge/ovmcp/core", "src/omniverse_mcp"]
 pythonVersion = "3.11"
 include = ["src", "tests", "tools", "extension/ovmcp.bridge/ovmcp/core"]
