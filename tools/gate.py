@@ -69,15 +69,16 @@ _TOOLS = (
 _CO_AUTHOR = re.compile(r"^[^\w]*co-authored-by\s*:\s*(?P<who>.*?)\s*$", re.IGNORECASE)
 _WHO = re.compile(r"^(?P<name>[^<>]*?)\s*(?:<(?P<email>[^<>]*)>)?$")
 # A co-author is a tool when its address is a tool's, or its name is a tool's alone or with a model and a version
-# ("Claude", "Claude Opus 4.6", "GitHub Copilot", "aider (gpt-4o)"); "Claude Martin" is a person. A GitHub bot is a tool
-# when its login names one (claude[bot], copilot-swe-agent[bot], devin-ai-integration[bot]): the rule is about AI
-# attribution, and GitHub names dependabot[bot] or github-actions[bot] a co-author when a person pushes onto their PR.
-_TOOL_BOT_LOGIN = r"[\w-]*(?:claude|anthropic|codex|openai|chatgpt|copilot|gemini|devin|aider|windsurf|cursor)[\w-]*"
+# ("Claude", "Claude Opus 4.6", "GitHub Copilot", "aider (gpt-4o)"); "Claude Martin" is a person.
 _TOOL_EMAIL = re.compile(
     r"^(?:noreply@anthropic\.com|no-?reply@openai\.com|cursoragent@cursor\.com|noreply@aider\.chat"
-    rf"|\d+\+copilot@users\.noreply\.github\.com|(?:\d+\+)?{_TOOL_BOT_LOGIN}\[bot\]@users\.noreply\.github\.com)$",
+    r"|\d+\+copilot@users\.noreply\.github\.com)$",
     re.IGNORECASE,
 )
+# A GitHub bot is a tool unless it is one of the bots GitHub names a co-author when a person pushes onto their PR. An
+# allowlist, matched exactly: a new AI bot is refused without anyone adding it here (S5 review, round 2, F10).
+_BOT_EMAIL = re.compile(r"^(?:\d+\+)?(?P<login>[^@\s\[\]]+)\[bot\]@users\.noreply\.github\.com$", re.IGNORECASE)
+_NON_AI_BOTS = frozenset({"dependabot", "github-actions", "renovate"})
 # The line a PR's description names its issue with; a squash merge keeps it in the commit on main (AGENTS.md, Commits
 # and PRs). A bare one is the PR template's last line left unfilled.
 _ISSUE_REF = re.compile(r"^[^\w]*(?:refs|closes|fixes)\s+#\d+\b", re.IGNORECASE | re.MULTILINE)
@@ -163,6 +164,9 @@ def tool_co_author(who: str) -> bool:
     if not match:
         return False
     email = (match.group("email") or "").strip()
+    bot = _BOT_EMAIL.match(email)
+    if bot:
+        return bot.group("login").lower() not in _NON_AI_BOTS
     return bool(_TOOL_EMAIL.match(email)) or bool(_TOOL_NAME.match(match.group("name").strip()))
 
 
@@ -188,7 +192,7 @@ def issue_ref_problems(text: str) -> list[str]:
     if _ISSUE_REF.search(text):
         return []
     if _BARE_ISSUE_REF.search(text):
-        return ["the template's `Closes #` has no issue number: write `Closes #<n>`, or `Refs #<n>` for one step of it"]
+        return ["a `Refs #` or `Closes #` line has no issue number: write `Closes #<n>`, or `Refs #<n>` for one step"]
     return ["no line names the issue: end the description with `Closes #<n>`, or `Refs #<n>` for one step of it"]
 
 

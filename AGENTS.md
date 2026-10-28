@@ -65,7 +65,7 @@ PowerShell unless a PowerShell form stands beside it.
 
 ## How a change lands
 
-1. **An issue** for anything beyond a typo.
+1. **An issue** for every change, a typo included: the PR names it, and `PR text` checks that.
 2. **A plan** in `docs/plans/` for non-trivial work (`docs/plans/README.md` says when), reviewed with `review-plan`
    until approved, then approved by the maintainer.
 3. **A branch** `<issue>-<slug>` from `origin/main`, the plan its first commit.
@@ -87,7 +87,7 @@ The skills in `.claude/skills/` run this loop: `start-work` (1 to 3), `review-pl
 
 ## Commits and PRs
 
-- A plain imperative subject that says what changed; a body that says why, ending `Refs #<n>` or `Closes #<n>`.
+- A plain imperative subject that says what changed; a body that says why, ending `Refs #<n>`, `Closes #<n>` or `Fixes #<n>`.
 - PRs are squash-merged: the PR title becomes the subject on `main`, its description the body.
 - A Dependabot PR's squash message keeps only its title and the bump line: its description quotes other projects'
   release notes, which `pr-text.yml` doesn't check.

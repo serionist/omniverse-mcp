@@ -41,8 +41,8 @@ jobs:
           sudo tar -xzf /tmp/gitleaks.tgz -C /usr/local/bin gitleaks
       # The commits checked start after the PR's base, or after the commit main was on before the push. A PR's checkout
       # is the merge of its branch into the base, so that merge is checked too. A push's before is all zeros for a new
-      # branch, and a commit no longer in the history after a force push: then the pushed commit alone is checked, as
-      # tools/hooks.py falls back for a push, since a squash merge is one commit. --locked fails on a stale uv.lock
+      # branch, and a commit no longer in the history after a force push: then the pushed commit alone is checked,
+      # since a squash merge is one commit. --locked fails on a stale uv.lock
       # before anything is installed. GATE_REQUIRE_GITLEAKS makes a missing gitleaks a failure, not a warning.
       - name: The gate's quick lane
         env:

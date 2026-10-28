@@ -33,5 +33,5 @@ body:
     id: contribute
     attributes:
       label: Would you send the PR?
-      description: A change beyond a typo starts here, and a non-trivial one gets a plan the maintainer approves first (CONTRIBUTING.md).
+      description: Every change starts here, a typo included, and a non-trivial one gets a plan the maintainer approves first (CONTRIBUTING.md).
       options: ["Yes", "Maybe, with guidance", "No"]

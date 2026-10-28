@@ -5,7 +5,7 @@ people and agents alike, and [REVIEW.md](REVIEW.md) what a review checks.
 
 ## Before you start
 
-- **Open an issue** for anything beyond a typo, with the bug or feature form, and say there that you want to work on
+- **Open an issue** for every change, a typo included, with the bug or feature form, and say there that you want to work on
   it.
 - **Write a plan first** for a non-trivial change: a new tool, a change to the bridge's security or its protocol, work
   on the server and the extension together. Use the template in [docs/plans/README.md](docs/plans/README.md) and open
