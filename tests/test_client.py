@@ -11,7 +11,7 @@ import threading
 import time
 import unittest
 
-from isaac_sim_mcp.client import IsaacSimClient
+from isaac_sim_mcp.client import BridgeError, IsaacSimClient
 
 
 class MockIsaacServer:
@@ -23,9 +23,11 @@ class MockIsaacServer:
         self.server = None
         self.requests: list[tuple[str, str, dict]] = []
         self._responses: dict[str, dict] = {}
+        self._statuses: dict[str, int] = {}
 
-    def set_response(self, path: str, response: dict):
+    def set_response(self, path: str, response: dict, status: int = 200):
         self._responses[path] = response
+        self._statuses[path] = status
 
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         try:
@@ -54,7 +56,7 @@ class MockIsaacServer:
                 response = self._responses.get(path, {"status": "success", "result": {}})
                 body_bytes = json.dumps(response).encode()
                 header_str = (
-                    f"HTTP/1.1 200 OK\r\n"
+                    f"HTTP/1.1 {self._statuses.get(path, 200)} OK\r\n"
                     f"Content-Type: application/json\r\n"
                     f"Content-Length: {len(body_bytes)}\r\n"
                     f"Connection: keep-alive\r\n\r\n"
@@ -339,6 +341,19 @@ class TestIsaacSimClient(unittest.TestCase):
         self.client.health()
         self.assertEqual([path for _, path, _ in self.mock.requests],
                          ["/bridge", "/health", "/bridge", "/health"])
+
+    def test_extension_from_before_the_handshake_is_refused(self):
+        old = MockIsaacServer()
+        old.set_response("/bridge", {"status": "error", "error": "Unknown endpoint: /bridge"}, status=404)
+        old.start()
+        client = IsaacSimClient(host="127.0.0.1", port=old.port, timeout=5.0)
+        try:
+            with self.assertRaisesRegex(BridgeError, "older than this MCP server"):
+                client.health()
+            self.assertEqual([path for _, path, _ in old.requests], ["/bridge"])
+        finally:
+            client.close()
+            old.stop()
 
     def test_reconnect_after_disconnect(self):
         self.client.health()

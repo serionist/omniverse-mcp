@@ -32,6 +32,7 @@ class IsaacSimClient:
         self.port = port
         self.timeout = timeout
         self._sock: socket.socket | None = None
+        self._received = False  # any bytes back for the request in flight
         # A token handed in stays. Otherwise it comes from the environment or the token file, and is read again
         # after a 401: Kit may start after this server, and makes a new token at every start.
         self._fixed_token = token is not None
@@ -40,9 +41,7 @@ class IsaacSimClient:
     def _connect(self):
         if self._sock is not None:
             return
-        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._sock.settimeout(10.0)
-        self._sock.connect((self.host, self.port))
+        self._sock = socket.create_connection((self.host, self.port), timeout=10.0)
         self._sock.settimeout(self.timeout)
 
     def _disconnect(self):
@@ -127,6 +126,8 @@ class IsaacSimClient:
     def _exchange(self, path: str, body: dict | None, method: str) -> tuple[int, dict]:
         raw_request = self._build(path, body, method)
         for attempt in range(2):
+            reused = self._sock is not None
+            self._received = False
             try:
                 if self._sock is None:
                     self._connect()
@@ -139,9 +140,12 @@ class IsaacSimClient:
                     self._check_handshake(status, data)
                 self._sock.sendall(raw_request)
                 return self._read_response()
-            except (ConnectionError, BrokenPipeError, OSError, socket.timeout) as e:
+            except OSError as e:
                 self._disconnect()
-                if attempt == 1:
+                # Retry only a kept-alive connection gone stale: the bridge closed it before reading the request, so
+                # nothing came back. After a timeout or a cut-off reply the request may have run; sending it again
+                # would run a script twice.
+                if attempt == 1 or not reused or self._received or isinstance(e, TimeoutError):
                     raise
                 logger.warning(f"Connection failed (attempt {attempt+1}/2), retrying: {e}")
 
@@ -157,6 +161,7 @@ class IsaacSimClient:
             chunk = self._sock.recv(4096)
             if not chunk:
                 raise ConnectionError("Connection closed by Isaac Sim extension")
+            self._received = True
             buf += chunk
 
         header_end = buf.index(b"\r\n\r\n") + 4

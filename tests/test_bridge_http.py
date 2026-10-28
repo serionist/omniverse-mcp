@@ -4,15 +4,15 @@ import asyncio
 import json
 import socket
 import threading
+import time
 
 import pytest
-from isaacsim.mcp.bridge.core.http import MAX_BODY_SIZE, MAX_HANDLERS, BridgeServer, host_name
+from isaacsim.mcp.bridge.core.http import MAX_BODY_SIZE, MAX_PENDING, BridgeServer, host_name
 from isaacsim.mcp.bridge.core.token import write_token
 
 from isaac_sim_mcp.client import PROTOCOL, BridgeError, IsaacSimClient
 
 TOKEN = "t0k3n"
-CURRENT = object()
 
 
 def _routes():
@@ -25,18 +25,26 @@ def _routes():
     async def handle_boom(_body):
         raise RuntimeError("boom")
 
-    return {"/health": handle_health, "/echo": handle_echo, "/boom": handle_boom}
+    async def handle_slow(_body):
+        calls["slow"] += 1
+        await asyncio.sleep(1.0)
+        return {"status": "success", "result": {}}
+
+    return {"/health": handle_health, "/echo": handle_echo, "/boom": handle_boom, "/slow": handle_slow}
+
+
+calls = {"slow": 0}
 
 
 class RunningBridge:
     """A BridgeServer on its own event loop in a thread, the way Kit runs it on Kit's loop.
 
-    `info` replaces what GET /bridge answers: None plays an extension from before the handshake.
+    `info`, when given, replaces what GET /bridge answers.
     """
 
-    def __init__(self, info=CURRENT):
+    def __init__(self, info=None):
         self.server = BridgeServer(_routes(), token=TOKEN, port=0)
-        if info is not CURRENT:
+        if info is not None:
             self.server.info = lambda: info
         self.loop = asyncio.new_event_loop()
         self.thread = threading.Thread(target=self.loop.run_forever, daemon=True)
@@ -211,20 +219,67 @@ def test_the_handshake_needs_the_token_too(bridge):
     assert status == 401
 
 
-def test_an_idle_connection_is_closed(bridge):
-    bridge.server.idle_timeout = 0.2
+def test_a_new_connection_without_a_request_is_closed(bridge):
+    bridge.server.header_timeout = 0.2
     with socket.create_connection(("127.0.0.1", bridge.port), timeout=5) as sock:
         assert sock.recv(1) == b""
 
 
+def test_blank_lines_do_not_keep_a_connection_without_the_token_open(bridge):
+    bridge.server.header_timeout = 1.0
+    with socket.create_connection(("127.0.0.1", bridge.port), timeout=5) as sock:
+        started = time.monotonic()
+        for _ in range(8):
+            sock.sendall(b"\r\n")
+            time.sleep(0.1)
+        # Closed at the deadline set when it connected, not a full timeout after the last blank line (1.7 s).
+        assert sock.recv(1) == b""
+        assert time.monotonic() - started < 1.5
+
+
+def test_an_authenticated_connection_is_closed_when_idle(bridge):
+    bridge.server.idle_timeout = 0.2
+    with socket.create_connection(("127.0.0.1", bridge.port), timeout=5) as sock:
+        sock.sendall(_request())
+        assert _read(sock)[0] == 200
+        assert sock.recv(1) == b""
+
+
 def test_connections_without_the_token_cannot_crowd_out_the_client(bridge):
-    idle = [socket.create_connection(("127.0.0.1", bridge.port), timeout=5) for _ in range(MAX_HANDLERS + 5)]
+    idle = [socket.create_connection(("127.0.0.1", bridge.port), timeout=5) for _ in range(MAX_PENDING + 5)]
     try:
         (status, _, _), = _send(bridge.port, _request())
         assert status == 200
+        # The oldest waiting connection was pushed out to make room.
+        assert idle[0].recv(1) == b""
     finally:
         for sock in idle:
             sock.close()
+
+
+def test_close_drops_open_connections(bridge):
+    with socket.create_connection(("127.0.0.1", bridge.port), timeout=5) as sock:
+        sock.sendall(_request())
+        assert _read(sock)[0] == 200
+        bridge.loop.call_soon_threadsafe(bridge.server.close)
+        assert sock.recv(1) == b""
+
+
+def test_close_while_starting_leaves_nothing_listening():
+    server = BridgeServer({}, token=TOKEN, port=0)
+
+    async def close_during_start():
+        starting = asyncio.ensure_future(server.start())
+        server.close()
+        return await starting
+
+    assert asyncio.run(close_during_start()) is False
+    assert server._server is None
+
+
+def test_an_empty_token_is_refused():
+    with pytest.raises(ValueError):
+        BridgeServer({}, token="")
 
 
 def test_oversized_body_is_refused_unread(bridge):
@@ -312,12 +367,9 @@ def test_client_keeps_a_token_it_was_given(bridge):
         client.close()
 
 
-@pytest.mark.parametrize(
-    ("info", "message"),
-    [(None, "older than this MCP server"), ({"protocol": PROTOCOL + 1, "extension_version": "9.0.0"}, "9.0.0")],
-)
-def test_client_refuses_an_extension_that_speaks_another_protocol(state, info, message):
-    other = RunningBridge(info)
+def test_client_refuses_an_extension_that_speaks_another_protocol(state):
+    message = "9.0.0"
+    other = RunningBridge({"protocol": PROTOCOL + 1, "extension_version": "9.0.0"})
     try:
         write_token(other.port, TOKEN)
         client = IsaacSimClient(port=other.port, timeout=5)
@@ -331,3 +383,29 @@ def test_client_refuses_an_extension_that_speaks_another_protocol(state, info, m
             client.close()
     finally:
         other.stop()
+
+
+def test_client_does_not_resend_a_request_that_timed_out(bridge):
+    write_token(bridge.port, TOKEN)
+    calls["slow"] = 0
+    client = IsaacSimClient(port=bridge.port, timeout=0.3)
+    try:
+        client.health()
+        with pytest.raises(TimeoutError):
+            client.request("/slow", {})
+        time.sleep(1.5)
+        assert calls["slow"] == 1
+    finally:
+        client.close()
+
+
+def test_client_resends_on_a_connection_the_bridge_closed_while_idle(bridge):
+    write_token(bridge.port, TOKEN)
+    bridge.server.idle_timeout = 0.2
+    client = IsaacSimClient(port=bridge.port, timeout=5)
+    try:
+        client.health()
+        time.sleep(0.6)
+        assert client.request("/echo", {"x": 3})["result"] == {"x": 3}
+    finally:
+        client.close()

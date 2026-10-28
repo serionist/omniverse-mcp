@@ -84,7 +84,8 @@ class Extension(omni.ext.IExt):
         settings = carb.settings.get_settings()
         self._host = settings.get("/exts/isaacsim.mcp.bridge/host") or "127.0.0.1"
         self._port = settings.get("/exts/isaacsim.mcp.bridge/port") or 8211
-        self._token = settings.get("/exts/isaacsim.mcp.bridge/token") or new_token()
+        configured = settings.get("/exts/isaacsim.mcp.bridge/token")
+        self._token = (str(configured).strip() if configured is not None else "") or new_token()
 
         routes = {
             "/health": handle_health,
@@ -144,7 +145,7 @@ class Extension(omni.ext.IExt):
         self._log_buffer = log_buffer
         self._log_buffer.start()
 
-        self._token_written = False
+        self._token_port = None
         self._server = BridgeServer(routes, self._token, self._host, self._port, log=_CarbLog())
         _get_event_loop().create_task(self._start_server())
         _get_event_loop().create_task(self._init_sensors())
@@ -173,8 +174,8 @@ class Extension(omni.ext.IExt):
             self._server.close()
             carb.log_info("[MCP Bridge] Server shut down")
             self._server = None
-        if self._token_written:
-            remove_token(self._port, self._token)
+        if self._token_port is not None:
+            remove_token(self._token_port, self._token)
 
     async def _init_sensors(self):
         """Pre-initialize syntheticdata sensors so capture_viewport works on first call."""
@@ -204,15 +205,18 @@ class Extension(omni.ext.IExt):
             carb.log_warn(f"[MCP Bridge] Sensor init failed (non-fatal): {e}")
 
     async def _start_server(self):
+        server = self._server
         try:
-            await self._server.start()
+            if not await server.start():
+                return  # the extension was shut down while the port was being bound
         except Exception as e:
             carb.log_error(f"[MCP Bridge] Failed to start server: {e}")
             return
-        # Only once the port is ours: an instance that fails to bind must not replace the running one's token.
+        # Only once the port is ours, and under the port actually bound: an instance that fails to bind must not
+        # replace the running one's token.
         try:
-            token_file = write_token(self._port, self._token)
-            self._token_written = True
+            token_file = write_token(server.port, self._token)
+            self._token_port = server.port
             carb.log_info(f"[MCP Bridge] Token written to {token_file}")
         except OSError as e:
             carb.log_error(
