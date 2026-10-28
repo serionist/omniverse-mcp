@@ -72,3 +72,15 @@ has a test that runs without Kit, except where the row says otherwise.
 | R10 | minor | The handler refused a requested size of 20 px or less while the capture and the fit use the viewport's resolution; identical "set" / "set_camera_light" output branches in the tool | Fixed (`d72907b`): the pre-check goes and `fit_distance`'s error on the resolved size is the handler's error (zoom_offset <= -1 still refused), checked with Kit mocked; the branches are one. Test for the output |
 
 Still to run against Kit: R4's handler on a rig, and R5 on an instanced asset, with the sim suite.
+
+### Live run of round 1's fixes
+
+On Isaac Sim 6.2.0, headless, at `b16328e`.
+
+| Check | Result |
+|---|---|
+| `test_integration.py` with `OMNIVERSE_MCP_SIM=1` | 27/27 |
+| `set` to camera, stage, Default, camera, then `get` | each took |
+| R4: `set_camera_light(False)` under the Default rig | rig kept, mode `Default` |
+| R4: `set_camera_light(False)` from camera, then `True` | `stage`, then `camera` |
+| R5: `inspect_prim("/World/Inst/A", isolate=True)` on an instanceable prim | success, with the warning "/World/Inst is an instance that holds the target; children of an instance can't be hidden, so all of it stays visible" |
