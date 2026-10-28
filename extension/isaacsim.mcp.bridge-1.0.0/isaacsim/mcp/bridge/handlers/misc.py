@@ -15,6 +15,7 @@ import carb
 import omni.kit.app
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics
 
+from ..core.protocol import PROTOCOL, extension_version
 from ._utils import _get_stage, _next_update
 
 
@@ -34,6 +35,8 @@ async def handle_health(_body: dict) -> dict:
             "up_axis": UsdGeom.GetStageUpAxis(stage),
             "meters_per_unit": UsdGeom.GetStageMetersPerUnit(stage),
             "recording_active": _recording_state["active"],
+            "protocol": PROTOCOL,
+            "extension_version": extension_version(),
         },
     }
 

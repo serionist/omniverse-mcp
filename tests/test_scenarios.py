@@ -14,15 +14,17 @@ from isaac_sim_mcp.client import IsaacSimClient
 
 
 def _skip_if_no_sim():
-    """Skip if Isaac Sim is not running."""
+    """Skip if Isaac Sim is not running; fail instead when OMNIVERSE_MCP_SIM=1 says it should be."""
     try:
         c = IsaacSimClient(timeout=2.0)
         r = c.health()
         c.close()
         if r["status"] != "success":
-            raise ConnectionError()
-    except Exception:
-        raise unittest.SkipTest("Isaac Sim not running on localhost:8211")
+            raise ConnectionError(f"Health check failed: {r}")
+    except Exception as e:
+        if os.environ.get("OMNIVERSE_MCP_SIM") == "1":
+            raise
+        raise unittest.SkipTest(f"Isaac Sim not running on localhost:8211 ({e})")
 
 
 class TestScenarios(unittest.TestCase):

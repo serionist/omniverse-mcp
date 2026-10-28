@@ -9,17 +9,31 @@ import logging
 import socket
 from typing import Any
 
+from .bridge_token import ENV_TOKEN, read_token, token_path
+
 logger = logging.getLogger(__name__)
+
+# The bridge protocol this server speaks. The extension reports its own in /health; its copy is
+# isaacsim.mcp.bridge.core.protocol.PROTOCOL, and tests/test_bridge_token.py keeps them equal.
+PROTOCOL = 1
+
+
+class BridgeError(RuntimeError):
+    """The bridge refused the request, or speaks another protocol. The message says what to do."""
 
 
 class IsaacSimClient:
     """Persistent HTTP client that talks to the Isaac Sim extension."""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 8211, timeout: float = 120.0):
+    def __init__(self, host: str = "127.0.0.1", port: int = 8211, timeout: float = 120.0,
+                 token: str | None = None):
         self.host = host
         self.port = port
         self.timeout = timeout
         self._sock: socket.socket | None = None
+        # Kit may start after this server; a missing token is looked for again on the first 401.
+        self._token = token or read_token(port)
+        self._bridge_checked = False
 
     def _connect(self):
         if self._sock is not None:
@@ -39,13 +53,63 @@ class IsaacSimClient:
 
     def request(self, path: str, body: dict | None = None, method: str = "POST") -> dict:
         """Send an HTTP request and return the parsed JSON response."""
+        if path != "/health" and not self._bridge_checked:
+            self.health()
+        status, data = self._exchange(path, body, method)
+        if status == 401 and self._reload_token():
+            status, data = self._exchange(path, body, method)
+        if status in (401, 403):
+            raise BridgeError(self._refusal(status, data))
+        if path == "/health" and status == 200:
+            self._check_protocol(data)
+        return data
+
+    def _reload_token(self) -> bool:
+        """Read the token again (Kit restarts make a new one); True when it changed."""
+        fresh = read_token(self.port)
+        if fresh and fresh != self._token:
+            self._token = fresh
+            return True
+        return False
+
+    def _refusal(self, status: int, data: dict) -> str:
+        message = data.get("error", f"HTTP {status}")
+        if status != 401:
+            return message
+        path = token_path(self.port)
+        where = f"{ENV_TOKEN}, then {path}"
+        if not path.exists():
+            return (f"{message} No token found ({where}): is the MCP Bridge extension enabled in a running "
+                    "Kit app on this machine?")
+        return f"{message} The token in {path} was refused; restart the MCP server if Kit was restarted."
+
+    def _check_protocol(self, health: dict) -> None:
+        result = health.get("result") or {}
+        theirs = result.get("protocol")
+        version = result.get("extension_version", "unknown")
+        if theirs is None:
+            raise BridgeError(
+                f"The Kit extension is older than this MCP server: it reports no bridge protocol, the server "
+                f"speaks {PROTOCOL}. Update the extension (git pull in the omniverse-mcp checkout) and restart Kit."
+            )
+        if theirs != PROTOCOL:
+            raise BridgeError(
+                f"The Kit extension {version} speaks bridge protocol {theirs} and this MCP server speaks "
+                f"{PROTOCOL}. Update the older of the two and restart it."
+            )
+        self._bridge_checked = True
+
+    def _exchange(self, path: str, body: dict | None, method: str) -> tuple[int, dict]:
         body_bytes = b""
         if body is not None:
             body_bytes = json.dumps(body).encode("utf-8")
 
+        host = f"[{self.host}]" if ":" in self.host else self.host
+        auth = f"Authorization: Bearer {self._token}\r\n" if self._token else ""
         request_line = f"{method} {path} HTTP/1.1\r\n"
         headers = (
-            f"Host: {self.host}:{self.port}\r\n"
+            f"Host: {host}:{self.port}\r\n"
+            f"{auth}"
             f"Content-Type: application/json\r\n"
             f"Content-Length: {len(body_bytes)}\r\n"
             f"Connection: keep-alive\r\n"
@@ -60,6 +124,8 @@ class IsaacSimClient:
                 return self._read_response()
             except (ConnectionError, BrokenPipeError, OSError, socket.timeout) as e:
                 self._disconnect()
+                # Kit may have restarted with another extension version.
+                self._bridge_checked = False
                 if attempt == 1:
                     raise
                 logger.warning(f"Connection failed (attempt {attempt+1}/2), retrying: {e}")
@@ -69,8 +135,8 @@ class IsaacSimClient:
             "Ensure Isaac Sim is running with the isaacsim.mcp.bridge extension enabled."
         )
 
-    def _read_response(self) -> dict:
-        """Read an HTTP response from the socket."""
+    def _read_response(self) -> tuple[int, dict]:
+        """Read an HTTP response from the socket: its status code and JSON body."""
         buf = b""
         while b"\r\n\r\n" not in buf:
             chunk = self._sock.recv(4096)
@@ -79,13 +145,24 @@ class IsaacSimClient:
             buf += chunk
 
         header_end = buf.index(b"\r\n\r\n") + 4
-        header_section = buf[:header_end].decode("utf-8")
+        header_lines = buf[:header_end].decode("utf-8").split("\r\n")
         body_start = buf[header_end:]
 
+        try:
+            status = int(header_lines[0].split(" ")[1])
+        except (IndexError, ValueError):
+            self._disconnect()
+            raise ConnectionError(f"Malformed status line from Isaac Sim: {header_lines[0]!r}")
+
         content_length = 0
-        for line in header_section.split("\r\n"):
-            if line.lower().startswith("content-length:"):
-                content_length = int(line.split(":", 1)[1].strip())
+        close = False
+        for line in header_lines[1:]:
+            name, _, value = line.partition(":")
+            name = name.strip().lower()
+            if name == "content-length":
+                content_length = int(value.strip())
+            elif name == "connection":
+                close = value.strip().lower() == "close"
 
         if content_length <= 0:
             self._disconnect()
@@ -101,9 +178,11 @@ class IsaacSimClient:
             chunks.append(chunk)
             bytes_read += len(chunk)
         body_bytes = b"".join(chunks)
+        if close:
+            self._disconnect()
 
         try:
-            return json.loads(body_bytes[:content_length].decode("utf-8"))
+            return status, json.loads(body_bytes[:content_length].decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
             self._disconnect()
             raise ConnectionError(f"Malformed response from Isaac Sim: {e}")

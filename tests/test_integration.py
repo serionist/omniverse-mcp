@@ -9,6 +9,7 @@ Usage:
 """
 
 import json
+import os
 import sys
 import unittest
 
@@ -27,6 +28,8 @@ class TestIsaacSimIntegration(unittest.TestCase):
                 raise ConnectionError(f"Health check failed: {result}")
             print(f"\nConnected to Isaac Sim: {json.dumps(result['result'], indent=2)}")
         except Exception as e:
+            if os.environ.get("OMNIVERSE_MCP_SIM") == "1":
+                raise
             raise unittest.SkipTest(
                 f"Cannot connect to Isaac Sim at 127.0.0.1:8211. "
                 f"Start Isaac Sim with isaacsim.mcp.bridge extension. Error: {e}"

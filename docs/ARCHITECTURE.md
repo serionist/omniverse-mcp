@@ -65,6 +65,8 @@ This keeps the MCP context window clean -- the AI reads files on demand rather t
 `client.py` implements a custom HTTP/1.1 client (no external `requests` dependency) with:
 
 - Persistent keep-alive connections
+- The bridge token on every request (see [The bridge token](#the-bridge-token)), read again after a 401
+- A bridge protocol check on the first request after each (re)connect
 - Automatic reconnection on failure (1 retry, 2 total attempts)
 - Configurable timeout (default 120s)
 - Proper Content-Length framing with chunked body reading (avoids O(n²) buffer concatenation)
@@ -79,7 +81,8 @@ The extension is an Omniverse Kit extension that runs inside the application's p
 
 | File | Purpose |
 |------|---------|
-| `extension.py` | HTTP server, request routing, lifecycle management |
+| `extension.py` | Kit lifecycle: makes the token, starts the core's HTTP server with the routes |
+| `core/` | Kit-free core, unit-tested without Kit: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (what `/health` reports) |
 | `handlers/` | Handler package — split into focused modules (camera, scene, simulation, recording, robot, misc, usd_advanced, logging) with shared utilities in `_utils.py` and `_mcp_bridge.py` |
 | `formatter.py` | Prim-block text format utilities |
 | `config/extension.toml` | Extension metadata and default settings |
@@ -87,6 +90,36 @@ The extension is an Omniverse Kit extension that runs inside the application's p
 ### HTTP Server
 
 The extension runs an asyncio HTTP server on the application's event loop (same pattern as the built-in Jupyter extension). This is important -- it shares the event loop with Kit, so handlers can use `await omni.kit.app.get_app().next_update_async()` to synchronize with the main thread.
+
+### The bridge token
+
+`/execute` runs any Python inside the app, so the bridge answers only a client that holds its token.
+
+| Step | What happens |
+|---|---|
+| Kit starts the extension | A new random token (or the `token` setting, if set) is written to the token file, readable by this user only |
+| The MCP server sends a request | `Authorization: Bearer <token>`, from `OMNIVERSE_MCP_TOKEN` or else the token file |
+| Kit restarts | A new token; the server gets a 401, reads the file again and retries once |
+| The extension stops | The token file is removed |
+
+The token file is `bridge-<port>.token` in:
+
+| OS | Folder |
+|---|---|
+| Windows | `%LOCALAPPDATA%\omniverse-mcp\` |
+| Linux | `$XDG_STATE_HOME/omniverse-mcp/`, else `~/.local/state/omniverse-mcp/` |
+| macOS | `~/Library/Application Support/omniverse-mcp/` |
+
+`OMNIVERSE_MCP_STATE_DIR` overrides the folder on both sides.
+
+A request is refused, and its connection closed, before its body is read when:
+
+- it has no token or a wrong one (401);
+- it carries an `Origin` header (403). Browsers send one on every POST, so a web page cannot reach the bridge;
+- the bridge is bound to loopback and the `Host` header names something else (403), which stops DNS rebinding.
+
+`/health` reports `protocol` and `extension_version`. The server refuses to work with an extension whose `protocol`
+differs from its own, and says which side to update.
 
 ### Request routing
 

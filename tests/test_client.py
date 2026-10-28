@@ -91,7 +91,7 @@ class TestIsaacSimClient(unittest.TestCase):
     def setUpClass(cls):
         cls.mock = MockIsaacServer()
         # Register mock responses for all endpoints
-        cls.mock.set_response("/health", {"status": "success", "result": {"stage_path": "/test.usd", "up_axis": "Y", "meters_per_unit": 1.0, "recording_active": False}})
+        cls.mock.set_response("/health", {"status": "success", "result": {"stage_path": "/test.usd", "up_axis": "Y", "meters_per_unit": 1.0, "recording_active": False, "protocol": 1, "extension_version": "1.0.0"}})
         cls.mock.set_response("/execute", {"status": "success", "result": {"stdout": "hello\n", "stderr": "", "return_value": 42}})
         cls.mock.set_response("/scene/tree", {"status": "success", "result": {"path": "/", "type": "Xform", "children": [{"path": "/World", "type": "Xform", "world_position": [0, 0, 0]}]}})
         cls.mock.set_response("/scene/dump", {"status": "success", "result": {"file_path": "/tmp/scene_dump.json", "file_size_bytes": 1234, "prim_count": 10, "root": "/"}})
