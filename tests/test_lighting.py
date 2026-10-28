@@ -1,7 +1,7 @@
 """viewport_light's decisions: the mode in effect, and what the legacy camera-light switch does."""
 
 import pytest
-from isaacsim.mcp.bridge.core.lighting import camera_light_switch, current_mode
+from ovmcp.core.lighting import camera_light_switch, current_mode
 
 
 @pytest.mark.parametrize(

@@ -44,14 +44,42 @@ git clone https://github.com/serionist/omniverse-mcp.git
 cd omniverse-mcp
 ```
 
-Then install using one of these options:
+It needs Python 3.11 or newer. Then install it with one of these:
 
-<details>
-<summary><b>Conda</b> (recommended)</summary>
+<details open>
+<summary><b>uv</b> (recommended)</summary>
 
 ```bash
-conda create -n omniverse-mcp python=3.11 -y
-conda activate omniverse-mcp
+uv sync
+```
+
+**`.mcp.json`** for your project (step 3):
+```json
+{
+  "mcpServers": {
+    "omniverse": {
+      "command": "uv",
+      "args": ["run", "--no-sync", "--project", "<REPO_PATH>", "omniverse-mcp"]
+    },
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    }
+  }
+}
+```
+Replace `<REPO_PATH>` with the full path of the clone. `--no-sync` starts the server from the environment `uv sync`
+built, so a client never waits on a download at start, and the server still writes its files under your project's
+`mcp_output/`.
+
+</details>
+
+<details>
+<summary><b>pip</b>, in a venv or a conda environment</summary>
+
+```bash
+python -m venv .venv                # or: conda create -n omniverse-mcp python=3.12 -y && conda activate omniverse-mcp
+source .venv/bin/activate           # Windows: .venv\Scripts\activate
 pip install .
 ```
 
@@ -60,8 +88,7 @@ pip install .
 {
   "mcpServers": {
     "omniverse": {
-      "command": "<CONDA_PATH>/envs/omniverse-mcp/python",
-      "args": ["-m", "isaac_sim_mcp"],
+      "command": "<ENV_PATH>/bin/omniverse-mcp",
       "env": { "PYTHONPATH": "" }
     },
     "context7": {
@@ -71,65 +98,12 @@ pip install .
   }
 }
 ```
-Replace `<CONDA_PATH>` with your conda path. Find it by running `conda env list` -- the path shown next to `omniverse-mcp` is `<CONDA_PATH>/envs/omniverse-mcp`.
+Replace `<ENV_PATH>` with the environment's folder: run `python -c "import sys; print(sys.prefix)"` with it active. On
+Windows the command is `<ENV_PATH>\Scripts\omniverse-mcp.exe`.
 
 </details>
 
-<details>
-<summary><b>venv</b></summary>
-
-```bash
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install .
-```
-
-**`.mcp.json`** for your project (step 3):
-```json
-{
-  "mcpServers": {
-    "omniverse": {
-      "command": "<VENV_PATH>/bin/python",
-      "args": ["-m", "isaac_sim_mcp"],
-      "env": {}
-    },
-    "context7": {
-      "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp"]
-    }
-  }
-}
-```
-Replace `<VENV_PATH>` with the full path to your venv. Find it by running `python -c "import sys; print(sys.prefix)"` with the venv activated. On Windows, use `<VENV_PATH>/Scripts/python.exe`.
-
-</details>
-
-<details>
-<summary><b>Global</b></summary>
-
-```bash
-pip install .
-```
-
-**`.mcp.json`** for your project (step 3):
-```json
-{
-  "mcpServers": {
-    "omniverse": {
-      "command": "omniverse-mcp",
-      "env": {}
-    },
-    "context7": {
-      "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp"]
-    }
-  }
-}
-```
-
-</details>
-
-> **Updating:** `git pull && pip install .` (or `pip install -e .` for development -- edits take effect without reinstalling)
+> **Updating:** `git pull && uv sync`, or `git pull && pip install .` with pip. Then restart your MCP client.
 
 ### 2. Add the extension to your Omniverse app
 
@@ -137,17 +111,21 @@ You only need to do this once -- after that the extension autoloads every time.
 
 1. Open Isaac Sim (or any Kit app)
 2. Go to **Window > Extensions**, then click the **hamburger menu** (☰) in the top-right and choose **Settings**
-3. Under **Extension Search Paths**, click the green **+** button and paste the full path to the `extension/` folder in the cloned repo
+3. Under **Extension Search Paths**, click the green **+** button and paste the full path to the `extension/` folder in the cloned repo (it holds `ovmcp.bridge`)
    - Example: `/home/you/omniverse-mcp/extension` or `C:\Users\you\omniverse-mcp\extension`
    - The **+** button adds a blank row -- click the new row to type/paste the path
 4. **Close and restart** the app using **File > Exit** (don't just close the terminal -- settings won't save)
-5. Re-open the Extension Manager, search for **"mcp"**, click the **THIRD PARTY** tab, and expand the **User** group to find **Omniverse MCP Bridge**
+5. Re-open the Extension Manager, search for **"mcp"**, click the **THIRD PARTY** tab, and expand the **User** group to find **Omniverse MCP Bridge** (`ovmcp.bridge`)
 6. Toggle it **ON** and check **Autoload**
 
 You should see in the console:
 ```
-[ext: isaacsim.mcp.bridge-1.0.0] startup
+[ext: ovmcp.bridge-0.1.0] startup
 ```
+
+> **Used the extension before?** It was `isaacsim.mcp.bridge` before the rename (#8). Turn it off, remove its search path if
+> it pointed inside the old `extension/isaacsim.mcp.bridge-1.0.0` folder, then follow the steps above. See the
+> [changelog](CHANGELOG.md).
 
 > **Updating the extension:** `git pull` in the repo. Changes take effect on next app restart (use **File > Exit**).
 
@@ -189,9 +167,9 @@ AI models are not trained on Omniverse/Isaac Sim APIs and will hallucinate funct
 ### MCP Server Flags
 
 ```
---isaac-host    Omniverse extension host (default: 127.0.0.1)
---isaac-port    Omniverse extension port (default: 8211)
---output-dir    Directory for file outputs (default: ./mcp_output/)
+--host          Kit extension host (default: 127.0.0.1, or OMNIVERSE_MCP_HOST)
+--port          Kit extension port (default: 8211, or OMNIVERSE_MCP_PORT)
+--output-dir    Directory for file outputs (default: ./mcp_output/, or OMNIVERSE_MCP_OUTPUT_DIR)
 ```
 
 ### Extension Settings
@@ -199,9 +177,9 @@ AI models are not trained on Omniverse/Isaac Sim APIs and will hallucinate funct
 In `extension.toml`:
 ```toml
 [settings]
-exts."isaacsim.mcp.bridge".host = "127.0.0.1"
-exts."isaacsim.mcp.bridge".port = 8211
-exts."isaacsim.mcp.bridge".token = ""
+exts."ovmcp.bridge".host = "127.0.0.1"
+exts."ovmcp.bridge".port = 8211
+exts."ovmcp.bridge".token = ""
 ```
 
 ### The bridge token
@@ -220,9 +198,9 @@ For a remote setup, set the extension's `token` to a long random value and give 
 
 **"The Kit extension is older than this MCP server"** -- `git pull` updates both; restart Kit so it loads the new extension.
 
-**"Cannot connect to Isaac Sim"** -- Is the app running with MCP Bridge enabled? Check console for `[ext: isaacsim.mcp.bridge-1.0.0] startup`. Make sure port 8211 is free.
+**"Cannot connect to Isaac Sim"** -- Is the app running with MCP Bridge enabled? Check console for `[ext: ovmcp.bridge-0.1.0] startup`. Make sure port 8211 is free.
 
-**MCP server fails to start** -- If using conda, use the direct `python.exe` path (not `conda run`). Set `"PYTHONPATH": ""` in env if you get import errors.
+**MCP server fails to start** -- If using conda, use the environment's `omniverse-mcp` executable (not `conda run`). Set `"PYTHONPATH": ""` in env if you get import errors.
 
 **Viewport capture returns black** -- The response includes a WARNING with the lighting mode. Use `viewport_light("get")` to see the mode and whether the scene has lights, then `viewport_light(action="set", mode="Default")` for a light rig, or `mode="camera"` for a light that follows the camera, and recapture. Kit 105.1+ has no default stage light, so scenes without explicitly added lights will render black.
 

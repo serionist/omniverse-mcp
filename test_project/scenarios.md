@@ -1,4 +1,4 @@
-# Isaac Sim MCP Test Scenarios
+# Omniverse MCP Test Scenarios
 
 Run each phase in order. Record results in `results/test_results.md` using the format from `CLAUDE.md`.
 
@@ -190,7 +190,7 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 
 ### 7.2 Validate state.txt Format
 - Read the `state.txt` file
-- Verify header: `# Isaac Sim MCP Recording State`
+- Verify header: `# Omniverse MCP Recording State`
 - Verify frame markers: `=== FRAME t=X.XXX step=N ===`
 - Verify prim blocks: `[/World/RedCube]` with `type = Cube`
 - Verify position data: `pos = X.XXXX, Y.XXXX, Z.XXXX`
@@ -209,7 +209,7 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 ### 8.1 Full Scene Dump
 - `dump_scene(root="/World", include_properties=True)`
 - Read the file — verify prim-block format:
-  - Header: `# Isaac Sim MCP Scene Dump`
+  - Header: `# Omniverse MCP Scene Dump`
   - Scene marker: `=== SCENE root=/World prims=N ===`
   - Prim blocks with `[/path]`, `type = ...`, `pos = ...`
 

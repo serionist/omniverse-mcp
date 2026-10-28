@@ -17,6 +17,7 @@ env/
 mcp_output/
 
 # Test results (generated during testing)
+.pytest_cache/
 test_project/results/
 
 # IDE

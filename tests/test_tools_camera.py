@@ -2,7 +2,7 @@
 
 import pytest
 
-from isaac_sim_mcp.tools import camera
+from omniverse_mcp.tools import camera
 
 
 class _Tools:

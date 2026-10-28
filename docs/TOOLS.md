@@ -755,5 +755,5 @@ Two MCP resources are available for clients that support resource subscriptions:
 
 | URI | Description |
 |-----|-------------|
-| `isaac://scene/tree` | Current scene hierarchy (auto-updated) |
-| `isaac://sim/state` | Current simulation state |
+| `omniverse://scene/tree` | Current scene hierarchy (auto-updated) |
+| `omniverse://sim/state` | Current simulation state |

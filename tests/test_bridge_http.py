@@ -7,10 +7,10 @@ import threading
 import time
 
 import pytest
-from isaacsim.mcp.bridge.core.http import MAX_BODY_SIZE, MAX_PENDING, BridgeServer, host_name
-from isaacsim.mcp.bridge.core.token import write_token
+from ovmcp.core.http import MAX_BODY_SIZE, MAX_PENDING, BridgeServer, host_name
+from ovmcp.core.token import write_token
 
-from isaac_sim_mcp.client import PROTOCOL, BridgeError, IsaacSimClient
+from omniverse_mcp.client import PROTOCOL, BridgeError, BridgeClient
 
 TOKEN = "t0k3n"
 
@@ -294,7 +294,7 @@ def test_oversized_body_is_refused_unread(bridge):
 
 def test_client_reads_the_token_file(bridge):
     write_token(bridge.port, TOKEN)
-    client = IsaacSimClient(port=bridge.port, timeout=5)
+    client = BridgeClient(port=bridge.port, timeout=5)
     try:
         assert client.request("/echo", {"x": 1})["result"] == {"x": 1}
     finally:
@@ -303,7 +303,7 @@ def test_client_reads_the_token_file(bridge):
 
 def test_client_finds_the_new_token_after_kit_restarts(bridge):
     write_token(bridge.port, TOKEN)
-    client = IsaacSimClient(port=bridge.port, timeout=5)
+    client = BridgeClient(port=bridge.port, timeout=5)
     try:
         client.health()
         bridge.server.token = "after-restart"
@@ -315,7 +315,7 @@ def test_client_finds_the_new_token_after_kit_restarts(bridge):
 
 def test_client_finds_the_new_token_before_sending_a_large_body(bridge):
     write_token(bridge.port, TOKEN)
-    client = IsaacSimClient(port=bridge.port, timeout=5)
+    client = BridgeClient(port=bridge.port, timeout=5)
     try:
         client.health()
         client._disconnect()  # Kit restarted: the old connection is gone, and the token with it
@@ -328,7 +328,7 @@ def test_client_finds_the_new_token_before_sending_a_large_body(bridge):
 
 
 def test_client_without_a_token_says_where_it_looked(bridge, state):
-    client = IsaacSimClient(port=bridge.port, timeout=5)
+    client = BridgeClient(port=bridge.port, timeout=5)
     try:
         with pytest.raises(BridgeError, match="No token found") as raised:
             client.health()
@@ -339,7 +339,7 @@ def test_client_without_a_token_says_where_it_looked(bridge, state):
 
 def test_client_with_a_stale_token_file_is_refused(bridge):
     write_token(bridge.port, "stale")
-    client = IsaacSimClient(port=bridge.port, timeout=5)
+    client = BridgeClient(port=bridge.port, timeout=5)
     try:
         with pytest.raises(BridgeError, match="is not the running extension's"):
             client.health()
@@ -349,7 +349,7 @@ def test_client_with_a_stale_token_file_is_refused(bridge):
 
 def test_client_names_the_environment_when_its_token_is_refused(bridge, monkeypatch):
     monkeypatch.setenv("OMNIVERSE_MCP_TOKEN", "wrong")
-    client = IsaacSimClient(port=bridge.port, timeout=5)
+    client = BridgeClient(port=bridge.port, timeout=5)
     try:
         with pytest.raises(BridgeError, match="OMNIVERSE_MCP_TOKEN was refused"):
             client.health()
@@ -359,7 +359,7 @@ def test_client_names_the_environment_when_its_token_is_refused(bridge, monkeypa
 
 def test_client_keeps_a_token_it_was_given(bridge):
     write_token(bridge.port, TOKEN)
-    client = IsaacSimClient(port=bridge.port, timeout=5, token="given")
+    client = BridgeClient(port=bridge.port, timeout=5, token="given")
     try:
         with pytest.raises(BridgeError, match="this client was given"):
             client.health()
@@ -372,7 +372,7 @@ def test_client_refuses_an_extension_that_speaks_another_protocol(state):
     other = RunningBridge({"protocol": PROTOCOL + 1, "extension_version": "9.0.0"})
     try:
         write_token(other.port, TOKEN)
-        client = IsaacSimClient(port=other.port, timeout=5)
+        client = BridgeClient(port=other.port, timeout=5)
         try:
             with pytest.raises(BridgeError, match=message):
                 client.request("/echo", {})
@@ -388,7 +388,7 @@ def test_client_refuses_an_extension_that_speaks_another_protocol(state):
 def test_client_does_not_resend_a_request_that_timed_out(bridge):
     write_token(bridge.port, TOKEN)
     calls["slow"] = 0
-    client = IsaacSimClient(port=bridge.port, timeout=0.3)
+    client = BridgeClient(port=bridge.port, timeout=0.3)
     try:
         client.health()
         with pytest.raises(TimeoutError):
@@ -402,7 +402,7 @@ def test_client_does_not_resend_a_request_that_timed_out(bridge):
 def test_client_resends_on_a_connection_the_bridge_closed_while_idle(bridge):
     write_token(bridge.port, TOKEN)
     bridge.server.idle_timeout = 0.2
-    client = IsaacSimClient(port=bridge.port, timeout=5)
+    client = BridgeClient(port=bridge.port, timeout=5)
     try:
         client.health()
         time.sleep(0.6)

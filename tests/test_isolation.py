@@ -5,7 +5,7 @@ import pytest
 pxr = pytest.importorskip("pxr")
 from pxr import Sdf, Usd, UsdGeom, UsdLux  # noqa: E402
 
-from isaacsim.mcp.bridge.core.isolation import Hidden, is_light, prims_to_hide  # noqa: E402
+from ovmcp.core.isolation import Hidden, is_light, prims_to_hide  # noqa: E402
 
 
 @pytest.fixture
@@ -166,7 +166,7 @@ def test_time_sampled_session_visibility_is_left_alone_with_a_warning(stage):
 
 
 def test_many_instances_of_one_lit_prototype_walk_it_once(instanced, monkeypatch):
-    from isaacsim.mcp.bridge.core import isolation
+    from ovmcp.core import isolation
 
     for i in range(30):
         lamp = UsdGeom.Xform.Define(instanced, f"/World/Lamps/Lamp{i:02d}").GetPrim()

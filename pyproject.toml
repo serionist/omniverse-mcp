@@ -1,14 +1,15 @@
 [build-system]
-requires = ["setuptools>=68.0"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
 
 [project]
 name = "omniverse-mcp"
+# Equal to extension/ovmcp.bridge/config/extension.toml's version; tests/test_bridge_token.py keeps them equal.
 version = "0.1.0"
 description = "MCP server for AI control of NVIDIA Omniverse applications (Isaac Sim 5.1+, USD Composer, and more)"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     { name = "Soma Osvay" },
 ]
@@ -28,9 +29,10 @@ classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Scientific/Engineering :: Physics",
     "Topic :: Software Development :: Libraries :: Python Modules",
@@ -46,7 +48,20 @@ Documentation = "https://github.com/serionist/omniverse-mcp/tree/main/docs"
 Issues = "https://github.com/serionist/omniverse-mcp/issues"
 
 [project.scripts]
-omniverse-mcp = "isaac_sim_mcp.server:main"
+omniverse-mcp = "omniverse_mcp.server:main"
 
-[tool.setuptools.packages.find]
-include = ["isaac_sim_mcp*"]
+[dependency-groups]
+dev = [
+    "pytest==9.2.0",
+    "usd-core==26.11",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/omniverse_mcp"]
+
+# The wheel carries the Kit extension of the same release, for `omniverse-mcp extension install` (plan D9, S8).
+[tool.hatch.build.targets.wheel.force-include]
+"extension/ovmcp.bridge" = "omniverse_mcp/_extension/ovmcp.bridge"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/", "extension/", "tests/", "docs/", "README.md", "CHANGELOG.md", "LICENSE"]
