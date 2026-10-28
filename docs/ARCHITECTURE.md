@@ -69,7 +69,8 @@ This keeps the MCP context window clean -- the AI reads files on demand rather t
 - Persistent keep-alive connections
 - The bridge token on every request (see [The bridge token](#the-bridge-token)), read again after a 401
 - A handshake, `GET /bridge`, at the start of every new connection; an extension of another protocol is refused
-  with the command that installs this server's, `uvx omniverse-mcp==X.Y.Z extension install`
+  with the command that installs this server's: `uvx omniverse-mcp==X.Y.Z extension install`, or from a checkout
+  `uv run --project <checkout> omniverse-mcp extension install`
 - Automatic reconnection on failure (1 retry, 2 total attempts)
 - Configurable timeout (default 120s)
 - Proper Content-Length framing with chunked body reading (avoids O(n²) buffer concatenation)
@@ -88,9 +89,10 @@ extension come from one release. `omniverse-mcp extension install` (`src/omniver
 `~/Library/Application Support/omniverse-mcp` on macOS, `$XDG_DATA_HOME/omniverse-mcp` or
 `~/.local/share/omniverse-mcp` on Linux), and Kit's extension search paths take that `exts` folder once.
 
-- **Whole or not at all:** the copy is made beside the installed one and swapped in by renaming, so no module a new
-  release dropped is left to load; a swap that fails, as on Windows while a Kit app holds the folder, puts the old one
-  back.
+- **Whole or not at all:** the copy is made in the data folder, outside `exts` where Kit would see half of it, and
+  swapped in by renaming, so no module a new release dropped is left to load. A swap that fails, as on Windows while a
+  Kit app holds the folder, puts the old one back; when even that fails, the old one stays in the data folder and the
+  message says where.
 - **A checkout** has no `_extension` folder in its editable install: the command copies `extension/ovmcp.bridge`, and
   Kit can as well point at the checkout's `extension/` folder.
 - **`extension path`** prints the `exts` folder, and fails while nothing is installed there.

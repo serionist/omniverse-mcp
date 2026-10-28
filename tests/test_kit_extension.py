@@ -4,6 +4,7 @@ checkout or from the wheel; an install that fails leaves the one before it in pl
 import shutil
 import sys
 import zipfile
+from importlib.metadata import version
 from pathlib import Path
 
 import gate
@@ -17,13 +18,6 @@ from .conftest import EXTENSION_ROOT, REPO_ROOT
 
 def _files(folder: Path) -> set[str]:
     return {p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file() and "__pycache__" not in p.parts}
-
-
-def _tracked() -> set[str]:
-    """The extension's files as git has them: a stray file in the working tree is not what a release ships."""
-    done = gate.git("-c", "safe.directory=*", "ls-files", "--", "extension/ovmcp.bridge", cwd=REPO_ROOT)
-    assert done.returncode == 0, done.stderr
-    return {line.removeprefix("extension/ovmcp.bridge/") for line in done.stdout.splitlines()}
 
 
 def _install(argv: list[str]) -> int:
@@ -49,44 +43,69 @@ def _old_install(root: Path) -> Path:
     return target
 
 
+def _only_the_install(data: Path) -> None:
+    """Neither the copy nor the old one is left beside the install, nor in the folder above it."""
+    assert [p.name for p in data.iterdir()] == ["exts"]
+    assert [p.name for p in (data / "exts").iterdir()] == ["ovmcp.bridge"]
+
+
 def test_a_checkout_installs_its_own_extension(data: Path, capsys: pytest.CaptureFixture[str]):
     assert kit_extension.source() == EXTENSION_ROOT
     assert _install(["install"]) == 0
     target = data / "exts" / "ovmcp.bridge"
-    assert _files(target) == _tracked()
+    assert _files(target) == _files(EXTENSION_ROOT)
     assert not (target / "ovmcp" / "__pycache__").exists()
+    _only_the_install(data)
     out = capsys.readouterr().out
     assert f"Installed ovmcp.bridge {kit_extension.extension_version(EXTENSION_ROOT)} in {target}." in out
-    assert f"--ext-folder {data / 'exts'} --enable ovmcp.bridge" in out
+    # Quoted, as a shell takes it: a profile folder may hold a space.
+    assert f"--ext-folder {kit_extension._quoted(data / 'exts')} --enable ovmcp.bridge" in out
 
 
 def test_an_install_replaces_the_one_before_whole(data: Path, capsys: pytest.CaptureFixture[str]):
     target = _old_install(data / "exts")
     assert _install(["install"]) == 0
-    assert _files(target) == _tracked()
+    assert _files(target) == _files(EXTENSION_ROOT)
     assert "in place of 0.0.1" in capsys.readouterr().out
-    # Neither the copy nor the old one is left beside it.
-    assert [p.name for p in (data / "exts").iterdir()] == ["ovmcp.bridge"]
+    _only_the_install(data)
 
 
-def test_an_install_that_fails_keeps_the_one_before(
-    data: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-):
-    target = _old_install(data / "exts")
+def _refuse(monkeypatch: pytest.MonkeyPatch, *prefixes: str) -> None:
+    """Renames of folders named with these prefixes fail, as Windows refuses while a Kit app holds the folder."""
     rename = Path.rename
 
     def held(self: Path, to: Path) -> Path:
-        # As Windows refuses when a Kit app holds the folder.
-        if self.name.startswith(".ovmcp.bridge.new-"):
+        if self.name.startswith(prefixes):
             raise PermissionError(13, "Access is denied")
         return rename(self, to)
 
     monkeypatch.setattr(Path, "rename", held)
+
+
+@pytest.mark.parametrize("held", [".ovmcp.bridge.new-", "ovmcp.bridge"], ids=["swap", "move-aside"])
+def test_an_install_that_fails_keeps_the_one_before(
+    held: str, data: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    target = _old_install(data / "exts")
+    _refuse(monkeypatch, held)
     assert _install(["install"]) == 1
     assert "quit it, and run this again" in capsys.readouterr().err
     assert kit_extension.extension_version(target) == "0.0.1"
     assert (target / "ovmcp" / "dropped.py").is_file()
-    assert [p.name for p in (data / "exts").iterdir()] == ["ovmcp.bridge"]
+    _only_the_install(data)
+
+
+def test_an_install_that_cannot_put_the_one_before_back_keeps_it_and_says_where(
+    data: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    _old_install(data / "exts")
+    _refuse(monkeypatch, ".ovmcp.bridge.new-", ".ovmcp.bridge.old-")
+    assert _install(["install"]) == 1
+    err = capsys.readouterr().err
+    (kept,) = data.glob(".ovmcp.bridge.old-*")
+    assert f"It is in {kept}" in err
+    assert kit_extension.extension_version(kept) == "0.0.1"
+    assert not (data / "exts" / "ovmcp.bridge").exists()
 
 
 def test_an_install_without_the_extension_says_so(
@@ -98,14 +117,35 @@ def test_an_install_without_the_extension_says_so(
     assert not data.exists()
 
 
+def test_an_install_into_a_folder_it_cannot_write_says_so(data: Path, capsys: pytest.CaptureFixture[str]):
+    data.parent.mkdir(exist_ok=True)
+    data.write_text("a file where the folder goes", encoding="utf-8")
+    assert _install(["install"]) == 1
+    assert f"Could not write to {data / 'exts'}" in capsys.readouterr().err
+
+
 def test_path_prints_the_folder_and_fails_until_installed(data: Path, capsys: pytest.CaptureFixture[str]):
     assert _install(["path"]) == 1
     out, err = capsys.readouterr()
     assert out.strip() == str(data / "exts")
-    assert "not installed there yet" in err
+    assert f"not installed there yet: {kit_extension.install_command()}" in err
     _old_install(data / "exts")
     assert _install(["path"]) == 0
     assert capsys.readouterr().out.strip() == str(data / "exts")
+
+
+def test_the_install_command_fits_the_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # A checkout's version need not be on PyPI: it installs its own extension.
+    assert kit_extension.install_command().startswith("uv run --project ")
+    assert kit_extension.install_command().endswith(" omniverse-mcp extension install")
+    wheel = tmp_path / "site" / "omniverse_mcp"
+    (wheel / "_extension" / "ovmcp.bridge" / "config").mkdir(parents=True)
+    (wheel / "_extension" / "ovmcp.bridge" / "config" / "extension.toml").write_text("", encoding="utf-8")
+    monkeypatch.setattr(kit_extension, "_PACKAGE", wheel)
+    release = f"uvx omniverse-mcp=={version('omniverse-mcp')} extension install"
+    assert kit_extension.install_command() == release
+    shutil.rmtree(wheel / "_extension")
+    assert kit_extension.install_command() == release
 
 
 @pytest.mark.parametrize(
@@ -131,7 +171,8 @@ def test_the_data_folder_is_where_platformdirs_puts_it(
 def test_the_wheel_installs_the_extension_it_carries(data: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     uv = shutil.which("uv")
     assert uv, "the wheel is built with uv"
-    built = gate.run([uv, "build", "--wheel", "--out-dir", str(tmp_path / "dist"), str(REPO_ROOT)])
+    # Offline: the build backend is in uv's cache from the editable install the tests run in.
+    built = gate.run([uv, "build", "--wheel", "--offline", "--out-dir", str(tmp_path / "dist"), str(REPO_ROOT)])
     assert built.returncode == 0, built.stderr
     (wheel,) = (tmp_path / "dist").glob("*.whl")
     site = tmp_path / "site"
@@ -141,5 +182,6 @@ def test_the_wheel_installs_the_extension_it_carries(data: Path, tmp_path: Path,
     monkeypatch.setattr(kit_extension, "_PACKAGE", site / "omniverse_mcp")
     carried = site / "omniverse_mcp" / "_extension" / "ovmcp.bridge"
     assert kit_extension.source() == carried
+    assert _files(carried) == _files(EXTENSION_ROOT)
     assert _install(["install"]) == 0
-    assert _files(carried) == _files(data / "exts" / "ovmcp.bridge") == _tracked()
+    assert _files(data / "exts" / "ovmcp.bridge") == _files(carried)

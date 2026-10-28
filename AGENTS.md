@@ -112,7 +112,8 @@ in its issue; in `0.x` a minor may break the tool contract, under CHANGELOG's Br
 - tool names, schemas and annotations (`tests/fixtures/mcp-tools.json`);
 - the Kit extension id `ovmcp.bridge` and its settings;
 - the wire protocol: paths, the auth header, the token file's place;
-- the output folder's layout.
+- the output folder's layout;
+- where `extension install` puts the extension: `exts` in the user's data folder, which Kit's search paths hold.
 
 ## Traps
 

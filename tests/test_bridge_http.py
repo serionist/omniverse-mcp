@@ -379,7 +379,7 @@ def test_client_keeps_a_token_it_was_given(bridge):
     ("protocol", "message"),
     [
         (PROTOCOL + 1, "9.0.0 speaks bridge protocol .* The server is older: update it"),
-        (PROTOCOL - 1, "The extension is older: install this server's, uvx omniverse-mcp==.* extension install"),
+        (PROTOCOL - 1, "The extension is older: install this server's, .*omniverse-mcp.* extension install"),
         ("1", "Unexpected handshake answer"),
     ],
 )

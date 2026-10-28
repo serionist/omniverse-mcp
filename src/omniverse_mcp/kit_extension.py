@@ -6,6 +6,7 @@ so the server and the extension a Kit app loads come from the same release.
 """
 
 import os
+import shlex
 import shutil
 import sys
 import tempfile
@@ -39,9 +40,13 @@ def exts_dir() -> Path:
     return data_dir() / "exts"
 
 
+def _carried() -> Path:
+    return _PACKAGE / "_extension" / EXTENSION_ID
+
+
 def source() -> Path:
     """The extension this install carries: the wheel's copy, else a checkout's, where an editable install has none."""
-    for candidate in (_PACKAGE / "_extension" / EXTENSION_ID, _PACKAGE.parents[1] / "extension" / EXTENSION_ID):
+    for candidate in (_carried(), _PACKAGE.parents[1] / "extension" / EXTENSION_ID):
         if (candidate / "config" / "extension.toml").is_file():
             return candidate
     raise InstallError(f"This omniverse-mcp install carries no Kit extension: {_PACKAGE} has no _extension folder.")
@@ -57,51 +62,81 @@ def extension_version(folder: Path) -> str | None:
 
 
 def install_command() -> str:
-    """The command that installs the extension of this server's release, for messages."""
+    """The command that installs the extension of this server's release, for messages. A checkout's version need not
+    be on PyPI, nor its extension the release's, so a checkout gets its own."""
+    try:
+        checkout = source() != _carried()
+    except InstallError:
+        checkout = False
+    if checkout:
+        return f"uv run --project {_quoted(_PACKAGE.parents[1])} omniverse-mcp extension install"
     return f"uvx omniverse-mcp=={version('omniverse-mcp')} extension install"
+
+
+def _quoted(path: Path) -> str:
+    """A path as a shell takes it: a profile folder may hold a space."""
+    return f'"{path}"' if sys.platform == "win32" else shlex.quote(str(path))
 
 
 def install(root: Path | None = None) -> tuple[Path, str | None]:
     """Install the extension into root (exts_dir() by default) and return its folder and the version it replaced.
 
-    The copy is made beside the old one and swapped in, so a Kit that starts meanwhile finds a whole extension, and no
-    module the new release dropped is left behind to be loaded.
+    The copy is made outside root, where Kit never sees half of it, and swapped in by renaming, so no module the new
+    release dropped is left behind to be loaded. When the swap fails the old one is put back.
     """
     src = source()
     root = root or exts_dir()
     target = root / EXTENSION_ID
     previous = extension_version(target)
-    root.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(prefix=f".{EXTENSION_ID}.new-", dir=root))
-    old = None
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        staging = Path(tempfile.mkdtemp(prefix=f".{EXTENSION_ID}.new-", dir=root.parent))
+    except OSError as e:
+        raise InstallError(f"Could not write to {root}: {e}") from e
+    old = staging.with_name(staging.name.replace(".new-", ".old-"))
+    keep_old = False
     try:
         shutil.copytree(src, staging, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         if target.exists():
-            old = Path(tempfile.mkdtemp(prefix=f".{EXTENSION_ID}.old-", dir=root))
-            old.rmdir()
             target.rename(old)
         staging.rename(target)
     except OSError as e:
-        if old is not None and not target.exists():
-            old.rename(target)
+        if old.exists() and not target.exists():
+            try:
+                old.rename(target)
+            except OSError:
+                keep_old = True
+                raise InstallError(
+                    f"Could not install the extension in {target}: {e}; nor put the one before back. It is in "
+                    f"{old}: rename that folder to {target} once nothing holds it."
+                ) from e
         raise InstallError(
             f"Could not install the extension in {target}: {e}. A Kit app that has it loaded may hold the folder: "
             "quit it, and run this again."
         ) from e
     finally:
         shutil.rmtree(staging, ignore_errors=True)
-        if old is not None:
+        if not keep_old:
             shutil.rmtree(old, ignore_errors=True)
     return target, previous
 
 
+def _utf8_streams() -> None:
+    # A path may hold characters a Windows code page lacks, and piped output (an agent's shell) is in that code page.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def main(action: str) -> int:
     """`omniverse-mcp extension <action>`: the exit code."""
+    _utf8_streams()
     root = exts_dir()
     if action == "path":
         print(root)
         if extension_version(root / EXTENSION_ID) is None:
-            print(f"{EXTENSION_ID} is not installed there yet: run omniverse-mcp extension install.", file=sys.stderr)
+            print(f"{EXTENSION_ID} is not installed there yet: {install_command()}", file=sys.stderr)
             return 1
         return 0
     try:
@@ -115,7 +150,7 @@ def main(action: str) -> int:
     print(f"  {root}")
     print(
         f"In Kit: Window > Extensions, the menu > Settings, add the folder; then turn on {EXTENSION_ID} with Autoload. "
-        f"Or start Kit with --ext-folder {root} --enable {EXTENSION_ID}. A Kit app already running loads the new "
-        "extension when it restarts."
+        f"Or start Kit with --ext-folder {_quoted(root)} --enable {EXTENSION_ID}. Restart any Kit app that runs the "
+        "extension, so it loads this one."
     )
     return 0

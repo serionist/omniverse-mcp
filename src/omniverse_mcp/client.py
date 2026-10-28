@@ -99,24 +99,21 @@ class BridgeClient:
         """Refuse an extension that speaks another protocol, before any request runs on it."""
         problem = None
         result: dict[str, Any] = data.get("result") or {}
-        # The extension of this server's release, however the server was installed; Kit loading the extension from a
-        # git checkout takes a pull instead.
-        command = f"{install_command()} (from a git checkout: git pull)"
         if status == 404:
             problem = (
                 f"The Kit extension is older than this MCP server: it has no bridge handshake, the server "
-                f"speaks protocol {PROTOCOL}. Install this server's extension, {command}, then restart Kit."
+                f"speaks protocol {PROTOCOL}. Install this server's extension, {install_command()}, then restart Kit."
             )
         elif status != 200 or not isinstance(result.get("protocol"), int):
             problem = f"Unexpected handshake answer from the Kit extension (HTTP {status}): {data.get('error', data)}"
         elif result["protocol"] != PROTOCOL:
             extension = result.get("extension_version", "unknown")
             if result["protocol"] < PROTOCOL:
-                fix = f"The extension is older: install this server's, {command}, then restart Kit."
+                fix = f"The extension is older: install this server's, {install_command()}, then restart Kit."
             else:
                 fix = (
                     f"The server is older: update it to the extension's release, {extension}, or install this "
-                    f"server's extension, {command}, then restart Kit."
+                    f"server's extension, {install_command()}, then restart Kit."
                 )
             problem = (
                 f"The Kit extension {extension} speaks bridge protocol {result['protocol']} and this MCP server "

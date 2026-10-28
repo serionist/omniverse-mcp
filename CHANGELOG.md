@@ -76,7 +76,8 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 - **`omniverse-mcp extension install`** copies the Kit extension of the server's own release to your user data
   folder, in place of an older one, and prints the folder Kit's extension search paths need; `omniverse-mcp extension
   path` prints it again. When the server and the extension speak different bridge protocols, the server's message
-  names the command for its release, `uvx omniverse-mcp==X.Y.Z extension install`, and says which side is older.
+  names the command for its release, `uvx omniverse-mcp==X.Y.Z extension install` (from a checkout,
+  `uv run --project <checkout> omniverse-mcp extension install`), and says which side is older.
 - **Each tool says what it does to the Kit app,** as MCP annotations a client may use to ask before it runs one:
   read-only (queries and captures), not destructive (edits), destructive (deletes and overwrites, prims or files), or
   destructive and open world (`execute_script`, `manage_extensions`). `docs/TOOLS.md` lists them. They are hints,
