@@ -1,15 +1,21 @@
 """Simulation and physics tools."""
 
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
+from mcp.server.mcpserver import MCPServer
 from pydantic import Field
+
+from omniverse_mcp.client import BridgeClient
 
 from ._annotations import EDITS, READS
 from ._bridge import bridge_call
 from ._params import PrimPath
 
+if TYPE_CHECKING:
+    from omniverse_mcp.server import Helpers
 
-def register(mcp, client, h):
+
+def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @mcp.tool(annotations=EDITS)
     def sim_control(
         action: Annotated[Literal["play", "pause", "stop", "step"], Field(description="What to do")],
@@ -131,6 +137,6 @@ def register(mcp, client, h):
 
         resp = bridge_call(client.draw_debug, shape, **kwargs)
         r = resp["result"]
-        drawn = r.get("drawn", [])
-        labels = [d.get("type", str(d)) if isinstance(d, dict) else str(d) for d in drawn]
+        drawn: list[dict[str, Any]] = r.get("drawn", [])
+        labels = [str(d.get("type", d)) for d in drawn]
         return f"Drew {len(drawn)} debug element(s): {', '.join(labels)}"

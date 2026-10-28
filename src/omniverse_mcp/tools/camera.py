@@ -2,15 +2,21 @@
 
 import json
 import os
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
+from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ImageContent, TextContent
 from pydantic import Field
 
+from omniverse_mcp.client import BridgeClient
+
 from ._annotations import EDITS, READS
 from ._bridge import bridge_call
 from ._params import PrimPath
+
+if TYPE_CHECKING:
+    from omniverse_mcp.server import Helpers
 
 Width = Annotated[int, Field(ge=1, description="Image width in pixels")]
 Height = Annotated[int, Field(ge=1, description="Image height in pixels")]
@@ -28,7 +34,7 @@ CAMERA_LIGHT_ON_ADVICE = (
 )
 
 
-def register(mcp, client, h):
+def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @mcp.tool(annotations=READS)
     def capture_viewport(
         width: Width = 640,
@@ -52,7 +58,7 @@ def register(mcp, client, h):
         resp = bridge_call(client.capture_viewport, width, height, camera_path)
 
         r = resp["result"]
-        lines = []
+        lines: list[str] = []
 
         # 1. Save viewport image. Its number names the boxes and the segmentation too, taken once: tools run several
         # at once, and the counter can move between two reads of it.
@@ -266,7 +272,7 @@ def register(mcp, client, h):
         resp = bridge_call(client.viewport_light, action, enabled, mode=mode)
 
         r = resp["result"]
-        lines = []
+        lines: list[str] = []
         if action == "get":
             lines.append(f"Lighting mode: {r.get('lighting_mode', 'unknown')}")
             available = r.get("available_modes", [])

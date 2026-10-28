@@ -51,17 +51,17 @@ they ran and on which Kit app. Without a Kit app, say so in the PR.
 
 ### Adding a tool
 
-A tool touches these places today. Step S7 of the [plan](docs/plans/2026-10-28-modernization.md) rewrites the tool
-layer (MCP SDK v2, annotations, errors as error results), so check its progress log first.
+A tool touches these places. Its name, parameters and hints are a contract clients depend on (AGENTS.md, One-way
+doors): `uv run tools/golden.py` rewrites `tests/fixtures/mcp-tools.json` once the change is meant.
 
 | Where | What |
 |---|---|
 | `extension/ovmcp.bridge/ovmcp/bridge/handlers/<area>.py` | the handler, `async def handle_<name>(body: dict) -> dict`, exported from `handlers/__init__.py`; USD and Kit work stays on Kit's main thread (AGENTS.md, Traps) |
 | `extension/ovmcp.bridge/ovmcp/bridge/extension.py` | its path in the `routes` table; the token, `Origin` and `Host` checks cover every route |
 | `src/omniverse_mcp/client.py` | the client method, which calls `self.request("/<path>", {...})` |
-| `src/omniverse_mcp/tools/<area>.py` | the `@mcp.tool()` function in the area's `register()`; its docstring is what the assistant reads |
+| `src/omniverse_mcp/tools/<area>.py` | the `@mcp.tool(annotations=...)` function in the area's `register()`, with `READS`, `EDITS`, `DESTROYS` or `RUNS` and every parameter `Annotated` with its description and bounds; its docstring is what the assistant reads |
 | `docs/TOOLS.md`, `docs/ARCHITECTURE.md`, `CHANGELOG.md` | the tool's heading, the route, a line under Unreleased |
-| `tests/` | unit tests against the mock bridge (`test_client.py`) or a canned answer (`test_tools_camera.py`), and a case in the live suite, `test_integration.py` |
+| `tests/` | its case in `test_tools.py` (the route, the body, the text from a canned answer), the golden file, and a case in the live suite, `test_integration.py` |
 
 ## Open the pull request
 

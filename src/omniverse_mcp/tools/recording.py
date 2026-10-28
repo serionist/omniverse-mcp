@@ -1,15 +1,21 @@
 """Recording tools."""
 
 import os
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
+from mcp.server.mcpserver import MCPServer
 from pydantic import Field
+
+from omniverse_mcp.client import BridgeClient
 
 from ._annotations import EDITS, READS
 from ._bridge import bridge_call
 
+if TYPE_CHECKING:
+    from omniverse_mcp.server import Helpers
 
-def register(mcp, client, h):
+
+def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @mcp.tool(annotations=EDITS)
     def start_recording(
         fps: Annotated[int, Field(ge=1, description="Frames a second: 5 captures one every 0.2 s")] = 5,
@@ -53,7 +59,7 @@ def register(mcp, client, h):
         r = resp["result"]
         msg = f"Recording {r['session_id']} at {r['fps']}fps -> {h.rel(r['output_dir'])}"
         if r.get("track_prims"):
-            tp = r["track_prims"]
+            tp: list[str] | int = r["track_prims"]
             count = len(tp) if isinstance(tp, list) else tp
             msg += f"\nTracking {count} prims"
         msg += "\nCall sim_control('play') to start."
