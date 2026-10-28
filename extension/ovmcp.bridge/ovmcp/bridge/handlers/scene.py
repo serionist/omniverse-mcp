@@ -13,10 +13,12 @@ import omni.kit.app
 import omni.usd
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
+from ovmcp.core.bounds import world_bbox
+from ovmcp.core.formatter import format_prim_block, format_scene_dump, format_value
+
 from ._utils import (
     _apply_xform,
     _compute_mesh_stats,
-    _compute_world_bbox,
     _get_stage,
     _next_update,
     _serialize_value,
@@ -40,8 +42,6 @@ async def handle_scene_tree(body: dict) -> dict:
 
     if fmt == "text":
         # Lightweight prim-block text: path + type + position only (no full properties)
-        from ..formatter import format_value
-
         lines = []
         prim_count = 0
 
@@ -143,8 +143,6 @@ async def handle_scene_dump(body: dict) -> dict:
     if not root_prim.IsValid():
         return {"status": "error", "error": f"Prim not found: {root_path}"}
 
-    from ..formatter import format_scene_dump
-
     text = format_scene_dump(
         stage,
         root_path,
@@ -190,8 +188,6 @@ async def handle_prim_properties(body: dict) -> dict:
         return {"status": "error", "error": f"Prim not found: {prim_path}"}
 
     if fmt == "text":
-        from ..formatter import format_prim_block
-
         text = format_prim_block(prim, include_properties=True, include_transform=True, include_bounds=True)
         return {"status": "success", "result": {"text": text, "prim_path": prim_path}}
 
@@ -213,7 +209,7 @@ async def handle_prim_properties(body: dict) -> dict:
         result["is_articulation_root"] = True
 
     try:
-        center, dims, corners = _compute_world_bbox(prim)
+        center, dims, corners = world_bbox(prim)
         result["bbox_center"] = center
         result["bbox_dimensions"] = dims
         result["bbox_min"] = corners[0]
@@ -239,7 +235,7 @@ async def handle_prim_bounds(body: dict) -> dict:
     if not prim.IsValid():
         return {"status": "error", "error": f"Prim not found: {prim_path}"}
 
-    center, dims, corners = _compute_world_bbox(prim)
+    center, dims, corners = world_bbox(prim)
     max_dim = max(dims)
     diagonal = math.sqrt(sum(d * d for d in dims))
 

@@ -1,11 +1,9 @@
 """inspect_prim's isolate: what gets hidden, and that the session layer comes back exactly. Runs on usd-core."""
 
 import pytest
+from pxr import Sdf, Usd, UsdGeom, UsdLux
 
-pxr = pytest.importorskip("pxr")
-from pxr import Sdf, Usd, UsdGeom, UsdLux  # noqa: E402
-
-from ovmcp.core.isolation import Hidden, is_light, prims_to_hide  # noqa: E402
+from ovmcp.core.isolation import Hidden, is_light, prims_to_hide
 
 
 @pytest.fixture

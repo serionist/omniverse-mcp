@@ -29,8 +29,9 @@ uv run tools/gate.py full
 
 - `uv run tools/setup.py` sets up the clone once: the git hooks (`commit-msg` refuses tool attribution, `pre-push`
   runs the gate's quick lane), `git blame` past the reformat, the skill links. It is safe to run again.
-- `gate full` runs the lock check, ruff, ruff format, basedpyright, the harness checks, the attribution check and
-  gitleaks, then the unit tests. Without gitleaks it skips the secret scan with a warning; CI runs it.
+- `gate full` runs the lock check, ruff, ruff format, basedpyright, import-linter's contracts, the coverage floor,
+  the harness checks, the attribution check and gitleaks, then the unit tests under coverage, which must reach the
+  floor. Without gitleaks it skips the secret scan with a warning; CI runs it.
 
 ### The live suites
 
@@ -42,8 +43,10 @@ Settings**), turn on `ovmcp.bridge`, then:
 OMNIVERSE_MCP_SIM=1 uv run pytest tests/test_integration.py tests/test_scenarios.py
 ```
 
-In PowerShell, `$env:OMNIVERSE_MCP_SIM = "1"`, then `uv run pytest ...`. Without the variable they skip when no Kit
-answers; with it, they fail. CI never runs them, so a PR that changes the extension, the client or a tool says whether
+In PowerShell, `$env:OMNIVERSE_MCP_SIM = "1"`, then `uv run pytest ...`. Without the variable they skip, even with
+a Kit app running, so `uv run pytest` never touches your stage; with it, they run, and fail when no Kit answers.
+They find the bridge where the server does, at `OMNIVERSE_MCP_HOST` and `OMNIVERSE_MCP_PORT` (127.0.0.1:8211 by
+default), so a second Kit app can run them on another port beside your own. CI never runs them, so a PR that changes the extension, the client or a tool says whether
 they ran and on which Kit app. Without a Kit app, say so in the PR.
 
 ### Adding a tool

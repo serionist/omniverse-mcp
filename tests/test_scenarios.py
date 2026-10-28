@@ -2,7 +2,7 @@
 Full scenario tests against live Isaac Sim.
 Covers phases 1-17, 22-23, and 24-26 from test_project/scenarios.md.
 
-Run: conda run -n isaac-mcp python -m pytest tests/test_scenarios.py -v -s
+Usage, with Kit running: OMNIVERSE_MCP_SIM=1 uv run pytest -m scenario
 """
 
 import json
@@ -10,21 +10,24 @@ import os
 import time
 import unittest
 
+import pytest
+
 from omniverse_mcp.client import BridgeClient
 
+from .conftest import live_bridge
 
-def _skip_if_no_sim():
-    """Skip if Isaac Sim is not running; fail instead when OMNIVERSE_MCP_SIM=1 says it should be."""
+pytestmark = pytest.mark.scenario
+
+
+def _check_bridge(host: str, port: int) -> None:
+    """Fail unless the bridge answers: the suite runs only with OMNIVERSE_MCP_SIM=1 (conftest.py)."""
+    c = BridgeClient(host=host, port=port, timeout=2.0)
     try:
-        c = BridgeClient(timeout=2.0)
         r = c.health()
+    finally:
         c.close()
-        if r["status"] != "success":
-            raise ConnectionError(f"Health check failed: {r}")
-    except Exception as e:
-        if os.environ.get("OMNIVERSE_MCP_SIM") == "1":
-            raise
-        raise unittest.SkipTest(f"Isaac Sim not running on localhost:8211 ({e})")
+    if r["status"] != "success":
+        raise ConnectionError(f"Health check failed at {host}:{port}: {r}")
 
 
 class TestScenarios(unittest.TestCase):
@@ -32,8 +35,9 @@ class TestScenarios(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        _skip_if_no_sim()
-        cls.c = BridgeClient(timeout=10.0)
+        host, port = live_bridge()
+        _check_bridge(host, port)
+        cls.c = BridgeClient(host=host, port=port, timeout=10.0)
         # Stop sim and clean up before starting
         cls.c.sim_control("stop")
         # Warmup viewport capture pipeline (first capture after connect is slow)

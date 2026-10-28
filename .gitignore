@@ -18,6 +18,9 @@ mcp_output/
 
 # Test results (generated during testing)
 .pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
 test_project/results/
 
 # IDE

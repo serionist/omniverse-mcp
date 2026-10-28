@@ -8,7 +8,6 @@ Run: python -m pytest tests/test_client.py -v
 import asyncio
 import json
 import threading
-import time
 import unittest
 
 from omniverse_mcp.client import BridgeClient, BridgeError
@@ -74,14 +73,31 @@ class MockIsaacServer:
 
     def start(self):
         self._loop = asyncio.new_event_loop()
+        self._ready = threading.Event()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
-        time.sleep(0.3)
+        self._ready.wait(timeout=5)
 
     def _run_loop(self):
         asyncio.set_event_loop(self._loop)
         self._loop.run_until_complete(self._start())
-        self._loop.run_forever()
+        self._ready.set()
+        try:
+            self._loop.run_forever()
+        finally:
+            # Whatever the loop still holds would be reported unclosed, and warnings are errors (pyproject.toml).
+            self._loop.run_until_complete(self._shutdown())
+            self._loop.close()
+
+    async def _shutdown(self):
+        server = self.server
+        assert server is not None  # _start ran before the loop did
+        server.close()
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await server.wait_closed()
 
     def stop(self):
         self._loop.call_soon_threadsafe(self._loop.stop)

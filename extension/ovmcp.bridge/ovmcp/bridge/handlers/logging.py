@@ -2,25 +2,18 @@
 Log buffer — captures Omniverse log messages in a ring buffer for querying.
 
 Uses omni.log.add_message_consumer() to subscribe to all log messages
-(carb.log_*, Python logging, etc.) and stores them in a deque.
+(carb.log_*, Python logging, etc.); the ring and its query are ovmcp.core.logs.
 """
 
-import threading
-from collections import deque
-
-# Log level mapping (omni.log.Level values)
-_LEVEL_NAMES = {0: "verbose", 1: "info", 2: "warn", 3: "error", 4: "fatal"}
-_LEVEL_FROM_NAME = {v: k for k, v in _LEVEL_NAMES.items()}
+from ovmcp.core.logs import LogRing
 
 
-class LogBuffer:
-    """Ring buffer that captures Omniverse log messages."""
+class LogBuffer(LogRing):
+    """The log ring, fed by Kit's log stream between start() and stop()."""
 
     def __init__(self, max_entries: int = 2000):
-        self._buffer: deque = deque(maxlen=max_entries)
-        self._lock = threading.Lock()
+        super().__init__(max_entries)
         self._consumer = None
-        self._index = 0  # monotonic counter for since_index support
 
     def start(self):
         """Subscribe to omni.log message stream."""
@@ -47,67 +40,7 @@ class LogBuffer:
 
     def _on_log(self, channel, level, module, filename, func, line_no, msg, pid, tid, timestamp):
         # Do NOT log from within this callback (undefined behavior per omni.log docs)
-        # level may be an omni.log.Level enum — coerce to int for comparisons
-        level_int = int(level) if not isinstance(level, int) else level
-        entry = {
-            "index": self._index,
-            "level": _LEVEL_NAMES.get(level_int, str(level)),
-            "level_num": level_int,
-            "channel": channel or "",
-            "module": module or "",
-            "source": f"{filename}:{line_no}" if filename else "",
-            "func": func or "",
-            "msg": msg or "",
-            "timestamp": timestamp,
-        }
-        with self._lock:
-            self._buffer.append(entry)
-            self._index += 1
-
-    def get_entries(
-        self,
-        count: int = 50,
-        min_level: str | None = None,
-        channel: str | None = None,
-        since_index: int | None = None,
-        search: str | None = None,
-    ) -> dict:
-        """Query recent log entries.
-
-        Args:
-            count: Max entries to return (default 50)
-            min_level: Minimum level filter: verbose/info/warn/error/fatal
-            channel: Filter by channel substring
-            since_index: Only entries with index > this value
-            search: Filter by message substring (case-insensitive)
-        """
-        min_level_num = _LEVEL_FROM_NAME.get(min_level, 0) if min_level else 0
-
-        with self._lock:
-            entries = list(self._buffer)
-            total_captured = self._index
-
-        # Apply filters
-        if since_index is not None:
-            entries = [e for e in entries if e["index"] > since_index]
-        if min_level_num > 0:
-            entries = [e for e in entries if int(e["level_num"]) >= min_level_num]
-        if channel:
-            channel_lower = channel.lower()
-            entries = [e for e in entries if channel_lower in e["channel"].lower()]
-        if search:
-            search_lower = search.lower()
-            entries = [e for e in entries if search_lower in e["msg"].lower()]
-
-        # Take last N and strip level_num (internal use only)
-        entries = [{k: v for k, v in e.items() if k != "level_num"} for e in entries[-count:]]
-
-        return {
-            "entries": entries,
-            "count": len(entries),
-            "total_captured": total_captured,
-            "buffer_size": self._buffer.maxlen,
-        }
+        self.add(channel, level, module, filename, func, line_no, msg, timestamp)
 
 
 # Singleton instance — created on import, started from extension.py

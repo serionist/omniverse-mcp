@@ -5,6 +5,8 @@ Needs pxr, not Kit: the tests run it on usd-core.
 
 from pxr import Sdf, Usd, UsdGeom, UsdLux
 
+from .usd import attribute_spec, children, has_api, is_a, prim_spec, remove_child_spec
+
 LIGHT_TYPES = ("DistantLight", "DomeLight", "SphereLight", "RectLight", "DiskLight", "CylinderLight")
 
 _NO_SPEC = object()  # the session layer had no visibility opinion for the prim
@@ -13,9 +15,9 @@ _NO_DEFAULT = object()  # it had a visibility spec, without a default value
 
 def is_light(prim: Usd.Prim) -> bool:
     return (
-        prim.HasAPI(UsdLux.LightAPI)
-        or prim.IsA(UsdLux.BoundableLightBase)
-        or prim.IsA(UsdLux.NonboundableLightBase)
+        has_api(prim, UsdLux.LightAPI)
+        or is_a(prim, UsdLux.BoundableLightBase)
+        or is_a(prim, UsdLux.NonboundableLightBase)
         or prim.GetTypeName() in LIGHT_TYPES
     )
 
@@ -38,10 +40,10 @@ def prims_to_hide(stage: Usd.Stage, target_path: str) -> tuple[list[Sdf.Path], l
 
     def take(prim: Usd.Prim) -> None:
         path = prim.GetPath()
-        if path == target or is_light(prim) or prim.IsA(UsdGeom.Camera):
+        if path == target or is_light(prim) or is_a(prim, UsdGeom.Camera):
             return
         leads_to_target = target.HasPrefix(path)
-        if leads_to_target or path in holds_light or not prim.IsA(UsdGeom.Imageable):
+        if leads_to_target or path in holds_light or not is_a(prim, UsdGeom.Imageable):
             # Stays visible: it leads to the target, holds a light, or has no visibility of its own.
             if prim.IsInstance():
                 holds = "the target" if leads_to_target else "a light"
@@ -50,13 +52,13 @@ def prims_to_hide(stage: Usd.Stage, target_path: str) -> tuple[list[Sdf.Path], l
                     "so all of it stays visible"
                 )
                 return
-            for child in prim.GetChildren():
+            for child in children(prim):
                 take(child)
             return
         if UsdGeom.Imageable(prim).ComputeVisibility(Usd.TimeCode.Default()) != UsdGeom.Tokens.invisible:
             found.append(path)
 
-    for child in stage.GetPseudoRoot().GetChildren():
+    for child in children(stage.GetPseudoRoot()):
         take(child)
     return found, warnings
 
@@ -109,10 +111,10 @@ class Hidden:
                     )
                     continue
                 for prefix in path.GetPrefixes():
-                    if self.layer.GetPrimAtPath(prefix) is None:
+                    if prim_spec(self.layer, prefix) is None:
                         self._created.append(prefix)
                 spec = Sdf.CreatePrimInLayer(self.layer, path)
-                attr = self.layer.GetAttributeAtPath(attr_path)
+                attr = attribute_spec(self.layer, attr_path)
                 if attr is None:
                     self._attrs.append((attr_path, _NO_SPEC))
                     attr = Sdf.AttributeSpec(spec, UsdGeom.Tokens.visibility, Sdf.ValueTypeNames.Token)
@@ -124,7 +126,7 @@ class Hidden:
         """Put back what each hidden prim's session layer said before, and remove the specs hide() created."""
         with Sdf.ChangeBlock():
             for attr_path, before in reversed(self._attrs):
-                attr = self.layer.GetAttributeAtPath(attr_path)
+                attr = attribute_spec(self.layer, attr_path)
                 if attr is None:
                     continue
                 if before is _NO_SPEC:
@@ -135,8 +137,8 @@ class Hidden:
                     attr.default = before
             # A parent is always created before its children, so reversed order removes children first.
             for path in reversed(self._created):
-                spec = self.layer.GetPrimAtPath(path)
+                spec = prim_spec(self.layer, path)
                 if spec is not None and spec.IsInert():
-                    del self.layer.GetPrimAtPath(path.GetParentPath()).nameChildren[spec.name]
+                    remove_child_spec(self.layer.GetPrimAtPath(path.GetParentPath()), spec.name)
         self._attrs.clear()
         self._created.clear()
