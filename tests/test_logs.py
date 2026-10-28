@@ -123,7 +123,7 @@ def test_a_query_while_kit_logs_from_another_thread():
     def log() -> None:
         i = 0
         while not stop.is_set():
-            ring.add("chan", i % 5, None, None, None, 0, f"msg {i}", i)
+            ring.add("chan", i % 5 - 2, None, None, None, 0, f"msg {i}", i)  # Kit's levels, -2 to 2
             i += 1
 
     interval = sys.getswitchinterval()

@@ -7,7 +7,8 @@ import threading
 from collections import deque
 from typing import Any, SupportsInt
 
-# omni.log.Level's values, which are carb's: warn is 0, the quieter levels below it (read on Isaac Sim 6.2).
+# omni.log.Level's values, which are carb's (carb/logging/Log.h, kLevelVerbose -2 to kLevelFatal 2; the same in
+# Kit 107.3 and Isaac Sim 6.2): warn is 0, the default threshold, and the quieter levels are below it.
 LEVEL_NAMES = {-2: "verbose", -1: "info", 0: "warn", 1: "error", 2: "fatal"}
 LEVEL_FROM_NAME = {name: level for level, name in LEVEL_NAMES.items()}
 
