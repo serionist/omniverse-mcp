@@ -37,7 +37,9 @@
       "Bash(uv sync)",
       "Bash(uv run pytest)",
       "Bash(uv run pytest *)",
-      "Bash(uv run ruff *)",
+      "Bash(uv run ruff check)",
+      "Bash(uv run ruff check .)",
+      "Bash(uv run ruff format --check*)",
       "Bash(uv run basedpyright*)",
       "Bash(uv run tools/gate.py *)"
     ],
@@ -62,7 +64,10 @@
       "Bash(git blame --contents*)",
       "Bash(git blame *--contents*)",
       "Bash(git commit *--no-verify*)",
-      "Bash(git push *--no-verify*)"
+      "Bash(git push *--no-verify*)",
+      "Bash(uv run ruff *--fix*)",
+      "Bash(uv run ruff *--unsafe-fixes*)",
+      "Bash(uv run basedpyright*--writebaseline*)"
     ]
   }
 }

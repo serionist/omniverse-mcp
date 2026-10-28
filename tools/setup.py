@@ -69,6 +69,14 @@ def symlinks_work() -> bool:
     return True
 
 
+def changed_links(root: Path) -> list[str]:
+    """Paths under .agents/skills that differ on disk from git's index, or that git doesn't track. A link only
+    staged, as `link` leaves it, is no change: checking it out writes what the index holds."""
+    status = gate.git("status", "--porcelain", "--", SKILL_LINKS_DIR, cwd=root).stdout
+    # Each line is "XY path": Y is the working tree's side, " " when the file on disk is what the index holds.
+    return [line[3:] for line in status.splitlines() if len(line) > 3 and line[1] != " "]
+
+
 def checkout_links(root: Path, can_symlink: Callable[[], bool]) -> list[str]:
     """Where symlinks work, have git check the skill links out as real symlinks, which Codex follows. Elsewhere they
     stay plain files holding their target: git's index still has them as links, so every commit keeps them."""
@@ -76,6 +84,14 @@ def checkout_links(root: Path, can_symlink: Callable[[], bool]) -> list[str]:
         return [
             f"this machine can't make symlinks (Windows without Developer Mode), so {SKILL_LINKS_DIR} holds plain "
             "files and Codex finds no skills there; AGENTS.md names them, and each is a SKILL.md to read"
+        ]
+    # A checkout overwrites what differs on disk from git's index, so a changed link is left for the developer to look
+    # at. Checked before core.symlinks changes: with it false, a plain file holding the target is no change.
+    changed = changed_links(root)
+    if changed:
+        return [
+            f"warning: {SKILL_LINKS_DIR} has local changes, so it was not checked out again: "
+            f"{', '.join(changed)}; see git status -- {SKILL_LINKS_DIR}, then run this again"
         ]
     lines = [set_config(root, "core.symlinks", "true")]
     if not gate.git("ls-files", "--", SKILL_LINKS_DIR, cwd=root).stdout.strip():
@@ -118,7 +134,7 @@ def link(root: Path, name: str) -> tuple[bool, str]:
 
 def link_all(root: Path, names: list[str]) -> int:
     """Link each named skill, or every skill in .claude/skills; 1 when one failed."""
-    names = names or sorted(path.parent.name for path in (root / SKILLS_DIR).glob("*/SKILL.md"))
+    names = names or list(gate.skill_folders(root))
     failed = 0
     for name in names:
         ok, line = link(root, name)
@@ -159,10 +175,7 @@ def run(
 
 
 def main(argv: list[str] | None = None) -> int:
-    for stream in (sys.stdout, sys.stderr):
-        reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is not None:
-            reconfigure(encoding="utf-8", errors="replace")
+    gate.utf8_streams()
     parser = argparse.ArgumentParser(description="Set up this clone: hooks, git blame, skill links, tools.")
     commands = parser.add_subparsers(dest="command")
     link_parser = commands.add_parser("link", help=f"link {SKILLS_DIR}/<skill> into {SKILL_LINKS_DIR} for Codex")

@@ -28,8 +28,8 @@ extension it talks to.
 | `docs/` | `ARCHITECTURE.md` (routes, protocol, token, threading), `TOOLS.md` (a heading per tool), `AI_GUIDE.md` (for agents using the tools) |
 | `docs/plans/`, `docs/reviews/` | plans of non-trivial changes, with the template; review records. Dated records, never current truth |
 | `tools/` | `gate.py` (the gate), `hooks.py` (behind `.githooks/`), `setup.py` (once per clone; `link` for skills); standard library only |
-| `.githooks/` | `commit-msg` refuses attribution, `pre-push` runs gate quick, `post-checkout` and `post-merge` name changed AI setup files |
-| `.claude/` | `CLAUDE.md` (imports this file), `settings.json` (permissions, no attribution), `skills/` (below) |
+| `.githooks/` | `commit-msg` refuses attribution, `pre-push` runs gate quick on what the push sends, `post-checkout` and `post-merge` name changed AI setup files |
+| `.claude/` | `CLAUDE.md` (imports this file), `settings.json` (no attribution; allows read-only git and gh, plus the repo's own checks), `skills/` (below) |
 | `.agents/skills/` | links to `.claude/skills/<name>` for Codex, written into git's index by `uv run tools/setup.py link` |
 | `AGENTS.md`, `REVIEW.md` | this file; what a review finding is, and the questions every review answers |
 | `.mcp.json` | Context7 over HTTP; `.claude/settings.local.json.example` turns it on |

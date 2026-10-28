@@ -2,9 +2,10 @@
 
 Usage (from a shim): uv run --no-sync tools/hooks.py commit-msg|pre-push|post-checkout|post-merge [git's arguments]
 
-- commit-msg refuses a message with tool attribution: an AI co-author trailer, a "Generated with" line, a tool's
+- commit-msg refuses a message with tool attribution: a co-author that is a tool, a "Generated with" line, a tool's
   session trailer or link (AGENTS.md, Commits and PRs).
-- pre-push runs the gate's quick lane.
+- pre-push runs the gate's quick lane on what the push sends: the commits' checks on each pushed range, and the
+  working tree's checks only when the push sends HEAD and the tree has nothing else in it.
 - post-checkout and post-merge name the AI setup files that changed, so an agent re-reads them. They only inform:
   git makes post-checkout's exit status the checkout's.
 
@@ -13,12 +14,17 @@ Standard library only: in a new worktree the shims' `uv run --no-sync` environme
 
 from __future__ import annotations
 
+import re
 import sys
+from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
 import gate
 
-SCISSORS = "------------------------ >8 ------------------------"
+# The line above the diff `git commit -v` adds, behind whatever comment character is set; git drops it and all
+# below it. Everything above, comment lines included, is the message: with -m git keeps comment lines.
+SCISSORS = re.compile(r"^\S+ -{24} >8 -{24}\s*$")
+ZERO_SHA = re.compile(r"^0+$")
 # What an agent reads as its rules when a session starts (REVIEW.md, The harness).
 AGENT_SETUP_PREFIXES = (".claude/", ".agents/")
 AGENT_SETUP_FILES = frozenset({"REVIEW.md", ".mcp.json"})
@@ -29,34 +35,70 @@ def say(hook: str, text: str) -> None:
     print(f"{hook}: {text}", file=sys.stderr)
 
 
-def comment_char() -> str:
-    """git's comment character, which starts the lines it drops from a message."""
-    char = gate.git("config", "core.commentChar").stdout.strip()
-    return char if len(char) == 1 else "#"
-
-
-def message_text(raw: str, char: str = "#") -> str:
-    """The message as git records it: without comment lines and without the diff `git commit -v` adds below the
-    scissors line."""
+def message_text(raw: str) -> str:
+    """The message git may record: everything above the scissors line, comment lines included."""
     kept = []
     for line in raw.splitlines():
-        if line.startswith(char) and line[1:].strip() == SCISSORS:
+        if SCISSORS.match(line):
             break
-        if not line.startswith(char):
-            kept.append(line)
+        kept.append(line)
     return "\n".join(kept).strip()
 
 
-def commit_msg(path: str, char: str | None = None) -> int:
+def commit_msg(path: str) -> int:
     """Refuse a message with tool attribution; 1 refuses the commit."""
-    raw = Path(path).read_text(encoding="utf-8", errors="replace")
-    found = gate.attribution_lines(message_text(raw, char or comment_char()))
+    found = gate.attribution_lines(message_text(Path(path).read_text(encoding="utf-8", errors="replace")))
     for line in found:
         say("commit-msg", f"refused: tool attribution: {line}")
     if found:
         say("commit-msg", "take those lines out and commit again (AGENTS.md, Commits and PRs)")
         return 1
     return 0
+
+
+def push_ranges(lines: list[str], base: str, known: Callable[[str], bool]) -> list[tuple[str, str]]:
+    """(range, local sha) for each ref a push updates, from the lines git gives pre-push on stdin:
+    `<local ref> <local sha> <remote ref> <remote sha>`. A deletion sends nothing and is left out. A new branch, or a
+    remote commit this clone never fetched, is compared with base."""
+    pushed = []
+    for line in lines:
+        parts = line.split()
+        if len(parts) != 4 or ZERO_SHA.match(parts[1]):
+            continue
+        local, remote = parts[1], parts[3]
+        since = remote if not ZERO_SHA.match(remote) and known(remote) else base
+        pushed.append((f"{since}..{local}", local))
+    return pushed
+
+
+def tree_skip_reason(pushed: list[str], head: str, dirty: bool) -> str | None:
+    """Why the working tree can't stand for what a push sends, or None when it can: every pushed commit is HEAD, and
+    nothing is changed or untracked. pushed and head are commit ids."""
+    other = [sha for sha in pushed if sha != head]
+    if other:
+        return f"the push sends {other[0][:10]}, not HEAD"
+    if dirty:
+        return "it has changes or untracked files that are not pushed"
+    return None
+
+
+def pre_push(lines: list[str]) -> int:
+    """The gate's quick lane on what the push sends."""
+
+    def known(sha: str) -> bool:
+        return gate.git("cat-file", "-e", f"{sha}^{{commit}}").returncode == 0
+
+    pushed = push_ranges(lines, gate.BASE, known)
+    if not pushed:
+        say("pre-push", "the push only deletes, so there is nothing to check")
+        return 0
+    commits = [gate.git("rev-parse", f"{sha}^{{commit}}").stdout.strip() for _, sha in pushed]
+    head = gate.git("rev-parse", "HEAD").stdout.strip()
+    dirty = bool(gate.git("status", "--porcelain").stdout.strip())
+    scope = gate.Scope.of([rev for rev, _ in pushed], tree_skip_reason(commits, head, dirty))
+    if scope.tree_skipped:
+        scope.tree_skipped += "; run uv run tools/gate.py quick on the pushed commit to check it"
+    return gate.run_lane("quick", scope)
 
 
 def is_agent_setup(path: str) -> bool:
@@ -104,10 +146,7 @@ def post_merge() -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
-    for stream in (sys.stdout, sys.stderr):
-        reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is not None:
-            reconfigure(encoding="utf-8", errors="replace")
+    gate.utf8_streams()
     if not args:
         print(__doc__, file=sys.stderr)
         return 2
@@ -115,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
     if hook == "commit-msg" and rest:
         return commit_msg(rest[0])
     if hook == "pre-push":
-        return gate.main(["quick"])
+        return pre_push(sys.stdin.read().splitlines())
     if hook == "post-checkout":
         return post_checkout(*rest[:3])
     if hook == "post-merge":
