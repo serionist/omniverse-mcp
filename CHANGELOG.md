@@ -22,7 +22,9 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   further.
 - **`viewport_light("get")` reports `lighting_mode`** and the available modes, in place of `camera_light_on`.
 - **The Python package is `omniverse_mcp`.** In `.mcp.json`, `python -m isaac_sim_mcp` becomes the `omniverse-mcp`
-  command (or `uv run --project <clone> omniverse-mcp`; the README shows both).
+  command (or `uv run --no-sync --project <clone> omniverse-mcp`; the README shows both). An install from before
+  the rename still points `omniverse-mcp` at the deleted `isaac_sim_mcp`: reinstall it with
+  `pip uninstall omniverse-mcp` then `pip install .` (or `pip install -e .`), or switch to `uv sync`.
 - **The Kit extension is `ovmcp.bridge`, in `extension/ovmcp.bridge/`.** It was `isaacsim.mcp.bridge`, in a folder
   named with its version. To move over:
   1. In Kit's Extension Manager, turn `isaacsim.mcp.bridge` off and its autoload off.
@@ -31,8 +33,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   3. Turn on `ovmcp.bridge` with autoload.
   4. Move a custom port or token from `exts."isaacsim.mcp.bridge"` to `exts."ovmcp.bridge"`. The
      `scene_tree_max_depth` setting is gone; nothing read it.
-- **The server's flags are `--host` and `--port`,** in place of `--isaac-host` and `--isaac-port`. They and
-  `--output-dir` default to `OMNIVERSE_MCP_HOST`, `OMNIVERSE_MCP_PORT` and `OMNIVERSE_MCP_OUTPUT_DIR`.
+- **The server's flags are `--host` and `--port`,** in place of `--isaac-host` and `--isaac-port`, which now stop
+  the server with a message naming the new flag; any other unknown flag is an error too. `--host`, `--port` and
+  `--output-dir` default to `OMNIVERSE_MCP_HOST`, `OMNIVERSE_MCP_PORT` and `OMNIVERSE_MCP_OUTPUT_DIR`; an empty
+  variable counts as unset.
 - **The MCP resources are `omniverse://scene/tree` and `omniverse://sim/state`,** and the server calls itself
   `omniverse`. Scene dumps and recording state files start with `# Omniverse MCP`, and their `# format` line
   reads `omniverse-mcp-v1`.

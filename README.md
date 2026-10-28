@@ -59,7 +59,7 @@ uv sync
   "mcpServers": {
     "omniverse": {
       "command": "uv",
-      "args": ["run", "--project", "<REPO_PATH>", "omniverse-mcp"]
+      "args": ["run", "--no-sync", "--project", "<REPO_PATH>", "omniverse-mcp"]
     },
     "context7": {
       "command": "npx",
@@ -68,8 +68,9 @@ uv sync
   }
 }
 ```
-Replace `<REPO_PATH>` with the full path of the clone. `uv run` keeps the environment in step with the checkout, and
-the server still writes its files under your project's `mcp_output/`.
+Replace `<REPO_PATH>` with the full path of the clone. `--no-sync` starts the server from the environment `uv sync`
+built, so a client never waits on a download at start, and the server still writes its files under your project's
+`mcp_output/`.
 
 </details>
 
@@ -87,7 +88,8 @@ pip install .
 {
   "mcpServers": {
     "omniverse": {
-      "command": "<ENV_PATH>/bin/omniverse-mcp"
+      "command": "<ENV_PATH>/bin/omniverse-mcp",
+      "env": { "PYTHONPATH": "" }
     },
     "context7": {
       "command": "npx",
@@ -101,7 +103,7 @@ Windows the command is `<ENV_PATH>\Scripts\omniverse-mcp.exe`.
 
 </details>
 
-> **Updating:** `git pull` (uv runs the new code on the next start), or `git pull && pip install .` with pip.
+> **Updating:** `git pull && uv sync`, or `git pull && pip install .` with pip. Then restart your MCP client.
 
 ### 2. Add the extension to your Omniverse app
 
@@ -121,7 +123,7 @@ You should see in the console:
 [ext: ovmcp.bridge-0.1.0] startup
 ```
 
-> **Used the extension before?** It was `isaacsim.mcp.bridge` until 0.2.0. Turn it off, remove its search path if
+> **Used the extension before?** It was `isaacsim.mcp.bridge` before the rename (#8). Turn it off, remove its search path if
 > it pointed inside the old `extension/isaacsim.mcp.bridge-1.0.0` folder, then follow the steps above. See the
 > [changelog](CHANGELOG.md).
 

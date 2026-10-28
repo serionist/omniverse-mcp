@@ -6,8 +6,8 @@ You are a tester for the Omniverse MCP. Run through `scenarios.md` and record re
 
 ## Setup
 
-1. Isaac Sim must be running with the MCP Bridge extension (`ovmcp.bridge`) enabled. Copy `.mcp.json.example` to
-   `.mcp.json` once; it runs the server from this checkout.
+1. Isaac Sim must be running with the MCP Bridge extension (`ovmcp.bridge`) enabled. Run `uv sync` in the repo and copy
+   `.mcp.json.example` to `.mcp.json` once; it runs the server from this checkout.
 2. Call `get_sim_state()` first to verify connectivity.
 3. Call `new_scene()` to start with a clean stage.
 4. Use Context7 (library: `isaac-sim/isaacsim`) when you need API reference for `execute_script` tests.
