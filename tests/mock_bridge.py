@@ -1,5 +1,5 @@
 """A stand-in for the ovmcp.bridge extension: an HTTP/1.1 server on its own event loop thread that answers each path
-with a set response, records each request, and counts how many it is handling at once."""
+with a set response and records each request."""
 
 import asyncio
 import json
@@ -16,16 +16,10 @@ class MockIsaacServer:
         self.requests: list[tuple[str, str, dict]] = []
         self._responses: dict[str, dict] = {}
         self._statuses: dict[str, int] = {}
-        self._delays: dict[str, float] = {}
-        # Requests being answered right now, and the most there ever were: the MCP server's tools must reach it one
-        # at a time.
-        self.in_flight = 0
-        self.max_in_flight = 0
 
-    def set_response(self, path: str, response: dict, status: int = 200, delay: float = 0.0):
+    def set_response(self, path: str, response: dict, status: int = 200):
         self._responses[path] = response
         self._statuses[path] = status
-        self._delays[path] = delay
 
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         try:
@@ -51,23 +45,16 @@ class MockIsaacServer:
                     raw = await reader.readexactly(content_length)
                     body = json.loads(raw.decode())
                 self.requests.append((method, path, body))
-                self.in_flight += 1
-                self.max_in_flight = max(self.max_in_flight, self.in_flight)
-                try:
-                    if self._delays.get(path):
-                        await asyncio.sleep(self._delays[path])
-                    response = self._responses.get(path, {"status": "success", "result": {}})
-                    body_bytes = json.dumps(response).encode()
-                    header_str = (
-                        f"HTTP/1.1 {self._statuses.get(path, 200)} OK\r\n"
-                        f"Content-Type: application/json\r\n"
-                        f"Content-Length: {len(body_bytes)}\r\n"
-                        f"Connection: keep-alive\r\n\r\n"
-                    )
-                    writer.write(header_str.encode() + body_bytes)
-                    await writer.drain()
-                finally:
-                    self.in_flight -= 1
+                response = self._responses.get(path, {"status": "success", "result": {}})
+                body_bytes = json.dumps(response).encode()
+                header_str = (
+                    f"HTTP/1.1 {self._statuses.get(path, 200)} OK\r\n"
+                    f"Content-Type: application/json\r\n"
+                    f"Content-Length: {len(body_bytes)}\r\n"
+                    f"Connection: keep-alive\r\n\r\n"
+                )
+                writer.write(header_str.encode() + body_bytes)
+                await writer.drain()
         except (asyncio.IncompleteReadError, ConnectionResetError):
             pass
         finally:

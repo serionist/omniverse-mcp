@@ -1,7 +1,10 @@
 """The camera tools' text for the AI: warnings and advice, from canned bridge answers."""
 
+import re
+
 import pytest
 
+from omniverse_mcp.server import Helpers
 from omniverse_mcp.tools import camera
 
 
@@ -19,19 +22,6 @@ class _Tools:
         return keep
 
 
-class _Helpers:
-    def __init__(self, tmp_path):
-        self.output_dir = str(tmp_path)
-        self.capture_counter = 0
-
-    def save_png(self, _b64, prefix="capture"):
-        self.capture_counter += 1
-        return f"mcp_output/captures/{prefix}_{self.capture_counter:04d}.png"
-
-    def rel(self, path):
-        return path
-
-
 class _Client:
     def __init__(self, answers):
         self.answers = answers
@@ -45,9 +35,9 @@ class _Client:
         return call
 
 
-def _tools(tmp_path, answers):
+def _tools(tmp_path, answers, helpers=None):
     tools, client = _Tools(), _Client(answers)
-    camera.register(tools, client, _Helpers(tmp_path))
+    camera.register(tools, client, helpers or Helpers(str(tmp_path)))
     return tools.fns, client
 
 
@@ -150,3 +140,39 @@ def test_a_black_inspect_with_the_camera_light_on_does_not_suggest_it_again(tmp_
     out = fns["inspect_prim"]("/World/Lamp")
     assert "mode='camera'" not in out
     assert "look_at_prim" in out
+
+
+class _Busy(Helpers):
+    """Another tool takes a capture number each time this one saves an image, as tools running at once do."""
+
+    def save_png(self, image_base64, prefix="capture", number=None):
+        path = super().save_png(image_base64, prefix, number)
+        self.next_capture()
+        return path
+
+
+def test_a_captures_files_keep_its_number_while_other_tools_take_numbers(tmp_path):
+    answer = _capture_answer("stage", True)
+    answer["result"].update(
+        is_black=False,
+        screen_bboxes=[
+            {
+                "prim_path": "/World/Cube",
+                "type": "Cube",
+                "screen_bbox": [1, 2, 3, 4],
+                "world_center": [0, 0, 0],
+                "world_dimensions": [1, 1, 1],
+            }
+        ],
+        segmentation_base64="iVBORw0KGgo=",
+        segmentation_legend={"/World/Cube": [255, 0, 0]},
+    )
+    fns, _ = _tools(tmp_path, {"capture_viewport": answer}, _Busy(str(tmp_path)))
+
+    out = fns["capture_viewport"]()
+
+    image = re.search(r"viewport_(\d{4})\.png", out)
+    boxes = re.search(r"viewport_(\d{4})_bboxes\.txt", out)
+    segmentation = re.search(r"viewport_(\d{4})_segmentation_\d{4}\.png", out)
+    assert image and boxes and segmentation, out
+    assert image[1] == boxes[1] == segmentation[1], out

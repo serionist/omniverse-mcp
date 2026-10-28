@@ -27,14 +27,16 @@ import sys
 import threading
 from collections.abc import Callable, Sequence
 from importlib.metadata import version
+from pathlib import Path
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 
-from .client import BridgeClient, BridgeError
+from .client import BridgeClient
 from .config import parse_args
 from .tools import register_all
+from .tools._bridge import bridge_call
 
 # Responses longer than this are written to files
 FILE_THRESHOLD = 1000
@@ -74,28 +76,42 @@ class Helpers:
             setattr(self, counter, value)
             return value
 
-    def save_png(self, image_base64: str, prefix: str = "capture") -> str:
-        """Decode base64 PNG and save to mcp_output/captures/. Returns relative path; ToolError on bad data."""
+    def next_capture(self) -> int:
+        """The next capture number, taken once: a tool naming several files after one capture takes it first."""
+        return self._next("capture_counter")
+
+    def write(self, path: str, data: str | bytes) -> None:
+        """Write a file under the output folder, making its folder. SDK v2 shows the model only the tool's name for an
+        exception that isn't a ToolError, so a folder that can't be written says which path, and why."""
+        try:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            if isinstance(data, bytes):
+                with open(path, "wb") as f:
+                    f.write(data)
+            else:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(data)
+        except OSError as e:
+            raise ToolError(f"Could not write {self.rel(path)}: {e}") from e
+
+    def save_png(self, image_base64: str, prefix: str = "capture", number: int | None = None) -> str:
+        """Decode base64 PNG and save to mcp_output/captures/, named with number or the next capture number. Returns
+        the relative path; ToolError on bad data or a folder that can't be written."""
         try:
             data = base64.b64decode(image_base64)
         except (binascii.Error, ValueError) as e:
             raise ToolError(f"Failed to decode image data: {e}") from e
-        cap_dir = os.path.join(self.output_dir, "captures")
-        os.makedirs(cap_dir, exist_ok=True)
-        filepath = os.path.join(cap_dir, f"{prefix}_{self._next('capture_counter'):04d}.png")
-        with open(filepath, "wb") as f:
-            f.write(data)
+        n = self.next_capture() if number is None else number
+        filepath = os.path.join(self.output_dir, "captures", f"{prefix}_{n:04d}.png")
+        self.write(filepath, data)
         return self.rel(filepath)
 
     def text_response(self, text: str, label: str = "output") -> str:
         """Return text inline if short, or write to file and return path."""
         if len(text) <= FILE_THRESHOLD:
             return text
-        out_dir = os.path.join(self.output_dir, "responses")
-        os.makedirs(out_dir, exist_ok=True)
-        filepath = os.path.join(out_dir, f"{label}_{self._next('response_counter'):04d}.txt")
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(text)
+        filepath = os.path.join(self.output_dir, "responses", f"{label}_{self._next('response_counter'):04d}.txt")
+        self.write(filepath, text)
         line_count = text.count("\n") + 1
         return f"Wrote {label} ({len(text):,} chars, {line_count} lines) -> {self.rel(filepath)}"
 
@@ -107,13 +123,11 @@ def create_server(host: str, port: int, output_dir: str, client: BridgeClient | 
     register_all(mcp, bridge, Helpers(output_dir))
 
     def _resource(fn: Callable[..., dict[str, Any]], *args: Any, **kwargs: Any) -> dict[str, Any]:
+        # The tools' own call, its ToolError re-raised as what a resource raises.
         try:
-            resp = fn(*args, **kwargs)
-        except (OSError, BridgeError) as e:
-            raise ResourceError(f"The Kit app is not reachable: {e}") from e
-        if resp["status"] == "error":
-            raise ResourceError(str(resp["error"]))
-        return resp["result"]
+            return bridge_call(fn, *args, **kwargs)["result"]
+        except ToolError as e:
+            raise ResourceError(str(e)) from e
 
     @mcp.resource("omniverse://scene/tree")
     def scene_tree_resource() -> str:

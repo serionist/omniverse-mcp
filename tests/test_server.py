@@ -170,8 +170,23 @@ def test_importing_the_server_does_nothing(tmp_path):
     assert not (tmp_path / "mcp_output").exists()
 
 
+class _SlowCounter(Helpers):
+    """A capture counter that takes a moment between being read and being set, so two threads that both read it
+    before either sets it would get the same number."""
+
+    @property
+    def capture_counter(self) -> int:
+        value = self._count
+        time.sleep(0.001)
+        return value
+
+    @capture_counter.setter
+    def capture_counter(self, value: int) -> None:
+        self._count = value
+
+
 def test_files_are_named_once_each_across_threads(tmp_path):
-    helpers = Helpers(str(tmp_path))
+    helpers = _SlowCounter(str(tmp_path))
     image = base64.b64encode(b"\x89PNG\r\n\x1a\ninvented").decode()
     paths: list[str] = []
     threads = [threading.Thread(target=lambda: paths.append(helpers.save_png(image, "t"))) for _ in range(40)]
@@ -181,6 +196,18 @@ def test_files_are_named_once_each_across_threads(tmp_path):
         thread.join()
     assert len(set(paths)) == 40
     assert len(list(Path(tmp_path, "captures").glob("t_*.png"))) == 40
+
+
+def test_a_folder_that_cant_be_written_is_a_tool_error_naming_it(tmp_path):
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    blocker = tmp_path / "out"
+    blocker.write_text("a file where the output folder should be", encoding="utf-8")
+    helpers = Helpers(str(blocker))
+    with pytest.raises(ToolError, match=r"Could not write .*captures"):
+        helpers.save_png(base64.b64encode(b"invented").decode(), "t")
+    with pytest.raises(ToolError, match=r"Could not write .*responses"):
+        helpers.text_response("x" * 2000, "long")
 
 
 def test_an_image_that_wont_decode_is_a_tool_error(tmp_path):

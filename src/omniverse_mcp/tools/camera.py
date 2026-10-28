@@ -49,9 +49,10 @@ def register(mcp, client, h):
         r = resp["result"]
         lines = []
 
-        # 1. Save viewport image
-        filepath = h.save_png(r["image_base64"], "viewport")
-        capture_id = h.capture_counter  # snapshot counter for consistent filenames
+        # 1. Save viewport image. Its number names the boxes and the segmentation too, taken once: tools run several
+        # at once, and the counter can move between two reads of it.
+        capture_id = h.next_capture()
+        filepath = h.save_png(r["image_base64"], "viewport", number=capture_id)
         lighting_mode = r.get("lighting_mode", "unknown")
         lines.append(f"Viewport: {r['width']}x{r['height']} (lighting: {lighting_mode}) -> {filepath}")
         if r.get("is_black"):
@@ -71,19 +72,17 @@ def register(mcp, client, h):
         # 2. Save screen-space bounding boxes
         bboxes = r.get("screen_bboxes", [])
         if bboxes:
-            bbox_dir = os.path.join(h.output_dir, "captures")
-            os.makedirs(bbox_dir, exist_ok=True)
-            bbox_path = os.path.join(bbox_dir, f"viewport_{capture_id:04d}_bboxes.txt")
-            with open(bbox_path, "w", encoding="utf-8") as f:
-                f.write(f"# Screen-space bounding boxes ({r['width']}x{r['height']})\n")
-                f.write("# Format: [x_min, y_min, x_max, y_max] in pixels\n\n")
-                for b in bboxes:
-                    sb = b["screen_bbox"]
-                    f.write(f"[{b['prim_path']}]\n")
-                    f.write(f"type = {b['type']}\n")
-                    f.write(f"screen_bbox = [{sb[0]}, {sb[1]}, {sb[2]}, {sb[3]}]\n")
-                    f.write(f"world_center = {b['world_center']}\n")
-                    f.write(f"world_dimensions = {b['world_dimensions']}\n\n")
+            bbox_path = os.path.join(h.output_dir, "captures", f"viewport_{capture_id:04d}_bboxes.txt")
+            text = [f"# Screen-space bounding boxes ({r['width']}x{r['height']})\n"]
+            text.append("# Format: [x_min, y_min, x_max, y_max] in pixels\n\n")
+            for b in bboxes:
+                sb = b["screen_bbox"]
+                text.append(f"[{b['prim_path']}]\n")
+                text.append(f"type = {b['type']}\n")
+                text.append(f"screen_bbox = [{sb[0]}, {sb[1]}, {sb[2]}, {sb[3]}]\n")
+                text.append(f"world_center = {b['world_center']}\n")
+                text.append(f"world_dimensions = {b['world_dimensions']}\n\n")
+            h.write(bbox_path, "".join(text))
             lines.append(f"Bounding boxes ({len(bboxes)} prims) -> {h.rel(bbox_path)}")
         else:
             lines.append("Bounding boxes: none (no visible prims)")
@@ -100,11 +99,11 @@ def register(mcp, client, h):
             else:
                 legend_path = seg_path.replace(".png", "_legend.txt")
                 abs_legend = os.path.join(os.getcwd(), legend_path) if not os.path.isabs(legend_path) else legend_path
-                with open(abs_legend, "w", encoding="utf-8") as f:
-                    f.write("# Instance segmentation color legend\n")
-                    f.write("# Format: prim_path = [R, G, B]\n\n")
-                    for prim_path, color in legend.items():
-                        f.write(f"{prim_path} = [{color[0]}, {color[1]}, {color[2]}]\n")
+                legend_lines = [f"{prim_path} = [{c[0]}, {c[1]}, {c[2]}]\n" for prim_path, c in legend.items()]
+                h.write(
+                    abs_legend,
+                    "# Instance segmentation color legend\n# Format: prim_path = [R, G, B]\n\n" + "".join(legend_lines),
+                )
                 lines.append(f"Segmentation -> {seg_path}")
                 lines.append(f"Color legend ({len(legend)} prims) -> {h.rel(abs_legend)}")
         else:
@@ -225,9 +224,7 @@ def register(mcp, client, h):
                         abs_legend = (
                             os.path.join(os.getcwd(), legend_path) if not os.path.isabs(legend_path) else legend_path
                         )
-                        with open(abs_legend, "w", encoding="utf-8") as f:
-                            for pp, clr in legend.items():
-                                f.write(f"{pp} = [{clr[0]}, {clr[1]}, {clr[2]}]\n")
+                        h.write(abs_legend, "".join(f"{pp} = [{c[0]}, {c[1]}, {c[2]}]\n" for pp, c in legend.items()))
                 if cap.get("is_black") and not warned:
                     advice = CAMERA_LIGHT_ON_ADVICE if r.get("lighting_mode") == "camera" else LIGHTING_ADVICE
                     warning = f"  WARNING: One or more captures are all-black. {advice}"
