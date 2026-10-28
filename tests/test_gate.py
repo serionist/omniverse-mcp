@@ -148,6 +148,7 @@ def test_text_without_attribution_passes(line):
         ("claude [bot] <41898282+github-actions[bot]@users.noreply.github.com>", True),
         ("Jane Doe <41898282+github-actions[bot]@users.noreply.github.com>", True),
         ("Ada <dependabot[bot]+claude[bot]@users.noreply.github.com>", True),
+        ("dependabot[bot] <1+claude[bot]@users.noreply.github.com>", True),
         ("dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>", False),
         ("github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>", False),
         ("renovate[bot] <4+renovate[bot]@users.noreply.github.com>", False),
