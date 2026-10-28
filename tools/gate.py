@@ -79,6 +79,8 @@ _TOOL_EMAIL = re.compile(
 # allowlist, matched exactly: a new AI bot is refused without anyone adding it here (S5 review, round 2, F10).
 _BOT_EMAIL = re.compile(r"^(?:\d+\+)?(?P<login>[^@\s\[\]]+)\[bot\]@users\.noreply\.github\.com$", re.IGNORECASE)
 _NON_AI_BOTS = frozenset({"dependabot", "github-actions", "renovate"})
+# A bot's name in the trailer, `claude[bot]`: refused by the same allowlist whatever address it carries.
+_BOT_NAME = re.compile(r"^(?P<login>[^\s\[\]]+)\[bot\]$", re.IGNORECASE)
 # The line a PR's description names its issue with; a squash merge keeps it in the commit on main (AGENTS.md, Commits
 # and PRs). A bare one is the PR template's last line left unfilled.
 _ISSUE_REF = re.compile(r"^[^\w]*(?:refs|closes|fixes)\s+#\d+\b", re.IGNORECASE | re.MULTILINE)
@@ -164,9 +166,9 @@ def tool_co_author(who: str) -> bool:
     if not match:
         return False
     email = (match.group("email") or "").strip()
-    bot = _BOT_EMAIL.match(email)
-    if bot and bot.group("login").lower() not in _NON_AI_BOTS:
-        return True
+    for bot in (_BOT_EMAIL.match(email), _BOT_NAME.match(match.group("name").strip())):
+        if bot and bot.group("login").lower() not in _NON_AI_BOTS:
+            return True
     return bool(_TOOL_EMAIL.match(email)) or bool(_TOOL_NAME.match(match.group("name").strip()))
 
 
