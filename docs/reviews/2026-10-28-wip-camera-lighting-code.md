@@ -33,7 +33,22 @@ three places (`b9b9c61`).
 
 ## Outcome
 
-Kept (D13) and fixed on `2-s1b-camera-lighting`: all ten findings and both improvements. F1, F3 and F6 rest on Kit
-behaviour and wait for the sim suite with `OMNIVERSE_MCP_SIM=1` on Isaac Sim 5.1. Seen while fixing, not in scope:
+Kept (D13) and fixed on `2-s1b-camera-lighting`: all ten findings and both improvements.
+
+## Live run
+
+Isaac Sim 6.2.0, headless, after the rebase onto S1. Integration: 27/27 with `OMNIVERSE_MCP_SIM=1`, including
+auto-fit, zoom offset, isolate and the three lighting actions.
+
+The three findings that rest on Kit, checked from the images:
+
+| # | What was checked | What it showed |
+|---|---|---|
+| F1 | A 0.5 x 0.5 x 4 m prim, front and right | It fills the viewport's real 1280 x 720 frame top to bottom with 19 px left at each edge, nothing cut off; the capture size is the viewport's, not the 640 x 480 asked for. |
+| F3 | The top face, lit by a DistantLight pointing down, with and without isolate | Full brightness both ways, so isolated captures are not dark on 6.2. Hiding the light by hand also left it at full brightness, so whether RTX stops lighting with a hidden light could not be shown here; the old isolate's harm is not reproduced either. The side faces get darker under isolate because the box whose bounce lit them is hidden, as it should be. |
+| F6 | `set` to stage, camera, Default, stage, then `get` | Each mode took and `get` reported it. |
+
+After isolate every prim's visibility is back to `inherited`. Not run here: Isaac Sim 5.1, and a headless app without
+the lighting menu extension (F6's fallback). Seen while fixing, not in scope:
 `capture_viewport` reports the requested width and height and scales its bounding boxes to them, while the image comes
 out at the viewport's resolution.
