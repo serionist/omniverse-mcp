@@ -973,11 +973,17 @@ class TestScenarios(unittest.TestCase):
 
     def test_24_02_get_logs_level_filter(self):
         """Phase 24.2: Get Logs with Level Filter"""
-        r = self.c.get_logs(count=20, min_level="warn")
+        # A warning and an info message of its own, so the filter is seen to keep one and drop the other: with no
+        # warnings in the buffer, or levels named wrongly (#21), checking only what came back proves nothing.
+        marker = f"scenario 24.2 {time.time_ns()}"
+        r = self.c.execute(f'import carb\ncarb.log_warn("{marker} warning")\ncarb.log_info("{marker} info")')
+        self.assertEqual(r["status"], "success")
+        r = self.c.get_logs(count=2000, min_level="warn", search=marker)
         self.assertEqual(r["status"], "success")
         result = r["result"]
-        for entry in result["entries"]:
-            self.assertIn(entry["level"], ["warn", "error", "fatal"], f"Entry level {entry['level']} should be warn+")
+        self.assertEqual([(e["level"], e["msg"]) for e in result["entries"]], [("warn", f"{marker} warning")])
+        r = self.c.get_logs(count=2000, min_level="info", search=marker)
+        self.assertEqual([e["level"] for e in r["result"]["entries"]], ["warn", "info"])
         print(f"  {result['count']} warn+ entries")
         self._pass()
 
