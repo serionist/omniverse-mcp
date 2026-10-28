@@ -17,7 +17,7 @@ Omniverse Kit-based applications (Isaac Sim, USD Composer, etc.) run as self-con
 
 The solution: an HTTP bridge.
 
-## Component 1: MCP Server (`isaac_sim_mcp/`)
+## Component 1: MCP Server (`src/omniverse_mcp/`)
 
 The MCP server is a standalone Python process that:
 
@@ -33,7 +33,7 @@ The MCP server is a standalone Python process that:
 | `server.py` | FastMCP server, file output helpers (`_Helpers`), MCP resources |
 | `client.py` | HTTP/1.1 client with keep-alive connections to the extension |
 | `tools/` | Tool modules — each registers its MCP tools via `register(mcp, client, helpers)` |
-| `__main__.py` | Entry point for `python -m isaac_sim_mcp` |
+| `__main__.py` | Entry point for `python -m omniverse_mcp`; the `omniverse-mcp` command runs `server.main` |
 
 ### Tool modules (`tools/`)
 
@@ -73,7 +73,7 @@ This keeps the MCP context window clean -- the AI reads files on demand rather t
 - JSON request/response encoding
 - Structured logging via Python `logging` module
 
-## Component 2: Omniverse Extension (`extension/`)
+## Component 2: Omniverse Extension (`extension/ovmcp.bridge/`)
 
 The extension is an Omniverse Kit extension that runs inside the application's process. It has full access to USD, PhysX, rendering, and all Omniverse/Isaac Sim APIs.
 
@@ -81,10 +81,10 @@ The extension is an Omniverse Kit extension that runs inside the application's p
 
 | File | Purpose |
 |------|---------|
-| `extension.py` | Kit lifecycle: makes the token, starts the core's HTTP server with the routes |
-| `core/` | Kit-free core, unit-tested without Kit: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (what `/health` reports) |
-| `handlers/` | Handler package — split into focused modules (camera, scene, simulation, recording, robot, misc, usd_advanced, logging) with shared utilities in `_utils.py` and `_mcp_bridge.py` |
-| `formatter.py` | Prim-block text format utilities |
+| `ovmcp/bridge/extension.py` | Kit lifecycle: makes the token, starts the core's HTTP server with the routes |
+| `ovmcp/core/` | Kit-free core, unit-tested without Kit: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `framing.py`, `isolation.py`, `lighting.py`, `serial.py` |
+| `ovmcp/bridge/handlers/` | Handler package — split into focused modules (camera, scene, simulation, recording, robot, misc, usd_advanced, logging) with shared utilities in `_utils.py` and `_mcp_bridge.py` |
+| `ovmcp/bridge/formatter.py` | Prim-block text format utilities |
 | `config/extension.toml` | Extension metadata and default settings |
 
 ### HTTP Server

@@ -1,4 +1,4 @@
-# Omniverse MCP Bridge Extension
+# Omniverse MCP Bridge Extension (`ovmcp.bridge`)
 
 An Omniverse Kit extension that provides an HTTP bridge for AI assistants to control Omniverse applications via the Model Context Protocol (MCP).
 
@@ -14,10 +14,9 @@ See the [main project README](https://github.com/serionist/omniverse-mcp) for in
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `exts."isaacsim.mcp.bridge".host` | `127.0.0.1` | HTTP server bind address |
-| `exts."isaacsim.mcp.bridge".port` | `8211` | HTTP server port |
-| `exts."isaacsim.mcp.bridge".token` | `""` | Empty: a new random token at every start, written to a file only this user can read. Set it only for a remote MCP server, which gets the same value in `OMNIVERSE_MCP_TOKEN` |
-| `exts."isaacsim.mcp.bridge".scene_tree_max_depth` | `8` | Default scene tree traversal depth |
+| `exts."ovmcp.bridge".host` | `127.0.0.1` | HTTP server bind address |
+| `exts."ovmcp.bridge".port` | `8211` | HTTP server port |
+| `exts."ovmcp.bridge".token` | `""` | Empty: a new random token at every start, written to a file only this user can read. Set it only for a remote MCP server, which gets the same value in `OMNIVERSE_MCP_TOKEN` |
 
 Every request needs the bridge token; requests from web pages are refused. See the main project's
 [architecture notes](https://github.com/serionist/omniverse-mcp/blob/main/docs/ARCHITECTURE.md#the-bridge-token).

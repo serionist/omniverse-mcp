@@ -6,65 +6,48 @@ Contributions to Omniverse MCP are welcome. This document explains how to get st
 
 ### Prerequisites
 
-- NVIDIA Omniverse Kit-based application (Isaac Sim 5.1+, USD Composer, etc.)
-- Python 3.10+ (conda recommended)
+- NVIDIA Omniverse Kit-based application, Kit 107 or newer (Isaac Sim 5.x and up)
+- Python 3.11+ and [uv](https://docs.astral.sh/uv/)
 - Git
 
 ### Setting Up the Development Environment
 
-1. Clone the repository:
+1. Clone the repository and install the server with its dev tools:
    ```bash
    git clone https://github.com/serionist/omniverse-mcp.git
    cd omniverse-mcp
+   uv sync
    ```
+   `uv sync` makes `.venv/` with the server installed in editable mode, plus the test tools (`uv.lock` pins them).
 
-2. Create a conda environment:
-   ```bash
-   conda create -n omniverse-mcp python=3.11 -y
-   conda activate omniverse-mcp
-   ```
-
-3. Install in editable mode:
-   ```bash
-   pip install -e .
-   ```
-
-4. Install the extension in your Omniverse application (symlink for development):
-
-   **Linux:**
-   ```bash
-   ln -s /path/to/omniverse-mcp/extension \
-       /path/to/omniverse-app/exts/isaacsim.mcp.bridge
-   ```
-
-   **Windows (PowerShell as Admin):**
-   ```powershell
-   New-Item -ItemType SymbolicLink `
-       -Path "<OMNIVERSE_APP_PATH>\exts\isaacsim.mcp.bridge" `
-       -Target "<REPO_PATH>\extension"
-   ```
-
-5. Enable the extension (Window > Extensions > search "MCP Bridge").
+2. Point your Kit app at the extension: **Window > Extensions > Settings > Extension Search Paths**, add the repo's
+   `extension/` folder, then turn on **Omniverse MCP Bridge** (`ovmcp.bridge`) with autoload. Kit loads the files in
+   place, so a restart picks up your edits.
 
 ## Project Structure
 
 ```
-isaac_sim_mcp/           # MCP server (standalone Python process)
-  server.py              # Tool definitions -- add new tools here
-  client.py              # HTTP client -- add new endpoint methods here
+src/omniverse_mcp/           # MCP server (standalone Python process)
+  server.py                  # FastMCP server, output helpers, resources
+  client.py                  # HTTP client -- add new endpoint methods here
+  tools/                     # MCP tools by area -- add new tools here
 
-extension/               # Omniverse Kit extension (runs inside app)
-  isaacsim/mcp/bridge/
-    extension.py         # HTTP server + routing -- register new routes here
-    handlers.py          # Handler implementations -- add new handlers here
-    formatter.py         # Text format utilities
+extension/ovmcp.bridge/      # Omniverse Kit extension (runs inside the app)
+  config/extension.toml      # Extension id, version and settings
+  ovmcp/bridge/              # Kit-bound: imports omni, carb, pxr
+    extension.py             # Lifecycle; the route table -- register new routes here
+    handlers/                # Handler implementations -- add new handlers here
+    formatter.py             # Prim-block text format
+  ovmcp/core/                # Kit-free: HTTP server, token, framing, isolation; unit-tested without Kit
+
+tests/                       # pytest; test_integration.py and test_scenarios.py need a running Kit app
 ```
 
 ## Adding a New Tool
 
 A new MCP tool requires changes in three places:
 
-### 1. Add the handler (`extension/.../handlers.py`)
+### 1. Add the handler (`extension/ovmcp.bridge/ovmcp/bridge/handlers/<area>.py`)
 
 ```python
 async def handle_my_feature(data, send_response):
@@ -82,7 +65,7 @@ async def handle_my_feature(data, send_response):
     await send_response({"status": "success", "result": result})
 ```
 
-### 2. Register the route (`extension/.../extension.py`)
+### 2. Register the route (`extension/ovmcp.bridge/ovmcp/bridge/extension.py`)
 
 Add the endpoint to the `_routes` dict in the `Extension` class:
 
@@ -93,14 +76,14 @@ self._routes = {
 }
 ```
 
-### 3. Add the HTTP client method (`isaac_sim_mcp/client.py`)
+### 3. Add the HTTP client method (`src/omniverse_mcp/client.py`)
 
 ```python
 def my_feature(self, param: str) -> dict:
     return self._post("/my/endpoint", {"param": param})
 ```
 
-### 4. Add the MCP tool (`isaac_sim_mcp/server.py`)
+### 4. Add the MCP tool (`src/omniverse_mcp/tools/<area>.py`)
 
 ```python
 @mcp.tool()
@@ -128,14 +111,16 @@ def my_feature(param: str = "default") -> str:
 ### Unit tests (no Isaac Sim needed)
 
 ```bash
-python -m pytest tests/test_client.py -v
+uv run pytest
 ```
 
 ### Integration tests (requires running Omniverse app with extension enabled)
 
 ```bash
-python -m pytest tests/test_integration.py -v
+OMNIVERSE_MCP_SIM=1 uv run pytest tests/test_integration.py tests/test_scenarios.py
 ```
+
+Without `OMNIVERSE_MCP_SIM=1` these skip when no Kit app answers; with it, they fail instead.
 
 ### AI-driven scenario tests
 

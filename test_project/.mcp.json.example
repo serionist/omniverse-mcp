@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "omniverse": {
+      "command": "uv",
+      "args": ["run", "--project", "..", "omniverse-mcp"]
+    }
+  }
+}
