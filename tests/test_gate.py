@@ -669,13 +669,13 @@ def test_a_plugin_server_without_its_pin_fails(tmp_path, monkeypatch):
         json.dumps({"mcpServers": {"omniverse": {"command": "uvx", "args": ["omniverse-mcp"]}}}), encoding="utf-8"
     )
     result = gate.check_plugin(gate.Scope([]), root=root)
-    assert "must start the server of this release" in result.output + result.detail
+    assert "must be exactly" in result.output + result.detail
 
 
 @pytest.mark.parametrize(
     ("rel", "old", "new", "expected"),
     [
-        ("plugin/skills/setup/SKILL.md", "ovmcp.bridge-0.1.0", "ovmcp.bridge-9.9.9", "has version '9.9.9'"),
+        ("plugin/skills/setup/SKILL.md", "ovmcp.bridge-{version}", "ovmcp.bridge-9.9.9", "has version '9.9.9'"),
         ("plugin/README.md", "`/omniverse-mcp:scene`", "`/omniverse-mcp:look`", "does not list `/omniverse-mcp:scene`"),
         (gate.AI_GUIDE, "skills/geometry/SKILL.md", "skills/geo/SKILL.md", "does not link the skill geometry"),
         (
@@ -687,14 +687,32 @@ def test_a_plugin_server_without_its_pin_fails(tmp_path, monkeypatch):
         ("plugin/hooks/hooks.json", None, "{}", "plugin/hooks/hooks.json: a file the gate doesn't check"),
         (gate.PLUGIN_MANIFEST, '"license"', '"mcpServers": {}, "license"', "the key 'mcpServers' isn't checked"),
         (gate.MARKETPLACE, None, "{not json", "can't be read"),
+        (gate.MARKETPLACE, '"source"', '"hooks": {}, "source"', "the plugin's key 'hooks' isn't checked"),
+        (gate.PLUGIN_MCP, '"args": [', '"args": [\n"--from", "git+https://example.org/x",', "must be exactly"),
+        (gate.PLUGIN_MCP, '"PYTHONPATH": ""', '"PYTHONPATH": "", "X": "1"', "must be exactly"),
     ],
-    ids=["extension pin", "README", "AI guide", "relative link", "a hooks file", "a manifest key", "unreadable"],
+    ids=[
+        "extension pin",
+        "README",
+        "AI guide",
+        "relative link",
+        "a hooks file",
+        "a manifest key",
+        "unreadable",
+        "a marketplace key",
+        "a server argument",
+        "a server variable",
+    ],
 )
 def test_the_plugin_check_finds(rel, old, new, expected, tmp_path, monkeypatch):
     root = _plugin_tree(tmp_path)
     monkeypatch.setattr(gate.shutil, "which", lambda name: None)
+    monkeypatch.delenv("GATE_REQUIRE_CLAUDE", raising=False)
     assert gate.check_plugin(gate.Scope([]), root=root).status == "warn"
     path = root / rel
+    if old is not None:
+        # The release's version where a case names it, so the cases hold after the next bump.
+        old = old.format(version=gate.plugin_versions(root, gate._json(root / gate.PLUGIN_MANIFEST))["pyproject.toml"])
     if old is None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(new, encoding="utf-8")

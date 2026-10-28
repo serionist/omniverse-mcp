@@ -12,6 +12,7 @@ import golden
 import pytest
 from mcp import Client
 
+from omniverse_mcp import kit_extension
 from omniverse_mcp.client import BridgeClient
 from omniverse_mcp.server import create_server
 
@@ -539,7 +540,8 @@ def test_manage_extensions_enables_one(bridge: MockIsaacServer, tmp_path: Path):
 
 
 def test_get_sim_state_says_nothing_more_when_the_extension_is_this_release(bridge: MockIsaacServer, tmp_path: Path):
-    release = version("omniverse-mcp")
+    # The extension this checkout carries, which is what a server started from it installs.
+    release = kit_extension.carried_version()
     bridge.set_response("/bridge", {"status": "success", "result": {"protocol": 1, "extension_version": release}})
     bridge.set_response("/sim/state", {"status": "success", "result": {"state": "stopped"}})
     client = BridgeClient(port=bridge.port, token="invented-test-token")
@@ -553,5 +555,5 @@ def test_get_sim_state_says_nothing_more_when_the_extension_is_this_release(brid
     finally:
         client.close()
     text = "\n".join(getattr(c, "text", "") for c in result.content)
-    assert f"extension_version = {release}\nserver_version = {release}" in text
+    assert f"extension_version = {release}\nserver_version = {version('omniverse-mcp')}" in text
     assert "note = " not in text

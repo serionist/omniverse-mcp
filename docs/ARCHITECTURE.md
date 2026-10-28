@@ -145,7 +145,7 @@ over 10 seconds to send its headers too. Connections without the token never hol
 `GET /bridge` is answered by the HTTP server itself, whatever state Kit is in. The server refuses an extension whose
 `protocol` differs from its own, or that has no `/bridge`, and says which side to update. Another
 `extension_version` on the same protocol is not refused: the client keeps it, and `get_sim_state` reports it beside
-the server's, with the install command when they differ. `/health` reports `protocol` and `extension_version` as
+the server's, with the install command when it differs from the extension the server carries. `/health` reports `protocol` and `extension_version` as
 well, for people.
 
 ### Request routing

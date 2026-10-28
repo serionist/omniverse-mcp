@@ -71,6 +71,8 @@ PLUGIN_NAME = "omniverse-mcp"  # the plugin's and the marketplace's name
 # something the gate doesn't check, as would a file under plugin/ other than these.
 PLUGIN_KEYS = ("name", "version", "description", "author", "homepage", "repository", "license", "keywords")
 PLUGIN_FILES = (".claude-plugin/plugin.json", ".mcp.json", "README.md")
+# The marketplace's entry may add commands, agents, hooks or servers to the plugin's own, so it holds only these.
+MARKET_ENTRY_KEYS = ("name", "source", "description")
 AI_GUIDE = "docs/AI_GUIDE.md"
 SKILL_URL = "https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/{}/SKILL.md"
 TOOL_CONTRACT = "tests/fixtures/mcp-tools.json"
@@ -408,6 +410,11 @@ def manifest_problems(plugin: dict[str, Any], market: dict[str, Any], servers: d
             problems.append(f"{MARKETPLACE}: the plugin's source is ./{PLUGIN_DIR}")
         if entries[0].get("description") != plugin.get("description"):
             problems.append(f"{MARKETPLACE}: the plugin's description differs from {PLUGIN_MANIFEST}'s")
+        problems += [
+            f"{MARKETPLACE}: the plugin's key {key!r} isn't checked by the gate"
+            for key in entries[0]
+            if key not in MARKET_ENTRY_KEYS
+        ]
     if list(servers) != [PLUGIN_SERVER]:
         problems.append(f"{PLUGIN_MCP} starts one server, {PLUGIN_SERVER!r}, a one-way door; it has {list(servers)}")
     return problems
@@ -669,8 +676,12 @@ def check_plugin(_scope: Scope, root: Path = ROOT) -> Result:
     ]
     problems += plugin_file_problems(root)
     versions = plugin_versions(root, plugin)
-    if not any(where.startswith(PLUGIN_MCP) for where in versions):
-        problems.append(f"{PLUGIN_MCP} must start the server of this release, omniverse-mcp==<version>")
+    # The server exactly as the release starts it: another argument (--from a URL) or variable is code the gate can't
+    # vouch for. PYTHONPATH empty: one from the user's shell (Isaac Sim's conda setup sets one) would reach uvx's
+    # Python.
+    server = {"command": "uvx", "args": [f"omniverse-mcp=={versions['pyproject.toml']}"], "env": {"PYTHONPATH": ""}}
+    if servers.get(PLUGIN_SERVER) not in (None, server):
+        problems.append(f"{PLUGIN_MCP}: the server {PLUGIN_SERVER!r} must be exactly {json.dumps(server)}")
     problems += version_problems(versions)
     reads = {name for name, tool in tools.items() if tool.get("annotations", {}).get("readOnlyHint")}
     skills = sorted((root / PLUGIN_SKILLS_DIR).glob("*/SKILL.md"))

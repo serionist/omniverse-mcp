@@ -7,7 +7,7 @@ from mcp.server.mcpserver import MCPServer
 from pydantic import Field
 
 from omniverse_mcp.client import BridgeClient
-from omniverse_mcp.kit_extension import install_command
+from omniverse_mcp.kit_extension import carried_version, install_command
 
 from ._annotations import EDITS, READS
 from ._bridge import bridge_call
@@ -35,6 +35,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         r = resp["result"]
         server = version("omniverse-mcp")
         extension = client.extension_version or "unknown"
+        carried = carried_version()
         lines = [
             f"state = {r.get('state', 'unknown')}",
             f"up_axis = {r.get('up_axis', '?')}",
@@ -45,9 +46,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             f"extension_version = {extension}",
             f"server_version = {server}",
         ]
-        if extension != server:
+        if extension != carried:
             lines.append(
-                f"note = the Kit extension is {extension} and this server {server}: install the server's, "
+                f"note = the Kit extension is {extension} and this server's is {carried}: install the server's, "
                 f"{install_command()}, then restart Kit"
             )
         return "\n".join(lines)

@@ -192,7 +192,7 @@ For a remote setup, set the extension's `token` to a long random value and give 
 
 **"The Kit extension is older than this MCP server", or "speaks bridge protocol"** -- The server and the extension come from different releases. Run the command the message names (or `git pull` in a clone), then restart Kit so it loads the new extension.
 
-**"Kit app connection failed"** -- Is the Kit app running, with the extension on? Its console shows `[ext: ovmcp.bridge-<version>] startup`. The server looks for it on port 8211 unless `OMNIVERSE_MCP_PORT` or `--port` says otherwise.
+**"Kit app connection failed", refused or timed out** -- Is the Kit app running, with the extension on? Its console shows `[ext: ovmcp.bridge-<version>] startup`. The server looks for it on port 8211 unless `OMNIVERSE_MCP_PORT` or `--port` says otherwise.
 
 **The plugin's server doesn't start** -- `/mcp` in Claude Code shows its error. Is `uv` on the PATH Claude Code starts with? Before 0.2.0 is on PyPI, use a clone (Install, From a clone).
 

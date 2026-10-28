@@ -17,10 +17,10 @@ two can talk. Kit's settings are the user's: say what to click, never edit Kit's
 ## Steps
 
 1. **Check first.** Call `get_sim_state`.
-   - It answers, with `extension_version` equal to `server_version`: the setup is done. Say so, with the up axis,
-     units and prim count it reports, and stop.
-   - It answers with another `extension_version` (a `note` line says so): Kit runs another release's extension, as
-     after an update of the plugin. Go on with step 2.
+   - It answers without a `note` line: the setup is done. Say so, with the up axis, units and prim count it
+     reports, and stop.
+   - It answers with a `note`: Kit runs another release's extension, after an update of the plugin or from an older
+     copy (a clone of the repo). Go on with step 2.
    - It fails: its message says why; go on with the step it points at (step 4 lists them).
    - There is no such tool: the plugin's server didn't start. `/mcp` shows its error. Without `uv` the user installs
      it (https://docs.astral.sh/uv/getting-started/installation/) and restarts Claude Code; a version not found means
@@ -33,8 +33,8 @@ two can talk. Kit's settings are the user's: say what to click, never edit Kit's
 
    It copies `ovmcp.bridge` into the user's data folder, in place of an older one, and prints the folder Kit needs.
    On Windows, "Could not install ... quit it" means a Kit app has the extension loaded: ask the user to quit it,
-   then run the command again. When the folder is already on Kit's search path (an update), skip step 3: restarting
-   Kit loads the new extension.
+   then run the command again. When it printed "in place of <version>", the folder is already on Kit's search path:
+   skip step 3, and have the user restart Kit. Otherwise do step 3.
 3. **Point Kit at the folder, once,** by the user's hand, in the Kit app:
    - **Window > Extensions**, the menu (☰) at the top right, **Settings**;
    - under **Extension Search Paths**, the green **+**, then the folder the command printed;
@@ -44,20 +44,22 @@ two can talk. Kit's settings are the user's: say what to click, never edit Kit's
    A headless or scripted Kit takes `--ext-folder <the folder> --enable ovmcp.bridge` on its command line instead.
    A user who had the extension from a clone of the repo (`isaacsim.mcp.bridge` or the clone's `extension/` folder)
    turns that one off and removes its search path, so Kit loads one copy.
-4. **Check again** with `get_sim_state`: `extension_version` equals `server_version`. The Kit console shows
-   `[ext: ovmcp.bridge-0.1.0] startup` once the extension runs.
-   - "Kit app connection failed": Kit isn't running, the extension is off, or it listens on another port than the
-     server (`OMNIVERSE_MCP_PORT`, 8211 by default).
+4. **Check again** with `get_sim_state`: it answers without a `note`. The Kit console shows
+   `[ext: ovmcp.bridge-0.1.0] startup` once the extension runs. Every failure starts "Kit app connection failed";
+   what follows says which:
    - "Missing or wrong bridge token": Kit runs as another user or on another machine; the README's [bridge
      token](https://github.com/serionist/omniverse-mcp#the-bridge-token) section says how to set one by hand.
-   - "older than this MCP server" or "speaks bridge protocol": the extension is from another release; run step 2
-     again and restart Kit.
+   - "older than this MCP server" or "speaks bridge protocol": Kit loads another release's extension. Did step 2
+     run? Then Kit loads another copy: do step 3, its last paragraph too.
+   - It answers, with a `note` still: Kit loads another copy too; do step 3, its last paragraph too.
+   - Anything else (refused, timed out): Kit isn't running, the extension is off, or it listens on another port than
+     the server (`OMNIVERSE_MCP_PORT`, 8211 by default).
 5. **Keep the outputs out of git.** The server writes captures and long answers to `mcp_output/` in the project.
    When the project is a git repository and `.gitignore` doesn't name it, offer to add the line `mcp_output/`.
 
 ## Done means
 
-- `get_sim_state` answers from the user's Kit app, with `extension_version` equal to `server_version`.
+- `get_sim_state` answers from the user's Kit app, without a `note`.
 - The user knows the extension autoloads, and that after updating the plugin this skill updates the extension.
 
 ## Never

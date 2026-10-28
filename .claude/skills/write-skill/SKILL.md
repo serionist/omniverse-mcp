@@ -47,6 +47,8 @@ calls, not in prose the agent has to get right.
 `plugin/skills/<name>/SKILL.md` serves the plugin's users, in Claude Code, not this repo's developers. Steps 1 to 4
 hold, with these differences:
 
+- **`SKILL.md` alone** in its folder: the gate allows no other file under `plugin/`, as anything there could run.
+
 - **`allowed-tools`** may join `name` and `description`, as a `>-` block naming only tools whose `readOnlyHint` is
   true in `tests/fixtures/mcp-tools.json`, as `mcp__plugin_omniverse-mcp_omniverse__<tool>`: a tool that edits the
   stage, saves or exports a file, or runs code always asks the user. Never `execute_script`, never a shell command.

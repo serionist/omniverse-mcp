@@ -471,7 +471,7 @@ Improvements taken:
   - on this machine, `git config --global --add safe.directory D:/workspaces/omniverse-mcp` (the folder belongs to the
     `Work` account).
 - **S5, PyPI:** a pending trusted publisher for `omniverse-mcp` (this repo, `release.yml`, environment `pypi`), so
-  nobody takes the name first (R9).
+  the first release can publish. It doesn't reserve the name: only the first upload does (R9).
 - **S5, the merge rules:** applied by the main session through the GitHub API on 2026-10-28, on the maintainer's
   "apply all" (D16):
   - the ruleset `main` (id 26045633) on `main`: no deletion, no force push, PRs only with squash, and two required
