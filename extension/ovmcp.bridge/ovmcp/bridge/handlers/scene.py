@@ -15,7 +15,6 @@ from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
 from ._utils import (
     _apply_xform,
-    _collect_materials,
     _compute_mesh_stats,
     _compute_world_bbox,
     _get_stage,
@@ -23,10 +22,10 @@ from ._utils import (
     _serialize_value,
 )
 
-
 # ---------------------------------------------------------------------------
 # /scene/tree
 # ---------------------------------------------------------------------------
+
 
 async def handle_scene_tree(body: dict) -> dict:
     root_path = body.get("root", "/")
@@ -42,8 +41,10 @@ async def handle_scene_tree(body: dict) -> dict:
     if fmt == "text":
         # Lightweight prim-block text: path + type + position only (no full properties)
         from ..formatter import format_value
+
         lines = []
         prim_count = 0
+
         def _walk_text(prim, depth):
             nonlocal prim_count
             if depth > max_depth:
@@ -123,6 +124,7 @@ async def handle_scene_tree(body: dict) -> dict:
 # /scene/dump  (writes full scene to file, returns file path)
 # ---------------------------------------------------------------------------
 
+
 async def handle_scene_dump(body: dict) -> dict:
     output_dir = body.get("output_dir", "")
     root_path = body.get("root", "/")
@@ -142,8 +144,11 @@ async def handle_scene_dump(body: dict) -> dict:
         return {"status": "error", "error": f"Prim not found: {root_path}"}
 
     from ..formatter import format_scene_dump
+
     text = format_scene_dump(
-        stage, root_path, max_depth,
+        stage,
+        root_path,
+        max_depth,
         include_properties=include_properties,
         include_bounds=True,
         filter_types=filter_types or None,
@@ -172,6 +177,7 @@ async def handle_scene_dump(body: dict) -> dict:
 # /scene/prim
 # ---------------------------------------------------------------------------
 
+
 async def handle_prim_properties(body: dict) -> dict:
     prim_path = body.get("prim_path", "")
     fmt = body.get("format", "json")  # "json" or "text"
@@ -185,8 +191,8 @@ async def handle_prim_properties(body: dict) -> dict:
 
     if fmt == "text":
         from ..formatter import format_prim_block
-        text = format_prim_block(prim, include_properties=True,
-                                 include_transform=True, include_bounds=True)
+
+        text = format_prim_block(prim, include_properties=True, include_transform=True, include_bounds=True)
         return {"status": "success", "result": {"text": text, "prim_path": prim_path}}
 
     props = {}
@@ -222,6 +228,7 @@ async def handle_prim_properties(body: dict) -> dict:
 # /scene/bounds
 # ---------------------------------------------------------------------------
 
+
 async def handle_prim_bounds(body: dict) -> dict:
     prim_path = body.get("prim_path", "")
     if not prim_path:
@@ -254,6 +261,7 @@ async def handle_prim_bounds(body: dict) -> dict:
 # /scene/transform
 # ---------------------------------------------------------------------------
 
+
 async def handle_transform(body: dict) -> dict:
     prim_path = body.get("prim_path", "")
     if not prim_path:
@@ -278,6 +286,7 @@ async def handle_transform(body: dict) -> dict:
 # ---------------------------------------------------------------------------
 # /scene/create
 # ---------------------------------------------------------------------------
+
 
 async def handle_create_prim(body: dict) -> dict:
     prim_path = body.get("prim_path", "")
@@ -314,6 +323,7 @@ async def handle_create_prim(body: dict) -> dict:
 # /scene/delete
 # ---------------------------------------------------------------------------
 
+
 async def handle_delete_prim(body: dict) -> dict:
     prim_path = body.get("prim_path", "")
     if not prim_path:
@@ -335,6 +345,7 @@ async def handle_delete_prim(body: dict) -> dict:
 # ---------------------------------------------------------------------------
 # /scene/material
 # ---------------------------------------------------------------------------
+
 
 def _ensure_material(stage, mat_path: str):
     """Get or create an OmniPBR material at the given path. Returns (material, shader)."""
@@ -428,12 +439,13 @@ async def handle_set_material(body: dict) -> dict:
 # /scene/clone
 # ---------------------------------------------------------------------------
 
+
 async def handle_clone_prim(body: dict) -> dict:
     """Clone a prim (deep copy). Optionally create multiple copies with offset."""
     source_path = body.get("source_path", "")
     target_path = body.get("target_path", "")
     count = body.get("count", 1)
-    offset = body.get("offset", None)  # [x, y, z] per-copy offset
+    offset = body.get("offset")  # [x, y, z] per-copy offset
 
     if not source_path:
         return {"status": "error", "error": "No source_path provided"}
@@ -475,6 +487,7 @@ async def handle_clone_prim(body: dict) -> dict:
 # /scene/visibility
 # ---------------------------------------------------------------------------
 
+
 async def handle_set_visibility(body: dict) -> dict:
     prim_path = body.get("prim_path", "")
     visible = body.get("visible", True)
@@ -503,6 +516,7 @@ async def handle_set_visibility(body: dict) -> dict:
 # /scene/save
 # ---------------------------------------------------------------------------
 
+
 async def handle_save_scene(body: dict) -> dict:
     file_path = body.get("file_path", "")
 
@@ -523,6 +537,7 @@ async def handle_save_scene(body: dict) -> dict:
 # ---------------------------------------------------------------------------
 # /scene/new
 # ---------------------------------------------------------------------------
+
 
 async def handle_new_scene(_body: dict) -> dict:
     await _next_update()
@@ -546,6 +561,7 @@ async def handle_new_scene(_body: dict) -> dict:
 # /scene/mesh_stats
 # ---------------------------------------------------------------------------
 
+
 async def handle_mesh_stats(body: dict) -> dict:
     """Get face/vertex/triangle counts for a mesh or subtree."""
     prim_path = body.get("prim_path", "")
@@ -567,6 +583,7 @@ async def handle_mesh_stats(body: dict) -> dict:
 # ---------------------------------------------------------------------------
 # /scene/face_count_tree
 # ---------------------------------------------------------------------------
+
 
 async def handle_face_count_tree(body: dict) -> dict:
     """Scene tree with face counts per mesh and subtree totals."""

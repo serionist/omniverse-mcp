@@ -15,12 +15,14 @@ from ._utils import _get_stage, _next_update
 def _get_recording_active():
     """Get recording state without circular import."""
     from .recording import _recording_state
+
     return _recording_state["active"]
 
 
 # ---------------------------------------------------------------------------
 # /sim/control
 # ---------------------------------------------------------------------------
+
 
 async def handle_sim_control(body: dict) -> dict:
     action = body.get("action", "").lower()
@@ -57,6 +59,7 @@ async def handle_sim_control(body: dict) -> dict:
 # /sim/state
 # ---------------------------------------------------------------------------
 
+
 async def handle_sim_state(_body: dict) -> dict:
     timeline = omni.timeline.get_timeline_interface()
     is_playing = timeline.is_playing()
@@ -87,6 +90,7 @@ async def handle_sim_state(_body: dict) -> dict:
 # ---------------------------------------------------------------------------
 # /physics/properties
 # ---------------------------------------------------------------------------
+
 
 async def handle_set_physics_properties(body: dict) -> dict:
     """Set mass, friction, restitution on a prim."""
@@ -150,9 +154,12 @@ async def handle_set_physics_properties(body: dict) -> dict:
     return {
         "status": "success",
         "result": {
-            "prim_path": prim_path, "applied": applied,
-            "mass": mass, "density": density,
-            "friction": friction, "restitution": restitution,
+            "prim_path": prim_path,
+            "applied": applied,
+            "mass": mass,
+            "density": density,
+            "friction": friction,
+            "restitution": restitution,
         },
     }
 
@@ -160,6 +167,7 @@ async def handle_set_physics_properties(body: dict) -> dict:
 # ---------------------------------------------------------------------------
 # /physics/apply_force
 # ---------------------------------------------------------------------------
+
 
 async def handle_apply_force(body: dict) -> dict:
     """Apply a force or impulse to a rigid body. Requires sim playing."""
@@ -185,6 +193,7 @@ async def handle_apply_force(body: dict) -> dict:
     method = "physx"
     try:
         from omni.physx import get_physx_interface
+
         physx = get_physx_interface()
         pos = carb.Float3(*(position if position and len(position) == 3 else [0, 0, 0]))
         f = carb.Float3(*force)
@@ -195,6 +204,7 @@ async def handle_apply_force(body: dict) -> dict:
             try:
                 # Isaac Sim 5.x may use different API
                 from omni.physx.scripts import utils as physx_utils
+
                 physx_utils.apply_force_at_pos(prim_path, f, pos)
             except Exception:
                 raise
@@ -210,11 +220,13 @@ async def handle_apply_force(body: dict) -> dict:
             if old is None:
                 old = Gf.Vec3f(0, 0, 0)
             scale = 0.01 if not is_impulse else 1.0  # force-like: scale down
-            vel_attr.Set(Gf.Vec3f(
-                float(old[0]) + force[0] * scale,
-                float(old[1]) + force[1] * scale,
-                float(old[2]) + force[2] * scale,
-            ))
+            vel_attr.Set(
+                Gf.Vec3f(
+                    float(old[0]) + force[0] * scale,
+                    float(old[1]) + force[1] * scale,
+                    float(old[2]) + force[2] * scale,
+                )
+            )
         except Exception as e2:
             return {"status": "error", "error": f"PhysX force: {e}; velocity fallback: {e2}"}
 
@@ -234,6 +246,7 @@ async def handle_apply_force(body: dict) -> dict:
 # /physics/raycast
 # ---------------------------------------------------------------------------
 
+
 async def handle_raycast(body: dict) -> dict:
     """Cast a ray and return hit info. Requires PhysicsScene in stage."""
     origin = body.get("origin")
@@ -251,11 +264,10 @@ async def handle_raycast(body: dict) -> dict:
 
     try:
         from omni.physx import get_physx_scene_query_interface
+
         sqi = get_physx_scene_query_interface()
 
-        result = sqi.raycast_closest(
-            carb.Float3(*origin), carb.Float3(*direction), float(max_distance)
-        )
+        result = sqi.raycast_closest(carb.Float3(*origin), carb.Float3(*direction), float(max_distance))
         if result and result.get("hit", False):
             hit_result["hit"] = True
             pos = result.get("position", (0, 0, 0))
@@ -265,6 +277,9 @@ async def handle_raycast(body: dict) -> dict:
             hit_result["distance"] = float(result.get("distance", 0))
             hit_result["prim_path"] = str(result.get("rigidBody", ""))
     except Exception as e:
-        return {"status": "error", "error": f"Raycast failed: {e}. Ensure PhysicsScene exists and sim has been stepped."}
+        return {
+            "status": "error",
+            "error": f"Raycast failed: {e}. Ensure PhysicsScene exists and sim has been stepped.",
+        }
 
     return {"status": "success", "result": hit_result}

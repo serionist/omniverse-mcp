@@ -44,11 +44,20 @@ class TestScenarios(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         # Cleanup
-        for path in ["/World/Ground", "/World/RedCube", "/World/BlueSphere",
-                      "/World/Light", "/World/G1", "/World/PhysicsScene",
-                      "/World/Looks", "/World/RedCube_Clone",
-                      "/World/CloneBatch_001", "/World/CloneBatch_002", "/World/CloneBatch_003",
-                      "/World/PhysicsMaterials"]:
+        for path in [
+            "/World/Ground",
+            "/World/RedCube",
+            "/World/BlueSphere",
+            "/World/Light",
+            "/World/G1",
+            "/World/PhysicsScene",
+            "/World/Looks",
+            "/World/RedCube_Clone",
+            "/World/CloneBatch_001",
+            "/World/CloneBatch_002",
+            "/World/CloneBatch_003",
+            "/World/PhysicsMaterials",
+        ]:
             try:
                 cls.c.delete_prim(path)
             except Exception:
@@ -62,8 +71,8 @@ class TestScenarios(unittest.TestCase):
         results_path = os.path.join(results_dir, "test_results.md")
         with open(results_path, "w") as f:
             f.write("# Test Results\n\n")
-            f.write(f"| # | Test | Result |\n")
-            f.write(f"|---|------|--------|\n")
+            f.write("| # | Test | Result |\n")
+            f.write("|---|------|--------|\n")
             for i, (name, status) in enumerate(cls.results, 1):
                 f.write(f"| {i} | {name} | {status} |\n")
         print(f"\nResults written to: {results_path}")
@@ -119,7 +128,7 @@ class TestScenarios(unittest.TestCase):
         tree_str = json.dumps(tree["result"])
         for name in ["Ground", "RedCube", "BlueSphere", "Light"]:
             self.assertIn(name, tree_str)
-        print(f"  Created 4 prims with materials")
+        print("  Created 4 prims with materials")
         self._pass()
 
     def test_02_02_transform_operations(self):
@@ -130,7 +139,7 @@ class TestScenarios(unittest.TestCase):
         self.assertEqual(r["status"], "success")
         r = self.c.set_transform("/World/RedCube", scale=[0.5, 0.5, 0.5])
         self.assertEqual(r["status"], "success")
-        print(f"  Transform updated")
+        print("  Transform updated")
         self._pass()
 
     def test_02_03_delete_prim(self):
@@ -141,11 +150,11 @@ class TestScenarios(unittest.TestCase):
         tree = self.c.scene_tree("/World", 2)
         # Check prim path is gone (material BlueSphere_Mat may still exist under /World/Looks)
         tree_str = json.dumps(tree["result"])
-        self.assertNotIn("/World/BlueSphere\"", tree_str)
+        self.assertNotIn('/World/BlueSphere"', tree_str)
 
         r = self.c.delete_prim("/World/Nonexistent")
         self.assertEqual(r["status"], "error")
-        print(f"  Delete OK, error on missing: OK")
+        print("  Delete OK, error on missing: OK")
         self._pass()
 
     def test_02_04_bounding_box(self):
@@ -195,7 +204,7 @@ class TestScenarios(unittest.TestCase):
         self.assertEqual(r["status"], "success")
         cap = self.c.capture_viewport(640, 480)
         self.assertEqual(cap["status"], "success")
-        print(f"  Camera set + captured")
+        print("  Camera set + captured")
         self._pass()
 
     def test_03_03_look_at_prim(self):
@@ -247,7 +256,9 @@ class TestScenarios(unittest.TestCase):
 
     def test_04_03_usd_api_access(self):
         """Phase 4.3: USD API Access"""
-        r = self.c.execute("stage = omni.usd.get_context().get_stage(); result = [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChildren()]")
+        r = self.c.execute(
+            "stage = omni.usd.get_context().get_stage(); result = [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChildren()]"
+        )
         self.assertEqual(r["status"], "success")
         paths = r["result"]["return_value"]
         self.assertIsInstance(paths, list)
@@ -285,7 +296,7 @@ class TestScenarios(unittest.TestCase):
         props = self.c.prim_properties("/World/RedCube")
         props_str = json.dumps(props["result"])
         self.assertTrue("rigidBody" in props_str.lower() or "physics" in props_str.lower())
-        print(f"  Physics APIs applied")
+        print("  Physics APIs applied")
         self._pass()
 
     # ===== Phase 5: Simulation & Physics =====
@@ -370,7 +381,7 @@ class TestScenarios(unittest.TestCase):
 
         r5 = self.c.recording_frame(rec_dir, 3)
         if r5["status"] == "success":
-            print(f"  Frame 0 and 3 retrieved")
+            print("  Frame 0 and 3 retrieved")
         self._pass()
 
     # ===== Phase 7: Recording with Prim State Tracking =====
@@ -383,8 +394,7 @@ class TestScenarios(unittest.TestCase):
         time.sleep(0.2)
 
         output_dir = os.path.join(os.path.dirname(__file__), "..", "test_project", "results", "recordings_state")
-        r = self.c.recording_start(output_dir, fps=10, width=320, height=240,
-                                    track_prims=["/World/RedCube"])
+        r = self.c.recording_start(output_dir, fps=10, width=320, height=240, track_prims=["/World/RedCube"])
         self.assertEqual(r["status"], "success")
         self.__class__._state_rec_dir = r["result"]["output_dir"]
 
@@ -427,8 +437,7 @@ class TestScenarios(unittest.TestCase):
         if len(positions) >= 2:
             max_y = max(positions)
             min_y = min(positions)
-            self.assertGreater(max_y - min_y, 0.1,
-                               f"Y should vary due to gravity: max={max_y:.2f}, min={min_y:.2f}")
+            self.assertGreater(max_y - min_y, 0.1, f"Y should vary due to gravity: max={max_y:.2f}, min={min_y:.2f}")
             print(f"  Y positions: max={max_y:.2f}, min={min_y:.2f}, frames={len(positions)}")
         self._pass()
 
@@ -440,9 +449,14 @@ class TestScenarios(unittest.TestCase):
         time.sleep(0.2)
 
         output_dir = os.path.join(os.path.dirname(__file__), "..", "test_project", "results", "recordings_filtered")
-        r = self.c.recording_start(output_dir, fps=10, width=320, height=240,
-                                    track_prims=["/World/RedCube"],
-                                    property_filter=["xformOp", "physics"])
+        r = self.c.recording_start(
+            output_dir,
+            fps=10,
+            width=320,
+            height=240,
+            track_prims=["/World/RedCube"],
+            property_filter=["xformOp", "physics"],
+        )
         self.assertEqual(r["status"], "success")
 
         self.c.sim_control("play")
@@ -460,8 +474,11 @@ class TestScenarios(unittest.TestCase):
             # Should have filtered properties
             self.assertIn("[/World/RedCube]", content)
             # Should NOT have unrelated properties like "extent" or "purpose"
-            lines = [l for l in content.split("\n")
-                     if "=" in l and not l.startswith("#") and not l.startswith("===") and not l.startswith("[")]
+            lines = [
+                l
+                for l in content.split("\n")
+                if "=" in l and not l.startswith("#") and not l.startswith("===") and not l.startswith("[")
+            ]
             # Formatter always adds: type, pos, rot, rigid_body, articulation_root
             always_keys = {"type", "pos", "rot", "rigid_body", "articulation_root"}
             for line in lines:
@@ -469,8 +486,7 @@ class TestScenarios(unittest.TestCase):
                 if key in always_keys:
                     continue
                 self.assertTrue(
-                    any(f in key for f in ["xformOp", "physics"]),
-                    f"Unexpected property in filtered output: {key}"
+                    any(f in key for f in ["xformOp", "physics"]), f"Unexpected property in filtered output: {key}"
                 )
             print(f"  Property filter working, {len(lines)} filtered lines")
         self._pass()
@@ -509,7 +525,7 @@ class TestScenarios(unittest.TestCase):
         self.assertIn("[/World/Ground]", content)
         # Should NOT have non-Cube prims as blocks (Light is DistantLight)
         self.assertNotIn("[/World/Light]", content)
-        print(f"  Type filter: Cube only")
+        print("  Type filter: Cube only")
         self._pass()
 
     def test_08_03_filtered_by_property(self):
@@ -522,7 +538,7 @@ class TestScenarios(unittest.TestCase):
             content = f.read()
 
         self.assertIn("[/World/RedCube]", content)
-        print(f"  Property filter applied")
+        print("  Property filter applied")
         self._pass()
 
     # ===== Phase 9: Extension Management =====
@@ -559,7 +575,7 @@ class TestScenarios(unittest.TestCase):
         """Phase 10.4: Invalid Robot"""
         r = self.c.create_robot("nonexistent_robot_xyz")
         self.assertEqual(r["status"], "error")
-        print(f"  Error on invalid robot: OK")
+        print("  Error on invalid robot: OK")
         self._pass()
 
     # ===== Phase 11: Error Cases =====
@@ -632,17 +648,16 @@ class TestScenarios(unittest.TestCase):
         # Should be normalized to ~0.5
         for c in result["color"]:
             self.assertAlmostEqual(c, 128.0 / 255.0, places=2)
-        print(f"  0-255 auto-normalized OK")
+        print("  0-255 auto-normalized OK")
         self._pass()
 
     def test_12_03_set_material_pbr_props(self):
         """Phase 12.3: Set Material - PBR Properties"""
-        r = self.c.set_material("/World/RedCube", color=[0.8, 0.1, 0.1],
-                                roughness=0.2, metallic=0.9)
+        r = self.c.set_material("/World/RedCube", color=[0.8, 0.1, 0.1], roughness=0.2, metallic=0.9)
         self.assertEqual(r["status"], "success")
         self.assertAlmostEqual(r["result"]["roughness"], 0.2)
         self.assertAlmostEqual(r["result"]["metallic"], 0.9)
-        print(f"  PBR: roughness=0.2, metallic=0.9")
+        print("  PBR: roughness=0.2, metallic=0.9")
         self._pass()
 
     def test_12_04_set_material_opacity(self):
@@ -650,18 +665,17 @@ class TestScenarios(unittest.TestCase):
         r = self.c.set_material("/World/RedCube", color=[1, 0, 0], opacity=0.5)
         self.assertEqual(r["status"], "success")
         self.assertAlmostEqual(r["result"]["opacity"], 0.5)
-        print(f"  Opacity=0.5")
+        print("  Opacity=0.5")
         # Restore full opacity
         self.c.set_material("/World/RedCube", color=[1, 0, 0], opacity=1.0)
         self._pass()
 
     def test_12_05_set_material_custom_path(self):
         """Phase 12.5: Set Material - Custom Material Path"""
-        r = self.c.set_material("/World/RedCube", color=[0, 1, 0],
-                                material_path="/World/Looks/MyGreenMat")
+        r = self.c.set_material("/World/RedCube", color=[0, 1, 0], material_path="/World/Looks/MyGreenMat")
         self.assertEqual(r["status"], "success")
         self.assertEqual(r["result"]["material_path"], "/World/Looks/MyGreenMat")
-        print(f"  Custom path: /World/Looks/MyGreenMat")
+        print("  Custom path: /World/Looks/MyGreenMat")
         # Restore red
         self.c.set_material("/World/RedCube", color=[1, 0, 0])
         self._pass()
@@ -687,9 +701,8 @@ class TestScenarios(unittest.TestCase):
         r = self.c.capture_viewport(640, 480)
         self.assertEqual(r["status"], "success")
         self.assertGreater(len(r["result"]["image_base64"]), 100)
-        print(f"  Visual verification captured")
+        print("  Visual verification captured")
         self._pass()
-
 
     # ===== Phase 13: Visibility & Cloning =====
 
@@ -698,7 +711,7 @@ class TestScenarios(unittest.TestCase):
         r = self.c.set_visibility("/World/RedCube", visible=False)
         self.assertEqual(r["status"], "success")
         self.assertFalse(r["result"]["visible"])
-        print(f"  RedCube hidden")
+        print("  RedCube hidden")
         self._pass()
 
     def test_13_02_set_visibility_show(self):
@@ -706,7 +719,7 @@ class TestScenarios(unittest.TestCase):
         r = self.c.set_visibility("/World/RedCube", visible=True)
         self.assertEqual(r["status"], "success")
         self.assertTrue(r["result"]["visible"])
-        print(f"  RedCube visible again")
+        print("  RedCube visible again")
         self._pass()
 
     def test_13_03_set_visibility_invalid_prim(self):
@@ -871,7 +884,7 @@ class TestScenarios(unittest.TestCase):
         if result["hit"]:
             print(f"  Hit: {result.get('prim_path', '?')} at dist={result['distance']:.2f}")
         else:
-            print(f"  No hit (PhysX may need sim stepping)")
+            print("  No hit (PhysX may need sim stepping)")
         self.c.sim_control("stop")
         self._pass()
 
@@ -890,26 +903,25 @@ class TestScenarios(unittest.TestCase):
 
     def test_16_03_draw_debug_line(self):
         """Phase 16.3: Draw Debug Line"""
-        r = self.c.draw_debug("line", start=[0, 0, 0], end=[5, 5, 0],
-                               color=[1, 0, 0], duration=3.0)
+        r = self.c.draw_debug("line", start=[0, 0, 0], end=[5, 5, 0], color=[1, 0, 0], duration=3.0)
         self.assertEqual(r["status"], "success")
-        print(f"  Drew debug line")
+        print("  Drew debug line")
         self._pass()
 
     def test_16_04_draw_debug_sphere(self):
         """Phase 16.4: Draw Debug Sphere"""
-        r = self.c.draw_debug("sphere", center=[0, 2, 0], radius=0.5,
-                               color=[0, 1, 0], duration=3.0)
+        r = self.c.draw_debug("sphere", center=[0, 2, 0], radius=0.5, color=[0, 1, 0], duration=3.0)
         self.assertEqual(r["status"], "success")
-        print(f"  Drew debug sphere")
+        print("  Drew debug sphere")
         self._pass()
 
     def test_16_05_draw_debug_points(self):
         """Phase 16.5: Draw Debug Points"""
-        r = self.c.draw_debug("points", points=[[0, 0, 0], [1, 1, 0], [2, 0, 0]],
-                               color=[0, 0, 1], duration=3.0, size=10.0)
+        r = self.c.draw_debug(
+            "points", points=[[0, 0, 0], [1, 1, 0], [2, 0, 0]], color=[0, 0, 1], duration=3.0, size=10.0
+        )
         self.assertEqual(r["status"], "success")
-        print(f"  Drew debug points")
+        print("  Drew debug points")
         self._pass()
 
     # ===== Phase 17: Scene Lifecycle =====
@@ -917,6 +929,7 @@ class TestScenarios(unittest.TestCase):
     def test_17_01_save_scene(self):
         """Phase 17.1: Save Scene to File"""
         import tempfile
+
         save_path = os.path.join(tempfile.gettempdir(), "mcp_test_scene.usd")
         r = self.c.save_scene(save_path)
         self.assertEqual(r["status"], "success")
@@ -936,7 +949,7 @@ class TestScenarios(unittest.TestCase):
         # Verify /World exists
         tree = self.c.scene_tree("/World", 1)
         self.assertEqual(tree["status"], "success")
-        print(f"  New scene created with /World")
+        print("  New scene created with /World")
         self._pass()
 
     # ===== Phase 24: Logging =====
@@ -959,8 +972,7 @@ class TestScenarios(unittest.TestCase):
         self.assertEqual(r["status"], "success")
         result = r["result"]
         for entry in result["entries"]:
-            self.assertIn(entry["level"], ["warn", "error", "fatal"],
-                          f"Entry level {entry['level']} should be warn+")
+            self.assertIn(entry["level"], ["warn", "error", "fatal"], f"Entry level {entry['level']} should be warn+")
         print(f"  {result['count']} warn+ entries")
         self._pass()
 
@@ -970,8 +982,7 @@ class TestScenarios(unittest.TestCase):
         self.assertEqual(r["status"], "success")
         result = r["result"]
         for entry in result["entries"]:
-            self.assertIn("mcp", entry["msg"].lower(),
-                          f"Entry should contain 'MCP': {entry['msg'][:80]}")
+            self.assertIn("mcp", entry["msg"].lower(), f"Entry should contain 'MCP': {entry['msg'][:80]}")
         print(f"  {result['count']} entries matching 'MCP'")
         self._pass()
 
@@ -981,8 +992,7 @@ class TestScenarios(unittest.TestCase):
         self.assertEqual(r["status"], "success")
         result = r["result"]
         for entry in result["entries"]:
-            self.assertIn("omni", entry["channel"].lower(),
-                          f"Channel should contain 'omni': {entry['channel']}")
+            self.assertIn("omni", entry["channel"].lower(), f"Channel should contain 'omni': {entry['channel']}")
         print(f"  {result['count']} entries with channel matching 'omni'")
         self._pass()
 
@@ -1001,8 +1011,7 @@ class TestScenarios(unittest.TestCase):
         r2 = self.c.get_logs(since_index=last_index)
         self.assertEqual(r2["status"], "success")
         for entry in r2["result"]["entries"]:
-            self.assertGreater(entry["index"], last_index,
-                               f"Entry index {entry['index']} should be > {last_index}")
+            self.assertGreater(entry["index"], last_index, f"Entry index {entry['index']} should be > {last_index}")
         print(f"  {r2['result']['count']} entries after index {last_index}")
         self._pass()
 
@@ -1023,13 +1032,10 @@ class TestScenarios(unittest.TestCase):
 
     def test_25_01_async_scene_tree(self):
         """Phase 25.1: Async Scene Tree via MCP Bridge"""
-        r = self.c.execute(
-            "tree = await mcp.scene_tree()\n"
-            "result = tree['status']"
-        )
+        r = self.c.execute("tree = await mcp.scene_tree()\nresult = tree['status']")
         self.assertEqual(r["status"], "success")
         self.assertEqual(r["result"]["return_value"], "success")
-        print(f"  Async scene_tree returned success")
+        print("  Async scene_tree returned success")
         self._pass()
 
     def test_25_02_async_sim_state(self):
@@ -1081,7 +1087,7 @@ class TestScenarios(unittest.TestCase):
         rv = r["result"]["return_value"]
         self.assertEqual(rv["status"], "success")
         self.assertTrue(rv["has_image"])
-        print(f"  Async camera+capture: success")
+        print("  Async camera+capture: success")
         self._pass()
 
     def test_25_05_async_logs(self):
@@ -1104,7 +1110,7 @@ class TestScenarios(unittest.TestCase):
         r = self.c.execute("result = 42")
         self.assertEqual(r["status"], "success")
         self.assertEqual(r["result"]["return_value"], 42)
-        print(f"  Sync script: 42")
+        print("  Sync script: 42")
         self._pass()
 
     def test_25_07_mixed_sync_async(self):
@@ -1124,35 +1130,31 @@ class TestScenarios(unittest.TestCase):
 
     def test_25_08_async_error_handling(self):
         """Phase 25.8: Async Script Error Handling"""
-        r = self.c.execute(
-            "bounds = await mcp.prim_bounds('/World/Nonexistent_MCP_Test')\n"
-            "result = bounds['status']"
-        )
+        r = self.c.execute("bounds = await mcp.prim_bounds('/World/Nonexistent_MCP_Test')\nresult = bounds['status']")
         self.assertEqual(r["status"], "success")
         self.assertEqual(r["result"]["return_value"], "error")
-        print(f"  Async error handled gracefully")
+        print("  Async error handled gracefully")
         self._pass()
 
     # ===== Phase 22: Enhanced Inspect Prim =====
 
     def test_22_01_inspect_with_segmentation(self):
         """Phase 22.1: Inspect with Segmentation"""
-        r = self.c.camera_inspect("/World/Franka", angles=["front", "right"],
-                                  include_segmentation=True)
+        r = self.c.camera_inspect("/World/Franka", angles=["front", "right"], include_segmentation=True)
         self.assertEqual(r["status"], "success")
         captures = r["result"]["captures"]
         self.assertEqual(len(captures), 2)
         for cap in captures:
             self.assertIn("image_base64", cap)
             self.assertIn("segmentation_base64", cap)
-        print(f"  2 angles with segmentation captured")
+        print("  2 angles with segmentation captured")
         self._pass()
 
     def test_22_02_inspect_cube_corner_angles(self):
         """Phase 22.2: Inspect with Cube Corner Angles"""
-        r = self.c.camera_inspect("/World/Franka",
-                                  angles=["top_front_right", "top_back_left",
-                                          "bottom_front_right", "bottom"])
+        r = self.c.camera_inspect(
+            "/World/Franka", angles=["top_front_right", "top_back_left", "bottom_front_right", "bottom"]
+        )
         self.assertEqual(r["status"], "success")
         self.assertEqual(len(r["result"]["captures"]), 4)
         self.assertGreater(r["result"]["distance"], 0)
@@ -1163,7 +1165,7 @@ class TestScenarios(unittest.TestCase):
         """Phase 22.3: Inspect Non-Existent Prim"""
         r = self.c.camera_inspect("/World/Nonexistent_22")
         self.assertEqual(r["status"], "error")
-        print(f"  Error on nonexistent prim: OK")
+        print("  Error on nonexistent prim: OK")
         self._pass()
 
     def test_22_04_inspect_with_zoom_offset(self):
@@ -1213,7 +1215,7 @@ class TestScenarios(unittest.TestCase):
         r = self.c.viewport_light("set", mode="Default")
         self.assertEqual(r["status"], "success")
         self.assertEqual(r["result"]["lighting_mode"], "Default")
-        print(f"  Set to Default rig")
+        print("  Set to Default rig")
         self._pass()
 
     def test_23_03_set_lighting_mode_camera(self):
@@ -1221,7 +1223,7 @@ class TestScenarios(unittest.TestCase):
         r = self.c.viewport_light("set", mode="camera")
         self.assertEqual(r["status"], "success")
         self.assertEqual(r["result"]["lighting_mode"], "camera")
-        print(f"  Set to camera light")
+        print("  Set to camera light")
         self._pass()
 
     def test_23_04_set_lighting_mode_stage(self):
@@ -1229,14 +1231,14 @@ class TestScenarios(unittest.TestCase):
         r = self.c.viewport_light("set", mode="stage")
         self.assertEqual(r["status"], "success")
         self.assertEqual(r["result"]["lighting_mode"], "stage")
-        print(f"  Set to stage mode")
+        print("  Set to stage mode")
         self._pass()
 
     def test_23_05_set_camera_light_legacy(self):
         """Phase 23.5: Legacy set_camera_light Action"""
         r = self.c.viewport_light("set_camera_light", enabled=True)
         self.assertEqual(r["status"], "success")
-        print(f"  Legacy set_camera_light: OK")
+        print("  Legacy set_camera_light: OK")
         self._pass()
 
     def test_23_06_black_image_warning(self):
@@ -1280,7 +1282,7 @@ class TestScenarios(unittest.TestCase):
         # Clean up
         self.c.delete_prim("/World/SettleCube")
         self.c.delete_prim("/World/SettleLight")
-        print(f"  3 camera positions captured immediately without delay")
+        print("  3 camera positions captured immediately without delay")
         self._pass()
 
     def test_26_02_look_at_immediate_capture(self):
@@ -1300,7 +1302,7 @@ class TestScenarios(unittest.TestCase):
         # Clean up
         self.c.delete_prim("/World/SettleTest")
         self.c.delete_prim("/World/SettleLight2")
-        print(f"  Look-at + immediate capture OK")
+        print("  Look-at + immediate capture OK")
         self._pass()
 
 

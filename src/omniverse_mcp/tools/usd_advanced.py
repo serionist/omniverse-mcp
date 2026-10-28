@@ -204,7 +204,7 @@ def register(mcp, client, h):
             f"bounds_center={b['bounds_center']}  bounds_dims={b['bounds_dimensions']}",
             f"materials: {', '.join(b['materials']) if b['materials'] else 'none'}",
             "",
-            f"=== Delta (B - A) ===",
+            "=== Delta (B - A) ===",
             f"faces: {sign}{d['faces']} ({sign}{d['face_reduction_pct']}%)",
             f"vertices: {sign}{d['vertices']}  triangles: {sign}{d['triangles']}  meshes: {sign}{d['meshes']}",
         ]

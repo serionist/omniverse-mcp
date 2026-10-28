@@ -16,6 +16,7 @@ from ovmcp.core.framing import apply_zoom, bounding_radius, fit_distance, inspec
 from ovmcp.core.isolation import LIGHT_TYPES, Hidden, is_light, prims_to_hide
 from ovmcp.core.lighting import camera_light_switch, current_mode
 from ovmcp.core.serial import LazyLock, serial
+
 from ._utils import (
     CAMERA_SETTLE_FRAMES,
     _compute_world_bbox,
@@ -26,7 +27,6 @@ from ._utils import (
     _reset_renderer,
     _settle_viewport,
 )
-
 
 SEGMENTATION_RETRY_FRAMES = 10
 
@@ -47,6 +47,7 @@ def _warn_once(key: str, message: str):
 # ---------------------------------------------------------------------------
 # Camera helpers
 # ---------------------------------------------------------------------------
+
 
 def _set_camera_xform(camera_path: str, eye: list[float], target: list[float]):
     """Set camera transform directly via UsdGeom.Xformable with look-at math.
@@ -109,9 +110,11 @@ def _set_camera_xform(camera_path: str, eye: list[float], target: list[float]):
 def _is_image_black(png_bytes: bytes, threshold: int = 5) -> bool:
     """Check if a PNG image is all black (no lighting or renderer not warmed up)."""
     try:
+        import io as _io
+
         import numpy as np
         from PIL import Image
-        import io as _io
+
         img = Image.open(_io.BytesIO(png_bytes)).convert("RGB")
         arr = np.array(img)
         return int(arr.max()) <= threshold
@@ -143,6 +146,7 @@ def _get_current_lighting_mode() -> str:
     menu_mode = None
     try:
         from omni.kit.viewport.menubar.lighting.utility import _make_light_mode_setting_key
+
         settings = carb.settings.get_settings()
         menu_mode = settings.get(_make_light_mode_setting_key(omni.usd.get_context()))
     except Exception as e:
@@ -155,6 +159,7 @@ def _get_available_lighting_modes() -> list[str]:
     modes = ["off", "camera", "stage"]
     try:
         from omni.kit.viewport.menubar.lighting.utility import _get_rig_names_and_paths
+
         rigs = _get_rig_names_and_paths("omni.kit.viewport.menubar.lighting")
         if rigs:
             modes.extend(name for name, _ in rigs)
@@ -174,6 +179,7 @@ def _set_lighting_mode(mode: str) -> str | None:
     reason = ""
     try:
         import omni.kit.commands
+
         outcome = omni.kit.commands.execute("SetLightingMenuModeCommand", lighting_mode=mode)
         # Kit returns (success, result) and logs, rather than raises, for a missing command.
         ran = bool(outcome[0] if isinstance(outcome, tuple) else outcome)
@@ -204,8 +210,11 @@ def _viewport_resolution(requested: tuple[int, int]) -> tuple[int, int]:
             params = syn.helpers.get_view_params(viewport)
             return int(params["width"]), int(params["height"])
     except Exception as e:
-        _warn_once("resolution", f"[MCP Bridge] Could not read the viewport's resolution, framing for "
-                                 f"{requested[0]}x{requested[1]} instead: {e}")
+        _warn_once(
+            "resolution",
+            f"[MCP Bridge] Could not read the viewport's resolution, framing for "
+            f"{requested[0]}x{requested[1]} instead: {e}",
+        )
     return requested
 
 
@@ -387,14 +396,15 @@ def _compute_screen_bboxes(camera_path: str, img_width: int, img_height: int):
         center = [(float(min_pt[i]) + float(max_pt[i])) / 2.0 for i in range(3)]
         dims = [float(max_pt[i]) - float(min_pt[i]) for i in range(3)]
 
-        results.append({
-            "prim_path": path_str,
-            "type": type_name,
-            "screen_bbox": [round(sx_min, 1), round(sy_min, 1),
-                            round(sx_max, 1), round(sy_max, 1)],
-            "world_center": [round(c, 4) for c in center],
-            "world_dimensions": [round(d, 4) for d in dims],
-        })
+        results.append(
+            {
+                "prim_path": path_str,
+                "type": type_name,
+                "screen_bbox": [round(sx_min, 1), round(sy_min, 1), round(sx_max, 1), round(sy_max, 1)],
+                "world_center": [round(c, 4) for c in center],
+                "world_dimensions": [round(d, 4) for d in dims],
+            }
+        )
 
     return results
 
@@ -418,12 +428,8 @@ def _capture_instance_segmentation():
     if seg_array is None or seg_array.size == 0:
         # Sensor may not be initialized — try to init and retry once
         try:
-            syn.sensors.create_or_retrieve_sensor(
-                viewport, syn._syntheticdata.SensorType.InstanceSegmentation
-            )
-            syn.sensors.enable_sensors(
-                viewport, [syn._syntheticdata.SensorType.InstanceSegmentation]
-            )
+            syn.sensors.create_or_retrieve_sensor(viewport, syn._syntheticdata.SensorType.InstanceSegmentation)
+            syn.sensors.enable_sensors(viewport, [syn._syntheticdata.SensorType.InstanceSegmentation])
             seg_array = syn.sensors.get_instance_segmentation(viewport)
         except Exception:
             pass
@@ -451,7 +457,7 @@ def _capture_instance_segmentation():
             prim_path = f"instance_{uid_int}"
 
         # Generate distinct color using golden-ratio hue spacing
-        hue = ((idx * 0.618033988749895) % 1.0)
+        hue = (idx * 0.618033988749895) % 1.0
         h_i = int(hue * 6)
         f = hue * 6 - h_i
         q = int(255 * (1 - f))
@@ -485,6 +491,7 @@ def _capture_instance_segmentation():
 # Handler implementations
 # ---------------------------------------------------------------------------
 
+
 @serial(_viewport)
 async def handle_camera_set(body: dict) -> dict:
     """Set the viewport camera position and target."""
@@ -502,6 +509,7 @@ async def handle_camera_set(body: dict) -> dict:
 
     try:
         from isaacsim.core.utils.viewports import set_camera_view
+
         set_camera_view(
             eye=position,
             target=effective_target,
@@ -514,6 +522,7 @@ async def handle_camera_set(body: dict) -> dict:
         if not cam_prim.IsValid():
             return {"status": "error", "error": f"Camera prim not found: {camera_path}"}
         from ._utils import _apply_xform
+
         _apply_xform(cam_prim, position=position)
 
     # Wait for camera transform to propagate through the rendering pipeline
@@ -529,7 +538,7 @@ async def handle_camera_set(body: dict) -> dict:
 async def handle_camera_look_at(body: dict) -> dict:
     """Point the camera at a prim from a given distance and angle."""
     prim_path = body.get("prim_path", "")
-    distance = body.get("distance", None)  # Auto-compute if not provided
+    distance = body.get("distance")  # Auto-compute if not provided
     azimuth = body.get("azimuth", 45.0)  # degrees, 0=front
     elevation = body.get("elevation", 30.0)  # degrees above horizontal
 
@@ -569,6 +578,7 @@ async def handle_camera_look_at(body: dict) -> dict:
     await _next_update()
     try:
         from isaacsim.core.utils.viewports import set_camera_view
+
         camera_path = _get_active_camera_path()
 
         set_camera_view(eye=cam_pos, target=center, camera_prim_path=camera_path)
@@ -663,6 +673,7 @@ async def handle_camera_inspect(body: dict) -> dict:
             # Prefer set_camera_view (reliable); fall back to USD xform (unreliable)
             try:
                 from isaacsim.core.utils.viewports import set_camera_view
+
                 set_camera_view(eye=cam_pos, target=center, camera_prim_path=camera_path)
             except ImportError:
                 _set_camera_xform(camera_path, cam_pos, center)
@@ -698,10 +709,12 @@ async def handle_camera_inspect(body: dict) -> dict:
 
                 captures.append(cap_entry)
             except Exception as e:
-                captures.append({
-                    "angle": angle_name,
-                    "error": str(e),
-                })
+                captures.append(
+                    {
+                        "angle": angle_name,
+                        "error": str(e),
+                    }
+                )
     finally:
         # Put each hidden prim's session-layer visibility back as it was
         if len(hidden):
@@ -826,12 +839,15 @@ async def handle_viewport_light(body: dict) -> dict:
             },
         }
 
-    elif action in ("set", "set_camera_light"):
+    if action in ("set", "set_camera_light"):
         if action == "set":
             mode = body.get("mode", "")
             available = _get_available_lighting_modes()
             if not mode:
-                return {"status": "error", "error": f"mode is required for 'set' action. Available: {', '.join(available)}"}
+                return {
+                    "status": "error",
+                    "error": f"mode is required for 'set' action. Available: {', '.join(available)}",
+                }
             if mode not in available:
                 return {"status": "error", "error": f"Unknown mode: '{mode}'. Available: {', '.join(available)}"}
         else:

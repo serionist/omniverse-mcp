@@ -53,6 +53,7 @@ omniverse-mcp = "omniverse_mcp.server:main"
 [dependency-groups]
 dev = [
     "pytest==9.2.0",
+    "ruff==0.17.1",
     "usd-core==26.11",
 ]
 
@@ -65,3 +66,78 @@ packages = ["src/omniverse_mcp"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/", "extension/", "tests/", "docs/", "README.md", "CHANGELOG.md", "LICENSE"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"  # Kit 107+ embeds 3.11 (plan D8), the server needs 3.11 too
+extend-exclude = ["test_project/results"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "S", "C4", "PTH", "PL", "N", "RET", "TID", "ASYNC", "BLE"]
+ignore = [
+    "PLR0911", # too many returns: handlers return early on each bad input, which reads better than nesting
+    "PLR0912", # too many branches: the same, for handlers that check many optional fields
+    "PLR0913", # too many arguments: MCP tools mirror their parameters one to one
+    "PLR0915", # too many statements: long handlers are split in S6 and S7, not by a size rule
+    "PLR2004", # magic values: pixel margins, angles and HTTP codes read clearer inline
+    "PLR0917", # too many positional arguments: the client's methods mirror the bridge's request fields
+]
+
+[tool.ruff.lint.per-file-ignores]
+"extension/**" = [
+    "PLC0415", # Kit modules are imported where they are used: some exist only in some Kit apps, and importing
+               # them when the extension loads would fail or slow Kit's startup
+]
+"tests/**" = [
+    "S101",    # assert is how pytest checks
+    "PLC0415", # imports inside a test keep a slow or optional import local to it
+    "S104",    # binding to all interfaces is what the Host-check test is about
+    "S105",    # fake tokens
+    "S106",    # fake tokens
+    "S108",    # /tmp paths are fixture data the mock bridge echoes, never opened
+]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/misc.py" = [
+    "S102", # execute_script runs the caller's Python inside Kit: that is the tool
+    # baseline (see below): "BLE001", "F841"
+    "BLE001",
+    "F841",
+]
+"extension/ovmcp.bridge/ovmcp/core/protocol.py" = [
+    "PLW0603", # the extension's version is module state, set once from the ext_id Kit hands on_startup
+]
+
+# Baseline (S3a, 2026-10-28): what ruff found that no tool fixes. It only shrinks: a change that clears a rule
+# in a file removes it here, and nothing is added to it.
+"extension/ovmcp.bridge/ovmcp/bridge/extension.py" = ["BLE001", "S110"]
+"extension/ovmcp.bridge/ovmcp/bridge/formatter.py" = ["BLE001", "RUF059", "S110", "SIM102"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/__init__.py" = ["RUF022"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/_mcp_bridge.py" = ["RUF013"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/_utils.py" = ["B904", "BLE001", "RUF013", "S110"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/camera.py" = ["ASYNC230", "ASYNC240", "B904", "BLE001", "PTH108", "PTH110", "PTH118", "PTH123", "PTH202", "S110", "SIM105"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/logging.py" = ["BLE001", "S110"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/recording.py" = ["ASYNC230", "ASYNC240", "BLE001", "F841", "PLW0602", "PTH103", "PTH110", "PTH118", "PTH123", "PTH202", "RUF006", "TID252"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/robot.py" = ["BLE001", "S110", "SIM105"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/scene.py" = ["ASYNC230", "ASYNC240", "BLE001", "PTH103", "PTH118", "PTH123", "PTH202", "S110", "TID252"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/simulation.py" = ["BLE001"]
+"extension/ovmcp.bridge/ovmcp/bridge/handlers/usd_advanced.py" = ["BLE001", "S110", "S112"]
+"extension/ovmcp.bridge/ovmcp/core/http.py" = ["ASYNC109", "BLE001"]
+"extension/ovmcp.bridge/ovmcp/core/token.py" = ["PTH105"]
+"src/omniverse_mcp/bridge_token.py" = ["S105"]
+"src/omniverse_mcp/client.py" = ["B904", "BLE001", "S110", "SIM105"]
+"src/omniverse_mcp/server.py" = ["BLE001", "E402", "PTH103", "PTH109", "PTH118", "PTH123"]
+"src/omniverse_mcp/tools/__init__.py" = ["TID252"]
+"src/omniverse_mcp/tools/camera.py" = ["BLE001", "E501", "PTH103", "PTH109", "PTH117", "PTH118", "PTH123"]
+"src/omniverse_mcp/tools/misc.py" = ["BLE001"]
+"src/omniverse_mcp/tools/recording.py" = ["BLE001", "PTH118"]
+"src/omniverse_mcp/tools/robot.py" = ["BLE001"]
+"src/omniverse_mcp/tools/scene.py" = ["BLE001"]
+"src/omniverse_mcp/tools/simulation.py" = ["BLE001"]
+"src/omniverse_mcp/tools/usd_advanced.py" = ["BLE001", "E501"]
+"tests/test_client.py" = ["RUF059"]
+"tests/test_framing.py" = ["RUF043"]
+"tests/test_integration.py" = ["B904", "BLE001", "S110", "SIM105"]
+"tests/test_isolation.py" = ["B017"]
+"tests/test_scenarios.py" = ["B904", "BLE001", "E501", "E741", "PTH103", "PTH107", "PTH110", "PTH118", "PTH120", "PTH123", "S110", "SIM105"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["omniverse_mcp", "ovmcp"]

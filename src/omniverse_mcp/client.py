@@ -26,8 +26,7 @@ class BridgeError(RuntimeError):
 class BridgeClient:
     """Persistent HTTP client that talks to the ovmcp.bridge extension inside a Kit app."""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 8211, timeout: float = 120.0,
-                 token: str | None = None):
+    def __init__(self, host: str = "127.0.0.1", port: int = 8211, timeout: float = 120.0, token: str | None = None):
         self.host = host
         self.port = port
         self.timeout = timeout
@@ -81,25 +80,33 @@ class BridgeClient:
             return f"{message} The token in {ENV_TOKEN} was refused: it must equal the extension's token setting."
         path = token_path(self.port)
         if not path.exists():
-            return (f"{message} No token found ({ENV_TOKEN} is not set and there is no {path}): is the MCP "
-                    "Bridge extension enabled in a running Kit app on this machine?")
-        return (f"{message} The token in {path} is not the running extension's: is another Kit app on port "
-                f"{self.port}, or did the extension fail to write it? Kit's log says which.")
+            return (
+                f"{message} No token found ({ENV_TOKEN} is not set and there is no {path}): is the MCP "
+                "Bridge extension enabled in a running Kit app on this machine?"
+            )
+        return (
+            f"{message} The token in {path} is not the running extension's: is another Kit app on port "
+            f"{self.port}, or did the extension fail to write it? Kit's log says which."
+        )
 
     def _check_handshake(self, status: int, data: dict) -> None:
         """Refuse an extension that speaks another protocol, before any request runs on it."""
         problem = None
         result = data.get("result") or {}
         if status == 404:
-            problem = (f"The Kit extension is older than this MCP server: it has no bridge handshake, the server "
-                       f"speaks protocol {PROTOCOL}. Update the extension (git pull in the omniverse-mcp checkout) "
-                       "and restart Kit.")
+            problem = (
+                f"The Kit extension is older than this MCP server: it has no bridge handshake, the server "
+                f"speaks protocol {PROTOCOL}. Update the extension (git pull in the omniverse-mcp checkout) "
+                "and restart Kit."
+            )
         elif status != 200 or "protocol" not in result:
             problem = f"Unexpected handshake answer from the Kit extension (HTTP {status}): {data.get('error', data)}"
         elif result["protocol"] != PROTOCOL:
-            problem = (f"The Kit extension {result.get('extension_version', 'unknown')} speaks bridge protocol "
-                       f"{result['protocol']} and this MCP server speaks {PROTOCOL}. Update the older of the two "
-                       "and restart it.")
+            problem = (
+                f"The Kit extension {result.get('extension_version', 'unknown')} speaks bridge protocol "
+                f"{result['protocol']} and this MCP server speaks {PROTOCOL}. Update the older of the two "
+                "and restart it."
+            )
         if problem:
             # The next request reconnects and asks again.
             self._disconnect()
@@ -147,7 +154,7 @@ class BridgeClient:
                 # would run a script twice.
                 if attempt == 1 or not reused or self._received or isinstance(e, TimeoutError):
                     raise
-                logger.warning(f"Connection failed (attempt {attempt+1}/2), retrying: {e}")
+                logger.warning(f"Connection failed (attempt {attempt + 1}/2), retrying: {e}")
 
         raise ConnectionError(
             f"Failed to communicate with the Kit app at {self.host}:{self.port}. "
@@ -217,18 +224,29 @@ class BridgeClient:
 
     # ----- Scene endpoints -----
 
-    def scene_tree(self, root: str = "/", max_depth: int = 8, include_properties: bool = False,
-                   fmt: str = "json") -> dict:
+    def scene_tree(
+        self, root: str = "/", max_depth: int = 8, include_properties: bool = False, fmt: str = "json"
+    ) -> dict:
         body: dict[str, Any] = {"root": root, "max_depth": max_depth, "include_properties": include_properties}
         if fmt != "json":
             body["format"] = fmt
         return self.request("/scene/tree", body)
 
-    def scene_dump(self, output_dir: str, root: str = "/", max_depth: int = 15,
-                   include_properties: bool = True, filter_types: list[str] | None = None,
-                   property_filter: list[str] | None = None) -> dict:
-        body: dict[str, Any] = {"output_dir": output_dir, "root": root, "max_depth": max_depth,
-                                "include_properties": include_properties}
+    def scene_dump(
+        self,
+        output_dir: str,
+        root: str = "/",
+        max_depth: int = 15,
+        include_properties: bool = True,
+        filter_types: list[str] | None = None,
+        property_filter: list[str] | None = None,
+    ) -> dict:
+        body: dict[str, Any] = {
+            "output_dir": output_dir,
+            "root": root,
+            "max_depth": max_depth,
+            "include_properties": include_properties,
+        }
         if filter_types:
             body["filter_types"] = filter_types
         if property_filter:
@@ -261,17 +279,29 @@ class BridgeClient:
     def delete_prim(self, prim_path: str) -> dict:
         return self.request("/scene/delete", {"prim_path": prim_path})
 
-    def set_material(self, prim_path: str, color: list[float], opacity: float = 1.0,
-                     roughness: float = 0.5, metallic: float = 0.0,
-                     material_path: str = "") -> dict:
-        body: dict[str, Any] = {"prim_path": prim_path, "color": color,
-                                "opacity": opacity, "roughness": roughness, "metallic": metallic}
+    def set_material(
+        self,
+        prim_path: str,
+        color: list[float],
+        opacity: float = 1.0,
+        roughness: float = 0.5,
+        metallic: float = 0.0,
+        material_path: str = "",
+    ) -> dict:
+        body: dict[str, Any] = {
+            "prim_path": prim_path,
+            "color": color,
+            "opacity": opacity,
+            "roughness": roughness,
+            "metallic": metallic,
+        }
         if material_path:
             body["material_path"] = material_path
         return self.request("/scene/material", body)
 
-    def clone_prim(self, source_path: str, target_path: str = "", count: int = 1,
-                   offset: list[float] | None = None) -> dict:
+    def clone_prim(
+        self, source_path: str, target_path: str = "", count: int = 1, offset: list[float] | None = None
+    ) -> dict:
         body: dict[str, Any] = {"source_path": source_path, "target_path": target_path, "count": count}
         if offset is not None:
             body["offset"] = offset
@@ -335,17 +365,25 @@ class BridgeClient:
             body["target"] = target
         return self.request("/camera/set", body)
 
-    def camera_look_at(self, prim_path: str, distance: float | None = None,
-                       azimuth: float = 45.0, elevation: float = 30.0) -> dict:
+    def camera_look_at(
+        self, prim_path: str, distance: float | None = None, azimuth: float = 45.0, elevation: float = 30.0
+    ) -> dict:
         body: dict[str, Any] = {"prim_path": prim_path, "azimuth": azimuth, "elevation": elevation}
         if distance is not None:
             body["distance"] = distance
         return self.request("/camera/look_at", body)
 
-    def camera_inspect(self, prim_path: str, angles: list | None = None,
-                       width: int = 640, height: int = 480, *,
-                       zoom_offset: float = 0.0, isolate: bool = False,
-                       include_segmentation: bool = False) -> dict:
+    def camera_inspect(
+        self,
+        prim_path: str,
+        angles: list | None = None,
+        width: int = 640,
+        height: int = 480,
+        *,
+        zoom_offset: float = 0.0,
+        isolate: bool = False,
+        include_segmentation: bool = False,
+    ) -> dict:
         # Keyword-only: zoom_offset now sits where distance was, and an old positional distance must not become one.
         body: dict[str, Any] = {"prim_path": prim_path, "width": width, "height": height}
         if angles is not None:
@@ -360,10 +398,16 @@ class BridgeClient:
 
     # ----- Recording -----
 
-    def recording_start(self, output_dir: str, fps: int = 5, width: int = 640,
-                        height: int = 480, camera_path: str = "",
-                        track_prims: list[str] | None = None,
-                        property_filter: list[str] | None = None) -> dict:
+    def recording_start(
+        self,
+        output_dir: str,
+        fps: int = 5,
+        width: int = 640,
+        height: int = 480,
+        camera_path: str = "",
+        track_prims: list[str] | None = None,
+        property_filter: list[str] | None = None,
+    ) -> dict:
         body: dict[str, Any] = {"output_dir": output_dir, "fps": fps, "width": width, "height": height}
         if camera_path:
             body["camera_path"] = camera_path
@@ -397,9 +441,14 @@ class BridgeClient:
 
     # ----- Physics -----
 
-    def set_physics_properties(self, prim_path: str, mass: float | None = None,
-                                density: float | None = None, friction: float | None = None,
-                                restitution: float | None = None) -> dict:
+    def set_physics_properties(
+        self,
+        prim_path: str,
+        mass: float | None = None,
+        density: float | None = None,
+        friction: float | None = None,
+        restitution: float | None = None,
+    ) -> dict:
         body: dict[str, Any] = {"prim_path": prim_path}
         if mass is not None:
             body["mass"] = mass
@@ -411,18 +460,23 @@ class BridgeClient:
             body["restitution"] = restitution
         return self.request("/physics/properties", body)
 
-    def apply_force(self, prim_path: str, force: list[float], position: list[float] | None = None,
-                    impulse: bool = False) -> dict:
+    def apply_force(
+        self, prim_path: str, force: list[float], position: list[float] | None = None, impulse: bool = False
+    ) -> dict:
         body: dict[str, Any] = {"prim_path": prim_path, "force": force, "impulse": impulse}
         if position is not None:
             body["position"] = position
         return self.request("/physics/apply_force", body)
 
-    def raycast(self, origin: list[float], direction: list[float],
-                max_distance: float = 1000.0) -> dict:
-        return self.request("/physics/raycast", {
-            "origin": origin, "direction": direction, "max_distance": max_distance,
-        })
+    def raycast(self, origin: list[float], direction: list[float], max_distance: float = 1000.0) -> dict:
+        return self.request(
+            "/physics/raycast",
+            {
+                "origin": origin,
+                "direction": direction,
+                "max_distance": max_distance,
+            },
+        )
 
     # ----- Debug -----
 
@@ -448,22 +502,36 @@ class BridgeClient:
         return self.request("/scene/export", {"prim_path": prim_path, "output_path": output_path})
 
     def set_variant_selection(self, prim_path: str, variant_set: str, variant_name: str) -> dict:
-        return self.request("/scene/variant_selection", {
-            "prim_path": prim_path, "variant_set": variant_set, "variant_name": variant_name,
-        })
+        return self.request(
+            "/scene/variant_selection",
+            {
+                "prim_path": prim_path,
+                "variant_set": variant_set,
+                "variant_name": variant_name,
+            },
+        )
 
-    def create_variant_structure(self, prim_path: str, variant_set_name: str,
-                                  variant_names: list[str],
-                                  default_variant: str = "") -> dict:
-        body: dict[str, Any] = {"prim_path": prim_path, "variant_set_name": variant_set_name,
-                                "variant_names": variant_names}
+    def create_variant_structure(
+        self, prim_path: str, variant_set_name: str, variant_names: list[str], default_variant: str = ""
+    ) -> dict:
+        body: dict[str, Any] = {
+            "prim_path": prim_path,
+            "variant_set_name": variant_set_name,
+            "variant_names": variant_names,
+        }
         if default_variant:
             body["default_variant"] = default_variant
         return self.request("/scene/create_variant_structure", body)
 
-    def compare_prims(self, prim_path_a: str = "", prim_path_b: str = "",
-                      prim_path: str = "", variant_set: str = "",
-                      variant_a: str = "", variant_b: str = "") -> dict:
+    def compare_prims(
+        self,
+        prim_path_a: str = "",
+        prim_path_b: str = "",
+        prim_path: str = "",
+        variant_set: str = "",
+        variant_a: str = "",
+        variant_b: str = "",
+    ) -> dict:
         body: dict[str, Any] = {}
         if prim_path_a:
             body["prim_path_a"] = prim_path_a
@@ -479,17 +547,21 @@ class BridgeClient:
             body["variant_b"] = variant_b
         return self.request("/scene/compare", body)
 
-    def update_material_paths(self, old_prefix: str, new_prefix: str,
-                               prim_path: str = "/") -> dict:
-        return self.request("/scene/update_material_paths", {
-            "prim_path": prim_path, "old_prefix": old_prefix, "new_prefix": new_prefix,
-        })
+    def update_material_paths(self, old_prefix: str, new_prefix: str, prim_path: str = "/") -> dict:
+        return self.request(
+            "/scene/update_material_paths",
+            {
+                "prim_path": prim_path,
+                "old_prefix": old_prefix,
+                "new_prefix": new_prefix,
+            },
+        )
 
     # ----- Logs -----
 
-    def get_logs(self, count: int = 50, min_level: str = "",
-                 channel: str = "", since_index: int | None = None,
-                 search: str = "") -> dict:
+    def get_logs(
+        self, count: int = 50, min_level: str = "", channel: str = "", since_index: int | None = None, search: str = ""
+    ) -> dict:
         body: dict[str, Any] = {"count": count}
         if min_level:
             body["min_level"] = min_level

@@ -16,12 +16,13 @@ import omni.kit.app
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics
 
 from ovmcp.core.protocol import PROTOCOL, extension_version
-from ._utils import _get_stage, _next_update
 
+from ._utils import _get_stage, _next_update
 
 # ---------------------------------------------------------------------------
 # /health
 # ---------------------------------------------------------------------------
+
 
 async def handle_health(_body: dict) -> dict:
     from .recording import _recording_state
@@ -44,6 +45,7 @@ async def handle_health(_body: dict) -> dict:
 # ---------------------------------------------------------------------------
 # /execute
 # ---------------------------------------------------------------------------
+
 
 async def handle_execute(body: dict) -> dict:
     code = body.get("code", "")
@@ -114,7 +116,7 @@ async def handle_execute(body: dict) -> dict:
     stdout_text = captured_out.getvalue()
     stderr_text = captured_err.getvalue()
 
-    script_result = local_ns.get("result", None)
+    script_result = local_ns.get("result")
     if script_result is not None:
         try:
             json.dumps(script_result)
@@ -144,6 +146,7 @@ async def handle_execute(body: dict) -> dict:
 # /debug/draw
 # ---------------------------------------------------------------------------
 
+
 async def handle_draw_debug(body: dict) -> dict:
     """Draw debug primitives (lines, spheres, points) in the viewport."""
     draw_type = body.get("type", "line")
@@ -155,6 +158,7 @@ async def handle_draw_debug(body: dict) -> dict:
 
     try:
         from omni.debugdraw import _debugDraw
+
         draw = _debugDraw.acquire_debug_draw_interface()
     except ImportError:
         return {"status": "error", "error": "omni.debugdraw not available. Enable the extension."}
@@ -216,8 +220,10 @@ async def handle_draw_debug(body: dict) -> dict:
             return {"status": "error", "error": "At least 2 points needed for lines"}
         for i in range(len(points) - 1):
             draw.draw_line(
-                carb.Float3(*points[i]), color_uint,
-                carb.Float3(*points[i + 1]), color_uint,
+                carb.Float3(*points[i]),
+                color_uint,
+                carb.Float3(*points[i + 1]),
+                color_uint,
             )
         drawn.append({"type": "lines", "segments": len(points) - 1})
 
@@ -227,6 +233,7 @@ async def handle_draw_debug(body: dict) -> dict:
 # ---------------------------------------------------------------------------
 # /extensions/list
 # ---------------------------------------------------------------------------
+
 
 async def handle_extensions_list(body: dict) -> dict:
     filter_enabled = body.get("enabled_only", False)
@@ -245,12 +252,14 @@ async def handle_extensions_list(body: dict) -> dict:
         if search and search not in name.lower() and search not in ext_id.lower():
             continue
 
-        extensions.append({
-            "id": ext_id,
-            "name": name,
-            "enabled": enabled,
-            "version": ext.get("version", ""),
-        })
+        extensions.append(
+            {
+                "id": ext_id,
+                "name": name,
+                "enabled": enabled,
+                "version": ext.get("version", ""),
+            }
+        )
 
     return {
         "status": "success",
@@ -261,6 +270,7 @@ async def handle_extensions_list(body: dict) -> dict:
 # ---------------------------------------------------------------------------
 # /extensions/manage
 # ---------------------------------------------------------------------------
+
 
 async def handle_extensions_manage(body: dict) -> dict:
     ext_id = body.get("extension_id", "")

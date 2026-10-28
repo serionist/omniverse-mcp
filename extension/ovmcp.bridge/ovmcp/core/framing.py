@@ -129,6 +129,7 @@ def fit_distance(
 def apply_zoom(distance: float, zoom_offset: float) -> float:
     """0 keeps the fit, -0.3 stands 30% closer, 0.5 stands 50% further."""
     if zoom_offset <= -1:
-        raise ValueError(f"zoom_offset must be greater than -1 (got {zoom_offset}); -1 would put the camera at the "
-                         "prim's centre")
+        raise ValueError(
+            f"zoom_offset must be greater than -1 (got {zoom_offset}); -1 would put the camera at the prim's centre"
+        )
     return distance * (1.0 + zoom_offset)

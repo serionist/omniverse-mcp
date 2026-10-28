@@ -18,12 +18,19 @@ def parse_args(argv: Sequence[str], environ: Mapping[str, str] = os.environ) -> 
         prog="omniverse-mcp",
         description="Omniverse MCP server: drives a Kit app through its ovmcp.bridge extension, over MCP stdio.",
     )
-    parser.add_argument("--host", default=environ.get("OMNIVERSE_MCP_HOST") or DEFAULT_HOST,
-                        help=f"Kit extension host (default: OMNIVERSE_MCP_HOST, else {DEFAULT_HOST})")
-    parser.add_argument("--port", type=int, default=None,
-                        help=f"Kit extension port (default: OMNIVERSE_MCP_PORT, else {DEFAULT_PORT})")
-    parser.add_argument("--output-dir", default=environ.get("OMNIVERSE_MCP_OUTPUT_DIR") or "",
-                        help="Directory for file outputs (default: OMNIVERSE_MCP_OUTPUT_DIR, else ./mcp_output)")
+    parser.add_argument(
+        "--host",
+        default=environ.get("OMNIVERSE_MCP_HOST") or DEFAULT_HOST,
+        help=f"Kit extension host (default: OMNIVERSE_MCP_HOST, else {DEFAULT_HOST})",
+    )
+    parser.add_argument(
+        "--port", type=int, default=None, help=f"Kit extension port (default: OMNIVERSE_MCP_PORT, else {DEFAULT_PORT})"
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=environ.get("OMNIVERSE_MCP_OUTPUT_DIR") or "",
+        help="Directory for file outputs (default: OMNIVERSE_MCP_OUTPUT_DIR, else ./mcp_output)",
+    )
     for arg in argv:
         name = arg.split("=", 1)[0]
         if name in RENAMED_FLAGS:

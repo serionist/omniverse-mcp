@@ -14,8 +14,6 @@ Format spec:
 Used uniformly by dump_scene, recording state, and any large data output.
 """
 
-from typing import Any
-
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 
 
@@ -60,10 +58,13 @@ def format_value(val) -> str:
         return "<unreadable>"
 
 
-def format_prim_block(prim, include_properties: bool = True,
-                      include_transform: bool = True,
-                      include_bounds: bool = False,
-                      property_filter: list[str] | None = None) -> str:
+def format_prim_block(
+    prim,
+    include_properties: bool = True,
+    include_transform: bool = True,
+    include_bounds: bool = False,
+    property_filter: list[str] | None = None,
+) -> str:
     """Format a single prim as a text block.
 
     Args:
@@ -84,9 +85,7 @@ def format_prim_block(prim, include_properties: bool = True,
         pos_from_bbox = False
         if prim.HasAPI(UsdPhysics.RigidBodyAPI):
             try:
-                bbox_cache = UsdGeom.BBoxCache(
-                    Usd.TimeCode.Default(), ["default", "render"]
-                )
+                bbox_cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), ["default", "render"])
                 bbox = bbox_cache.ComputeWorldBound(prim)
                 box = bbox.ComputeAlignedRange()
                 if not box.IsEmpty():
@@ -102,9 +101,7 @@ def format_prim_block(prim, include_properties: bool = True,
 
         xformable = UsdGeom.Xformable(prim)
         if not pos_from_bbox:
-            world_xform = xformable.ComputeLocalToWorldTransform(
-                Usd.TimeCode.Default()
-            )
+            world_xform = xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
             t = world_xform.ExtractTranslation()
             lines.append(f"pos = {float(t[0]):.4f}, {float(t[1]):.4f}, {float(t[2]):.4f}")
 
@@ -119,11 +116,12 @@ def format_prim_block(prim, include_properties: bool = True,
     if include_bounds:
         try:
             from .handlers import _compute_world_bbox
+
             center, dims, corners = _compute_world_bbox(prim)
             lines.append(f"bbox_center = {center[0]:.4f}, {center[1]:.4f}, {center[2]:.4f}")
             lines.append(f"bbox_size = {dims[0]:.4f}, {dims[1]:.4f}, {dims[2]:.4f}")
         except Exception:
-            lines.append(f"bbox = <unavailable>")
+            lines.append("bbox = <unavailable>")
 
     if prim.HasAPI(UsdPhysics.ArticulationRootAPI):
         lines.append("articulation_root = true")
@@ -147,11 +145,15 @@ def format_prim_block(prim, include_properties: bool = True,
     return "\n".join(lines)
 
 
-def format_scene_dump(stage, root_path: str = "/", max_depth: int = 15,
-                      include_properties: bool = True,
-                      include_bounds: bool = True,
-                      filter_types: list[str] | None = None,
-                      property_filter: list[str] | None = None) -> str:
+def format_scene_dump(
+    stage,
+    root_path: str = "/",
+    max_depth: int = 15,
+    include_properties: bool = True,
+    include_bounds: bool = True,
+    filter_types: list[str] | None = None,
+    property_filter: list[str] | None = None,
+) -> str:
     """Format an entire scene subtree as prim-block text."""
     from pxr import Usd
 
@@ -162,8 +164,8 @@ def format_scene_dump(stage, root_path: str = "/", max_depth: int = 15,
     prim_count = sum(1 for _ in Usd.PrimRange(root_prim))
 
     lines = [
-        f"# Omniverse MCP Scene Dump",
-        f"# format = omniverse-mcp-v1",
+        "# Omniverse MCP Scene Dump",
+        "# format = omniverse-mcp-v1",
         f"# root = {root_path}",
         f"# prim_count = {prim_count}",
         f"# up_axis = {UsdGeom.GetStageUpAxis(stage)}",
@@ -201,9 +203,9 @@ def format_scene_dump(stage, root_path: str = "/", max_depth: int = 15,
     return "\n".join(lines)
 
 
-def format_frame_state(prims, frame_index: int, sim_time: float,
-                       include_properties: bool = False,
-                       property_filter: list[str] | None = None) -> str:
+def format_frame_state(
+    prims, frame_index: int, sim_time: float, include_properties: bool = False, property_filter: list[str] | None = None
+) -> str:
     """Format prim states for a single recording frame.
 
     Args:

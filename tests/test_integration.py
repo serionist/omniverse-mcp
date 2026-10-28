@@ -10,8 +10,6 @@ Usage:
 
 import json
 import os
-import sys
-import time
 import unittest
 
 from omniverse_mcp.client import BridgeClient
@@ -42,8 +40,7 @@ class TestIsaacSimIntegration(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         # Clean up test prims
-        for path in ["/World/IntTestCube", "/World/IntTestLight",
-                     "/World/IntTestClone", "/World/IntTestRobot"]:
+        for path in ["/World/IntTestCube", "/World/IntTestLight", "/World/IntTestClone", "/World/IntTestRobot"]:
             try:
                 cls.client.delete_prim(path)
             except Exception:
@@ -99,10 +96,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
 
     def test_07_create_and_delete_prim(self):
         # Create
-        result = self.client.create_prim(
-            "/World/MCPTestCube", "Cube",
-            position=[2, 0, 0.5], scale=0.3
-        )
+        result = self.client.create_prim("/World/MCPTestCube", "Cube", position=[2, 0, 0.5], scale=0.3)
         self.assertEqual(result["status"], "success")
         print(f"  Created: {result['result']['prim_path']}")
 
@@ -114,7 +108,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         # Delete
         result = self.client.delete_prim("/World/MCPTestCube")
         self.assertEqual(result["status"], "success")
-        print(f"  Deleted: /World/MCPTestCube")
+        print("  Deleted: /World/MCPTestCube")
 
     def test_08_set_transform(self):
         # Create a test prim
@@ -128,7 +122,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
             scale=2.0,
         )
         self.assertEqual(result["status"], "success")
-        print(f"  Transform set for /World/MCPTestXform")
+        print("  Transform set for /World/MCPTestXform")
 
         # Clean up
         self.client.delete_prim("/World/MCPTestXform")
@@ -161,8 +155,10 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertIn("image_base64", result["result"])
         self.assertIn("lighting_mode", result["result"])
         img_size = len(result["result"]["image_base64"])
-        print(f"  Captured {result['result']['width']}x{result['result']['height']}, "
-              f"lighting: {result['result']['lighting_mode']}, base64 size: {img_size}")
+        print(
+            f"  Captured {result['result']['width']}x{result['result']['height']}, "
+            f"lighting: {result['result']['lighting_mode']}, base64 size: {img_size}"
+        )
 
     def test_11_camera_set(self):
         result = self.client.camera_set([5, 3, 5], [0, 0, 0])
@@ -195,8 +191,10 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(r_default["status"], "success")
         self.assertEqual(r_closer["status"], "success")
         self.assertLess(r_closer["result"]["distance"], r_default["result"]["distance"])
-        print(f"  Default dist={r_default['result']['distance']:.2f}m, "
-              f"zoom_offset=-0.3 dist={r_closer['result']['distance']:.2f}m")
+        print(
+            f"  Default dist={r_default['result']['distance']:.2f}m, "
+            f"zoom_offset=-0.3 dist={r_closer['result']['distance']:.2f}m"
+        )
 
     def test_15_camera_inspect_isolate(self):
         """Inspect with isolate=True."""
@@ -216,27 +214,26 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         modes = result["result"]["available_modes"]
         self.assertIn("camera", modes)
         self.assertIn("stage", modes)
-        print(f"  Lighting mode: {result['result']['lighting_mode']}, "
-              f"modes: {', '.join(modes)}")
+        print(f"  Lighting mode: {result['result']['lighting_mode']}, modes: {', '.join(modes)}")
 
     def test_17_viewport_light_set(self):
         # Set to camera light
         result = self.client.viewport_light("set", mode="camera")
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["result"]["lighting_mode"], "camera")
-        print(f"  Set to camera mode")
+        print("  Set to camera mode")
 
         # Set to Default rig
         result = self.client.viewport_light("set", mode="Default")
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["result"]["lighting_mode"], "Default")
-        print(f"  Set to Default rig")
+        print("  Set to Default rig")
 
     def test_18_viewport_light_legacy(self):
         """Legacy set_camera_light action still works."""
         result = self.client.viewport_light("set_camera_light", enabled=True)
         self.assertEqual(result["status"], "success")
-        print(f"  Legacy set_camera_light OK")
+        print("  Legacy set_camera_light OK")
 
     # ===== Materials & Visibility =====
 
@@ -244,8 +241,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         result = self.client.set_material("/World/IntTestCube", color=[1, 0, 0], roughness=0.3)
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["result"]["color"], [1, 0, 0])
-        print(f"  Material set: color={result['result']['color']}, "
-              f"roughness={result['result']['roughness']}")
+        print(f"  Material set: color={result['result']['color']}, roughness={result['result']['roughness']}")
 
     def test_20_visibility(self):
         # Hide
@@ -254,7 +250,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         # Show
         result = self.client.set_visibility("/World/IntTestCube", visible=True)
         self.assertEqual(result["status"], "success")
-        print(f"  Visibility toggle OK")
+        print("  Visibility toggle OK")
 
     def test_21_clone_prim(self):
         result = self.client.clone_prim("/World/IntTestCube", "/World/IntTestClone")
@@ -270,8 +266,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(result["status"], "success")
         self.assertIn("center", result["result"])
         self.assertIn("dimensions", result["result"])
-        print(f"  Bounds: center={result['result']['center']}, "
-              f"dims={result['result']['dimensions']}")
+        print(f"  Bounds: center={result['result']['center']}, dims={result['result']['dimensions']}")
 
     def test_23_mesh_stats(self):
         """Procedural prims return 0 faces (expected)."""
@@ -288,30 +283,33 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(result["status"], "success")
         self.assertIn("entries", result["result"])
         self.assertIn("total_captured", result["result"])
-        print(f"  Logs: {result['result']['count']} entries, "
-              f"total captured: {result['result']['total_captured']}")
+        print(f"  Logs: {result['result']['count']} entries, total captured: {result['result']['total_captured']}")
 
     # ===== Error handling =====
 
     def test_25_invalid_prim(self):
         result = self.client.prim_properties("/World/Nonexistent_IntTest")
         self.assertEqual(result["status"], "error")
-        print(f"  Error on invalid prim: OK")
+        print("  Error on invalid prim: OK")
 
     def test_26_invalid_sim_action(self):
         result = self.client.sim_control("invalid_action_xyz")
         self.assertEqual(result["status"], "error")
-        print(f"  Error on invalid action: OK")
+        print("  Error on invalid action: OK")
 
     # ===== Cleanup =====
 
     def test_99_cleanup(self):
         """Clean up test prims."""
-        for path in ["/World/IntTestCube", "/World/IntTestLight",
-                     "/World/IntTestClone", "/World/IntTestRobot",
-                     "/World/Looks"]:
+        for path in [
+            "/World/IntTestCube",
+            "/World/IntTestLight",
+            "/World/IntTestClone",
+            "/World/IntTestRobot",
+            "/World/Looks",
+        ]:
             self.client.delete_prim(path)
-        print(f"  Cleanup done")
+        print("  Cleanup done")
 
 
 if __name__ == "__main__":

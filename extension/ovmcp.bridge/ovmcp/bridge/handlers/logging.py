@@ -6,10 +6,7 @@ Uses omni.log.add_message_consumer() to subscribe to all log messages
 """
 
 import threading
-import time
 from collections import deque
-from typing import Optional
-
 
 # Log level mapping (omni.log.Level values)
 _LEVEL_NAMES = {0: "verbose", 1: "info", 2: "warn", 3: "error", 4: "fatal"}
@@ -29,6 +26,7 @@ class LogBuffer:
         """Subscribe to omni.log message stream."""
         try:
             import omni.log
+
             log = omni.log.get_log()
             self._consumer = log.add_message_consumer(self._on_log)
         except Exception:
@@ -40,6 +38,7 @@ class LogBuffer:
         if self._consumer is not None:
             try:
                 import omni.log
+
                 log = omni.log.get_log()
                 log.remove_message_consumer(self._consumer)
             except Exception:
@@ -68,10 +67,10 @@ class LogBuffer:
     def get_entries(
         self,
         count: int = 50,
-        min_level: Optional[str] = None,
-        channel: Optional[str] = None,
-        since_index: Optional[int] = None,
-        search: Optional[str] = None,
+        min_level: str | None = None,
+        channel: str | None = None,
+        since_index: int | None = None,
+        search: str | None = None,
     ) -> dict:
         """Query recent log entries.
 
@@ -101,10 +100,7 @@ class LogBuffer:
             entries = [e for e in entries if search_lower in e["msg"].lower()]
 
         # Take last N and strip level_num (internal use only)
-        entries = [
-            {k: v for k, v in e.items() if k != "level_num"}
-            for e in entries[-count:]
-        ]
+        entries = [{k: v for k, v in e.items() if k != "level_num"} for e in entries[-count:]]
 
         return {
             "entries": entries,
@@ -121,6 +117,7 @@ log_buffer = LogBuffer()
 # ---------------------------------------------------------------------------
 # /logs
 # ---------------------------------------------------------------------------
+
 
 async def handle_get_logs(body: dict) -> dict:
     """Return recent log entries from the ring buffer."""

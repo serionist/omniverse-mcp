@@ -158,7 +158,9 @@ def test_time_sampled_session_visibility_is_left_alone_with_a_warning(stage):
     hidden = Hidden(layer)
     hidden.hide([Sdf.Path("/World/Table"), Sdf.Path("/World/Robot/Base")])
     assert len(hidden) == 1
-    assert hidden.warnings == ["/World/Table has time-sampled visibility in the session layer, so isolate left it visible"]
+    assert hidden.warnings == [
+        "/World/Table has time-sampled visibility in the session layer, so isolate left it visible"
+    ]
     assert layer.GetNumTimeSamplesForPath("/World/Table.visibility") == 2
 
     hidden.restore()

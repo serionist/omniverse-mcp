@@ -63,8 +63,12 @@ def register(mcp, client, h):
         """
         resp = _call(
             client.scene_dump,
-            h.output_dir, root, max_depth, include_properties,
-            filter_types or [], property_filter=property_filter,
+            h.output_dir,
+            root,
+            max_depth,
+            include_properties,
+            filter_types or [],
+            property_filter=property_filter,
         )
         err = _check_error(resp)
         if err:
@@ -216,7 +220,7 @@ def register(mcp, client, h):
             return err
         r = resp["result"]
         parts = [f"color=[{r['color'][0]:.2f},{r['color'][1]:.2f},{r['color'][2]:.2f}]"]
-        if r.get('opacity', 1.0) < 1.0:
+        if r.get("opacity", 1.0) < 1.0:
             parts.append(f"opacity={r['opacity']}")
         parts.append(f"roughness={r['roughness']}")
         parts.append(f"metallic={r['metallic']}")

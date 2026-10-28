@@ -3,15 +3,19 @@
 import json
 import os
 
-from mcp.types import TextContent, ImageContent
+from mcp.types import ImageContent, TextContent
 
 # What to do about a black capture. Camera mode needs no other extension; a rig needs the viewport's lighting menu.
-LIGHTING_ADVICE = ("Use viewport_light(action='set', mode='camera') for a light that follows the camera (always "
-                   "available), or a light rig such as mode='Default' if viewport_light('get') lists it.")
+LIGHTING_ADVICE = (
+    "Use viewport_light(action='set', mode='camera') for a light that follows the camera (always "
+    "available), or a light rig such as mode='Default' if viewport_light('get') lists it."
+)
 # When the camera light is already on, more light is not the answer.
-CAMERA_LIGHT_ON_ADVICE = ("The camera light is already on, so the camera may be inside or facing away from the "
-                          "geometry, or the renderer is still warming up: recapture, or move the camera with "
-                          "look_at_prim.")
+CAMERA_LIGHT_ON_ADVICE = (
+    "The camera light is already on, so the camera may be inside or facing away from the "
+    "geometry, or the renderer is still warming up: recapture, or move the camera with "
+    "look_at_prim."
+)
 
 
 def register(mcp, client, h):
@@ -79,8 +83,10 @@ def register(mcp, client, h):
             elif not has_lights and lighting_mode == "stage":
                 lines.append(f"WARNING: Image is all-black. No scene lights and mode is 'stage'. {LIGHTING_ADVICE}")
             else:
-                lines.append(f"WARNING: Image is all-black (lighting: {lighting_mode}). The renderer may need warmup: "
-                             f"try recapturing. If it stays black: {LIGHTING_ADVICE}")
+                lines.append(
+                    f"WARNING: Image is all-black (lighting: {lighting_mode}). The renderer may need warmup: "
+                    f"try recapturing. If it stays black: {LIGHTING_ADVICE}"
+                )
 
         # 2. Save screen-space bounding boxes
         bboxes = r.get("screen_bboxes", [])
@@ -90,7 +96,7 @@ def register(mcp, client, h):
             bbox_path = os.path.join(bbox_dir, f"viewport_{capture_id:04d}_bboxes.txt")
             with open(bbox_path, "w", encoding="utf-8") as f:
                 f.write(f"# Screen-space bounding boxes ({r['width']}x{r['height']})\n")
-                f.write(f"# Format: [x_min, y_min, x_max, y_max] in pixels\n\n")
+                f.write("# Format: [x_min, y_min, x_max, y_max] in pixels\n\n")
                 for b in bboxes:
                     sb = b["screen_bbox"]
                     f.write(f"[{b['prim_path']}]\n")
@@ -204,15 +210,23 @@ def register(mcp, client, h):
             isolate: Hide all other scene content during capture (restore after)
             include_segmentation: Also capture instance segmentation at each angle
         """
-        resp = _call(client.camera_inspect, prim_path, angles, width, height,
-                     zoom_offset=zoom_offset, isolate=isolate, include_segmentation=include_segmentation)
+        resp = _call(
+            client.camera_inspect,
+            prim_path,
+            angles,
+            width,
+            height,
+            zoom_offset=zoom_offset,
+            isolate=isolate,
+            include_segmentation=include_segmentation,
+        )
         err = _check_error(resp)
         if err:
             return err
 
         r = resp["result"]
-        zoom_info = f", zoom_offset={r['zoom_offset']}" if r.get('zoom_offset', 0) != 0 else ""
-        isolate_info = ", isolated" if r.get('isolate') else ""
+        zoom_info = f", zoom_offset={r['zoom_offset']}" if r.get("zoom_offset", 0) != 0 else ""
+        isolate_info = ", isolated" if r.get("isolate") else ""
         lines = [f"Inspect {prim_path} (dist={r['distance']}m{zoom_info}{isolate_info})"]
         for warning in r.get("isolate_warnings", []):
             lines.append(f"  WARNING (isolate): {warning}")
@@ -229,7 +243,9 @@ def register(mcp, client, h):
                     legend = cap.get("segmentation_legend", {})
                     if legend and not seg_path.startswith("ERROR"):
                         legend_path = seg_path.replace(".png", "_legend.txt")
-                        abs_legend = os.path.join(os.getcwd(), legend_path) if not os.path.isabs(legend_path) else legend_path
+                        abs_legend = (
+                            os.path.join(os.getcwd(), legend_path) if not os.path.isabs(legend_path) else legend_path
+                        )
                         with open(abs_legend, "w", encoding="utf-8") as f:
                             for pp, clr in legend.items():
                                 f.write(f"{pp} = [{clr[0]}, {clr[1]}, {clr[2]}]\n")
@@ -237,8 +253,10 @@ def register(mcp, client, h):
                     advice = CAMERA_LIGHT_ON_ADVICE if r.get("lighting_mode") == "camera" else LIGHTING_ADVICE
                     warning = f"  WARNING: One or more captures are all-black. {advice}"
                     if r.get("isolate"):
-                        warning += (" isolate=True hid the other prims, though not the lights: if the scene is lit by"
-                                    " something it hid, such as emissive geometry, try again without isolate.")
+                        warning += (
+                            " isolate=True hid the other prims, though not the lights: if the scene is lit by"
+                            " something it hid, such as emissive geometry, try again without isolate."
+                        )
                     lines.append(warning)
                     warned = True
                 lines.append(cap_line)

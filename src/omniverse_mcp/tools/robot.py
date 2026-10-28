@@ -82,9 +82,9 @@ def register(mcp, client, h):
             drive_angular = j.get("drive_angular")
             drive_linear = j.get("drive_linear")
             if drive_angular:
-                drive = f" drive=angular"
+                drive = " drive=angular"
             elif drive_linear:
-                drive = f" drive=linear"
+                drive = " drive=linear"
             lines.append(f"  {j['name']} ({j['type']}{limits}{drive})")
         text = "\n".join(lines)
         return h.text_response(text, "robot_info")

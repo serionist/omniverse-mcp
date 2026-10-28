@@ -15,7 +15,6 @@ import omni.kit.app
 
 from ._utils import _get_active_camera_path, _get_stage, _next_update
 
-
 # ---------------------------------------------------------------------------
 # Global recording state (shared across handlers)
 # ---------------------------------------------------------------------------
@@ -41,6 +40,7 @@ _recording_state = {
 # /recording/start
 # ---------------------------------------------------------------------------
 
+
 async def handle_recording_start(body: dict) -> dict:
     global _recording_state
 
@@ -52,7 +52,10 @@ async def handle_recording_start(body: dict) -> dict:
             _recording_state.pop("_sub", None)
             carb.log_warn("[MCP Bridge] Force-stopping previous recording")
         else:
-            return {"status": "error", "error": "Recording already active. Stop it first, or use force=True to override."}
+            return {
+                "status": "error",
+                "error": "Recording already active. Stop it first, or use force=True to override.",
+            }
 
     output_dir = body.get("output_dir", "")
     fps = body.get("fps", 5)
@@ -60,7 +63,7 @@ async def handle_recording_start(body: dict) -> dict:
     height = body.get("height", 480)
     camera_path = body.get("camera_path", "")
     track_prims = body.get("track_prims", [])
-    property_filter = body.get("property_filter", None)
+    property_filter = body.get("property_filter")
 
     if not output_dir:
         return {"status": "error", "error": "output_dir is required"}
@@ -82,42 +85,45 @@ async def handle_recording_start(body: dict) -> dict:
         stage = _get_stage()
         if stage:
             from pxr import Usd
+
             for path in track_prims:
                 root = stage.GetPrimAtPath(path)
                 if root.IsValid():
                     for p in Usd.PrimRange(root, Usd.TraverseInstanceProxies()):
                         tracked_prim_paths.append(str(p.GetPath()))
 
-    _recording_state.update({
-        "active": True,
-        "session_id": session_id,
-        "output_dir": session_dir,
-        "frame_count": 0,
-        "fps": fps,
-        "width": width,
-        "height": height,
-        "camera_path": camera_path,
-        "start_time": time.time(),
-        "metadata": [],
-        "_step_counter": 0,
-        "_steps_per_frame": steps_per_frame,
-        "track_prims": tracked_prim_paths,
-        "property_filter": property_filter,
-    })
+    _recording_state.update(
+        {
+            "active": True,
+            "session_id": session_id,
+            "output_dir": session_dir,
+            "frame_count": 0,
+            "fps": fps,
+            "width": width,
+            "height": height,
+            "camera_path": camera_path,
+            "start_time": time.time(),
+            "metadata": [],
+            "_step_counter": 0,
+            "_steps_per_frame": steps_per_frame,
+            "track_prims": tracked_prim_paths,
+            "property_filter": property_filter,
+        }
+    )
 
     # Write state file header if tracking prims
     if tracked_prim_paths:
         state_path = os.path.join(session_dir, "state.txt")
         with open(state_path, "w") as f:
-            f.write(f"# Omniverse MCP Recording State\n")
-            f.write(f"# format = omniverse-mcp-v1\n")
+            f.write("# Omniverse MCP Recording State\n")
+            f.write("# format = omniverse-mcp-v1\n")
             f.write(f"# session = {session_id}\n")
             f.write(f"# fps = {fps}\n")
             f.write(f"# tracked_prims = {len(tracked_prim_paths)}\n")
             if property_filter:
                 f.write(f"# property_filter = {', '.join(property_filter)}\n")
             f.write(f"# track_roots = {', '.join(track_prims)}\n")
-            f.write(f"\n")
+            f.write("\n")
 
     # Register a physics callback to capture frames
     callback_name = f"mcp_recording_{session_id}"
@@ -137,6 +143,7 @@ async def handle_recording_start(body: dict) -> dict:
         frame_idx = _recording_state["frame_count"]
         try:
             import tempfile
+
             from omni.kit.viewport.utility import capture_viewport_to_file, get_active_viewport
 
             viewport = get_active_viewport()
@@ -161,44 +168,41 @@ async def handle_recording_start(body: dict) -> dict:
 
             if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
                 import shutil
+
                 shutil.move(tmp_path, frame_path)
             else:
                 # File not ready — write empty marker
                 with open(frame_path, "wb") as f:
                     pass
 
-            _recording_state["metadata"].append({
-                "frame": frame_idx,
-                "sim_time": sim_time_seconds,
-                "wall_time": time.time() - _recording_state["start_time"],
-            })
+            _recording_state["metadata"].append(
+                {
+                    "frame": frame_idx,
+                    "sim_time": sim_time_seconds,
+                    "wall_time": time.time() - _recording_state["start_time"],
+                }
+            )
 
             # Capture prim state if tracking
             if _recording_state["track_prims"]:
                 try:
                     from ..formatter import format_frame_state
+
                     stage = _get_stage()
                     if stage:
-                        prims = [
-                            stage.GetPrimAtPath(p)
-                            for p in _recording_state["track_prims"]
-                        ]
+                        prims = [stage.GetPrimAtPath(p) for p in _recording_state["track_prims"]]
                         state_text = format_frame_state(
                             prims,
                             frame_index=frame_idx,
                             sim_time=sim_time_seconds,
                             property_filter=_recording_state["property_filter"],
                         )
-                        state_path = os.path.join(
-                            _recording_state["output_dir"], "state.txt"
-                        )
+                        state_path = os.path.join(_recording_state["output_dir"], "state.txt")
                         with open(state_path, "a") as sf:
                             sf.write(state_text)
                             sf.write("\n")
                 except Exception as state_err:
-                    carb.log_warn(
-                        f"[MCP Recording] Frame {frame_idx} state capture failed: {state_err}"
-                    )
+                    carb.log_warn(f"[MCP Recording] Frame {frame_idx} state capture failed: {state_err}")
 
             _recording_state["frame_count"] = frame_idx + 1
 
@@ -218,9 +222,7 @@ async def handle_recording_start(body: dict) -> dict:
         asyncio.ensure_future(_record_tick(sim_time))
 
     app = omni.kit.app.get_app()
-    _recording_state["_sub"] = app.get_update_event_stream().create_subscription_to_pop(
-        _on_update, name=callback_name
-    )
+    _recording_state["_sub"] = app.get_update_event_stream().create_subscription_to_pop(_on_update, name=callback_name)
 
     return {
         "status": "success",
@@ -239,6 +241,7 @@ async def handle_recording_start(body: dict) -> dict:
 # ---------------------------------------------------------------------------
 # /recording/stop
 # ---------------------------------------------------------------------------
+
 
 async def handle_recording_stop(_body: dict) -> dict:
     global _recording_state
@@ -289,6 +292,7 @@ async def handle_recording_stop(_body: dict) -> dict:
 # ---------------------------------------------------------------------------
 # /recording/frame
 # ---------------------------------------------------------------------------
+
 
 async def handle_recording_frame(body: dict) -> dict:
     session_dir = body.get("session_dir", "")

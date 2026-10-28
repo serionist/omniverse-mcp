@@ -11,7 +11,7 @@ import threading
 import time
 import unittest
 
-from omniverse_mcp.client import BridgeError, BridgeClient
+from omniverse_mcp.client import BridgeClient, BridgeError
 
 
 class MockIsaacServer:
@@ -94,50 +94,453 @@ class TestBridgeClient(unittest.TestCase):
         cls.mock = MockIsaacServer()
         # Register mock responses for all endpoints
         cls.mock.set_response("/bridge", {"status": "success", "result": {"protocol": 1, "extension_version": "1.0.0"}})
-        cls.mock.set_response("/health", {"status": "success", "result": {"stage_path": "/test.usd", "up_axis": "Y", "meters_per_unit": 1.0, "recording_active": False, "protocol": 1, "extension_version": "1.0.0"}})
-        cls.mock.set_response("/execute", {"status": "success", "result": {"stdout": "hello\n", "stderr": "", "return_value": 42}})
-        cls.mock.set_response("/scene/tree", {"status": "success", "result": {"path": "/", "type": "Xform", "children": [{"path": "/World", "type": "Xform", "world_position": [0, 0, 0]}]}})
-        cls.mock.set_response("/scene/dump", {"status": "success", "result": {"file_path": "/tmp/scene_dump.json", "file_size_bytes": 1234, "prim_count": 10, "root": "/"}})
-        cls.mock.set_response("/scene/prim", {"status": "success", "result": {"prim_path": "/World", "type": "Xform", "is_active": True, "properties": {}}})
-        cls.mock.set_response("/scene/bounds", {"status": "success", "result": {"prim_path": "/World/Cube", "center": [0, 0.5, 0], "dimensions": [1, 1, 1], "min": [-0.5, 0, -0.5], "max": [0.5, 1, 0.5], "max_dimension": 1.0, "diagonal": 1.732}})
-        cls.mock.set_response("/scene/transform", {"status": "success", "result": {"prim_path": "/World/Box", "message": "Transform updated"}})
-        cls.mock.set_response("/scene/create", {"status": "success", "result": {"prim_path": "/World/NewCube", "type": "Cube"}})
-        cls.mock.set_response("/scene/delete", {"status": "success", "result": {"prim_path": "/World/Old", "message": "Prim deleted"}})
-        cls.mock.set_response("/scene/material", {"status": "success", "result": {"prim_path": "/World/Cube", "material_path": "/World/Looks/Cube_Mat", "color": [1, 0, 0], "roughness": 0.5, "metallic": 0.0, "opacity": 1.0}})
-        cls.mock.set_response("/scene/clone", {"status": "success", "result": {"source": "/World/Cube", "clones": ["/World/Cube_Clone"], "count": 1}})
-        cls.mock.set_response("/scene/visibility", {"status": "success", "result": {"prim_path": "/World/Cube", "visible": False}})
-        cls.mock.set_response("/scene/save", {"status": "success", "result": {"file_path": "/tmp/scene.usd", "action": "saved"}})
+        cls.mock.set_response(
+            "/health",
+            {
+                "status": "success",
+                "result": {
+                    "stage_path": "/test.usd",
+                    "up_axis": "Y",
+                    "meters_per_unit": 1.0,
+                    "recording_active": False,
+                    "protocol": 1,
+                    "extension_version": "1.0.0",
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/execute", {"status": "success", "result": {"stdout": "hello\n", "stderr": "", "return_value": 42}}
+        )
+        cls.mock.set_response(
+            "/scene/tree",
+            {
+                "status": "success",
+                "result": {
+                    "path": "/",
+                    "type": "Xform",
+                    "children": [{"path": "/World", "type": "Xform", "world_position": [0, 0, 0]}],
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/scene/dump",
+            {
+                "status": "success",
+                "result": {"file_path": "/tmp/scene_dump.json", "file_size_bytes": 1234, "prim_count": 10, "root": "/"},
+            },
+        )
+        cls.mock.set_response(
+            "/scene/prim",
+            {
+                "status": "success",
+                "result": {"prim_path": "/World", "type": "Xform", "is_active": True, "properties": {}},
+            },
+        )
+        cls.mock.set_response(
+            "/scene/bounds",
+            {
+                "status": "success",
+                "result": {
+                    "prim_path": "/World/Cube",
+                    "center": [0, 0.5, 0],
+                    "dimensions": [1, 1, 1],
+                    "min": [-0.5, 0, -0.5],
+                    "max": [0.5, 1, 0.5],
+                    "max_dimension": 1.0,
+                    "diagonal": 1.732,
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/scene/transform",
+            {"status": "success", "result": {"prim_path": "/World/Box", "message": "Transform updated"}},
+        )
+        cls.mock.set_response(
+            "/scene/create", {"status": "success", "result": {"prim_path": "/World/NewCube", "type": "Cube"}}
+        )
+        cls.mock.set_response(
+            "/scene/delete", {"status": "success", "result": {"prim_path": "/World/Old", "message": "Prim deleted"}}
+        )
+        cls.mock.set_response(
+            "/scene/material",
+            {
+                "status": "success",
+                "result": {
+                    "prim_path": "/World/Cube",
+                    "material_path": "/World/Looks/Cube_Mat",
+                    "color": [1, 0, 0],
+                    "roughness": 0.5,
+                    "metallic": 0.0,
+                    "opacity": 1.0,
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/scene/clone",
+            {"status": "success", "result": {"source": "/World/Cube", "clones": ["/World/Cube_Clone"], "count": 1}},
+        )
+        cls.mock.set_response(
+            "/scene/visibility", {"status": "success", "result": {"prim_path": "/World/Cube", "visible": False}}
+        )
+        cls.mock.set_response(
+            "/scene/save", {"status": "success", "result": {"file_path": "/tmp/scene.usd", "action": "saved"}}
+        )
         cls.mock.set_response("/scene/new", {"status": "success", "result": {"message": "New scene created"}})
-        cls.mock.set_response("/robot/create", {"status": "success", "result": {"prim_path": "/World/G1", "robot_type": "g1", "usd_path": "/Isaac/Robots/Unitree/G1/g1.usd", "joints": []}})
-        cls.mock.set_response("/robot/info", {"status": "success", "result": {"prim_path": "/World/G1", "dof_count": 43, "link_count": 20, "joints": [{"name": "left_hip_pitch_joint", "type": "PhysicsRevoluteJoint"}]}})
-        cls.mock.set_response("/robot/joint_states", {"status": "success", "result": {"prim_path": "/World/G1", "dof_count": 43, "positions": [0.0] * 43}})
-        cls.mock.set_response("/robot/joint_targets", {"status": "success", "result": {"prim_path": "/World/G1", "targets_set": 1}})
-        cls.mock.set_response("/sim/control", {"status": "success", "result": {"action": "play", "current_state": "playing"}})
-        cls.mock.set_response("/sim/state", {"status": "success", "result": {"state": "stopped", "current_time": 0.0, "fps": 60.0, "prim_count": 5, "up_axis": "Y", "meters_per_unit": 1.0, "recording_active": False}})
-        cls.mock.set_response("/sim/capture", {"status": "success", "result": {"image_base64": "iVBORw0KGgo=", "width": 1280, "height": 720, "camera_path": "/OmniverseKit_Persp", "format": "png", "screen_bboxes": [{"prim_path": "/World/Cube", "type": "Cube", "screen_bbox": [120.0, 200.0, 480.0, 600.0], "world_center": [0.0, 0.5, 0.0], "world_dimensions": [1.0, 1.0, 1.0]}], "segmentation_base64": "iVBORw0KGgo=", "segmentation_legend": {"/World/Cube": [255, 159, 0]}}})
-        cls.mock.set_response("/camera/set", {"status": "success", "result": {"camera_path": "/OmniverseKit_Persp", "position": [5, 3, 5], "target": [0, 0, 0]}})
-        cls.mock.set_response("/camera/look_at", {"status": "success", "result": {"camera_path": "/OmniverseKit_Persp", "camera_position": [2, 1.5, 2], "target": [0, 0.5, 0], "distance": 3.0, "azimuth": 45.0, "elevation": 30.0}})
-        cls.mock.set_response("/camera/inspect", {"status": "success", "result": {"prim_path": "/World/Cube", "center": [0, 0.5, 0], "distance": 2.5, "zoom_offset": 0.0, "isolate": False, "captures": [{"angle": "front", "azimuth": 0, "elevation": 20, "camera_position": [0, 1, 2.3], "image_base64": "iVBORw0KGgo="}]}})
-        cls.mock.set_response("/recording/start", {"status": "success", "result": {"session_id": "rec_123", "output_dir": "/tmp/rec_123", "fps": 5, "resolution": [640, 480], "camera_path": "/OmniverseKit_Persp"}})
-        cls.mock.set_response("/recording/stop", {"status": "success", "result": {"session_id": "rec_123", "output_dir": "/tmp/rec_123", "frame_count": 15, "duration_seconds": 3.0, "metadata_file": "/tmp/rec_123/metadata.json"}})
-        cls.mock.set_response("/recording/frame", {"status": "success", "result": {"frame_index": 0, "image_base64": "iVBORw0KGgo=", "format": "png", "sim_time": 0.0, "wall_time": 0.0}})
-        cls.mock.set_response("/extensions/list", {"status": "success", "result": {"count": 2, "extensions": [{"id": "omni.replicator.core", "name": "Replicator Core", "enabled": True, "version": "1.0.0"}, {"id": "omni.physx", "name": "PhysX", "enabled": True, "version": "1.0.0"}]}})
-        cls.mock.set_response("/extensions/manage", {"status": "success", "result": {"extension_id": "omni.test.ext", "action": "enable", "enabled": True}})
-        cls.mock.set_response("/physics/properties", {"status": "success", "result": {"prim_path": "/World/Cube", "applied": ["MassAPI", "PhysicsMaterial"]}})
-        cls.mock.set_response("/physics/apply_force", {"status": "success", "result": {"prim_path": "/World/Cube", "method": "velocity", "force": [100, 0, 0]}})
-        cls.mock.set_response("/physics/raycast", {"status": "success", "result": {"hit": True, "prim_path": "/World/Ground", "position": [0, 0, 0], "normal": [0, 1, 0], "distance": 10.0}})
-        cls.mock.set_response("/debug/draw", {"status": "success", "result": {"drawn": [{"type": "line", "start": [0, 0, 0], "end": [1, 1, 0]}]}})
+        cls.mock.set_response(
+            "/robot/create",
+            {
+                "status": "success",
+                "result": {
+                    "prim_path": "/World/G1",
+                    "robot_type": "g1",
+                    "usd_path": "/Isaac/Robots/Unitree/G1/g1.usd",
+                    "joints": [],
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/robot/info",
+            {
+                "status": "success",
+                "result": {
+                    "prim_path": "/World/G1",
+                    "dof_count": 43,
+                    "link_count": 20,
+                    "joints": [{"name": "left_hip_pitch_joint", "type": "PhysicsRevoluteJoint"}],
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/robot/joint_states",
+            {"status": "success", "result": {"prim_path": "/World/G1", "dof_count": 43, "positions": [0.0] * 43}},
+        )
+        cls.mock.set_response(
+            "/robot/joint_targets", {"status": "success", "result": {"prim_path": "/World/G1", "targets_set": 1}}
+        )
+        cls.mock.set_response(
+            "/sim/control", {"status": "success", "result": {"action": "play", "current_state": "playing"}}
+        )
+        cls.mock.set_response(
+            "/sim/state",
+            {
+                "status": "success",
+                "result": {
+                    "state": "stopped",
+                    "current_time": 0.0,
+                    "fps": 60.0,
+                    "prim_count": 5,
+                    "up_axis": "Y",
+                    "meters_per_unit": 1.0,
+                    "recording_active": False,
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/sim/capture",
+            {
+                "status": "success",
+                "result": {
+                    "image_base64": "iVBORw0KGgo=",
+                    "width": 1280,
+                    "height": 720,
+                    "camera_path": "/OmniverseKit_Persp",
+                    "format": "png",
+                    "screen_bboxes": [
+                        {
+                            "prim_path": "/World/Cube",
+                            "type": "Cube",
+                            "screen_bbox": [120.0, 200.0, 480.0, 600.0],
+                            "world_center": [0.0, 0.5, 0.0],
+                            "world_dimensions": [1.0, 1.0, 1.0],
+                        }
+                    ],
+                    "segmentation_base64": "iVBORw0KGgo=",
+                    "segmentation_legend": {"/World/Cube": [255, 159, 0]},
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/camera/set",
+            {
+                "status": "success",
+                "result": {"camera_path": "/OmniverseKit_Persp", "position": [5, 3, 5], "target": [0, 0, 0]},
+            },
+        )
+        cls.mock.set_response(
+            "/camera/look_at",
+            {
+                "status": "success",
+                "result": {
+                    "camera_path": "/OmniverseKit_Persp",
+                    "camera_position": [2, 1.5, 2],
+                    "target": [0, 0.5, 0],
+                    "distance": 3.0,
+                    "azimuth": 45.0,
+                    "elevation": 30.0,
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/camera/inspect",
+            {
+                "status": "success",
+                "result": {
+                    "prim_path": "/World/Cube",
+                    "center": [0, 0.5, 0],
+                    "distance": 2.5,
+                    "zoom_offset": 0.0,
+                    "isolate": False,
+                    "captures": [
+                        {
+                            "angle": "front",
+                            "azimuth": 0,
+                            "elevation": 20,
+                            "camera_position": [0, 1, 2.3],
+                            "image_base64": "iVBORw0KGgo=",
+                        }
+                    ],
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/recording/start",
+            {
+                "status": "success",
+                "result": {
+                    "session_id": "rec_123",
+                    "output_dir": "/tmp/rec_123",
+                    "fps": 5,
+                    "resolution": [640, 480],
+                    "camera_path": "/OmniverseKit_Persp",
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/recording/stop",
+            {
+                "status": "success",
+                "result": {
+                    "session_id": "rec_123",
+                    "output_dir": "/tmp/rec_123",
+                    "frame_count": 15,
+                    "duration_seconds": 3.0,
+                    "metadata_file": "/tmp/rec_123/metadata.json",
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/recording/frame",
+            {
+                "status": "success",
+                "result": {
+                    "frame_index": 0,
+                    "image_base64": "iVBORw0KGgo=",
+                    "format": "png",
+                    "sim_time": 0.0,
+                    "wall_time": 0.0,
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/extensions/list",
+            {
+                "status": "success",
+                "result": {
+                    "count": 2,
+                    "extensions": [
+                        {"id": "omni.replicator.core", "name": "Replicator Core", "enabled": True, "version": "1.0.0"},
+                        {"id": "omni.physx", "name": "PhysX", "enabled": True, "version": "1.0.0"},
+                    ],
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/extensions/manage",
+            {"status": "success", "result": {"extension_id": "omni.test.ext", "action": "enable", "enabled": True}},
+        )
+        cls.mock.set_response(
+            "/physics/properties",
+            {"status": "success", "result": {"prim_path": "/World/Cube", "applied": ["MassAPI", "PhysicsMaterial"]}},
+        )
+        cls.mock.set_response(
+            "/physics/apply_force",
+            {"status": "success", "result": {"prim_path": "/World/Cube", "method": "velocity", "force": [100, 0, 0]}},
+        )
+        cls.mock.set_response(
+            "/physics/raycast",
+            {
+                "status": "success",
+                "result": {
+                    "hit": True,
+                    "prim_path": "/World/Ground",
+                    "position": [0, 0, 0],
+                    "normal": [0, 1, 0],
+                    "distance": 10.0,
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/debug/draw",
+            {"status": "success", "result": {"drawn": [{"type": "line", "start": [0, 0, 0], "end": [1, 1, 0]}]}},
+        )
         # New tool responses
-        cls.mock.set_response("/scene/mesh_stats", {"status": "success", "result": {"prim_path": "/World/Mesh", "total_faces": 1200, "total_vertices": 800, "total_triangles": 2400, "mesh_count": 3, "meshes": [{"path": "/World/Mesh/Body", "faces": 1000, "vertices": 600, "triangles": 2000}, {"path": "/World/Mesh/Arm_L", "faces": 100, "vertices": 100, "triangles": 200}, {"path": "/World/Mesh/Arm_R", "faces": 100, "vertices": 100, "triangles": 200}]}})
-        cls.mock.set_response("/scene/face_count_tree", {"status": "success", "result": {"text": "[/World]\ntype = Xform\nsubtree_faces = 1200\n", "total_faces": 1200, "mesh_count": 3}})
-        cls.mock.set_response("/scene/flatten", {"status": "success", "result": {"input_path": "/tmp/scene.usda", "output_path": "/tmp/flat.usdc", "layer_count": 5}})
-        cls.mock.set_response("/scene/export", {"status": "success", "result": {"prim_path": "/World/Component", "output_path": "/tmp/component.usdc", "target_root": "/Component", "materials_included": 2, "up_axis": "Z"}})
-        cls.mock.set_response("/scene/variant_selection", {"status": "success", "result": {"prim_path": "/World/Server", "variant_set": "model", "old_selection": "focused", "new_selection": "shell", "available_variants": ["focused", "shell"]}})
-        cls.mock.set_response("/scene/create_variant_structure", {"status": "success", "result": {"prim_path": "/World/Server", "variant_set_name": "model", "variants_created": ["focused", "shell"], "default_selection": "focused"}})
-        cls.mock.set_response("/scene/compare", {"status": "success", "result": {"a": {"label": "/World/A", "total_faces": 10000, "total_vertices": 8000, "total_triangles": 20000, "mesh_count": 5, "bounds_center": [0, 0, 0], "bounds_dimensions": [1, 1, 1], "materials": ["/World/Looks/Mat1"]}, "b": {"label": "/World/B", "total_faces": 2000, "total_vertices": 1500, "total_triangles": 4000, "mesh_count": 3, "bounds_center": [0, 0, 0], "bounds_dimensions": [1, 1, 1], "materials": ["/World/Looks/Mat1"]}, "delta": {"faces": -8000, "vertices": -6500, "triangles": -16000, "meshes": -2, "face_reduction_pct": -80.0}}})
-        cls.mock.set_response("/scene/update_material_paths", {"status": "success", "result": {"prim_path": "/World", "old_prefix": "/Old/Looks", "new_prefix": "/World/Looks", "updated_count": 5, "updated_prims": ["/World/Server/Body", "/World/Server/Door"]}})
-        cls.mock.set_response("/viewport/light", {"status": "success", "result": {"lighting_mode": "stage", "available_modes": ["off", "camera", "stage", "Default", "Colored Lights", "Grey Studio"], "has_scene_lights": True, "scene_lights": [{"path": "/World/DistantLight", "type": "DistantLight", "intensity": 1000}]}})
-        cls.mock.set_response("/logs", {"status": "success", "result": {"entries": [{"index": 0, "level": "warn", "channel": "omni.physx", "module": "PhysX", "source": "physx.cpp:42", "func": "init", "msg": "Test warning", "timestamp": 1709912345.0}], "count": 1, "total_captured": 100, "buffer_size": 2000}})
+        cls.mock.set_response(
+            "/scene/mesh_stats",
+            {
+                "status": "success",
+                "result": {
+                    "prim_path": "/World/Mesh",
+                    "total_faces": 1200,
+                    "total_vertices": 800,
+                    "total_triangles": 2400,
+                    "mesh_count": 3,
+                    "meshes": [
+                        {"path": "/World/Mesh/Body", "faces": 1000, "vertices": 600, "triangles": 2000},
+                        {"path": "/World/Mesh/Arm_L", "faces": 100, "vertices": 100, "triangles": 200},
+                        {"path": "/World/Mesh/Arm_R", "faces": 100, "vertices": 100, "triangles": 200},
+                    ],
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/scene/face_count_tree",
+            {
+                "status": "success",
+                "result": {
+                    "text": "[/World]\ntype = Xform\nsubtree_faces = 1200\n",
+                    "total_faces": 1200,
+                    "mesh_count": 3,
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/scene/flatten",
+            {
+                "status": "success",
+                "result": {"input_path": "/tmp/scene.usda", "output_path": "/tmp/flat.usdc", "layer_count": 5},
+            },
+        )
+        cls.mock.set_response(
+            "/scene/export",
+            {
+                "status": "success",
+                "result": {
+                    "prim_path": "/World/Component",
+                    "output_path": "/tmp/component.usdc",
+                    "target_root": "/Component",
+                    "materials_included": 2,
+                    "up_axis": "Z",
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/scene/variant_selection",
+            {
+                "status": "success",
+                "result": {
+                    "prim_path": "/World/Server",
+                    "variant_set": "model",
+                    "old_selection": "focused",
+                    "new_selection": "shell",
+                    "available_variants": ["focused", "shell"],
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/scene/create_variant_structure",
+            {
+                "status": "success",
+                "result": {
+                    "prim_path": "/World/Server",
+                    "variant_set_name": "model",
+                    "variants_created": ["focused", "shell"],
+                    "default_selection": "focused",
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/scene/compare",
+            {
+                "status": "success",
+                "result": {
+                    "a": {
+                        "label": "/World/A",
+                        "total_faces": 10000,
+                        "total_vertices": 8000,
+                        "total_triangles": 20000,
+                        "mesh_count": 5,
+                        "bounds_center": [0, 0, 0],
+                        "bounds_dimensions": [1, 1, 1],
+                        "materials": ["/World/Looks/Mat1"],
+                    },
+                    "b": {
+                        "label": "/World/B",
+                        "total_faces": 2000,
+                        "total_vertices": 1500,
+                        "total_triangles": 4000,
+                        "mesh_count": 3,
+                        "bounds_center": [0, 0, 0],
+                        "bounds_dimensions": [1, 1, 1],
+                        "materials": ["/World/Looks/Mat1"],
+                    },
+                    "delta": {
+                        "faces": -8000,
+                        "vertices": -6500,
+                        "triangles": -16000,
+                        "meshes": -2,
+                        "face_reduction_pct": -80.0,
+                    },
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/scene/update_material_paths",
+            {
+                "status": "success",
+                "result": {
+                    "prim_path": "/World",
+                    "old_prefix": "/Old/Looks",
+                    "new_prefix": "/World/Looks",
+                    "updated_count": 5,
+                    "updated_prims": ["/World/Server/Body", "/World/Server/Door"],
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/viewport/light",
+            {
+                "status": "success",
+                "result": {
+                    "lighting_mode": "stage",
+                    "available_modes": ["off", "camera", "stage", "Default", "Colored Lights", "Grey Studio"],
+                    "has_scene_lights": True,
+                    "scene_lights": [{"path": "/World/DistantLight", "type": "DistantLight", "intensity": 1000}],
+                },
+            },
+        )
+        cls.mock.set_response(
+            "/logs",
+            {
+                "status": "success",
+                "result": {
+                    "entries": [
+                        {
+                            "index": 0,
+                            "level": "warn",
+                            "channel": "omni.physx",
+                            "module": "PhysX",
+                            "source": "physx.cpp:42",
+                            "func": "init",
+                            "msg": "Test warning",
+                            "timestamp": 1709912345.0,
+                        }
+                    ],
+                    "count": 1,
+                    "total_captured": 100,
+                    "buffer_size": 2000,
+                },
+            },
+        )
         cls.mock.start()
 
     @classmethod
@@ -229,7 +632,9 @@ class TestBridgeClient(unittest.TestCase):
 
     def test_recording_start_with_tracking(self):
         r = self.client.recording_start(
-            "/tmp", fps=5, track_prims=["/World/G1"],
+            "/tmp",
+            fps=5,
+            track_prims=["/World/G1"],
             property_filter=["joint", "pos"],
         )
         self.assertEqual(r["result"]["session_id"], "rec_123")
@@ -332,15 +737,15 @@ class TestBridgeClient(unittest.TestCase):
         self.client.sim_state()
         self.client.scene_tree()
         # One connection: one handshake, then the three requests.
-        self.assertEqual([path for _, path, _ in self.mock.requests],
-                         ["/bridge", "/health", "/sim/state", "/scene/tree"])
+        self.assertEqual(
+            [path for _, path, _ in self.mock.requests], ["/bridge", "/health", "/sim/state", "/scene/tree"]
+        )
 
     def test_handshake_on_every_new_connection(self):
         self.client.health()
         self.client._disconnect()
         self.client.health()
-        self.assertEqual([path for _, path, _ in self.mock.requests],
-                         ["/bridge", "/health", "/bridge", "/health"])
+        self.assertEqual([path for _, path, _ in self.mock.requests], ["/bridge", "/health", "/bridge", "/health"])
 
     def test_extension_from_before_the_handshake_is_refused(self):
         old = MockIsaacServer()
@@ -423,8 +828,10 @@ class TestBridgeClient(unittest.TestCase):
 
     def test_compare_prims_variant(self):
         r = self.client.compare_prims(
-            prim_path="/World/Server", variant_set="model",
-            variant_a="focused", variant_b="shell",
+            prim_path="/World/Server",
+            variant_set="model",
+            variant_a="focused",
+            variant_b="shell",
         )
         self.assertEqual(r["status"], "success")
         _, _, body = self.mock.requests[-1]

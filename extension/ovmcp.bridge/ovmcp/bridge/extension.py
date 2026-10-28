@@ -15,6 +15,7 @@ import omni.ext
 from ovmcp.core.http import LOOPBACK_HOSTS, BridgeServer
 from ovmcp.core.protocol import EXTENSION_NAME, set_extension_version, version_from_ext_id
 from ovmcp.core.token import new_token, remove_token, write_token
+
 from .handlers import (
     handle_apply_force,
     handle_camera_inspect,
@@ -143,6 +144,7 @@ class Extension(omni.ext.IExt):
 
         # Start log buffer before anything else so it captures startup messages
         from .handlers.logging import log_buffer
+
         self._log_buffer = log_buffer
         self._log_buffer.start()
 
@@ -155,6 +157,7 @@ class Extension(omni.ext.IExt):
     def on_shutdown(self):
         try:
             from .handlers.recording import _recording_state
+
             if _recording_state.get("active"):
                 _recording_state["active"] = False
                 _recording_state.pop("_sub", None)
@@ -164,6 +167,7 @@ class Extension(omni.ext.IExt):
 
         try:
             from .handlers.robot import _clear_articulation_cache
+
             _clear_articulation_cache()
         except Exception:
             pass
@@ -195,12 +199,8 @@ class Extension(omni.ext.IExt):
                 carb.log_warn("[MCP Bridge] No viewport found, segmentation won't be available")
                 return
 
-            syn.sensors.create_or_retrieve_sensor(
-                vp, syn._syntheticdata.SensorType.InstanceSegmentation
-            )
-            syn.sensors.enable_sensors(
-                vp, [syn._syntheticdata.SensorType.InstanceSegmentation]
-            )
+            syn.sensors.create_or_retrieve_sensor(vp, syn._syntheticdata.SensorType.InstanceSegmentation)
+            syn.sensors.enable_sensors(vp, [syn._syntheticdata.SensorType.InstanceSegmentation])
             carb.log_info("[MCP Bridge] Instance segmentation sensor initialized")
         except Exception as e:
             carb.log_warn(f"[MCP Bridge] Sensor init failed (non-fatal): {e}")

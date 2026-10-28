@@ -6,6 +6,8 @@ the existing import statement continues to work unchanged.
 """
 
 # --- Camera & viewport ---
+# Re-export _compute_world_bbox for formatter.py backwards compatibility
+from ._utils import _compute_world_bbox
 from .camera import (
     handle_camera_inspect,
     handle_camera_look_at,
@@ -77,9 +79,6 @@ from .usd_advanced import (
     handle_set_variant_selection,
     handle_update_material_paths,
 )
-
-# Re-export _compute_world_bbox for formatter.py backwards compatibility
-from ._utils import _compute_world_bbox
 
 __all__ = [
     # Camera

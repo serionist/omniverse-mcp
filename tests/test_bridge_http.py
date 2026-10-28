@@ -7,10 +7,10 @@ import threading
 import time
 
 import pytest
+
+from omniverse_mcp.client import PROTOCOL, BridgeClient, BridgeError
 from ovmcp.core.http import MAX_BODY_SIZE, MAX_PENDING, BridgeServer, host_name
 from ovmcp.core.token import write_token
-
-from omniverse_mcp.client import PROTOCOL, BridgeError, BridgeClient
 
 TOKEN = "t0k3n"
 
@@ -156,7 +156,7 @@ def test_host_name(value, name):
 
 
 def test_request_without_the_token_is_refused_and_the_connection_closed(bridge):
-    (status, headers, body), = _send(bridge.port, _request(token=None))
+    ((status, headers, body),) = _send(bridge.port, _request(token=None))
     assert status == 401
     assert headers["connection"] == "close"
     assert "token" in body["error"]
@@ -164,13 +164,13 @@ def test_request_without_the_token_is_refused_and_the_connection_closed(bridge):
 
 
 def test_browser_request_is_refused_even_with_the_token(bridge):
-    (status, _, body), = _send(bridge.port, _request(extra=["Origin: https://evil.example"]))
+    ((status, _, body),) = _send(bridge.port, _request(extra=["Origin: https://evil.example"]))
     assert status == 403
     assert "web page" in body["error"]
 
 
 def test_rebound_host_is_refused(bridge):
-    (status, _, _), = _send(bridge.port, _request(host="evil.example:8211"))
+    ((status, _, _),) = _send(bridge.port, _request(host="evil.example:8211"))
     assert status == 403
 
 
@@ -183,7 +183,7 @@ def test_refused_body_is_never_read_as_the_next_request(bridge):
 
 
 def test_post_with_the_token_is_routed(bridge):
-    (status, _, body), = _send(bridge.port, _request(body=b'{"x": 1}'))
+    ((status, _, body),) = _send(bridge.port, _request(body=b'{"x": 1}'))
     assert status == 200
     assert body == {"status": "success", "result": {"x": 1}}
 
@@ -203,19 +203,19 @@ def test_connection_stays_open_across_requests_and_errors(bridge):
 
 
 def test_health_answers_get(bridge):
-    (status, _, body), = _send(bridge.port, _request(method="GET", path="/health", body=b""))
+    ((status, _, body),) = _send(bridge.port, _request(method="GET", path="/health", body=b""))
     assert status == 200
     assert body["result"]["up_axis"] == "Z"
 
 
 def test_the_handshake_is_answered_without_a_handler(bridge):
-    (status, _, body), = _send(bridge.port, _request(method="GET", path="/bridge", body=b""))
+    ((status, _, body),) = _send(bridge.port, _request(method="GET", path="/bridge", body=b""))
     assert status == 200
     assert body["result"]["protocol"] == PROTOCOL
 
 
 def test_the_handshake_needs_the_token_too(bridge):
-    (status, _, _), = _send(bridge.port, _request(method="GET", path="/bridge", body=b"", token=None))
+    ((status, _, _),) = _send(bridge.port, _request(method="GET", path="/bridge", body=b"", token=None))
     assert status == 401
 
 
@@ -248,7 +248,7 @@ def test_an_authenticated_connection_is_closed_when_idle(bridge):
 def test_connections_without_the_token_cannot_crowd_out_the_client(bridge):
     idle = [socket.create_connection(("127.0.0.1", bridge.port), timeout=5) for _ in range(MAX_PENDING + 5)]
     try:
-        (status, _, _), = _send(bridge.port, _request())
+        ((status, _, _),) = _send(bridge.port, _request())
         assert status == 200
         # The oldest waiting connection was pushed out to make room.
         assert idle[0].recv(1) == b""
@@ -284,7 +284,7 @@ def test_an_empty_token_is_refused():
 
 def test_oversized_body_is_refused_unread(bridge):
     request = _request(body=b"").replace(b"Content-Length: 0", f"Content-Length: {MAX_BODY_SIZE + 1}".encode())
-    (status, headers, _), = _send(bridge.port, request)
+    ((status, headers, _),) = _send(bridge.port, request)
     assert status == 413
     assert headers["connection"] == "close"
 

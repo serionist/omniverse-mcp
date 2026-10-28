@@ -4,10 +4,10 @@ import sys
 import tomllib
 
 import pytest
-from ovmcp.core import protocol as ext_protocol
-from ovmcp.core import token as ext_token
 
 from omniverse_mcp import bridge_token, client
+from ovmcp.core import protocol as ext_protocol
+from ovmcp.core import token as ext_token
 
 from .conftest import EXTENSION_ROOT, REPO_ROOT
 
@@ -93,7 +93,7 @@ def test_extension_toml_uses_the_extension_name_everywhere():
     assert [module["name"] for module in toml["python"]["module"]] == [name]
     assert list(toml["settings"]["exts"]) == [name]
     assert set(toml["settings"]["exts"][name]) == {"host", "port", "token"}
-    assert EXTENSION_ROOT == REPO_ROOT / "extension" / name
+    assert REPO_ROOT / "extension" / name == EXTENSION_ROOT
 
 
 @pytest.mark.parametrize(
