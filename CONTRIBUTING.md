@@ -1,6 +1,7 @@
 # Contributing
 
-Contributions to Omniverse MCP are welcome. This document explains how to get started.
+Contributions to Omniverse MCP are welcome. This document explains how to get started; [AGENTS.md](AGENTS.md) has the
+full rules, for people and AI agents alike, and [REVIEW.md](REVIEW.md) what a review checks.
 
 ## Development Setup
 
@@ -8,17 +9,20 @@ Contributions to Omniverse MCP are welcome. This document explains how to get st
 
 - NVIDIA Omniverse Kit-based application, Kit 107 or newer (Isaac Sim 5.x and up)
 - Python 3.11+ and [uv](https://docs.astral.sh/uv/)
-- Git
+- Git, and [gitleaks](https://github.com/gitleaks/gitleaks) for the gate's secret scan (it warns and skips without it)
 
 ### Setting Up the Development Environment
 
-1. Clone the repository and install the server with its dev tools:
+1. Clone the repository, install the server with its dev tools, and set up the clone once:
    ```bash
    git clone https://github.com/serionist/omniverse-mcp.git
    cd omniverse-mcp
    uv sync
+   uv run tools/setup.py
    ```
    `uv sync` makes `.venv/` with the server installed in editable mode, plus the test tools (`uv.lock` pins them).
+   `uv run tools/setup.py` turns on the git hooks in `.githooks/` (no tool attribution in a commit message; the
+   gate's quick lane before a push) for this clone only, and is safe to run again.
 
 2. Point your Kit app at the extension: **Window > Extensions > Settings > Extension Search Paths**, add the repo's
    `extension/` folder, then turn on **Omniverse MCP Bridge** (`ovmcp.bridge`) with autoload. Kit loads the files in
@@ -108,6 +112,15 @@ def my_feature(param: str = "default") -> str:
 
 ## Running Tests
 
+### The gate
+
+```bash
+uv run tools/gate.py quick   # lock, ruff, ruff format, basedpyright, AGENTS.md, skills, attribution, secrets
+uv run tools/gate.py full    # quick, then the unit tests
+```
+
+Run `full` before you open a PR; the pre-push hook runs `quick`.
+
 ### Unit tests (no Isaac Sim needed)
 
 ```bash
@@ -136,11 +149,11 @@ Open `test_project/` in an MCP-compatible AI client and run through the scenario
 
 ## Submitting Changes
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Make your changes
-4. Run the tests
-5. Submit a pull request
+1. Fork the repository, and open an issue for anything beyond a typo
+2. Create a branch named `<issue>-<slug>`: `git checkout -b 42-capture-timeout`
+3. Make your changes, with their tests and docs
+4. Run `uv run tools/gate.py full`
+5. Submit a pull request; commits and the PR carry no AI co-author trailers, "Generated with" lines or session links
 
 ## Reporting Issues
 

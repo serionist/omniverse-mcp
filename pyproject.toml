@@ -67,7 +67,8 @@ packages = ["src/omniverse_mcp"]
 "extension/ovmcp.bridge" = "omniverse_mcp/_extension/ovmcp.bridge"
 
 [tool.hatch.build.targets.sdist]
-include = ["src/", "extension/", "tests/", "docs/", "README.md", "CHANGELOG.md", "LICENSE"]
+# tools/ too: tests/test_gate.py and the hook tests import the gate.
+include = ["src/", "extension/", "tests/", "tools/", "docs/", "README.md", "CHANGELOG.md", "LICENSE"]
 
 [tool.ruff]
 line-length = 120
@@ -149,7 +150,7 @@ known-first-party = ["omniverse_mcp", "ovmcp"]
 [tool.basedpyright]
 typeCheckingMode = "standard"
 pythonVersion = "3.11"
-include = ["src", "tests", "extension/ovmcp.bridge/ovmcp/core"]
+include = ["src", "tests", "tools", "extension/ovmcp.bridge/ovmcp/core"]
 # The Kit-bound modules import omni, carb and isaacsim, which have no stubs outside Kit.
 exclude = ["extension/ovmcp.bridge/ovmcp/bridge", "**/__pycache__", ".venv"]
-extraPaths = ["extension/ovmcp.bridge"]
+extraPaths = ["extension/ovmcp.bridge", "tools"]
