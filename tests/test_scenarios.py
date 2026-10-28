@@ -46,6 +46,7 @@ class TestScenarios(unittest.TestCase):
         # Cleanup
         for path in [
             "/World/Ground",
+            "/World/InspectTarget",
             "/World/RedCube",
             "/World/BlueSphere",
             "/World/Light",
@@ -1138,9 +1139,17 @@ class TestScenarios(unittest.TestCase):
 
     # ===== Phase 22: Enhanced Inspect Prim =====
 
+    INSPECT_TARGET = "/World/InspectTarget"
+
+    def test_22_00_create_inspect_target(self):
+        """Phase 22.0: Create the prim this phase inspects (no earlier phase leaves one)"""
+        r = self.c.create_prim(self.INSPECT_TARGET, "Cube", position=[0, 0, 1.0], size=0.8, color=[0.8, 0.4, 0.1])
+        self.assertEqual(r["status"], "success")
+        self._pass()
+
     def test_22_01_inspect_with_segmentation(self):
         """Phase 22.1: Inspect with Segmentation"""
-        r = self.c.camera_inspect("/World/Franka", angles=["front", "right"], include_segmentation=True)
+        r = self.c.camera_inspect(self.INSPECT_TARGET, angles=["front", "right"], include_segmentation=True)
         self.assertEqual(r["status"], "success")
         captures = r["result"]["captures"]
         self.assertEqual(len(captures), 2)
@@ -1153,7 +1162,7 @@ class TestScenarios(unittest.TestCase):
     def test_22_02_inspect_cube_corner_angles(self):
         """Phase 22.2: Inspect with Cube Corner Angles"""
         r = self.c.camera_inspect(
-            "/World/Franka", angles=["top_front_right", "top_back_left", "bottom_front_right", "bottom"]
+            self.INSPECT_TARGET, angles=["top_front_right", "top_back_left", "bottom_front_right", "bottom"]
         )
         self.assertEqual(r["status"], "success")
         self.assertEqual(len(r["result"]["captures"]), 4)
@@ -1171,11 +1180,11 @@ class TestScenarios(unittest.TestCase):
     def test_22_04_inspect_with_zoom_offset(self):
         """Phase 22.4: Inspect with Zoom Offset"""
         # Zoom closer
-        r1 = self.c.camera_inspect("/World/Franka", angles=["front"], zoom_offset=-0.3)
+        r1 = self.c.camera_inspect(self.INSPECT_TARGET, angles=["front"], zoom_offset=-0.3)
         self.assertEqual(r1["status"], "success")
         d1 = r1["result"]["distance"]
         # Default distance
-        r2 = self.c.camera_inspect("/World/Franka", angles=["front"])
+        r2 = self.c.camera_inspect(self.INSPECT_TARGET, angles=["front"])
         self.assertEqual(r2["status"], "success")
         d2 = r2["result"]["distance"]
         # Zoom closer should produce smaller distance
@@ -1185,7 +1194,7 @@ class TestScenarios(unittest.TestCase):
 
     def test_22_05_inspect_with_isolate(self):
         """Phase 22.5: Inspect with Isolate"""
-        r = self.c.camera_inspect("/World/Franka", angles=["front"], isolate=True)
+        r = self.c.camera_inspect(self.INSPECT_TARGET, angles=["front"], isolate=True)
         self.assertEqual(r["status"], "success")
         self.assertTrue(r["result"].get("isolate", False))
         captures = r["result"]["captures"]
