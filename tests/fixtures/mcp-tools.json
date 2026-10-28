@@ -1,0 +1,1838 @@
+{
+  "resourceTemplates": {},
+  "resources": {
+    "omniverse://scene/tree": {
+      "mimeType": "text/plain",
+      "name": "scene_tree_resource"
+    },
+    "omniverse://sim/state": {
+      "mimeType": "text/plain",
+      "name": "sim_state_resource"
+    }
+  },
+  "tools": {
+    "apply_force": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "force": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "impulse": {
+            "default": false,
+            "type": "boolean"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "prim_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prim_path",
+          "force"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "capture_viewport": {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input": {
+        "properties": {
+          "camera_path": {
+            "default": "",
+            "type": "string"
+          },
+          "height": {
+            "default": 480,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "include_image": {
+            "default": false,
+            "type": "boolean"
+          },
+          "width": {
+            "default": 640,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "output": null
+    },
+    "clone_prim": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "count": {
+            "default": 1,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "source_path": {
+            "type": "string"
+          },
+          "target_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_path",
+          "target_path"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "compare_prims": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "prim_path": {
+            "default": "",
+            "type": "string"
+          },
+          "prim_path_a": {
+            "default": "",
+            "type": "string"
+          },
+          "prim_path_b": {
+            "default": "",
+            "type": "string"
+          },
+          "variant_a": {
+            "default": "",
+            "type": "string"
+          },
+          "variant_b": {
+            "default": "",
+            "type": "string"
+          },
+          "variant_set": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "create_prim": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "enable_physics": {
+            "default": false,
+            "type": "boolean"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "prim_path": {
+            "type": "string"
+          },
+          "prim_type": {
+            "default": "Xform",
+            "type": "string"
+          },
+          "rotation": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "scale": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "usd_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "prim_path"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "create_robot": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "position": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "prim_path": {
+            "default": "",
+            "type": "string"
+          },
+          "robot_type": {
+            "type": "string"
+          },
+          "rotation": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "robot_type"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "create_variant_structure": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "default_variant": {
+            "default": "",
+            "type": "string"
+          },
+          "prim_path": {
+            "type": "string"
+          },
+          "variant_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "variant_set_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prim_path",
+          "variant_set_name",
+          "variant_names"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "delete_prim": {
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "prim_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prim_path"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "draw_debug": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "center": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "color": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "duration": {
+            "default": 5.0,
+            "exclusiveMinimum": 0,
+            "type": "number"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "points": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "radius": {
+            "default": 0.1,
+            "exclusiveMinimum": 0,
+            "type": "number"
+          },
+          "shape": {
+            "enum": [
+              "line",
+              "lines",
+              "sphere",
+              "points"
+            ],
+            "type": "string"
+          },
+          "size": {
+            "default": 0.05,
+            "exclusiveMinimum": 0,
+            "type": "number"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "shape"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "dump_scene": {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input": {
+        "properties": {
+          "filter_types": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "include_properties": {
+            "default": true,
+            "type": "boolean"
+          },
+          "max_depth": {
+            "default": 15,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "property_filter": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "root": {
+            "default": "/",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "execute_script": {
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "export_prim_as_file": {
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "output_path": {
+            "type": "string"
+          },
+          "prim_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prim_path",
+          "output_path"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "flatten_usd": {
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "input_path": {
+            "default": "",
+            "type": "string"
+          },
+          "output_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "output_path"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "get_joint_states": {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input": {
+        "properties": {
+          "prim_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prim_path"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "get_logs": {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input": {
+        "properties": {
+          "channel": {
+            "default": "",
+            "type": "string"
+          },
+          "count": {
+            "default": 50,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "min_level": {
+            "default": "",
+            "enum": [
+              "",
+              "verbose",
+              "info",
+              "warn",
+              "error",
+              "fatal"
+            ],
+            "type": "string"
+          },
+          "search": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "get_mesh_stats": {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input": {
+        "properties": {
+          "prim_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prim_path"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "get_prim_bounds": {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input": {
+        "properties": {
+          "prim_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prim_path"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "get_prim_face_count_tree": {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input": {
+        "properties": {
+          "max_depth": {
+            "default": 10,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "root": {
+            "default": "/World",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "get_prim_properties": {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input": {
+        "properties": {
+          "prim_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prim_path"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "get_recording_frame": {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input": {
+        "properties": {
+          "frame_index": {
+            "default": 0,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "session_dir": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "get_robot_info": {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input": {
+        "properties": {
+          "prim_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prim_path"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "get_scene_tree": {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input": {
+        "properties": {
+          "max_depth": {
+            "default": 5,
+            "maximum": 15,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "root": {
+            "default": "/",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "get_sim_state": {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input": {
+        "properties": {},
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "inspect_prim": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "angles": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "height": {
+            "default": 480,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "include_segmentation": {
+            "default": false,
+            "type": "boolean"
+          },
+          "isolate": {
+            "default": false,
+            "type": "boolean"
+          },
+          "prim_path": {
+            "type": "string"
+          },
+          "width": {
+            "default": 640,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "zoom_offset": {
+            "default": 0.0,
+            "exclusiveMinimum": -1,
+            "type": "number"
+          }
+        },
+        "required": [
+          "prim_path"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "look_at_prim": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "azimuth": {
+            "default": 45.0,
+            "type": "number"
+          },
+          "distance": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "elevation": {
+            "default": 30.0,
+            "type": "number"
+          },
+          "prim_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prim_path"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "manage_extensions": {
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "action": {
+            "default": "list",
+            "enum": [
+              "list",
+              "enable",
+              "disable"
+            ],
+            "type": "string"
+          },
+          "enabled_only": {
+            "default": false,
+            "type": "boolean"
+          },
+          "extension_id": {
+            "default": "",
+            "type": "string"
+          },
+          "search": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "new_scene": {
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {},
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "raycast": {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input": {
+        "properties": {
+          "direction": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "max_distance": {
+            "default": 1000.0,
+            "exclusiveMinimum": 0,
+            "type": "number"
+          },
+          "origin": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "origin",
+          "direction"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "save_scene": {
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "file_path": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "set_camera": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "position": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "position"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "set_joint_targets": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "prim_path": {
+            "type": "string"
+          },
+          "targets": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "prim_path"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "set_material": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "color": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "material_path": {
+            "default": "",
+            "type": "string"
+          },
+          "metallic": {
+            "default": 0.0,
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "opacity": {
+            "default": 1.0,
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "prim_path": {
+            "type": "string"
+          },
+          "roughness": {
+            "default": 0.5,
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "prim_path",
+          "color"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "set_physics_properties": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "density": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "friction": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "mass": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "prim_path": {
+            "type": "string"
+          },
+          "restitution": {
+            "anyOf": [
+              {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "prim_path"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "set_prim_transform": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "position": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "prim_path": {
+            "type": "string"
+          },
+          "rotation": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "scale": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "prim_path"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "set_variant_selection": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "prim_path": {
+            "type": "string"
+          },
+          "variant_name": {
+            "type": "string"
+          },
+          "variant_set": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prim_path",
+          "variant_set",
+          "variant_name"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "set_visibility": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "prim_path": {
+            "type": "string"
+          },
+          "visible": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "prim_path"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "sim_control": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "action": {
+            "enum": [
+              "play",
+              "pause",
+              "stop",
+              "step"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "start_recording": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "camera_path": {
+            "default": "",
+            "type": "string"
+          },
+          "fps": {
+            "default": 5,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "height": {
+            "default": 480,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "property_filter": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "track_prims": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "width": {
+            "default": 640,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "stop_recording": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {},
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "update_material_paths": {
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "new_prefix": {
+            "type": "string"
+          },
+          "old_prefix": {
+            "type": "string"
+          },
+          "prim_path": {
+            "default": "/",
+            "type": "string"
+          }
+        },
+        "required": [
+          "old_prefix",
+          "new_prefix"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "viewport_light": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "action": {
+            "default": "get",
+            "enum": [
+              "get",
+              "set",
+              "set_camera_light"
+            ],
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "type": "boolean"
+          },
+          "mode": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    }
+  }
+}

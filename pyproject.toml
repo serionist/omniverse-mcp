@@ -99,7 +99,7 @@ source = ["src/omniverse_mcp", "extension/ovmcp.bridge/ovmcp/core"]
 branch = true
 
 [tool.coverage.report]
-fail_under = 78
+fail_under = 79
 precision = 2  # the floor is compared with the total as shown, not rounded to a whole percent
 show_missing = true
 

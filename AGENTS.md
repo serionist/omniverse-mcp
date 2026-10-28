@@ -21,13 +21,13 @@ extension it talks to.
 
 | Path | What |
 |---|---|
-| `src/omniverse_mcp/` | the server: `server.py` (`create_server()`: MCP server, output files, resources; `main()`), `config.py` (flags, `OMNIVERSE_MCP_*`), `client.py` (the bridge's HTTP client), `bridge_token.py`, `tools/` (the tools by area; `_bridge.py`, the one call to the bridge) |
+| `src/omniverse_mcp/` | the server: `server.py` (`create_server()`: MCP server, output files, resources; `main()`), `config.py` (flags, `OMNIVERSE_MCP_*`), `client.py` (the bridge's HTTP client), `bridge_token.py`, `tools/` (the tools by area; `_bridge.py`, the one call to the bridge; `_annotations.py`, the four hints; `_params.py`, shared parameters) |
 | `extension/ovmcp.bridge/` | the extension: `config/extension.toml` (id, version, settings), `ovmcp/bridge/` (`extension.py` with the routes, `handlers/`), `ovmcp/core/` (HTTP, token, framing, isolation, bounds, the formatter, PNG, logs; `usd.py` types what the pxr stubs get wrong), `docs/README.md` |
-| `tests/` | pytest; `test_integration.py` and `test_scenarios.py` are the live suites (markers `sim`, `scenario`), which need Kit |
+| `tests/` | pytest; `test_integration.py` and `test_scenarios.py` are the live suites (markers `sim`, `scenario`), which need Kit; `fixtures/mcp-tools.json`, the tool contract `test_contract.py` checks |
 | `test_project/` | an MCP client project for AI-driven scenario runs: `scenarios.md`, `CLAUDE.md`, `.mcp.json.example` |
 | `docs/` | `ARCHITECTURE.md` (routes, protocol, token, threading), `TOOLS.md` (a heading per tool), `AI_GUIDE.md` (for agents using the tools) |
 | `docs/plans/`, `docs/reviews/` | plans of non-trivial changes, with the template; review records. Dated records, never current truth |
-| `tools/` | `gate.py` (the gate), `hooks.py` (behind `.githooks/`), `setup.py` (once per clone; `link` for skills); standard library only |
+| `tools/` | `gate.py` (the gate), `hooks.py` (behind `.githooks/`), `setup.py` (once per clone; `link` for skills), standard library only; `golden.py` writes `tests/fixtures/mcp-tools.json` from the server |
 | `.githooks/` | `commit-msg` refuses attribution, `pre-push` runs gate quick on what the push sends, `post-checkout` and `post-merge` name changed AI setup files |
 | `.github/` | `workflows/`: `ci.yml` (gate quick on Linux; the tests on Linux 3.11-3.14, Windows 3.11 and 3.14, macOS 3.14; its `CI` job), `pr-text.yml` (gate text on a PR's title and description; its `PR text` job), `codeql.yml`, `dependabot-auto-merge.yml` (turns on auto-merge for Dependabot's minor and patch updates); `CI` and `PR text` are the required checks; `dependabot.yml`, the issue forms, the PR template, `CODEOWNERS` |
 | `.claude/` | `CLAUDE.md` (imports this file), `settings.json` (no attribution; allows the repo's own checks and read-only git and gh, each named whole but the git ones `tests/test_gate.py` sweeps and gh's reads; asks before `git blame` and the usual spellings of a `git diff` out of the repo; asks and denies twinned for PowerShell), `skills/` (below) |
@@ -53,6 +53,7 @@ PowerShell unless a PowerShell form stands beside it.
 | tests | `uv run pytest`; with coverage, `uv run coverage run -m pytest`, then `uv run coverage report` |
 | lint, format, types, imports | `uv run ruff check .`, `uv run ruff format --check .`, `uv run basedpyright`, `uv run lint-imports` |
 | the gate | `uv run tools/gate.py quick` (lock, lint, format, types, imports, the coverage floor, AGENTS.md, skills, attribution, secrets); `full` adds pytest under coverage, and the floor; `text --file -` checks a PR's title and description: no attribution, and the issue named |
+| the tool contract | `uv run tools/golden.py` after a deliberate change to a tool's name, parameters, bounds or hints, with its CHANGELOG line |
 | live suites | `OMNIVERSE_MCP_SIM=1 uv run pytest tests/test_integration.py tests/test_scenarios.py`; PowerShell: `$env:OMNIVERSE_MCP_SIM = "1"`, then `uv run pytest ...` |
 
 - **Live suites** need a Kit app running `ovmcp.bridge` (Kit's extension search path pointed at `extension/`), at
@@ -108,7 +109,7 @@ in its issue; in `0.x` a minor may break the tool contract, under CHANGELOG's Br
 - the PyPI name `omniverse-mcp`;
 - the console script, its flags and its environment variables (`OMNIVERSE_MCP_*`);
 - the plugin's and the server key's names;
-- tool names, schemas and annotations;
+- tool names, schemas and annotations (`tests/fixtures/mcp-tools.json`);
 - the Kit extension id `ovmcp.bridge` and its settings;
 - the wire protocol: paths, the auth header, the token file's place;
 - the output folder's layout.
