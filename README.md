@@ -16,7 +16,7 @@ AI Assistant  <--MCP/stdio-->  MCP Server  <--HTTP/REST-->  Omniverse Extension
 
 ## What Can It Do?
 
-**42 MCP tools** across 14 categories:
+The tools, by area:
 
 | Category | Tools | Description |
 |----------|-------|-------------|
@@ -215,7 +215,7 @@ For a remote setup, set the extension's `token` to a long random value and give 
 
 ## Documentation
 
-- [Tool Reference](docs/TOOLS.md) -- All 40 tools with parameters and examples
+- [Tool Reference](docs/TOOLS.md) -- Every tool, with its parameters, hints and examples
 - [Architecture](docs/ARCHITECTURE.md) -- How the two-process bridge works
 - [AI Assistant Guide](docs/AI_GUIDE.md) -- Template for your project's AI instructions
 - [Contributing](CONTRIBUTING.md) -- How to contribute

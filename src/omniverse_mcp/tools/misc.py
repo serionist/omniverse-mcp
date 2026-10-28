@@ -1,15 +1,20 @@
 """Miscellaneous tools (execute_script, manage_extensions, get_logs)."""
 
 import json
+from typing import Annotated, Literal
 
 from mcp.server.mcpserver.exceptions import ToolError
+from pydantic import Field
 
+from ._annotations import READS, RUNS
 from ._bridge import bridge_call
 
 
 def register(mcp, client, h):
-    @mcp.tool()
-    def execute_script(code: str) -> str:
+    @mcp.tool(annotations=RUNS)
+    def execute_script(
+        code: Annotated[str, Field(description="Python to run inside the Kit app; assign to result to return data")],
+    ) -> str:
         """Execute Python inside the running Kit app (Isaac Sim, USD Composer, ...).
 
         The script has access to: omni, carb, Usd, UsdGeom, UsdLux, UsdPhysics, Sdf, Gf, mcp.
@@ -56,21 +61,14 @@ def register(mcp, client, h):
         text = "\n".join(parts) or "Script executed successfully (no output)"
         return h.text_response(text, "script")
 
-    @mcp.tool()
+    @mcp.tool(annotations=RUNS)
     def manage_extensions(
-        action: str = "list",
-        extension_id: str = "",
-        search: str = "",
-        enabled_only: bool = False,
+        action: Annotated[Literal["list", "enable", "disable"], Field(description="What to do")] = "list",
+        extension_id: Annotated[str, Field(description="The extension to enable or disable")] = "",
+        search: Annotated[str, Field(description='For "list": only extensions whose name contains this')] = "",
+        enabled_only: Annotated[bool, Field(description='For "list": only enabled extensions')] = False,
     ) -> str:
-        """List, enable, or disable the Kit app's extensions.
-
-        Args:
-            action: "list", "enable", or "disable"
-            extension_id: Required for enable/disable
-            search: Filter extension list by name (for action="list")
-            enabled_only: Only show enabled extensions (for action="list")
-        """
+        """List, enable, or disable the Kit app's extensions."""
         if action == "list":
             resp = bridge_call(client.extensions_list, enabled_only, search)
             r = resp["result"]
@@ -88,23 +86,20 @@ def register(mcp, client, h):
         r = resp["result"]
         return f"Extension {r['extension_id']}: {r['action']}d (enabled={r['enabled']})"
 
-    @mcp.tool()
+    @mcp.tool(annotations=READS)
     def get_logs(
-        count: int = 50,
-        min_level: str = "",
-        channel: str = "",
-        search: str = "",
+        count: Annotated[int, Field(ge=1, description="How many of the latest entries; the buffer keeps 2000")] = 50,
+        min_level: Annotated[
+            Literal["", "verbose", "info", "warn", "error", "fatal"],
+            Field(description="The lowest severity to return; every level when empty"),
+        ] = "",
+        channel: Annotated[str, Field(description='Only channels containing this, e.g. "omni.physx"')] = "",
+        search: Annotated[str, Field(description="Only messages containing this, in any case")] = "",
     ) -> str:
         """Get recent Omniverse log entries from the ring buffer.
 
-        Use this to investigate errors — when any tool fails, call get_logs()
+        Use this to investigate errors: when any tool fails, call get_logs()
         to see what Omniverse reported internally.
-
-        Args:
-            count: Number of recent entries to return (default 50, max ~2000)
-            min_level: Minimum severity: verbose, info, warn, error, fatal
-            channel: Filter by log channel substring (e.g. "omni.physx", "omni.usd")
-            search: Filter by message substring (case-insensitive)
         """
         resp = bridge_call(client.get_logs, count, min_level, channel, None, search)
         r = resp["result"]

@@ -1,18 +1,22 @@
 """Advanced USD tools (mesh stats, flatten, export, variants, compare, material paths)."""
 
+from typing import Annotated
+
+from pydantic import Field
+
+from ._annotations import DESTROYS, EDITS, READS
 from ._bridge import bridge_call
 
 
 def register(mcp, client, h):
-    @mcp.tool()
-    def get_mesh_stats(prim_path: str) -> str:
+    @mcp.tool(annotations=READS)
+    def get_mesh_stats(
+        prim_path: Annotated[str, Field(description="The prim to measure, its descendant meshes included")],
+    ) -> str:
         """Get face/vertex/triangle counts for a mesh prim or subtree.
 
         Returns per-mesh breakdown and totals. Use for measuring geometry budget,
         shell reduction ratios, etc.
-
-        Args:
-            prim_path: Prim to analyze (includes all descendant meshes)
         """
         resp = bridge_call(client.mesh_stats, prim_path)
         r = resp["result"]
@@ -31,45 +35,42 @@ def register(mcp, client, h):
         text = "\n".join(lines)
         return h.text_response(text, "mesh_stats")
 
-    @mcp.tool()
-    def get_prim_face_count_tree(root: str = "/World", max_depth: int = 10) -> str:
+    @mcp.tool(annotations=READS)
+    def get_prim_face_count_tree(
+        root: Annotated[str, Field(description="Prim path to start from")] = "/World",
+        max_depth: Annotated[int, Field(ge=1, description="How many levels below root")] = 10,
+    ) -> str:
         """Get scene tree with face counts per mesh and subtree totals.
 
         Like get_scene_tree but focused on geometry budget: each mesh shows
         face/vertex/triangle counts, each group shows subtree_faces total.
-
-        Args:
-            root: Starting prim path
-            max_depth: Max traversal depth (default 10)
         """
         resp = bridge_call(client.face_count_tree, root, max_depth)
         r = resp["result"]
         return h.text_response(r["text"], "face_count_tree")
 
-    @mcp.tool()
-    def flatten_usd(output_path: str, input_path: str = "") -> str:
-        """Flatten a USD file — resolve all references, payloads, sublayers into one file.
+    @mcp.tool(annotations=DESTROYS)
+    def flatten_usd(
+        output_path: Annotated[str, Field(description="The flattened USD file to write")],
+        input_path: Annotated[str, Field(description="The USD file to flatten; the open stage when empty")] = "",
+    ) -> str:
+        """Flatten a USD file: resolve all references, payloads, sublayers into one file.
 
         If input_path is omitted, flattens the current stage.
-
-        Args:
-            output_path: Where to write the flattened USD file
-            input_path: Source USD file (default: current stage)
         """
         resp = bridge_call(client.flatten_usd, output_path, input_path)
         r = resp["result"]
         return f"Flattened {r['input_path']} ({r['layer_count']} layers) -> {r['output_path']}"
 
-    @mcp.tool()
-    def export_prim_as_file(prim_path: str, output_path: str) -> str:
+    @mcp.tool(annotations=DESTROYS)
+    def export_prim_as_file(
+        prim_path: Annotated[str, Field(description="The root of the subtree to export")],
+        output_path: Annotated[str, Field(description="The file to write: .usd, .usda or .usdc (the default)")],
+    ) -> str:
         """Export a prim subtree as a standalone USD file.
 
         Flattens the source (resolves all references) and includes materials
         even if they live outside the exported subtree. Output is self-contained.
-
-        Args:
-            prim_path: Root of the subtree to export
-            output_path: Destination file (.usd/.usda/.usdc — defaults to .usdc)
         """
         resp = bridge_call(client.export_prim, prim_path, output_path)
         r = resp["result"]
@@ -78,17 +79,16 @@ def register(mcp, client, h):
             f"Root: {r['target_root']}, Materials included: {r['materials_included']}, Up: {r['up_axis']}"
         )
 
-    @mcp.tool()
-    def set_variant_selection(prim_path: str, variant_set: str, variant_name: str) -> str:
+    @mcp.tool(annotations=EDITS)
+    def set_variant_selection(
+        prim_path: Annotated[str, Field(description="The prim with the variant set")],
+        variant_set: Annotated[str, Field(description='The variant set\'s name, e.g. "model"')],
+        variant_name: Annotated[str, Field(description='The variant to select, e.g. "shell"')],
+    ) -> str:
         """Switch variant selection on a prim with proper viewport refresh.
 
         Includes Hydra rprim refresh workaround (activation toggle + frame pumping)
         to ensure the viewport renders the correct geometry after switching.
-
-        Args:
-            prim_path: Prim with variant sets
-            variant_set: Name of the variant set (e.g., "model")
-            variant_name: Variant to select (e.g., "shell")
         """
         resp = bridge_call(client.set_variant_selection, prim_path, variant_set, variant_name)
         r = resp["result"]
@@ -98,22 +98,16 @@ def register(mcp, client, h):
             f"Available: {r['available_variants']}"
         )
 
-    @mcp.tool()
+    @mcp.tool(annotations=EDITS)
     def create_variant_structure(
-        prim_path: str,
-        variant_set_name: str,
-        variant_names: list[str],
-        default_variant: str = "",
+        prim_path: Annotated[str, Field(description="The prim to add the variant set to")],
+        variant_set_name: Annotated[str, Field(description='The new variant set\'s name, e.g. "model"')],
+        variant_names: Annotated[list[str], Field(description='The variants to create, e.g. ["focused", "shell"]')],
+        default_variant: Annotated[str, Field(description="The variant selected at first; the first when empty")] = "",
     ) -> str:
         """Create variant set boilerplate on a prim.
 
         Adds the variant set, creates empty variant bodies, and sets the default.
-
-        Args:
-            prim_path: Target prim
-            variant_set_name: Name for the new variant set (e.g., "model")
-            variant_names: List of variant names to create (e.g., ["focused", "shell"])
-            default_variant: Which variant to select by default (default: first in list)
         """
         resp = bridge_call(client.create_variant_structure, prim_path, variant_set_name, variant_names, default_variant)
         r = resp["result"]
@@ -123,16 +117,16 @@ def register(mcp, client, h):
             f"Default: {r['default_selection']}"
         )
 
-    @mcp.tool()
+    @mcp.tool(annotations=EDITS)
     def compare_prims(
-        prim_path_a: str = "",
-        prim_path_b: str = "",
-        prim_path: str = "",
-        variant_set: str = "",
-        variant_a: str = "",
-        variant_b: str = "",
+        prim_path_a: Annotated[str, Field(description="Two prims: the first")] = "",
+        prim_path_b: Annotated[str, Field(description="Two prims: the second")] = "",
+        prim_path: Annotated[str, Field(description="Two variants: the prim that has them")] = "",
+        variant_set: Annotated[str, Field(description="Two variants: their variant set")] = "",
+        variant_a: Annotated[str, Field(description="Two variants: the first")] = "",
+        variant_b: Annotated[str, Field(description="Two variants: the second")] = "",
     ) -> str:
-        """Compare two prims or two variants — mesh counts, bounds, materials.
+        """Compare two prims or two variants: mesh counts, bounds, materials.
 
         Two modes:
         1. Prim comparison: provide prim_path_a and prim_path_b
@@ -140,14 +134,6 @@ def register(mcp, client, h):
 
         Returns side-by-side stats with deltas. Properly clears BBoxCache between
         variant switches to avoid stale data.
-
-        Args:
-            prim_path_a: First prim (mode 1)
-            prim_path_b: Second prim (mode 1)
-            prim_path: Prim with variants (mode 2)
-            variant_set: Variant set name (mode 2)
-            variant_a: First variant name (mode 2)
-            variant_b: Second variant name (mode 2)
         """
         resp = bridge_call(client.compare_prims, prim_path_a, prim_path_b, prim_path, variant_set, variant_a, variant_b)
         r = resp["result"]
@@ -171,17 +157,16 @@ def register(mcp, client, h):
         ]
         return "\n".join(lines)
 
-    @mcp.tool()
-    def update_material_paths(old_prefix: str, new_prefix: str, prim_path: str = "/") -> str:
+    @mcp.tool(annotations=DESTROYS)
+    def update_material_paths(
+        old_prefix: Annotated[str, Field(description='The path prefix to find, e.g. "/OldProject/Materials"')],
+        new_prefix: Annotated[str, Field(description='What to put in its place, e.g. "/World/Materials"')],
+        prim_path: Annotated[str, Field(description="The subtree to update; the whole stage by default")] = "/",
+    ) -> str:
         """Bulk-update material reference paths in a subtree.
 
         Updates both relationship targets (material bindings) and asset path
         attributes (texture file paths) that start with old_prefix.
-
-        Args:
-            old_prefix: Path prefix to find (e.g., "/OldProject/Materials")
-            new_prefix: Replacement prefix (e.g., "/World/Materials")
-            prim_path: Root of subtree to update (default: entire stage)
         """
         resp = bridge_call(client.update_material_paths, old_prefix, new_prefix, prim_path)
         r = resp["result"]
