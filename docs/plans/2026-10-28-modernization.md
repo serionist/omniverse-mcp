@@ -349,7 +349,9 @@ Each step is one PR, buildable and testable on its own.
 | S6 | Markers, the Kit-free core in `ovmcp/core`, the import-linter contract, `usd-core` tests, the coverage floor in CI and the gate | Core tests run in CI; the floor is set |
 | S7 | SDK v2, annotations, `ToolError`, the request lock, the golden file (tools and resources), docs drift tests, no work at import, pyright strict on the server | The golden test; one in-memory client test per tool against the mock bridge; two calls at once stay serial |
 | S8 | The plugin, skills, `extension install`, the README rewrite | `claude plugin validate --strict` in CI; `extension install` into a temp folder; the setup skill on a clean machine, by hand |
+| S8b | Presentation: a logo and a social preview image (the maintainer uploads the preview; GitHub takes it only in the web settings), the README hero with badges, and screenshots or a GIF captured from a live Isaac Sim (a viewport capture beside its segmentation, an inspect orbit) | The README renders on GitHub in light and dark; every image is a real capture |
 | S9 | `release.yml`, `docs/releasing.md`, then the `0.2.0` release PR and tag | The release PR's wheel runs with `uvx --from` and passes the sim suite; `uvx omniverse-mcp==0.2.0` works after publish |
+| S10 | Announce, after `0.2.0` is on PyPI: a `server.json` in the official MCP registry, a line in the main awesome-mcp lists, the plugin install snippet on the release | The registry entry resolves to the PyPI package |
 
 ## Tests
 
@@ -374,7 +376,7 @@ Each step is one PR, buildable and testable on its own.
 
 | # | Risk | Status |
 |---|---|---|
-| R1 | Kit may need the `-<version>` suffix on the extension folder (`c6454e6` added it) | Check on Isaac Sim 5.1 before S2 merges. If it does, the folder keeps the suffix and the release renames it |
+| R1 | Kit may need the `-<version>` suffix on the extension folder (`c6454e6` added it) | Resolved in S2: Isaac Sim 6.2 loads `extension/ovmcp.bridge` as `ovmcp.bridge-0.1.0`, and `on_startup` gets that id |
 | R2 | How Claude Code starts a plugin's stdio server: working folder, environment, `${VAR}` in `args` | Check with a probe plugin and `claude plugin validate --strict` before S8, as docket did for its HTTP entry |
 | R3 | SDK v2 runs synchronous tools on worker threads, several at once, over the client's one socket | Resolved in plan review round 1: S7's request lock (Design / SDK v2) |
 | R4 | The two forks keep the old commits, trailers included | Accepted; they cannot be changed from here |
@@ -441,6 +443,8 @@ Improvements taken:
 | 2026-10-28 | S1 | review-code round 2: 3 majors (a disabled bridge still served open connections, a timed-out script was resent, unlimited connections without the token) and 5 minors, fixed in `7199b96`; 114 unit tests pass. Live on Isaac Sim 6.2 (`D:\isaac`, headless; the maintainer accepted the Omniverse EULA for these runs): integration 10/10. The scenario suite matches `main`'s baseline. Its failures are Isaac Sim 6.2 problems that predate S1: a hang in the G1 robot's physics, Y-up gravity tests on a Z-up stage, and `draw_debug`. Details in the review record. |
 | 2026-10-28 | S1b | Built on `2-s1b-camera-lighting`, stacked on S1: the March work plus every fix of its [review](../reviews/2026-10-28-wip-camera-lighting-code.md). Framing maths in `core/framing.py`, isolation in `core/isolation.py` (tested on usd-core, session layer restored byte for byte). The lighting fallback was checked with Kit mocked. F1, F3 and F6 wait on the sim suite. Not pushed. |
 | 2026-10-28 | S2 | Built on `2-s2-rename-layout`, stacked on S1b: `src/omniverse_mcp/`, `extension/ovmcp.bridge/` with `ovmcp/bridge` (Kit-bound) and `ovmcp/core` (Kit-free, no import guard), hatchling with the extension force-included into the wheel, `uv.lock`, `.python-version` 3.12, Python 3.11+, flags `--host`/`--port` with `OMNIVERSE_MCP_*` defaults, `omniverse://` resources, `# Omniverse MCP` headers, extension and server both `0.1.0` (a test keeps them equal). README, CONTRIBUTING and docs moved with the names; `test_project/.mcp.json.example` committed. 200 unit tests pass under `uv run pytest`. Not yet run against a live Kit: the folder without a version suffix (R1), the `ext_id` Kit passes, the settings path. |
+| 2026-10-28 | S1, S1b | PR #3 squash-merged as `937956a` and PR #4 as `1bbbcae`, both by the maintainer's word. The Isaac Sim 6.2 problems the live runs found are issues #5 (the G1 robot hangs Kit), #6 (Y-up gravity tests) and #7 (`draw_debug` needs `isaacsim.util.debug_draw`). The repo's description and 12 topics are set; Claude no longer shows among the contributors (the API lists serionist and tfoldi). |
+| 2026-10-28 | S2 | Rebased onto `main` after #4. Live on Isaac Sim 6.2: Kit loads `ovmcp.bridge-0.1.0` from the folder without a version suffix (R1 resolved), settings are read from `/exts/ovmcp.bridge/*`, the token file is written and removed, `/bridge` reports `0.1.0`, integration 27/27 (one cold first capture over the timeout on the first run, as in S1). The maintainer added S8b (presentation) and S10 (announce). |
 
 ## For the maintainers
 
