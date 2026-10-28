@@ -14,6 +14,7 @@ Standard library only: in a new worktree the shims' `uv run --no-sync` environme
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from collections.abc import Callable
@@ -21,9 +22,9 @@ from pathlib import Path, PurePosixPath
 
 import gate
 
-# The line above the diff `git commit -v` adds; git drops it and all below it, but only behind its own comment
-# character. Everything above, comment lines included, is the message: with -m git keeps comment lines, and with -F a
-# scissors line behind any other character is text it keeps, a trailer below it included.
+# The line above the diff `git commit -v` adds. git drops it and all below it only in a message it opened an editor
+# for, and only behind its own comment character; with -m, -F or --no-edit it keeps that line and everything after
+# it, a trailer included. Everything above, comment lines included, is the message: with -m git keeps comment lines.
 SCISSORS = " ------------------------ >8 ------------------------"
 # What git picks from when core.commentChar is "auto": the first that starts no line of the message.
 AUTO_COMMENT_CHARS = ("#", ";", "@", "!", "$", "%", "^", "&", "|", ":")
@@ -53,12 +54,19 @@ def message_text(raw: str, comment_chars: tuple[str, ...] = ("#",)) -> str:
 
 
 def comment_chars(cwd: Path = gate.ROOT) -> tuple[str, ...]:
-    """git's comment character here: core.commentString, else core.commentChar, else #; any it may pick for "auto"."""
-    for key in ("core.commentString", "core.commentChar"):
-        value = gate.git("config", "--get", key, cwd=cwd).stdout.strip()
-        if value:
-            return AUTO_COMMENT_CHARS if value == "auto" else (value,)
-    return ("#",)
+    """git's comment character here, # unless set; any it may pick for "auto". git reads core.commentChar and
+    core.commentString as one setting, and the last one it reads wins."""
+    done = gate.git("config", "--get-regexp", r"^core\.comment(char|string)$", cwd=cwd)
+    settings = done.stdout.strip().splitlines()
+    value = settings[-1].partition(" ")[2] if settings else ""
+    if not value:
+        return ("#",)
+    return AUTO_COMMENT_CHARS if value.lower() == "auto" else (value,)
+
+
+def editor_ran() -> bool:
+    """Whether git opened an editor for this message: it hands a hook GIT_EDITOR=: when it opened none."""
+    return os.environ.get("GIT_EDITOR") != ":"
 
 
 def identities(cwd: Path = gate.ROOT) -> list[tuple[str, str]]:
@@ -74,9 +82,11 @@ def identities(cwd: Path = gate.ROOT) -> list[tuple[str, str]]:
 
 def commit_msg(path: str, people: list[tuple[str, str]] | None = None, chars: tuple[str, ...] | None = None) -> int:
     """Refuse a message with tool attribution, or a tool as the commit's author or committer; 1 refuses the commit.
-    people and chars stand in for identities() and comment_chars(), which ask git."""
+    people stands in for identities(), and chars for the comment characters git cuts behind: none without an editor."""
     raw = Path(path).read_text(encoding="utf-8", errors="replace")
-    text = message_text(raw, comment_chars() if chars is None else chars)
+    if chars is None:
+        chars = comment_chars() if editor_ran() else ()
+    text = message_text(raw, chars)
     people = identities() if people is None else people
     tools = [f"a tool as the commit's {role}: {who}" for role, who in people if gate.tool_co_author(who)]
     hint = "take those lines out and commit again (AGENTS.md, Commits and PRs)"

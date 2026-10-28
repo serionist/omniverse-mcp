@@ -4,6 +4,7 @@ links tools/setup.py writes into git's index, and what Claude Code's settings de
 import fnmatch
 import io
 import json
+import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -236,27 +237,52 @@ GITLEAKS_ERR = (
 )
 
 
+GITLEAKS_CLEAN = "5:46PM INF 0 commits scanned.\n5:46PM INF scanned ~0 bytes (0) in 201ms\n5:46PM INF no leaks found\n"
+
+
 @pytest.mark.parametrize(
-    ("output", "listed", "expected"),
+    ("output", "expected"),
     [
-        ("5:25PM INF 2 commits scanned.\n5:25PM INF no leaks found\n", 2, []),
-        ("5:25PM INF 1 commits scanned.\n", 1, []),
+        ("5:25PM INF 2 commits scanned.\n5:25PM INF no leaks found\n", []),
+        # A commit that adds no line (a deletion, a rename, a mode change) scans none, and is clean.
+        (GITLEAKS_CLEAN, []),
         (
             GITLEAKS_ERR,
-            2,
             ["gitleaks could not read the commits: 5:25PM ERR [git] fatal: Could not read from remote repository."],
         ),
-        (
-            "5:25PM INF 0 commits scanned.\n5:25PM INF no leaks found\n",
-            2,
-            ["gitleaks scanned no commit of the 2 listed"],
-        ),
-        ("5:25PM INF no leaks found\n", 3, ["gitleaks scanned no commit of the 3 listed"]),
-        ("5:25PM INF 0 commits scanned.\n", 0, []),
     ],
 )
-def test_gitleaks_problems(output, listed, expected):
-    assert gate.gitleaks_problems(output, listed) == expected
+def test_gitleaks_problems(output, expected):
+    assert gate.gitleaks_problems(output) == expected
+
+
+@pytest.mark.parametrize(
+    ("output", "status"),
+    [(GITLEAKS_CLEAN, "pass"), (GITLEAKS_ERR, "FAIL")],
+)
+def test_check_gitleaks_reads_what_gitleaks_logged_when_it_exits_0(tmp_path, monkeypatch, output, status):
+    run = new_repo(tmp_path)
+    commit_file(run, tmp_path, "a.txt", "Add a file")
+    first = run("rev-parse", "HEAD")
+    run("rm", "-q", "a.txt")
+    run("commit", "-q", "-m", "Delete it")
+    head = run("rev-parse", "HEAD")
+    real_run, real_which = gate.run, gate.shutil.which
+
+    def fake_run(cmd, cwd=gate.ROOT, stdin=None):
+        if cmd[0] == "gitleaks-stand-in":
+            assert f"{first}..{head}" in cmd[cmd.index("--log-opts") + 1]  # full ids, never the refs as typed
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr=output)
+        return real_run(cmd, cwd, stdin)
+
+    monkeypatch.setattr(gate, "run", fake_run)
+    monkeypatch.setattr(
+        gate.shutil, "which", lambda name: "gitleaks-stand-in" if name == "gitleaks" else real_which(name)
+    )
+
+    result = gate.check_gitleaks(gate.Scope.of([f"{first}..HEAD"], cwd=tmp_path), root=tmp_path)
+
+    assert result.status == status
 
 
 def test_list_commits_says_what_to_do_when_the_base_is_missing(tmp_path):
@@ -637,16 +663,37 @@ def test_a_scissors_line_behind_another_character_hides_nothing(tmp_path, capsys
     ("config", "expected"),
     [
         ([], ("#",)),
-        (["core.commentChar", ";"], (";",)),
-        (["core.commentString", "//"], ("//",)),
-        (["core.commentChar", "auto"], hooks.AUTO_COMMENT_CHARS),
+        ([("core.commentChar", ";")], (";",)),
+        ([("core.commentString", "//")], ("//",)),
+        ([("core.commentChar", "auto")], hooks.AUTO_COMMENT_CHARS),
+        ([("core.commentChar", "AUTO")], hooks.AUTO_COMMENT_CHARS),
+        # One setting under two names: the last git reads wins.
+        ([("core.commentString", "//"), ("core.commentChar", ";")], (";",)),
     ],
 )
-def test_comment_chars_come_from_git(tmp_path, config, expected):
-    run = new_repo(tmp_path)
-    if config:
-        run("config", *config)
-    assert hooks.comment_chars(cwd=tmp_path) == expected
+def test_comment_chars_come_from_git(tmp_path, monkeypatch, config, expected):
+    # Only this repository's config: not the developer's ~/.gitconfig, nor the system's.
+    (tmp_path / "global").write_text("", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "global"))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run = new_repo(repo)
+    for key, value in config:
+        run("config", key, value)
+    assert hooks.comment_chars(cwd=repo) == expected
+
+
+def test_without_an_editor_a_scissors_line_hides_nothing(tmp_path, capsys, monkeypatch):
+    # git cuts at the scissors line only in a message it opened an editor for; with -m, -F or --no-edit it hands the
+    # hook GIT_EDITOR=: and keeps the line and all below it, behind its own comment character too.
+    monkeypatch.setenv("GIT_EDITOR", ":")
+    text = f"Fix a thing\n\n#{SCISSORS_LINE}\nCo-Authored-By: Claude <noreply@anthropic.com>\n"
+    file = tmp_path / "COMMIT_EDITMSG"
+    file.write_text(text, encoding="utf-8")
+    assert hooks.editor_ran() is False
+    assert hooks.commit_msg(str(file), PERSON) == 1
+    assert "Co-Authored-By: Claude" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(

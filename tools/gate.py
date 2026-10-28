@@ -115,7 +115,6 @@ _FULL_SHA = re.compile(r"\b([0-9a-f]{10})[0-9a-f]{30}\b")
 # gitleaks colours its log even into a pipe; the counts and levels are read without the colour codes.
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _GITLEAKS_ERROR = re.compile(r"(?:^|\s)ERR\s")
-_GITLEAKS_SCANNED = re.compile(r"\b(\d+) commits? scanned\b")
 _KEY_LINE = re.compile(r"^([A-Za-z][\w-]*):(?:[ \t]+(.*))?$")
 _BLOCK_STYLES = (">", ">-", ">+", "|", "|-", "|+")
 
@@ -231,17 +230,13 @@ def identity_problems(identities: list[tuple[str, str, str]]) -> list[str]:
     ]
 
 
-def gitleaks_problems(output: str, listed: int) -> list[str]:
-    """Why a gitleaks run that exited 0 still scanned less than it was given. gitleaks 8.30 exits 0 when its own
-    `git log -p` fails (a blobless clone whose origin is gone, say): it logs ERR and scans nothing."""
+def gitleaks_problems(output: str) -> list[str]:
+    """Why a gitleaks run that exited 0 still didn't read the commits. gitleaks 8.30 exits 0 when its own `git log -p`
+    fails (a blobless clone whose origin is gone, say): it logs ERR and scans nothing. Its count of commits scanned is
+    no sign: it counts only commits that add a line, so a deletion, a rename or a mode change scans none."""
     lines = [_ANSI.sub("", line).strip() for line in output.splitlines()]
     errors = [line for line in lines if _GITLEAKS_ERROR.search(f" {line}")]
-    if errors:
-        return [f"gitleaks could not read the commits: {errors[0]}"]
-    counts = [int(m.group(1)) for line in lines if (m := _GITLEAKS_SCANNED.search(line))]
-    if listed and not any(counts):
-        return [f"gitleaks scanned no commit of the {listed} listed"]
-    return []
+    return [f"gitleaks could not read the commits: {errors[0]}"] if errors else []
 
 
 def parse_log(output: str) -> list[tuple[str, str]]:
@@ -558,19 +553,20 @@ def check_attribution(scope: Scope) -> Result:
             "FAIL",
             f"tool attribution in {len(found)} line(s)",
             output="\n".join(found)
-            + "\nReword each commit without it (git rebase -i, reword), or give it a person as author and committer"
-            " (git commit --amend --reset-author).",
+            + "\nReword each commit without it (git rebase -i, reword). For a tool as author or committer, make"
+            " yourself both: git commit --amend --reset-author for the last commit, and for every commit since the"
+            ' base, git rebase -r <base> --exec "git commit --amend --no-edit --reset-author".',
         )
     return Result("attribution", "pass", f"{len(scope.commits)} commits")
 
 
-def check_gitleaks(scope: Scope) -> Result:
+def check_gitleaks(scope: Scope, root: Path = ROOT) -> Result:
     exe = shutil.which("gitleaks")
     if not exe:
         if truthy(os.environ.get("GATE_REQUIRE_GITLEAKS")):
             return Result("gitleaks", "FAIL", "not installed, and GATE_REQUIRE_GITLEAKS=1 requires it")
         return Result("gitleaks", "warn", "not installed, so not scanned; https://github.com/gitleaks/gitleaks")
-    if (ROOT / GITLEAKS_IGNORE).exists():
+    if (root / GITLEAKS_IGNORE).exists():
         return Result(
             "gitleaks",
             "FAIL",
@@ -583,18 +579,20 @@ def check_gitleaks(scope: Scope) -> Result:
         return Result("gitleaks", "pass", "no commits to scan")
     for rev in scope.ranges:
         # Full ids, never the refs as typed: gitleaks splits --log-opts on spaces, so a ref could add git log options.
-        ends = [git("rev-parse", "--verify", "--quiet", f"{end}^{{commit}}").stdout.strip() for end in rev.split("..")]
+        ends = [
+            git("rev-parse", "--verify", "--quiet", f"{end}^{{commit}}", cwd=root).stdout.strip()
+            for end in rev.split("..")
+        ]
         if len(ends) != 2 or not all(ends):
             return Result("gitleaks", "FAIL", f"cannot resolve {rev} to two commits")
-        listed = int(git("rev-list", "--count", f"{ends[0]}..{ends[1]}").stdout.strip() or "0")
         log_opts = f"{GITLEAKS_PLAIN_LOG} {ends[0]}..{ends[1]}"
-        cmd = [exe, "git", "--config", str(ROOT / GITLEAKS_CONFIG), "--log-opts", log_opts]
-        cmd += ["--redact", "--no-banner", "--ignore-gitleaks-allow", "--exit-code", "1", "-v", str(ROOT)]
-        done = run(cmd)
+        cmd = [exe, "git", "--config", str(root / GITLEAKS_CONFIG), "--log-opts", log_opts]
+        cmd += ["--redact", "--no-banner", "--ignore-gitleaks-allow", "--exit-code", "1", "-v", str(root)]
+        done = run(cmd, cwd=root)
         output = (done.stdout + done.stderr).strip()
         if done.returncode != 0:
             return Result("gitleaks", "FAIL", f"secrets found in {rev}, or the scan failed", output=output)
-        unread = gitleaks_problems(output, listed)
+        unread = gitleaks_problems(output)
         if unread:
             return Result("gitleaks", "FAIL", unread[0], output=output)
     return Result("gitleaks", "pass", f"{len(scope.commits)} commits")

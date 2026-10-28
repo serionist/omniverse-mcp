@@ -70,7 +70,8 @@ layer (MCP SDK v2, annotations, errors as error results), so check its progress 
    protocol or the token, the READMEs, a line in [CHANGELOG.md](CHANGELOG.md) when users notice it, AGENTS.md when a
    path, a command or a rule changes.
 3. Commit with a plain imperative subject that says what changed, and a body that says why. No AI co-author
-   trailers, "Generated with" lines or session links: `commit-msg` refuses them.
+   trailers, "Generated with" lines or session links, and you, not a tool, as author and committer: `commit-msg`
+   refuses them.
 4. Open the PR with [the template](.github/pull_request_template.md) filled in, ending `Closes #<issue>`, or
    `Refs #<issue>` for one step of it. Its title becomes the commit on `main`.
 

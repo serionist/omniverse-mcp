@@ -1,5 +1,6 @@
 #!/bin/sh
-# Refuses tool attribution in the message (AGENTS.md, Commits and PRs). Turned on by `uv run tools/setup.py`.
+# Refuses tool attribution in the message, and a tool as author or committer (AGENTS.md, Commits and PRs).
+# Turned on by `uv run tools/setup.py`.
 cd "$(git rev-parse --show-toplevel)" || exit 1
 if ! command -v uv >/dev/null 2>&1; then
     echo "commit-msg: uv not found, hook skipped; gate quick still checks the branch's messages" >&2
