@@ -501,13 +501,14 @@
           "shape": {
             "enum": [
               "line",
+              "lines",
               "sphere",
               "points"
             ],
             "type": "string"
           },
           "size": {
-            "default": 5.0,
+            "default": 0.05,
             "exclusiveMinimum": 0,
             "type": "number"
           },
@@ -570,7 +571,7 @@
           },
           "max_depth": {
             "default": 15,
-            "minimum": 1,
+            "minimum": 0,
             "type": "integer"
           },
           "property_filter": {
@@ -841,7 +842,7 @@
         "properties": {
           "max_depth": {
             "default": 10,
-            "minimum": 1,
+            "minimum": 0,
             "type": "integer"
           },
           "root": {
@@ -960,7 +961,7 @@
           "max_depth": {
             "default": 5,
             "maximum": 15,
-            "minimum": 1,
+            "minimum": 0,
             "type": "integer"
           },
           "root": {
@@ -1048,6 +1049,7 @@
           },
           "zoom_offset": {
             "default": 0.0,
+            "exclusiveMinimum": -1,
             "type": "number"
           }
         },
@@ -1417,7 +1419,7 @@
           "density": {
             "anyOf": [
               {
-                "exclusiveMinimum": 0,
+                "minimum": 0,
                 "type": "number"
               },
               {
@@ -1441,7 +1443,7 @@
           "mass": {
             "anyOf": [
               {
-                "exclusiveMinimum": 0,
+                "minimum": 0,
                 "type": "number"
               },
               {

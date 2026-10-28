@@ -162,7 +162,7 @@ def register(mcp, client, h):
             list[str] | None,
             Field(
                 description=(
-                    'Angle names, all 14 when omitted. Face centers: "front", "back", "right", "left", "top", '
+                    'Angle names, all 14 when omitted. Face centres: "front", "back", "right", "left", "top", '
                     '"bottom". Cube corners: "top_front_right", "top_front_left", "top_back_right", '
                     '"top_back_left", "bottom_front_right", "bottom_front_left", "bottom_back_right", '
                     '"bottom_back_left"'
@@ -173,7 +173,10 @@ def register(mcp, client, h):
         height: Height = 480,
         zoom_offset: Annotated[
             float,
-            Field(description="Adjusts the fitted distance: negative closer, positive further (-0.3 is 30% closer)"),
+            Field(
+                gt=-1,
+                description="Adjusts the fitted distance: negative closer, positive further (-0.3 is 30% closer)",
+            ),
         ] = 0.0,
         isolate: Annotated[bool, Field(description="Hide everything else while capturing, then restore it")] = False,
         include_segmentation: Annotated[

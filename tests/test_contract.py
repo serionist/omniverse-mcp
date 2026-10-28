@@ -15,6 +15,8 @@ from omniverse_mcp.tools._annotations import DESTROYS, EDITS, READS, RUNS
 
 TOOLS_MD = golden.ROOT / "docs" / "TOOLS.md"
 HINTS = [h.model_dump(by_alias=True, exclude_none=True) for h in (READS, EDITS, DESTROYS, RUNS)]
+# docs/TOOLS.md's hints table, a row for each of HINTS in the same order.
+HINT_ROWS = ("read-only", "not destructive", "destructive", "destructive, open world")
 
 
 @pytest.fixture(scope="module")
@@ -68,6 +70,25 @@ def test_the_tool_reference_has_a_heading_per_tool(found):
     assert sorted(tools - set(headings)) == [], "docs/TOOLS.md has no heading for these tools"
     assert sorted(set(headings) - tools) == [], "docs/TOOLS.md has headings for tools the server doesn't list"
     assert len(headings) == len(set(headings)), "docs/TOOLS.md has a tool's heading twice"
+
+
+def test_the_tool_reference_lists_each_tool_under_its_hints(listed):
+    tools, _, _ = listed
+    text = TOOLS_MD.read_text(encoding="utf-8")
+    under: list[tuple[str, dict[str, Any]]] = []
+    for label, hints in zip(HINT_ROWS, HINTS, strict=True):
+        row = re.search(rf"^\| {re.escape(label)} \| [^|]+ \| (.+) \|$", text, re.MULTILINE)
+        assert row, f"docs/TOOLS.md has no hints row {label!r}"
+        under += [(name, hints) for name in re.findall(r"`(\w+)`", row.group(1))]
+    names = [name for name, _ in under]
+    assert len(names) == len(set(names)), "docs/TOOLS.md lists a tool under two hints"
+    documented = dict(under)
+    wrong = sorted(
+        t.name
+        for t in tools
+        if not t.annotations or documented.get(t.name) != t.annotations.model_dump(by_alias=True, exclude_none=True)
+    )
+    assert not wrong, f"docs/TOOLS.md's hints table puts these under the wrong row, or none: {wrong}"
 
 
 def test_the_tool_reference_lists_each_resource(found):

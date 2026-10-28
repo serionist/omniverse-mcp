@@ -5,7 +5,7 @@ from typing import Annotated
 from pydantic import Field
 
 PrimPath = Annotated[str, Field(description='Full USD path of the prim, e.g. "/World/Robot"')]
-Position = Annotated[list[float] | None, Field(description="[x, y, z] in the stage's units (usually meters)")]
+Position = Annotated[list[float] | None, Field(description="[x, y, z] in the stage's units (usually metres)")]
 Rotation = Annotated[
     list[float] | None, Field(description="Euler angles [rx, ry, rz] in degrees, or a quaternion [w, x, y, z]")
 ]

@@ -13,9 +13,15 @@ def register(mcp, client, h):
     @mcp.tool(annotations=EDITS)
     def start_recording(
         fps: Annotated[int, Field(ge=1, description="Frames a second: 5 captures one every 0.2 s")] = 5,
-        width: Annotated[int, Field(ge=1, description="Frame width in pixels")] = 640,
-        height: Annotated[int, Field(ge=1, description="Frame height in pixels")] = 480,
-        camera_path: Annotated[str, Field(description="The camera to record from; the active one when empty")] = "",
+        width: Annotated[
+            int, Field(ge=1, description="Frame width in pixels; for now frames keep the viewport's size (#25)")
+        ] = 640,
+        height: Annotated[
+            int, Field(ge=1, description="Frame height in pixels; for now frames keep the viewport's size (#25)")
+        ] = 480,
+        camera_path: Annotated[
+            str, Field(description="The camera to record from; for now frames come from the active viewport (#25)")
+        ] = "",
         track_prims: Annotated[
             list[str] | None, Field(description='Prims whose state to record, descendants included, e.g. ["/World/G1"]')
         ] = None,

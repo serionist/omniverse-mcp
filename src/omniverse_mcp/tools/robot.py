@@ -87,13 +87,13 @@ def register(mcp, client, h):
             dict[str, float] | list[float] | None,
             Field(
                 description=(
-                    "{joint_name: value} or [v0, v1, ...] in joint order: degrees for revolute joints, meters for "
+                    "{joint_name: value} or [v0, v1, ...] in joint order: degrees for revolute joints, metres for "
                     "prismatic ones"
                 )
             ),
         ] = None,
     ) -> str:
-        """Set joint drive position targets. Works without articulation initialization."""
+        """Set joint drive position targets. Works without articulation initialisation."""
         resp = bridge_call(client.set_joint_targets, prim_path, targets)
         r = resp["result"]
         lines = [f"Set {r['targets_set']} joint targets on {r['prim_path']}"]

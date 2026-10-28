@@ -294,6 +294,13 @@ async def handle_create_prim(body: dict) -> dict:
     stage = _get_stage()
 
     usd_path = body.get("usd_path")
+    # DefinePrim retypes a prim that is there: a create never turns one kind of prim into another.
+    existing = stage.GetPrimAtPath(prim_path)
+    if not usd_path and existing.IsValid() and existing.GetTypeName() not in ("", prim_type):
+        return {
+            "status": "error",
+            "error": f"{prim_path} is already a {existing.GetTypeName()}: delete it first, or pick another path",
+        }
     if usd_path:
         prim = stage.DefinePrim(prim_path)
         prim.GetReferences().AddReference(usd_path)
@@ -454,10 +461,18 @@ async def handle_clone_prim(body: dict) -> dict:
     if not source_prim.IsValid():
         return {"status": "error", "error": f"Source prim not found: {source_path}"}
 
+    dest_paths = [target_path if count == 1 else f"{target_path}_{i + 1:03d}" for i in range(count)]
+    # CopySpec replaces whatever is at the destination, children included: a clone never takes a path in use.
+    taken = [p for p in dest_paths if stage.GetPrimAtPath(p).IsValid()]
+    if taken:
+        return {
+            "status": "error",
+            "error": f"Already a prim at {', '.join(taken)}: delete it first, or pick another target_path",
+        }
+
     src_layer = stage.GetRootLayer()
     created = []
-    for i in range(count):
-        dest_path = target_path if count == 1 else f"{target_path}_{i + 1:03d}"
+    for i, dest_path in enumerate(dest_paths):
         if not Sdf.CopySpec(src_layer, source_path, src_layer, dest_path):
             return {"status": "error", "error": f"Failed to clone to {dest_path}"}
         if offset and (i > 0 or count == 1):

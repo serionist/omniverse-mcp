@@ -249,6 +249,32 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(result["status"], "success")
         print("  Visibility toggle OK")
 
+    def test_21_clone_and_create_refuse_to_overwrite(self):
+        guard, clone, row = "/World/IntTestGuard", "/World/IntTestGuardClone", "/World/IntTestGuardRow"
+        try:
+            self.assertEqual(self.client.create_prim(guard, "Cube")["status"], "success")
+            # The same type again is a no-op; another type would retype it.
+            self.assertEqual(self.client.create_prim(guard, "Cube", position=[0, 0, 1])["status"], "success")
+            result = self.client.create_prim(guard, "Sphere")
+            self.assertEqual(result["status"], "error")
+            self.assertIn("already a Cube", result["error"])
+            self.assertEqual(self.client.prim_properties(guard)["result"]["type"], "Cube")
+
+            self.assertEqual(self.client.clone_prim(guard, clone)["status"], "success")
+            result = self.client.clone_prim(guard, clone)
+            self.assertEqual(result["status"], "error")
+            self.assertIn(clone, result["error"])
+
+            # One taken path in a batch refuses the whole batch, before any copy.
+            self.assertEqual(self.client.create_prim(f"{row}_002", "Xform")["status"], "success")
+            result = self.client.clone_prim(guard, row, count=3)
+            self.assertEqual(result["status"], "error")
+            self.assertEqual(self.client.prim_properties(f"{row}_001")["status"], "error")
+            self.assertEqual(self.client.prim_properties(f"{row}_002")["result"]["type"], "Xform")
+        finally:
+            for path in (guard, clone, f"{row}_002"):
+                self.client.delete_prim(path)
+
     def test_21_clone_prim(self):
         result = self.client.clone_prim("/World/IntTestCube", "/World/IntTestClone")
         self.assertEqual(result["status"], "success")

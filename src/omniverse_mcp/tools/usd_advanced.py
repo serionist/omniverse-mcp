@@ -38,7 +38,7 @@ def register(mcp, client, h):
     @mcp.tool(annotations=READS)
     def get_prim_face_count_tree(
         root: Annotated[str, Field(description="Prim path to start from")] = "/World",
-        max_depth: Annotated[int, Field(ge=1, description="How many levels below root")] = 10,
+        max_depth: Annotated[int, Field(ge=0, description="How many levels below root; 0 for root alone")] = 10,
     ) -> str:
         """Get scene tree with face counts per mesh and subtree totals.
 

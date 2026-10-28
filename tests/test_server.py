@@ -77,6 +77,17 @@ def test_the_bridges_error_is_an_error_result_with_the_end_of_its_traceback(brid
     assert "line 2" not in text  # the last five lines only
 
 
+def test_a_value_out_of_range_is_refused_before_the_bridge(bridge, client, tmp_path):
+    server = create_server("127.0.0.1", bridge.port, str(tmp_path), client=client)
+    bridge.requests.clear()
+
+    result = _run(server, lambda c: c.call_tool("get_scene_tree", {"max_depth": 16}))
+
+    assert result.is_error
+    assert "less than or equal to 15" in result.content[0].text
+    assert bridge.requests == []
+
+
 def test_an_unreachable_kit_app_is_an_error_result(tmp_path):
     with socket.socket() as probe:  # a port nothing listens on
         probe.bind(("127.0.0.1", 0))

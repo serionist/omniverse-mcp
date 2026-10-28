@@ -13,7 +13,7 @@ def register(mcp, client, h):
     @mcp.tool(annotations=READS)
     def get_scene_tree(
         root: Annotated[str, Field(description="Prim path to start from")] = "/",
-        max_depth: Annotated[int, Field(ge=1, le=15, description="How many levels below root")] = 5,
+        max_depth: Annotated[int, Field(ge=0, le=15, description="How many levels below root; 0 for root alone")] = 5,
     ) -> str:
         """Get the USD scene hierarchy as grep-friendly prim-block text.
 
@@ -28,7 +28,7 @@ def register(mcp, client, h):
     @mcp.tool(annotations=READS)
     def dump_scene(
         root: Annotated[str, Field(description="Prim path to start from")] = "/",
-        max_depth: Annotated[int, Field(ge=1, description="How many levels below root")] = 15,
+        max_depth: Annotated[int, Field(ge=0, description="How many levels below root; 0 for root alone")] = 15,
         include_properties: Annotated[bool, Field(description="Include every USD property of each prim")] = True,
         filter_types: Annotated[
             list[str] | None, Field(description='Only prims of these types, e.g. ["Mesh", "Xform"]')
@@ -105,7 +105,7 @@ def register(mcp, client, h):
         """Create a new prim in the scene.
 
         Types: Cube, Sphere, Cylinder, Cone, Capsule, Xform, Camera, DistantLight, SphereLight, etc.
-        Or load a USD file via usd_path.
+        Or load a USD file via usd_path. A prim already at prim_path keeps its type: one of another type is refused.
         """
         kwargs = {}
         if usd_path:
@@ -134,7 +134,7 @@ def register(mcp, client, h):
         prim_path: PrimPath,
         color: Annotated[
             list[float],
-            Field(description="[r, g, b] diffuse color: 0-1 floats (e.g. [1, 0, 0] for red) or 0-255 ints"),
+            Field(description="[r, g, b] diffuse colour: 0-1 floats (e.g. [1, 0, 0] for red) or 0-255 ints"),
         ],
         opacity: Annotated[float, Field(ge=0, le=1, description="0 transparent to 1 opaque")] = 1.0,
         roughness: Annotated[float, Field(ge=0, le=1, description="0 glossy (mirror) to 1 rough (matte)")] = 0.5,
@@ -166,7 +166,10 @@ def register(mcp, client, h):
             list[float] | None, Field(description="[x, y, z] each copy moves from the one before")
         ] = None,
     ) -> str:
-        """Deep-copy a prim (and all children) to a new path. Supports batch cloning."""
+        """Deep-copy a prim (and all children) to a new path. Supports batch cloning.
+
+        Refuses a target path that already holds a prim, before it copies anything.
+        """
         resp = bridge_call(client.clone_prim, source_path, target_path, count, offset)
         r = resp["result"]
         clones = r["clones"]

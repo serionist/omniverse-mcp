@@ -46,14 +46,19 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   longer starts `ERROR:`. A script that looked for `ERROR:` in a tool's text reads `isError` instead, or it
   takes every failure for a success. A failed resource read is a resource error.
 - **A tool refuses a value out of its range, or not one of its choices,** before it reaches Kit: a width, height,
-  count, `max_depth` or `fps` below 1; a negative `frame_index` or friction; a mass, density, distance, duration,
-  radius or point size not above 0; an opacity, roughness, metallic or restitution outside 0 to 1; a `max_depth`
-  above 15 in `get_scene_tree`, which used to cut it to 15 quietly. `sim_control`, `viewport_light`,
-  `manage_extensions` and `draw_debug` take only their listed actions and shapes, and `get_logs` only `verbose`,
-  `info`, `warn`, `error`, `fatal` or `""` as `min_level`, where an unknown level used to filter nothing.
+  count or `fps` below 1; a negative `max_depth`, `frame_index`, mass, density or friction; a distance, duration,
+  radius or point size not above 0; a `zoom_offset` of -1 or less; an opacity, roughness, metallic or restitution
+  outside 0 to 1; a `max_depth` above 15 in `get_scene_tree`, which used to cut it to 15 quietly. `sim_control`,
+  `viewport_light`, `manage_extensions` and `draw_debug` take only their listed actions and shapes, in lower case
+  (`"Play"` used to work), and `get_logs` only `verbose`, `info`, `warn`, `error`, `fatal` or `""` as `min_level`,
+  where an unknown level used to filter nothing.
+- **`clone_prim` refuses a target path that already holds a prim,** and `create_prim` one that holds a prim of
+  another type. Both used to overwrite it: a clone replaced the prim there and its children, and a create turned a
+  Cube into an Xform.
 
 ### Fixed
 
+- **`draw_debug`'s `size` defaults to 0.05, what it draws,** where its schema said 5.0; asking for 5.0 drew 0.05.
 - **`get_logs` names Kit's log levels right, and `min_level` keeps the right ones.** A warning was labelled
   `verbose` and an error `info`, and `min_level="warn"` kept only fatal messages.
 

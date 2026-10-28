@@ -37,8 +37,13 @@ def register(mcp, client, h):
     @mcp.tool(annotations=EDITS)
     def set_physics_properties(
         prim_path: PrimPath,
-        mass: Annotated[float | None, Field(gt=0, description="Mass in kg (applies MassAPI)")] = None,
-        density: Annotated[float | None, Field(gt=0, description="Density in kg/m^3 (applies MassAPI)")] = None,
+        mass: Annotated[
+            float | None, Field(ge=0, description="Mass in kg (applies MassAPI); 0 unsets it, so density decides")
+        ] = None,
+        density: Annotated[
+            float | None,
+            Field(ge=0, description="Density in kg/m^3 (applies MassAPI); 0 unsets it; a mass set wins over it"),
+        ] = None,
         friction: Annotated[float | None, Field(ge=0, description="Static and dynamic friction coefficient")] = None,
         restitution: Annotated[
             float | None, Field(ge=0, le=1, description="Bounciness: 0 no bounce, 1 full bounce")
@@ -54,7 +59,8 @@ def register(mcp, client, h):
         prim_path: Annotated[str, Field(description="The rigid body's prim path")],
         force: Annotated[list[float], Field(description="[fx, fy, fz] in newtons, or N*s for an impulse")],
         position: Annotated[
-            list[float] | None, Field(description="World-space point to apply it at; the center of mass when omitted")
+            list[float] | None,
+            Field(description="World-space point to apply it at; the world origin when omitted, for now (#25)"),
         ] = None,
         impulse: Annotated[
             bool, Field(description="True for an instant impulse, False for a continuous force")
@@ -69,7 +75,7 @@ def register(mcp, client, h):
     @mcp.tool(annotations=READS)
     def raycast(
         origin: Annotated[list[float], Field(description="[x, y, z] start point")],
-        direction: Annotated[list[float], Field(description="[dx, dy, dz] direction; it is normalized")],
+        direction: Annotated[list[float], Field(description="[dx, dy, dz] direction; it is normalised")],
         max_distance: Annotated[float, Field(gt=0, description="The longest the ray goes")] = 1000.0,
     ) -> str:
         """Cast a ray into the scene and return what it hits. Useful for spatial queries."""
@@ -87,17 +93,26 @@ def register(mcp, client, h):
 
     @mcp.tool(annotations=EDITS)
     def draw_debug(
-        shape: Annotated[Literal["line", "sphere", "points"], Field(description="What to draw")],
-        color: Annotated[list[float] | None, Field(description="[r, g, b] in 0-1; red when omitted")] = None,
-        duration: Annotated[float, Field(gt=0, description="How long it shows, in seconds")] = 5.0,
+        shape: Annotated[
+            Literal["line", "lines", "sphere", "points"],
+            Field(description='What to draw: "lines" joins the points in order'),
+        ],
+        color: Annotated[list[float] | None, Field(description="[r, g, b] colour in 0-1; red when omitted")] = None,
+        duration: Annotated[
+            float, Field(gt=0, description="How long it shows, in seconds; the bridge ignores it for now (#25)")
+        ] = 5.0,
         start: Annotated[list[float] | None, Field(description='For "line": its start [x, y, z]')] = None,
         end: Annotated[list[float] | None, Field(description='For "line": its end [x, y, z]')] = None,
-        center: Annotated[list[float] | None, Field(description='For "sphere": its center [x, y, z]')] = None,
+        center: Annotated[list[float] | None, Field(description='For "sphere": its centre [x, y, z]')] = None,
         radius: Annotated[float, Field(gt=0, description='For "sphere": its radius')] = 0.1,
-        points: Annotated[list[list[float]] | None, Field(description='For "points": a list of [x, y, z]')] = None,
-        size: Annotated[float, Field(gt=0, description='For "points": the point size')] = 5.0,
+        points: Annotated[
+            list[list[float]] | None, Field(description='For "points" and "lines": a list of [x, y, z]')
+        ] = None,
+        size: Annotated[
+            float, Field(gt=0, description='For "points": how far each point\'s cross reaches, in stage units')
+        ] = 0.05,
     ) -> str:
-        """Draw debug visualization in the viewport (lines, spheres, points)."""
+        """Draw debug visualisation in the viewport (lines, spheres, points)."""
         kwargs: dict[str, Any] = {"duration": duration}
         if color is not None:
             kwargs["color"] = color
@@ -111,7 +126,7 @@ def register(mcp, client, h):
             kwargs["radius"] = radius
         if points is not None:
             kwargs["points"] = points
-        if size != 5.0:
+        if size != 0.05:
             kwargs["size"] = size
 
         resp = bridge_call(client.draw_debug, shape, **kwargs)
