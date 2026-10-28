@@ -132,20 +132,20 @@ def _get_current_lighting_mode() -> str:
     """Get the current viewport lighting mode.
 
     Returns one of: "camera", "stage", "off", or a light rig name
-    (e.g., "Default", "Colored Lights", "Grey Studio").
+    (e.g., "Default", "Colored Lights", "Grey Studio"). The renderer's own
+    camera-light flag wins over the lighting menu's record, since scripts and
+    older versions of this bridge set the flag without the menu.
     """
+    menu_mode = None
     try:
         from omni.kit.viewport.menubar.lighting.utility import _make_light_mode_setting_key
         settings = carb.settings.get_settings()
-        mode = settings.get(_make_light_mode_setting_key(omni.usd.get_context()))
-        if not mode:
-            return "stage"
-        return mode
-    except (ImportError, Exception):
-        # Fallback when lighting extension not available
-        if _get_camera_light_enabled():
-            return "camera"
-        return "unknown"
+        menu_mode = settings.get(_make_light_mode_setting_key(omni.usd.get_context()))
+    except Exception as e:
+        _warn_once("lighting-mode", f"[MCP Bridge] Can't read the lighting menu's mode, using the renderer's flag: {e}")
+    if _get_camera_light_enabled():
+        return "camera"
+    return menu_mode or "stage"
 
 
 def _get_available_lighting_modes() -> list[str]:
@@ -156,9 +156,33 @@ def _get_available_lighting_modes() -> list[str]:
         rigs = _get_rig_names_and_paths("omni.kit.viewport.menubar.lighting")
         if rigs:
             modes.extend(name for name, _ in rigs)
-    except (ImportError, Exception):
-        pass
+    except Exception as e:
+        _warn_once("lighting-rigs", f"[MCP Bridge] Can't list the lighting menu's light rigs: {e}")
     return modes
+
+
+def _set_lighting_mode(mode: str) -> str | None:
+    """Switch the viewport's lighting mode; the reason it did not change, or None.
+
+    Goes through the lighting menu's command. Without it (headless or minimal
+    Kit apps), "camera" and "stage" fall back to the renderer's camera-light
+    flag, which needs no other extension.
+    """
+    try:
+        import omni.kit.commands
+        outcome = omni.kit.commands.execute("SetLightingMenuModeCommand", lighting_mode=mode)
+        # Kit returns (success, result) and logs, rather than raises, for a missing command.
+        if outcome[0] if isinstance(outcome, tuple) else outcome:
+            return None
+        reason = "SetLightingMenuModeCommand did not run (is omni.kit.viewport.menubar.lighting enabled?)"
+    except Exception as e:
+        reason = f"SetLightingMenuModeCommand failed: {e}"
+
+    if mode in ("camera", "stage"):
+        carb.settings.get_settings().set("/rtx/useViewLightingMode", mode == "camera")
+        if _get_camera_light_enabled() == (mode == "camera"):
+            return None
+    return f"Lighting mode not changed to '{mode}': {reason}"
 
 
 def _viewport_resolution(requested: tuple[int, int]) -> tuple[int, int]:
@@ -820,19 +844,22 @@ async def handle_viewport_light(body: dict) -> dict:
             },
         }
 
-    elif action == "set":
-        mode = body.get("mode", "")
-        if not mode:
+    elif action in ("set", "set_camera_light"):
+        if action == "set":
+            mode = body.get("mode", "")
             available = _get_available_lighting_modes()
-            return {"status": "error", "error": f"mode is required for 'set' action. Available: {', '.join(available)}"}
-
-        available = _get_available_lighting_modes()
-        if mode not in available:
-            return {"status": "error", "error": f"Unknown mode: '{mode}'. Available: {', '.join(available)}"}
+            if not mode:
+                return {"status": "error", "error": f"mode is required for 'set' action. Available: {', '.join(available)}"}
+            if mode not in available:
+                return {"status": "error", "error": f"Unknown mode: '{mode}'. Available: {', '.join(available)}"}
+        else:
+            # Legacy alias: enabled=true → "camera", enabled=false → "stage"
+            mode = "camera" if body.get("enabled", True) else "stage"
 
         try:
-            import omni.kit.commands
-            omni.kit.commands.execute("SetLightingMenuModeCommand", lighting_mode=mode)
+            error = _set_lighting_mode(mode)
+            if error:
+                return {"status": "error", "error": error}
             await _reset_renderer(wait_frames=CAMERA_SETTLE_FRAMES)
             return {
                 "status": "success",
@@ -843,24 +870,6 @@ async def handle_viewport_light(body: dict) -> dict:
             }
         except Exception as e:
             return {"status": "error", "error": f"Failed to set lighting mode: {e}"}
-
-    elif action == "set_camera_light":
-        # Legacy alias: enabled=true → "camera", enabled=false → "stage"
-        enabled = body.get("enabled", True)
-        mode = "camera" if enabled else "stage"
-        try:
-            import omni.kit.commands
-            omni.kit.commands.execute("SetLightingMenuModeCommand", lighting_mode=mode)
-            await _reset_renderer(wait_frames=CAMERA_SETTLE_FRAMES)
-            return {
-                "status": "success",
-                "result": {
-                    "lighting_mode": _get_current_lighting_mode(),
-                    "message": f"Viewport camera light {'enabled' if enabled else 'disabled'}",
-                },
-            }
-        except Exception as e:
-            return {"status": "error", "error": f"Failed to set camera light: {e}"}
 
     else:
         return {"status": "error", "error": f"Unknown action: {action}. Use 'get', 'set', or 'set_camera_light'"}
