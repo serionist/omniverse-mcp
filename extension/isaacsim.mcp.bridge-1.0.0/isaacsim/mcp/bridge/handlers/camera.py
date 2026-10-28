@@ -10,9 +10,10 @@ import traceback
 import carb
 import omni.kit.app
 import omni.usd
-from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux
+from pxr import Gf, Usd, UsdGeom
 
 from ..core.framing import MARGIN_PX, apply_zoom, bounding_radius, fit_distance
+from ..core.isolation import LIGHT_TYPES, Hidden, is_light, prims_to_hide
 from ._utils import (
     CAMERA_SETTLE_FRAMES,
     _compute_world_bbox,
@@ -115,16 +116,7 @@ def _is_image_black(png_bytes: bytes, threshold: int = 5) -> bool:
 
 def _has_scene_lights() -> bool:
     """Check if the stage has any active UsdLux light prims."""
-    stage = _get_stage()
-    for prim in stage.Traverse():
-        if prim.IsA(UsdLux.BoundableLightBase) or prim.IsA(UsdLux.NonboundableLightBase):
-            return True
-        # Fallback: check type name for older USD versions
-        type_name = prim.GetTypeName()
-        if type_name in ("DistantLight", "DomeLight", "SphereLight", "RectLight",
-                         "DiskLight", "CylinderLight"):
-            return True
-    return False
+    return any(is_light(prim) for prim in _get_stage().Traverse())
 
 
 def _get_camera_light_enabled() -> bool:
@@ -203,44 +195,6 @@ def _compute_autofit_distance(dims, camera_path, stage, width, height):
 
     res_w, res_h = _viewport_resolution((width, height))
     return fit_distance(bounding_radius(dims), fl, h_ap, v_ap, res_w, res_h)
-
-
-def _hide_other_prims(stage, target_path: str) -> list[str]:
-    """Hide all top-level /World children except the target prim's ancestor.
-
-    Uses the session layer for non-destructive edits.
-    Returns list of hidden prim paths for later restoration.
-    """
-    hidden = []
-    world = stage.GetPrimAtPath("/World")
-    if not world.IsValid():
-        return hidden
-
-    with Usd.EditContext(stage, stage.GetSessionLayer()):
-        for child in world.GetChildren():
-            child_path = str(child.GetPath())
-            # Don't hide the target or any ancestor containing it
-            if target_path == child_path or target_path.startswith(child_path + "/"):
-                continue
-            # Don't hide already-invisible prims
-            imageable = UsdGeom.Imageable(child)
-            vis = imageable.ComputeVisibility(Usd.TimeCode.Default())
-            if vis == UsdGeom.Tokens.invisible:
-                continue
-            imageable.MakeInvisible()
-            hidden.append(child_path)
-    return hidden
-
-
-def _restore_hidden_prims(stage, hidden_paths: list[str]):
-    """Restore visibility of prims hidden by _hide_other_prims."""
-    with Usd.EditContext(stage, stage.GetSessionLayer()):
-        for path_str in hidden_paths:
-            prim = stage.GetPrimAtPath(path_str)
-            if prim.IsValid():
-                # Clear session layer visibility override to restore original state
-                attr = UsdGeom.Imageable(prim).GetVisibilityAttr()
-                attr.Clear()
 
 
 async def _capture_frame(camera_path: str, width: int, height: int) -> tuple[bytes, bool]:
@@ -335,8 +289,7 @@ def _compute_screen_bboxes(camera_path: str, img_width: int, img_height: int):
     bbox_cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), ["default", "render"])
     results = []
 
-    skip_types = {"Camera", "DomeLight", "DistantLight", "Scope", "Shader",
-                  "Material", "NodeGraph"}
+    skip_types = {"Camera", "Scope", "Shader", "Material", "NodeGraph", *LIGHT_TYPES}
 
     world_prim = stage.GetPrimAtPath("/World")
     if not world_prim.IsValid():
@@ -673,14 +626,14 @@ async def handle_camera_inspect(body: dict) -> dict:
 
     up_axis = UsdGeom.GetStageUpAxis(stage)
 
-    # Isolate: hide other prims during capture
-    hidden_prims = []
-    if isolate:
-        hidden_prims = _hide_other_prims(stage, prim_path)
-        await _settle_viewport()
-
+    # Isolate: hide everything but the prim and the lights, in the session layer, inside the try so it always undoes
+    hidden = Hidden(stage.GetSessionLayer())
     captures = []
     try:
+        if isolate:
+            hidden.hide(prims_to_hide(stage, prim_path))
+            await _settle_viewport()
+
         for angle_name in angles:
             if angle_name in ANGLE_MAP:
                 az, el = ANGLE_MAP[angle_name]
@@ -748,9 +701,9 @@ async def handle_camera_inspect(body: dict) -> dict:
                     "error": str(e),
                 })
     finally:
-        # Restore visibility after isolation
-        if hidden_prims:
-            _restore_hidden_prims(stage, hidden_prims)
+        # Put each hidden prim's session-layer visibility back as it was
+        if len(hidden):
+            hidden.restore()
             await _settle_viewport()
 
     return {
@@ -848,10 +801,8 @@ async def handle_viewport_light(body: dict) -> dict:
         scene_lights = []
         stage = _get_stage()
         for prim in stage.Traverse():
-            type_name = prim.GetTypeName()
-            if type_name in ("DistantLight", "DomeLight", "SphereLight", "RectLight",
-                             "DiskLight", "CylinderLight"):
-                light_info = {"path": str(prim.GetPath()), "type": type_name}
+            if is_light(prim):
+                light_info = {"path": str(prim.GetPath()), "type": prim.GetTypeName()}
                 intensity_attr = prim.GetAttribute("inputs:intensity")
                 if not intensity_attr or not intensity_attr.HasValue():
                     intensity_attr = prim.GetAttribute("intensity")
