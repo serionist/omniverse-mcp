@@ -22,7 +22,7 @@ The solution: an HTTP bridge.
 The MCP server is a standalone Python process that:
 
 1. **Communicates with AI clients** via MCP stdio transport (stdin/stdout JSON-RPC)
-2. **Defines the tool surface** -- 40 MCP tools that AI assistants can call
+2. **Defines the tool surface** -- the MCP tools that AI assistants can call (`docs/TOOLS.md`)
 3. **Forwards requests** to the Isaac Sim extension via HTTP
 4. **Manages file output** -- saves images as PNGs, writes large text to files, returns paths
 

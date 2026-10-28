@@ -45,9 +45,20 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   bridge's message and the last lines of its traceback, or why the Kit app couldn't be reached; its text no
   longer starts `ERROR:`. A script that looked for `ERROR:` in a tool's text reads `isError` instead, or it
   takes every failure for a success. A failed resource read is a resource error.
+- **A tool refuses a value out of its range, or not one of its choices,** before it reaches Kit: a width, height,
+  count or `fps` below 1; a negative `max_depth`, `frame_index`, mass, density or friction; a distance, duration,
+  radius or point size not above 0; a `zoom_offset` of -1 or less; an opacity, roughness, metallic or restitution
+  outside 0 to 1; a `max_depth` above 15 in `get_scene_tree`, which used to cut it to 15 quietly. `sim_control`,
+  `viewport_light`, `manage_extensions` and `draw_debug` take only their listed actions and shapes, in lower case
+  (`"Play"` used to work), and `get_logs` only `verbose`, `info`, `warn`, `error`, `fatal` or `""` as `min_level`,
+  where an unknown level used to filter nothing.
+- **`clone_prim` refuses a target path that already holds a prim,** and `create_prim` one that holds a prim of
+  another type. Both used to overwrite it: a clone replaced the prim there and its children, and a create turned a
+  Cube into an Xform.
 
 ### Fixed
 
+- **`draw_debug`'s `size` defaults to 0.05, what it draws,** where its schema said 5.0; asking for 5.0 drew 0.05.
 - **`get_logs` names Kit's log levels right, and `min_level` keeps the right ones.** A warning was labelled
   `verbose` and an error `info`, and `min_level="warn"` kept only fatal messages.
 
@@ -62,6 +73,12 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ### Added
 
+- **Each tool says what it does to the Kit app,** as MCP annotations a client may use to ask before it runs one:
+  read-only (queries and captures), not destructive (edits), destructive (deletes and overwrites, prims or files), or
+  destructive and open world (`execute_script`, `manage_extensions`). `docs/TOOLS.md` lists them. They are hints,
+  never security.
+- **Every parameter is described in the tool's schema,** with its range or choices, so a client shows them without
+  the docs.
 - **`inspect_prim` frames the prim for you.** The camera stands where the prim's bounding sphere fills the captured
   frame with a small margin; `zoom_offset` moves it closer (`-0.3`) or further (`0.5`). `isolate=True` hides everything
   but the prim while it captures, keeps the scene's lights on, and puts every prim's visibility back exactly as it was;

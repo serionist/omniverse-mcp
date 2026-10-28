@@ -2,11 +2,18 @@
 
 import json
 import os
+from typing import Annotated, Literal
 
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ImageContent, TextContent
+from pydantic import Field
 
+from ._annotations import EDITS, READS
 from ._bridge import bridge_call
+from ._params import PrimPath
+
+Width = Annotated[int, Field(ge=1, description="Image width in pixels")]
+Height = Annotated[int, Field(ge=1, description="Image height in pixels")]
 
 # What to do about a black capture. Camera mode needs no other extension; a rig needs the viewport's lighting menu.
 LIGHTING_ADVICE = (
@@ -22,12 +29,16 @@ CAMERA_LIGHT_ON_ADVICE = (
 
 
 def register(mcp, client, h):
-    @mcp.tool()
+    @mcp.tool(annotations=READS)
     def capture_viewport(
-        width: int = 640,
-        height: int = 480,
-        camera_path: str = "",
-        include_image: bool = False,
+        width: Width = 640,
+        height: Height = 480,
+        camera_path: Annotated[
+            str, Field(description="The camera prim to capture from; the active one when empty")
+        ] = "",
+        include_image: Annotated[
+            bool, Field(description="Also return the image inline, besides the file (uses more context)")
+        ] = False,
     ) -> str | list[TextContent | ImageContent]:
         """Capture the viewport and save 3 files for scene understanding:
 
@@ -37,12 +48,6 @@ def register(mcp, client, h):
 
         Use files 2 and 3 to understand which prim is where in the viewport image.
         Set include_image=True to return the viewport image inline (uses more context but lets you see the scene directly).
-
-        Args:
-            width: Image width (default 640)
-            height: Image height (default 480)
-            camera_path: Camera prim path (default: active viewport)
-            include_image: Return viewport image inline instead of only saving to file
         """
         resp = bridge_call(client.capture_viewport, width, height, camera_path)
 
@@ -116,14 +121,12 @@ def register(mcp, client, h):
             ]
         return "\n".join(lines)
 
-    @mcp.tool()
-    def set_camera(position: list[float], target: list[float] | None = None) -> str:
-        """Set the viewport camera position and optionally aim it at a target point.
-
-        Args:
-            position: [x, y, z] camera position in world space
-            target: [x, y, z] point to look at (optional)
-        """
+    @mcp.tool(annotations=EDITS)
+    def set_camera(
+        position: Annotated[list[float], Field(description="[x, y, z] camera position in world space")],
+        target: Annotated[list[float] | None, Field(description="[x, y, z] point to look at")] = None,
+    ) -> str:
+        """Set the viewport camera position and optionally aim it at a target point."""
         resp = bridge_call(client.camera_set, position, target)
         r = resp["result"]
         msg = f"Camera at {r['position']}"
@@ -131,23 +134,19 @@ def register(mcp, client, h):
             msg += f" looking at {r['target']}"
         return msg
 
-    @mcp.tool()
+    @mcp.tool(annotations=EDITS)
     def look_at_prim(
-        prim_path: str,
-        distance: float | None = None,
-        azimuth: float = 45.0,
-        elevation: float = 30.0,
+        prim_path: PrimPath,
+        distance: Annotated[
+            float | None, Field(gt=0, description="Camera distance; worked out from the prim's size when omitted")
+        ] = None,
+        azimuth: Annotated[float, Field(description="Horizontal angle in degrees: 0 front, 90 right, 180 back")] = 45.0,
+        elevation: Annotated[float, Field(description="Vertical angle in degrees above the horizontal")] = 30.0,
     ) -> str:
         """Point the viewport camera at a prim from a given angle.
 
         Auto-computes distance from object size if not specified.
         Azimuth 0=front, 90=right, 180=back, 270=left.
-
-        Args:
-            prim_path: Target prim to look at
-            distance: Camera distance (auto if omitted)
-            azimuth: Horizontal angle in degrees (0=front)
-            elevation: Vertical angle in degrees above horizontal
         """
         resp = bridge_call(client.camera_look_at, prim_path, distance, azimuth, elevation)
         r = resp["result"]
@@ -156,35 +155,39 @@ def register(mcp, client, h):
             f"Distance: {r['distance']}m, Azimuth: {r['azimuth']}deg, Elevation: {r['elevation']}deg"
         )
 
-    @mcp.tool()
+    @mcp.tool(annotations=EDITS)
     def inspect_prim(
-        prim_path: str,
-        angles: list[str] | None = None,
-        width: int = 640,
-        height: int = 480,
-        zoom_offset: float = 0.0,
-        isolate: bool = False,
-        include_segmentation: bool = False,
+        prim_path: PrimPath,
+        angles: Annotated[
+            list[str] | None,
+            Field(
+                description=(
+                    'Angle names, all 14 when omitted. Face centres: "front", "back", "right", "left", "top", '
+                    '"bottom". Cube corners: "top_front_right", "top_front_left", "top_back_right", '
+                    '"top_back_left", "bottom_front_right", "bottom_front_left", "bottom_back_right", '
+                    '"bottom_back_left"'
+                )
+            ),
+        ] = None,
+        width: Width = 640,
+        height: Height = 480,
+        zoom_offset: Annotated[
+            float,
+            Field(
+                gt=-1,
+                description="Adjusts the fitted distance: negative closer, positive further (-0.3 is 30% closer)",
+            ),
+        ] = 0.0,
+        isolate: Annotated[bool, Field(description="Hide everything else while capturing, then restore it")] = False,
+        include_segmentation: Annotated[
+            bool, Field(description="Also capture instance segmentation at each angle")
+        ] = False,
     ) -> str:
         """Orbit-capture: take screenshots from 14 systematic angles around a prim (cube-based).
 
         Auto-fits camera distance so the prim fills the viewport with ~10px margin.
         Captures from all 6 face centers + 8 cube corners by default, giving full coverage.
         Saves each angle as a PNG file. Use Read tool to view images.
-
-        Args:
-            prim_path: Target prim
-            angles: Angle names (default: all 14). Face centers: "front", "back", "right",
-                    "left", "top", "bottom". Cube corners: "top_front_right",
-                    "top_front_left", "top_back_right", "top_back_left",
-                    "bottom_front_right", "bottom_front_left", "bottom_back_right",
-                    "bottom_back_left". Pass a subset list to capture fewer angles.
-            width: Image width per capture
-            height: Image height per capture
-            zoom_offset: Adjust auto-fit distance. 0=auto-fit (default), negative=closer,
-                        positive=further. E.g., -0.3 = 30% closer, 0.5 = 50% further.
-            isolate: Hide all other scene content during capture (restore after)
-            include_segmentation: Also capture instance segmentation at each angle
         """
         resp = bridge_call(
             client.camera_inspect,
@@ -238,23 +241,27 @@ def register(mcp, client, h):
                 lines.append(cap_line)
         return "\n".join(lines)
 
-    @mcp.tool()
-    def viewport_light(action: str = "get", mode: str = "", enabled: bool = True) -> str:
+    @mcp.tool(annotations=EDITS)
+    def viewport_light(
+        action: Annotated[
+            Literal["get", "set", "set_camera_light"],
+            Field(description='"get" the mode, "set" one, or the legacy "set_camera_light"'),
+        ] = "get",
+        mode: Annotated[
+            str, Field(description='For "set": "off", "camera", "stage", or a light rig "get" lists, e.g. "Default"')
+        ] = "",
+        enabled: Annotated[bool, Field(description='For "set_camera_light": turn the camera light on or off')] = True,
+    ) -> str:
         """Query or control viewport lighting mode.
 
         Actions:
         - "get": Return current lighting mode, available modes, and scene lights
         - "set": Set lighting mode. Available modes: "off", "camera", "stage",
           "Default", "Colored Lights", "Grey Studio" (light rigs)
-        - "set_camera_light": Legacy — enable/disable camera light
+        - "set_camera_light": legacy, turns the camera light on or off
 
         When capture_viewport returns a black image, use this tool to check and change
         the lighting mode, then recapture.
-
-        Args:
-            action: "get", "set", or "set_camera_light"
-            mode: Lighting mode to set (for "set" action)
-            enabled: Whether to enable (true) or disable (false) camera light (for set_camera_light)
         """
         resp = bridge_call(client.viewport_light, action, enabled, mode=mode)
 

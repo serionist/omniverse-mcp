@@ -1,6 +1,18 @@
 # Tool Reference
 
-Complete reference for all 42 MCP tools provided by Omniverse MCP.
+Reference for every tool the MCP server provides.
+
+Each tool tells the client what it does to the Kit app, as MCP tool annotations. A client may use them to ask before
+it runs one; they are hints, never security (the bridge's token is what keeps others out).
+
+| Hints | What they mean | Tools |
+|---|---|---|
+| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes | `get_scene_tree`, `dump_scene`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_prim_face_count_tree`, `get_robot_info`, `get_joint_states`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
+| not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `look_at_prim`, `inspect_prim`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug` |
+| destructive | Deletes or overwrites prims, the whole stage, or USD files on disk | `delete_prim`, `save_scene`, `new_scene`, `flatten_usd`, `export_prim_as_file`, `update_material_paths` |
+| destructive, open world | Runs Python or loads extensions inside the Kit app: anything can happen | `execute_script`, `manage_extensions` |
+
+A value out of a parameter's range, or not one of its choices, is refused before the tool runs.
 
 ## Table of Contents
 
@@ -31,7 +43,7 @@ Get the USD scene hierarchy as grep-friendly prim-block text.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `root` | string | `"/"` | Starting prim path |
-| `max_depth` | int | `5` | Traversal depth (max 15) |
+| `max_depth` | int | `5` | Traversal depth, 0 (root alone) to 15 |
 
 **Returns:** Prim-block text showing each prim's path, type, and world position. Written to file if output exceeds 1000 characters.
 
@@ -46,7 +58,7 @@ Dump the full scene graph to a text file with all properties, bounding boxes, an
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `root` | string | `"/"` | Starting prim path |
-| `max_depth` | int | `15` | Max traversal depth |
+| `max_depth` | int | `15` | Max traversal depth; 0 for root alone |
 | `include_properties` | bool | `true` | Include all USD properties per prim |
 | `filter_types` | list[string] | `null` | Only include prims of these types (e.g., `["Mesh", "Xform"]`) |
 | `property_filter` | list[string] | `null` | Only include properties containing these substrings |
@@ -110,6 +122,8 @@ Create a new prim in the scene.
 | `scale` | float or list[float] | `null` | Scale |
 | `enable_physics` | bool | `false` | Add RigidBody + Collision APIs |
 
+A prim already at `prim_path` keeps its type: creating one of another type there is refused.
+
 **When to use:** Creating geometric shapes, lights, cameras, or loading external USD assets.
 
 ---
@@ -132,22 +146,23 @@ Apply a PBR material (OmniPBR) to a prim with color and surface properties.
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Target prim |
 | `color` | list[float] | required | `[r, g, b]` diffuse color. 0-1 floats or 0-255 ints (auto-detected) |
-| `opacity` | float | `1.0` | 0.0 (transparent) to 1.0 (opaque) |
-| `roughness` | float | `0.5` | 0.0 (glossy) to 1.0 (matte) |
-| `metallic` | float | `0.0` | 0.0 (plastic) to 1.0 (metal) |
+| `opacity` | float | `1.0` | 0.0 (transparent) to 1.0 (opaque); nothing outside that |
+| `roughness` | float | `0.5` | 0.0 (glossy) to 1.0 (matte); nothing outside that |
+| `metallic` | float | `0.0` | 0.0 (plastic) to 1.0 (metal); nothing outside that |
 | `material_path` | string | `""` | Custom material prim path (auto-generated under `/World/Looks/` if omitted) |
 
 ---
 
 ### `clone_prim`
 
-Deep-copy a prim and all its children to a new path. Supports batch cloning with offset.
+Deep-copy a prim and all its children to a new path. Supports batch cloning with offset. A target path that
+already holds a prim is refused, before anything is copied.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `source_path` | string | required | Prim to clone |
 | `target_path` | string | required | Destination path |
-| `count` | int | `1` | Number of copies. Paths auto-suffixed: `_001`, `_002`, ... |
+| `count` | int | `1` | Number of copies, at least 1. Paths auto-suffixed: `_001`, `_002`, ... |
 | `offset` | list[float] | `null` | `[x, y, z]` per-copy offset. Each clone shifts by this amount from the previous. |
 
 **Example:** Clone a cube into a row of 5:
@@ -209,7 +224,7 @@ Get scene tree with face counts per mesh and subtree totals.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `root` | string | `"/World"` | Starting prim path |
-| `max_depth` | int | `10` | Max traversal depth |
+| `max_depth` | int | `10` | Max traversal depth; 0 for root alone |
 
 **Returns:** Prim-block text where each mesh shows `faces`, `vertices`, `triangles` and each group shows `subtree_faces` total.
 
@@ -219,7 +234,7 @@ Get scene tree with face counts per mesh and subtree totals.
 
 ### `compare_prims`
 
-Compare two prims or two variants — mesh counts, bounds, materials.
+Compare two prims or two variants: mesh counts, bounds, materials.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -240,7 +255,7 @@ Compare two prims or two variants — mesh counts, bounds, materials.
 
 ### `flatten_usd`
 
-Flatten a USD file — resolve all references, payloads, sublayers into a single self-contained file.
+Flatten a USD file: resolve all references, payloads, sublayers into a single self-contained file.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -260,7 +275,7 @@ Export a prim subtree as a standalone USD file.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Root of the subtree to export |
-| `output_path` | string | required | Destination file (.usd/.usda/.usdc — defaults to .usdc) |
+| `output_path` | string | required | Destination file (.usd, .usda or .usdc; .usdc by default) |
 
 **Returns:** Output path, target root prim name, material count, up axis.
 
@@ -282,7 +297,7 @@ Switch variant selection on a prim with proper viewport refresh.
 
 **Returns:** Old and new selection, available variants.
 
-**Important:** This tool includes the Hydra rprim refresh workaround (activation toggle + 30-frame pump) needed due to FSD/Hydra bugs (OMPE-54434, OMPE-70769, OMPE-71336). Using `execute_script` to switch variants will result in stale viewport geometry — always use this tool instead.
+**Important:** This tool includes the Hydra rprim refresh workaround (activation toggle + 30-frame pump) needed due to FSD/Hydra bugs (OMPE-54434, OMPE-70769, OMPE-71336). Using `execute_script` to switch variants leaves stale viewport geometry: use this tool instead.
 
 ---
 
@@ -410,7 +425,7 @@ Point the viewport camera at a prim from a given angle. Auto-computes distance f
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Target prim |
-| `distance` | float | `null` | Camera distance in meters (auto if omitted) |
+| `distance` | float | `null` | Camera distance in metres, above 0 (auto if omitted) |
 | `azimuth` | float | `45.0` | Horizontal angle: 0=front, 90=right, 180=back, 270=left |
 | `elevation` | float | `30.0` | Vertical angle above horizontal |
 
@@ -424,8 +439,8 @@ Orbit-capture: take screenshots from 14 systematic angles around a prim using a 
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Target prim |
 | `angles` | list[string] | all 14 | Angle names to capture (see below) |
-| `width` | int | `640` | Image width per capture |
-| `height` | int | `480` | Image height per capture |
+| `width` | int | `640` | Image width per capture, at least 1 |
+| `height` | int | `480` | Image height per capture, at least 1 |
 | `zoom_offset` | float | `0.0` | Adjust the fitted distance: `-0.3` is 30% closer, `0.5` is 50% further; must be greater than `-1` |
 | `isolate` | bool | `false` | Hide everything but the prim while capturing (lights stay on); visibility is restored exactly afterwards. What it cannot hide (inside an instance, or with time-sampled visibility) is listed as `WARNING (isolate)` |
 | `include_segmentation` | bool | `false` | Also capture instance segmentation at each angle |
@@ -456,8 +471,8 @@ Use files 2 and 3 to understand which object is where in the viewport image.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `width` | int | `640` | Image width |
-| `height` | int | `480` | Image height |
+| `width` | int | `640` | Image width, at least 1 |
+| `height` | int | `480` | Image height, at least 1 |
 | `camera_path` | string | `""` | Camera prim to render from (default: active viewport camera) |
 | `include_image` | bool | `false` | Return the viewport image inline as `ImageContent` so AI can see it directly. Files are always saved regardless. |
 
@@ -542,10 +557,10 @@ Start recording simulation frames to disk.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `fps` | int | `5` | Capture rate (frames per second) |
-| `width` | int | `640` | Frame width |
-| `height` | int | `480` | Frame height |
-| `camera_path` | string | `""` | Camera to record from |
+| `fps` | int | `5` | Capture rate (frames per second), at least 1 |
+| `width` | int | `640` | Frame width, at least 1; frames keep the viewport's size for now ([#25](https://github.com/serionist/omniverse-mcp/issues/25)) |
+| `height` | int | `480` | Frame height, at least 1; as `width` |
+| `camera_path` | string | `""` | Camera to record from; frames come from the active viewport for now ([#25](https://github.com/serionist/omniverse-mcp/issues/25)) |
 | `track_prims` | list[string] | `null` | Prim paths to track state for (includes descendants) |
 | `property_filter` | list[string] | `null` | Only record properties containing these substrings |
 
@@ -574,7 +589,7 @@ Get a specific frame from a recording session as a PNG.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `frame_index` | int | `0` | Frame number (0-based) |
+| `frame_index` | int | `0` | Frame number (0-based), not negative |
 | `session_dir` | string | `""` | Session directory (uses last recording if empty) |
 
 ---
@@ -588,10 +603,10 @@ Set physics material properties on a prim.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Target prim |
-| `mass` | float | `null` | Mass in kg (applies MassAPI) |
-| `density` | float | `null` | Density in kg/m^3 |
-| `friction` | float | `null` | Friction coefficient (0-1) |
-| `restitution` | float | `null` | Bounciness (0=no bounce, 1=full bounce) |
+| `mass` | float | `null` | Mass in kg, not negative (applies MassAPI); 0 unsets it, so density decides |
+| `density` | float | `null` | Density in kg/m^3, not negative; 0 unsets it; a mass set wins over it |
+| `friction` | float | `null` | Friction coefficient, not negative (usually 0-1) |
+| `restitution` | float | `null` | Bounciness, 0 (no bounce) to 1 (full bounce) |
 
 Automatically applies the required USD physics APIs (`MassAPI`, `PhysicsMaterialAPI`, etc.) if not already present.
 
@@ -605,7 +620,7 @@ Apply a force or impulse to a rigid body. Simulation must be playing.
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Rigid body prim |
 | `force` | list[float] | required | `[fx, fy, fz]` in Newtons (force) or N*s (impulse) |
-| `position` | list[float] | `null` | World-space application point (default: center of mass) |
+| `position` | list[float] | `null` | World-space application point; the world origin when omitted, for now ([#25](https://github.com/serionist/omniverse-mcp/issues/25)) |
 | `impulse` | bool | `false` | `true` for instantaneous impulse, `false` for continuous force |
 
 ---
@@ -618,7 +633,7 @@ Cast a ray into the scene and return what it hits.
 |-----------|------|---------|-------------|
 | `origin` | list[float] | required | `[x, y, z]` start point |
 | `direction` | list[float] | required | `[dx, dy, dz]` direction (normalized automatically) |
-| `max_distance` | float | `1000.0` | Maximum ray length |
+| `max_distance` | float | `1000.0` | Maximum ray length, above 0 |
 
 **Returns:** Hit prim path, hit position, surface normal, and distance. Returns "No hit" if ray doesn't intersect anything.
 
@@ -628,19 +643,19 @@ Cast a ray into the scene and return what it hits.
 
 ### `draw_debug`
 
-Draw debug visualization in the viewport.
+Draw debug visualisation in the viewport.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `shape` | string | required | `"line"`, `"sphere"`, or `"points"` |
-| `color` | list[float] | `null` | `[r, g, b]` in 0-1 range (defaults to red `[1,0,0]` server-side) |
-| `duration` | float | `5.0` | Display duration in seconds |
+| `shape` | string | required | `"line"`, `"lines"` (joins `points` in order), `"sphere"`, or `"points"` |
+| `color` | list[float] | `null` | `[r, g, b]` colour in 0-1 (red `[1,0,0]` when omitted) |
+| `duration` | float | `5.0` | Display duration in seconds, above 0; the bridge ignores it for now ([#25](https://github.com/serionist/omniverse-mcp/issues/25)) |
 | `start` | list[float] | `null` | Line start `[x,y,z]` (for `shape="line"`) |
 | `end` | list[float] | `null` | Line end `[x,y,z]` (for `shape="line"`) |
-| `center` | list[float] | `null` | Sphere center `[x,y,z]` (for `shape="sphere"`) |
-| `radius` | float | `0.1` | Sphere radius (for `shape="sphere"`) |
-| `points` | list[list[float]] | `null` | List of `[x,y,z]` points (for `shape="points"`) |
-| `size` | float | `5.0` | Point size (for `shape="points"`) |
+| `center` | list[float] | `null` | Sphere centre `[x,y,z]` (for `shape="sphere"`) |
+| `radius` | float | `0.1` | Sphere radius, above 0 (for `shape="sphere"`) |
+| `points` | list[list[float]] | `null` | List of `[x,y,z]` points (for `shape="points"` and `"lines"`) |
+| `size` | float | `0.05` | How far each point's cross reaches, in stage units, above 0 (for `shape="points"`) |
 
 ---
 
@@ -669,8 +684,8 @@ Get recent Omniverse log entries from the ring buffer.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `count` | int | `50` | Number of recent entries to return (max ~2000) |
-| `min_level` | string | `""` | Minimum severity: `verbose`, `info`, `warn`, `error`, `fatal` |
+| `count` | int | `50` | Number of recent entries to return, at least 1 (the buffer keeps 2000) |
+| `min_level` | string | `""` | Minimum severity: `verbose`, `info`, `warn`, `error`, `fatal`, or `""` for every level |
 | `channel` | string | `""` | Filter by log channel substring (e.g. `"omni.physx"`, `"omni.usd"`) |
 | `search` | string | `""` | Filter by message substring (case-insensitive) |
 
@@ -712,7 +727,7 @@ stage = omni.usd.get_context().get_stage()
 result = [str(p.GetPath()) for p in stage.Traverse() if p.IsA(UsdGeom.Mesh)]
 ```
 
-**Example (async — using `mcp` bridge):**
+**Example (async, with the `mcp` bridge):**
 ```python
 # Using await auto-detects async mode
 viewport = await mcp.capture_viewport(width=1280)

@@ -1,19 +1,34 @@
 """Recording tools."""
 
 import os
+from typing import Annotated
 
+from pydantic import Field
+
+from ._annotations import EDITS, READS
 from ._bridge import bridge_call
 
 
 def register(mcp, client, h):
-    @mcp.tool()
+    @mcp.tool(annotations=EDITS)
     def start_recording(
-        fps: int = 5,
-        width: int = 640,
-        height: int = 480,
-        camera_path: str = "",
-        track_prims: list[str] | None = None,
-        property_filter: list[str] | None = None,
+        fps: Annotated[int, Field(ge=1, description="Frames a second: 5 captures one every 0.2 s")] = 5,
+        width: Annotated[
+            int, Field(ge=1, description="Frame width in pixels; for now frames keep the viewport's size (#25)")
+        ] = 640,
+        height: Annotated[
+            int, Field(ge=1, description="Frame height in pixels; for now frames keep the viewport's size (#25)")
+        ] = 480,
+        camera_path: Annotated[
+            str, Field(description="The camera to record from; for now frames come from the active viewport (#25)")
+        ] = "",
+        track_prims: Annotated[
+            list[str] | None, Field(description='Prims whose state to record, descendants included, e.g. ["/World/G1"]')
+        ] = None,
+        property_filter: Annotated[
+            list[str] | None,
+            Field(description='Only properties whose names contain one of these, e.g. ["joint", "pos", "vel"]'),
+        ] = None,
     ) -> str:
         """Start recording simulation frames to disk.
 
@@ -23,14 +38,6 @@ def register(mcp, client, h):
 
         Optionally tracks prim state (transforms, properties) alongside video frames.
         State is written to a grep-friendly state.txt in prim-block format.
-
-        Args:
-            fps: Capture rate (default 5 = one frame every 0.2s)
-            width: Frame width
-            height: Frame height
-            camera_path: Camera to record from (default: active viewport)
-            track_prims: Prim paths to track state for (includes descendants). E.g. ["/World/G1"]
-            property_filter: Only record properties containing these substrings. E.g. ["joint", "pos", "vel"]
         """
         rec_dir = os.path.join(h.output_dir, "recordings")
         resp = bridge_call(
@@ -52,7 +59,7 @@ def register(mcp, client, h):
         msg += "\nCall sim_control('play') to start."
         return msg
 
-    @mcp.tool()
+    @mcp.tool(annotations=EDITS)
     def stop_recording() -> str:
         """Stop the active recording session.
 
@@ -65,17 +72,12 @@ def register(mcp, client, h):
             msg += f"\nState: {h.rel(r['state_file'])}"
         return msg
 
-    @mcp.tool()
+    @mcp.tool(annotations=READS)
     def get_recording_frame(
-        frame_index: int = 0,
-        session_dir: str = "",
+        frame_index: Annotated[int, Field(ge=0, description="The frame's number, from 0")] = 0,
+        session_dir: Annotated[str, Field(description="The session's folder; the last recording when empty")] = "",
     ) -> str:
-        """Get a specific frame from a recording session. Saves as PNG file.
-
-        Args:
-            frame_index: Frame number (0-based)
-            session_dir: Session directory (uses last recording if empty)
-        """
+        """Get a specific frame from a recording session. Saves as PNG file."""
         resp = bridge_call(client.recording_frame, session_dir, frame_index)
 
         r = resp["result"]

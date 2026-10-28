@@ -5,7 +5,7 @@ Standalone MCP server that bridges AI assistants to a running NVIDIA Omniverse K
 (Isaac Sim, USD Composer, ...) via its ovmcp.bridge extension.
 
 Design principles:
-- Images are always saved as PNG files, returning paths (never base64 inline).
+- Images are always saved as PNG files, returning paths; capture_viewport(include_image=True) also returns one inline.
 - Scene/prim data uses grep-friendly prim-block text format.
 - Any response > FILE_THRESHOLD chars is written to a file, returning a relative path.
 - Small responses are returned inline as text.
@@ -41,14 +41,20 @@ from .tools._bridge import bridge_call
 # Responses longer than this are written to files
 FILE_THRESHOLD = 1000
 
-INSTRUCTIONS = (
-    "Connected to an NVIDIA Omniverse Kit app (Isaac Sim, USD Composer, ...). "
-    "Controls USD scene, simulation, viewport, robots.\n"
-    "Use Context7 MCP (library 'isaac-sim/isaacsim') before writing execute_script code.\n\n"
-    "OUTPUT: Images saved as PNGs. Large text written to files. Paths are project-relative.\n"
-    "Use Read tool to view images and large responses.\n\n"
-    "Data uses prim-block format: [/prim/path] headers, key = value lines. Grep-friendly."
-)
+# What every session needs before its first call; what one tool needs stays in that tool's description.
+INSTRUCTIONS = """\
+Drives an NVIDIA Omniverse Kit app (Isaac Sim, USD Composer, ...): its USD stage, simulation, viewport and robots.
+
+- Call get_sim_state first: the up axis (Y or Z), the stage's units, and whether physics is running.
+- Look before you act: get_scene_tree or dump_scene for what is there, capture_viewport or inspect_prim for how it
+  looks, and again after a change.
+- Images and long text are written to files, and their paths (relative to the working directory) returned: open
+  them with your file tool. Only capture_viewport(include_image=True) returns an image inline, at a cost in context.
+- Text comes as prim blocks: a [/prim/path] header, then key = value lines. Grep for a path or a property.
+- Before writing execute_script code, look the API up with Context7 (library isaac-sim/isaacsim): Kit's APIs change
+  between releases.
+- When a tool fails, get_logs(min_level="warn") shows what the Kit app reported.
+"""
 
 
 class Helpers:

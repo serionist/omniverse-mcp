@@ -1,26 +1,28 @@
 """Robot tools."""
 
+from typing import Annotated
+
+from pydantic import Field
+
+from ._annotations import EDITS, READS
 from ._bridge import bridge_call
+from ._params import Position, Rotation
+
+RobotRoot = Annotated[str, Field(description='The robot\'s root prim, e.g. "/World/G1"')]
 
 
 def register(mcp, client, h):
-    @mcp.tool()
+    @mcp.tool(annotations=EDITS)
     def create_robot(
-        robot_type: str,
-        prim_path: str = "",
-        position: list[float] | None = None,
-        rotation: list[float] | None = None,
+        robot_type: Annotated[str, Field(description="A robot's name (franka, g1, spot, ...) or a USD file's path")],
+        prim_path: Annotated[str, Field(description="Where to put it; made up from the name when empty")] = "",
+        position: Position = None,
+        rotation: Rotation = None,
     ) -> str:
         """Spawn a robot from Isaac Sim's asset library.
 
         Available: franka, ur10, carter, jetbot, g1, go1, go2, h1, spot, anymal.
         Or provide a full USD path as robot_type.
-
-        Args:
-            robot_type: Robot name or USD path
-            prim_path: Scene path (auto-generated if empty)
-            position: [x, y, z] spawn position
-            rotation: Euler or quaternion
         """
         resp = bridge_call(client.create_robot, robot_type, prim_path, position, rotation)
         r = resp["result"]
@@ -34,13 +36,9 @@ def register(mcp, client, h):
                 parts.append(f"  ... and {len(r['joints']) - 10} more")
         return "\n".join(parts)
 
-    @mcp.tool()
-    def get_robot_info(prim_path: str) -> str:
-        """Get robot joint info: names, types, limits, DOF count. Pure USD, no sim needed.
-
-        Args:
-            prim_path: Root prim of the robot (e.g., "/World/G1")
-        """
+    @mcp.tool(annotations=READS)
+    def get_robot_info(prim_path: RobotRoot) -> str:
+        """Get robot joint info: names, types, limits, DOF count. Pure USD, no sim needed."""
         resp = bridge_call(client.get_robot_info, prim_path)
         r = resp["result"]
         lines = [
@@ -65,13 +63,9 @@ def register(mcp, client, h):
         text = "\n".join(lines)
         return h.text_response(text, "robot_info")
 
-    @mcp.tool()
-    def get_joint_states(prim_path: str) -> str:
-        """Get current joint positions and velocities. Requires sim to have been played at least once.
-
-        Args:
-            prim_path: Root prim of the robot
-        """
+    @mcp.tool(annotations=READS)
+    def get_joint_states(prim_path: RobotRoot) -> str:
+        """Get current joint positions and velocities. Requires sim to have been played at least once."""
         resp = bridge_call(client.get_joint_states, prim_path)
         r = resp["result"]
         lines = [f"Joint states for {r['prim_path']} ({r['dof_count']} DOF):"]
@@ -86,18 +80,20 @@ def register(mcp, client, h):
         text = "\n".join(lines)
         return h.text_response(text, "joint_states")
 
-    @mcp.tool()
+    @mcp.tool(annotations=EDITS)
     def set_joint_targets(
-        prim_path: str,
-        targets: dict[str, float] | list[float] | None = None,
+        prim_path: RobotRoot,
+        targets: Annotated[
+            dict[str, float] | list[float] | None,
+            Field(
+                description=(
+                    "{joint_name: value} or [v0, v1, ...] in joint order: degrees for revolute joints, metres for "
+                    "prismatic ones"
+                )
+            ),
+        ] = None,
     ) -> str:
-        """Set joint drive position targets. Works without articulation initialization.
-
-        Args:
-            prim_path: Root prim of the robot
-            targets: Joint targets as {joint_name: value} dict or [v0, v1, ...] list.
-                     Values in degrees for revolute, meters for prismatic joints.
-        """
+        """Set joint drive position targets. Works without articulation initialisation."""
         resp = bridge_call(client.set_joint_targets, prim_path, targets)
         r = resp["result"]
         lines = [f"Set {r['targets_set']} joint targets on {r['prim_path']}"]
