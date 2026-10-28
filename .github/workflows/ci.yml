@@ -1,10 +1,10 @@
 # The gate on every pull request, every push to main and once a day on main. Checks (Linux) runs the gate's quick lane
 # (lock, lint, format, types, the import contracts and the coverage floor, the harness, the plugin validated by Claude
-# Code, no tool attribution in the commits, gitleaks over them); the tests run on Linux on Python 3.11 to 3.14, on Windows on 3.11 and 3.14, and on
-# macOS on 3.14 (plan D8), and the Linux 3.12 leg measures coverage against its floor (plan S6). CI needs both; it and
-# pr-text.yml's PR text are the two checks the ruleset on main requires. The live suites need a Kit app and skip
-# themselves here: hosted CI never runs Kit (plan D11), so a PR that touches the extension, the client or a tool says
-# whether they ran.
+# Code, no tool attribution in the commits, gitleaks over them); the tests run on Linux on Python 3.11 to 3.14, on
+# Windows on 3.11 and 3.14, and on macOS on 3.14 (plan D8), and the Linux 3.12 leg measures coverage against its floor
+# (plan S6); Package (Linux) builds and checks what a release publishes. CI needs all three; it and pr-text.yml's PR
+# text are the two checks the ruleset on main requires. The live suites need a Kit app and skip themselves here: hosted
+# CI never runs Kit (plan D11), so a PR that touches the extension, the client or a tool says whether they ran.
 #
 # The daily run is for Dependabot's merges: dependabot-auto-merge.yml turns on auto-merge with the workflow's token,
 # and a push made with that token starts no run, so main is tested within a day of one instead (plan D16).
@@ -103,17 +103,45 @@ jobs:
           uv run --locked --python ${{ matrix.python }} coverage run -m pytest
           uv run --locked --python ${{ matrix.python }} coverage report
 
-  # The check the ruleset on main requires: the checks and every test leg passed. It runs when one of them failed too,
-  # since a skipped job would count as passed.
+  # What release.yml publishes, built and checked on every pull request: PyPI's rules for the metadata, the wheel's
+  # contents, the Kit extension inside it at the wheel's version, and a README PyPI can show (#36). The wheel is kept,
+  # so a release PR's can be tried with uvx --from before it merges (docs/releasing.md).
+  package:
+    name: Package (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+        with:
+          enable-cache: true
+      - name: Build, and check what PyPI would get
+        run: |
+          uv build
+          uvx twine==7.0.0 check --strict dist/*
+          uvx check-wheel-contents==0.6.3 dist/*.whl
+          uv run --no-project tools/release.py wheel dist/*.whl
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  # The check the ruleset on main requires: the checks, every test leg and the package passed. It runs when one of them
+  # failed too, since a skipped job would count as passed.
   ci:
     name: CI
-    needs: [checks, tests]
+    needs: [checks, tests, package]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: The checks and every test leg passed
+      - name: The checks, every test leg and the package passed
         env:
           CHECKS: ${{ needs.checks.result }}
           TESTS: ${{ needs.tests.result }}
-        run: test "$CHECKS" = success && test "$TESTS" = success
+          PACKAGE: ${{ needs.package.result }}
+        run: test "$CHECKS" = success && test "$TESTS" = success && test "$PACKAGE" = success

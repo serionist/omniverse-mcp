@@ -1,5 +1,6 @@
 [build-system]
-requires = ["hatchling>=1.27"]
+# hatch-fancy-pypi-readme makes the README PyPI shows: see [tool.hatch.metadata.hooks.fancy-pypi-readme].
+requires = ["hatchling>=1.27", "hatch-fancy-pypi-readme==25.1.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -7,7 +8,7 @@ name = "omniverse-mcp"
 # Equal to extension/ovmcp.bridge/config/extension.toml's version; tests/test_bridge_token.py keeps them equal.
 version = "0.1.0"
 description = "MCP server for AI control of NVIDIA Omniverse applications (Isaac Sim 5.1+, USD Composer, and more)"
-readme = "README.md"
+dynamic = ["readme"]
 license = "MIT"
 requires-python = ">=3.11"
 authors = [
@@ -61,6 +62,32 @@ dev = [
     "types-usd==24.5.2",
     "usd-core==26.11",
 ]
+
+# The README as PyPI shows it, with no repo to resolve relative paths against (#36): images from
+# raw.githubusercontent.com and links to GitHub, at main, since a pattern can't name the release's tag.
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = 'src="(?!https?://)([^"]+)"'
+replacement = 'src="https://raw.githubusercontent.com/serionist/omniverse-mcp/main/\1"'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = 'href="(?!https?://|#)([^"]+)"'
+replacement = 'href="https://github.com/serionist/omniverse-mcp/blob/main/\1"'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\]\((?!https?://|#)([^)\s]+)\)'
+replacement = '](https://github.com/serionist/omniverse-mcp/blob/main/\1)'
+
+# check-wheel-contents, which release.yml and ci.yml's package job run. W004 (a module at a path Python can't import):
+# the wheel carries the Kit extension under omniverse_mcp/_extension/ovmcp.bridge/ as data for `extension install`,
+# and its folder's name holds a dot, as Kit's extension ids do; nothing imports it from the wheel.
+[tool.check-wheel-contents]
+ignore = ["W004"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/omniverse_mcp"]
