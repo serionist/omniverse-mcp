@@ -10,13 +10,13 @@ import os
 import time
 import unittest
 
-from omniverse_mcp.client import IsaacSimClient
+from omniverse_mcp.client import BridgeClient
 
 
 def _skip_if_no_sim():
     """Skip if Isaac Sim is not running; fail instead when OMNIVERSE_MCP_SIM=1 says it should be."""
     try:
-        c = IsaacSimClient(timeout=2.0)
+        c = BridgeClient(timeout=2.0)
         r = c.health()
         c.close()
         if r["status"] != "success":
@@ -33,7 +33,7 @@ class TestScenarios(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         _skip_if_no_sim()
-        cls.c = IsaacSimClient(timeout=10.0)
+        cls.c = BridgeClient(timeout=10.0)
         # Stop sim and clean up before starting
         cls.c.sim_control("stop")
         # Warmup viewport capture pipeline (first capture after connect is slow)

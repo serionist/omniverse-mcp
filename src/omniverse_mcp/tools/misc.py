@@ -9,7 +9,7 @@ def register(mcp, client, h):
         try:
             resp = fn(*args, **kwargs)
         except Exception as e:
-            return {"status": "error", "error": f"Isaac Sim connection failed: {e}"}
+            return {"status": "error", "error": f"Kit app connection failed: {e}"}
         return resp
 
     def _check_error(resp):
@@ -26,7 +26,7 @@ def register(mcp, client, h):
 
     @mcp.tool()
     def execute_script(code: str) -> str:
-        """Execute Python inside the running Isaac Sim instance.
+        """Execute Python inside the running Kit app (Isaac Sim, USD Composer, ...).
 
         The script has access to: omni, carb, Usd, UsdGeom, UsdLux, UsdPhysics, Sdf, Gf, mcp.
         Assign to 'result' to return data. stdout/stderr are captured.
@@ -82,7 +82,7 @@ def register(mcp, client, h):
         search: str = "",
         enabled_only: bool = False,
     ) -> str:
-        """List, enable, or disable Isaac Sim extensions.
+        """List, enable, or disable the Kit app's extensions.
 
         Args:
             action: "list", "enable", or "disable"

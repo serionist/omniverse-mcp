@@ -13,7 +13,7 @@ import carb
 import omni.ext
 
 from ovmcp.core.http import LOOPBACK_HOSTS, BridgeServer
-from ovmcp.core.protocol import set_extension_version, version_from_ext_id
+from ovmcp.core.protocol import EXTENSION_NAME, set_extension_version, version_from_ext_id
 from ovmcp.core.token import new_token, remove_token, write_token
 from .handlers import (
     handle_apply_force,
@@ -82,9 +82,10 @@ class Extension(omni.ext.IExt):
         self._server = None
         set_extension_version(version_from_ext_id(ext_id))
         settings = carb.settings.get_settings()
-        self._host = settings.get("/exts/ovmcp.bridge/host") or "127.0.0.1"
-        self._port = settings.get("/exts/ovmcp.bridge/port") or 8211
-        configured = settings.get("/exts/ovmcp.bridge/token")
+        prefix = f"/exts/{EXTENSION_NAME}"
+        self._host = settings.get(f"{prefix}/host") or "127.0.0.1"
+        self._port = settings.get(f"{prefix}/port") or 8211
+        configured = settings.get(f"{prefix}/token")
         self._token = (str(configured).strip() if configured is not None else "") or new_token()
 
         routes = {

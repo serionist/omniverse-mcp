@@ -23,8 +23,8 @@ class BridgeError(RuntimeError):
     """The bridge refused the request, or speaks another protocol. The message says what to do."""
 
 
-class IsaacSimClient:
-    """Persistent HTTP client that talks to the Isaac Sim extension."""
+class BridgeClient:
+    """Persistent HTTP client that talks to the ovmcp.bridge extension inside a Kit app."""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 8211, timeout: float = 120.0,
                  token: str | None = None):
@@ -150,8 +150,8 @@ class IsaacSimClient:
                 logger.warning(f"Connection failed (attempt {attempt+1}/2), retrying: {e}")
 
         raise ConnectionError(
-            f"Failed to communicate with Isaac Sim at {self.host}:{self.port}. "
-            "Ensure Isaac Sim is running with the ovmcp.bridge extension enabled."
+            f"Failed to communicate with the Kit app at {self.host}:{self.port}. "
+            "Ensure the Kit app (Isaac Sim, USD Composer, ...) is running with the ovmcp.bridge extension enabled."
         )
 
     def _read_response(self) -> tuple[int, dict]:
@@ -160,7 +160,7 @@ class IsaacSimClient:
         while b"\r\n\r\n" not in buf:
             chunk = self._sock.recv(4096)
             if not chunk:
-                raise ConnectionError("Connection closed by Isaac Sim extension")
+                raise ConnectionError("Connection closed by the ovmcp.bridge extension")
             self._received = True
             buf += chunk
 
@@ -172,7 +172,7 @@ class IsaacSimClient:
             status = int(header_lines[0].split(" ")[1])
         except (IndexError, ValueError):
             self._disconnect()
-            raise ConnectionError(f"Malformed status line from Isaac Sim: {header_lines[0]!r}")
+            raise ConnectionError(f"Malformed status line from the Kit app: {header_lines[0]!r}")
 
         content_length = 0
         close = False
@@ -186,7 +186,7 @@ class IsaacSimClient:
 
         if content_length <= 0:
             self._disconnect()
-            raise ConnectionError("Isaac Sim returned response with no Content-Length")
+            raise ConnectionError("The Kit app returned a response with no Content-Length")
 
         chunks = [body_start]
         bytes_read = len(body_start)
@@ -205,7 +205,7 @@ class IsaacSimClient:
             return status, json.loads(body_bytes[:content_length].decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
             self._disconnect()
-            raise ConnectionError(f"Malformed response from Isaac Sim: {e}")
+            raise ConnectionError(f"Malformed response from the Kit app: {e}")
 
     # ----- Core endpoints -----
 

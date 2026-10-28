@@ -20,7 +20,7 @@ def register(mcp, client, h):
         try:
             resp = fn(*args, **kwargs)
         except Exception as e:
-            return {"status": "error", "error": f"Isaac Sim connection failed: {e}"}
+            return {"status": "error", "error": f"Kit app connection failed: {e}"}
         return resp
 
     def _check_error(resp):

@@ -85,6 +85,17 @@ def test_extension_and_server_carry_one_version():
     assert ext_protocol.version_from_ext_id(ext_id) == extension_version
 
 
+def test_extension_toml_uses_the_extension_name_everywhere():
+    # Kit finds the module by [[python.module]] name and reads settings under exts."<name>"; the folder is the id.
+    with (EXTENSION_ROOT / "config" / "extension.toml").open("rb") as f:
+        toml = tomllib.load(f)
+    name = ext_protocol.EXTENSION_NAME
+    assert [module["name"] for module in toml["python"]["module"]] == [name]
+    assert list(toml["settings"]["exts"]) == [name]
+    assert set(toml["settings"]["exts"][name]) == {"host", "port", "token"}
+    assert EXTENSION_ROOT == REPO_ROOT / "extension" / name
+
+
 @pytest.mark.parametrize(
     ("ext_id", "version"),
     [("ovmcp.bridge-0.1.0", "0.1.0"), ("ovmcp.bridge-0.2.0-rc.1", "0.2.0-rc.1"), ("other-1.0", "unknown")],

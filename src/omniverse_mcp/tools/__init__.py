@@ -7,11 +7,11 @@ its tools with the FastMCP server instance.
 
 from mcp.server.fastmcp import FastMCP
 
-from ..client import IsaacSimClient
+from ..client import BridgeClient
 from . import camera, misc, recording, robot, scene, simulation, usd_advanced
 
 
-def register_all(mcp: FastMCP, client: IsaacSimClient, helpers) -> None:
+def register_all(mcp: FastMCP, client: BridgeClient, helpers) -> None:
     """Register all tool modules with the MCP server."""
     scene.register(mcp, client, helpers)
     camera.register(mcp, client, helpers)

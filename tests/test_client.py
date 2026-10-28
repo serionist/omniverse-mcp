@@ -1,5 +1,5 @@
 """
-Unit tests for the IsaacSimClient HTTP client.
+Unit tests for the BridgeClient HTTP client.
 
 Uses a mock HTTP server to test all endpoints without needing Isaac Sim.
 Run: python -m pytest tests/test_client.py -v
@@ -11,7 +11,7 @@ import threading
 import time
 import unittest
 
-from omniverse_mcp.client import BridgeError, IsaacSimClient
+from omniverse_mcp.client import BridgeError, BridgeClient
 
 
 class MockIsaacServer:
@@ -88,7 +88,7 @@ class MockIsaacServer:
         self._thread.join(timeout=2)
 
 
-class TestIsaacSimClient(unittest.TestCase):
+class TestBridgeClient(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.mock = MockIsaacServer()
@@ -145,7 +145,7 @@ class TestIsaacSimClient(unittest.TestCase):
         cls.mock.stop()
 
     def setUp(self):
-        self.client = IsaacSimClient(host="127.0.0.1", port=self.mock.port, timeout=5.0)
+        self.client = BridgeClient(host="127.0.0.1", port=self.mock.port, timeout=5.0)
         self.mock.requests.clear()
 
     def tearDown(self):
@@ -346,7 +346,7 @@ class TestIsaacSimClient(unittest.TestCase):
         old = MockIsaacServer()
         old.set_response("/bridge", {"status": "error", "error": "Unknown endpoint: /bridge"}, status=404)
         old.start()
-        client = IsaacSimClient(host="127.0.0.1", port=old.port, timeout=5.0)
+        client = BridgeClient(host="127.0.0.1", port=old.port, timeout=5.0)
         try:
             with self.assertRaisesRegex(BridgeError, "older than this MCP server"):
                 client.health()

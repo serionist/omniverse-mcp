@@ -14,7 +14,7 @@ import sys
 import time
 import unittest
 
-from omniverse_mcp.client import IsaacSimClient
+from omniverse_mcp.client import BridgeClient
 
 
 class TestIsaacSimIntegration(unittest.TestCase):
@@ -22,7 +22,7 @@ class TestIsaacSimIntegration(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.client = IsaacSimClient(host="127.0.0.1", port=8211, timeout=30.0)
+        cls.client = BridgeClient(host="127.0.0.1", port=8211, timeout=30.0)
         try:
             result = cls.client.health()
             if result.get("status") != "success":

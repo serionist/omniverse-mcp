@@ -1,8 +1,8 @@
 """
 Omniverse MCP Server
 
-Standalone MCP server that bridges AI assistants to a running Isaac Sim instance
-via the ovmcp.bridge Kit extension.
+Standalone MCP server that bridges AI assistants to a running NVIDIA Omniverse Kit app
+(Isaac Sim, USD Composer, ...) via its ovmcp.bridge extension.
 
 Design principles:
 - Images are always saved as PNG files, returning paths (never base64 inline).
@@ -18,15 +18,16 @@ Usage:
 Flags default to OMNIVERSE_MCP_HOST, OMNIVERSE_MCP_PORT and OMNIVERSE_MCP_OUTPUT_DIR.
 """
 
-import argparse
 import base64
 import json
 import logging
 import os
+import sys
 
 from mcp.server.fastmcp import FastMCP
 
-from .client import IsaacSimClient
+from .client import BridgeClient
+from .config import parse_args
 
 logger = logging.getLogger(__name__)
 
@@ -34,15 +35,7 @@ logger = logging.getLogger(__name__)
 # CLI args (parsed before FastMCP takes stdio)
 # ---------------------------------------------------------------------------
 
-_parser = argparse.ArgumentParser(description="Omniverse MCP Server", add_help=False)
-_parser.add_argument("--host", default=os.environ.get("OMNIVERSE_MCP_HOST", "127.0.0.1"),
-                     help="Kit extension host (OMNIVERSE_MCP_HOST)")
-# argparse applies type=int to a string default too, so a bad OMNIVERSE_MCP_PORT gets its usage error.
-_parser.add_argument("--port", type=int, default=os.environ.get("OMNIVERSE_MCP_PORT", "8211"),
-                     help="Kit extension port (OMNIVERSE_MCP_PORT)")
-_parser.add_argument("--output-dir", default=os.environ.get("OMNIVERSE_MCP_OUTPUT_DIR", ""),
-                     help="Directory for file-based outputs: scene dumps, recordings (OMNIVERSE_MCP_OUTPUT_DIR)")
-_args, _remaining = _parser.parse_known_args()
+_args = parse_args(sys.argv[1:])
 
 # Output dir defaults to ./mcp_output relative to CWD
 OUTPUT_DIR = _args.output_dir or os.path.join(os.getcwd(), "mcp_output")
@@ -58,7 +51,8 @@ FILE_THRESHOLD = 1000
 mcp = FastMCP(
     "omniverse",
     instructions=(
-        "Connected to NVIDIA Isaac Sim 5.1. Controls USD scene, simulation, viewport, robots.\n"
+        "Connected to an NVIDIA Omniverse Kit app (Isaac Sim, USD Composer, ...). "
+        "Controls USD scene, simulation, viewport, robots.\n"
         "Use Context7 MCP (library 'isaac-sim/isaacsim') before writing execute_script code.\n\n"
         "OUTPUT: Images saved as PNGs. Large text written to files. Paths are project-relative.\n"
         "Use Read tool to view images and large responses.\n\n"
@@ -66,7 +60,7 @@ mcp = FastMCP(
     ),
 )
 
-_client = IsaacSimClient(host=_args.host, port=_args.port)
+_client = BridgeClient(host=_args.host, port=_args.port)
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +135,7 @@ def scene_tree_resource() -> str:
             return f"Error: {resp['error']}"
         return resp["result"]["text"]
     except Exception as e:
-        return f"Error: Isaac Sim not reachable - {e}"
+        return f"Error: the Kit app is not reachable - {e}"
 
 
 @mcp.resource("omniverse://sim/state")
@@ -153,7 +147,7 @@ def sim_state_resource() -> str:
             return f"Error: {resp['error']}"
         return json.dumps(resp["result"], indent=2)
     except Exception as e:
-        return f"Error: Isaac Sim not reachable - {e}"
+        return f"Error: the Kit app is not reachable - {e}"
 
 
 # ---------------------------------------------------------------------------
