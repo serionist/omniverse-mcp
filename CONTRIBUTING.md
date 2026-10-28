@@ -46,6 +46,20 @@ In PowerShell, `$env:OMNIVERSE_MCP_SIM = "1"`, then `uv run pytest ...`. Without
 answers; with it, they fail. CI never runs them, so a PR that changes the extension, the client or a tool says whether
 they ran and on which Kit app. Without a Kit app, say so in the PR.
 
+### Adding a tool
+
+A tool touches these places today. Step S7 of the [plan](docs/plans/2026-10-28-modernization.md) rewrites the tool
+layer (MCP SDK v2, annotations, errors as error results), so check its progress log first.
+
+| Where | What |
+|---|---|
+| `extension/ovmcp.bridge/ovmcp/bridge/handlers/<area>.py` | the handler, `async def handle_<name>(body: dict) -> dict`, exported from `handlers/__init__.py`; USD and Kit work stays on Kit's main thread (AGENTS.md, Traps) |
+| `extension/ovmcp.bridge/ovmcp/bridge/extension.py` | its path in the `routes` table; the token, `Origin` and `Host` checks cover every route |
+| `src/omniverse_mcp/client.py` | the client method, which calls `self.request("/<path>", {...})` |
+| `src/omniverse_mcp/tools/<area>.py` | the `@mcp.tool()` function in the area's `register()`; its docstring is what the assistant reads |
+| `docs/TOOLS.md`, `docs/ARCHITECTURE.md`, `CHANGELOG.md` | the tool's heading, the route, a line under Unreleased |
+| `tests/` | unit tests against the mock bridge (`test_client.py`) or a canned answer (`test_tools_camera.py`), and a case in the live suite, `test_integration.py` |
+
 ## Open the pull request
 
 1. Fork, and branch from `main` as `<issue>-<slug>`, such as `42-capture-timeout`.
@@ -58,6 +72,6 @@ they ran and on which Kit app. Without a Kit app, say so in the PR.
    `Refs #<issue>` for one step of it. Its title becomes the commit on `main`.
 
 CI runs the gate's quick lane on Linux and the tests on Linux, Windows and macOS, CodeQL scans the code, and a check
-reads the PR's title and description for attribution whenever they change. The maintainer reviews a PR from outside by
+reads the PR's title and description whenever they change: no attribution, and a line that names the issue. The maintainer reviews a PR from outside by
 reading it: they never check it out, build or run it on their machine, where it would run next to their credentials
 and their Kit app. Your PR is ready for review when CI is green. The maintainer squash-merges it.
