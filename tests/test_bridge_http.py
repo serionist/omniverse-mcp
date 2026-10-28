@@ -108,12 +108,20 @@ def _send(port: int, *requests: bytes) -> list[tuple[int, dict[str, str], dict]]
         return responses
 
 
+def _is_closed(sock: socket.socket) -> bool:
+    """Whether the server closed this connection. macOS reports a close as a reset when the client sent after it."""
+    try:
+        return sock.recv(1) == b""
+    except ConnectionResetError:
+        return True
+
+
 def _closed(port: int, request: bytes) -> bool:
     """Send one request, read its response, and say whether the server closed the connection after it."""
     with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
         sock.sendall(request)
         _read(sock)
-        return sock.recv(1) == b""
+        return _is_closed(sock)
 
 
 # ----- Refusals -----
@@ -222,7 +230,7 @@ def test_the_handshake_needs_the_token_too(bridge):
 def test_a_new_connection_without_a_request_is_closed(bridge):
     bridge.server.header_timeout = 0.2
     with socket.create_connection(("127.0.0.1", bridge.port), timeout=5) as sock:
-        assert sock.recv(1) == b""
+        assert _is_closed(sock)
 
 
 def test_blank_lines_do_not_keep_a_connection_without_the_token_open(bridge):
@@ -233,7 +241,7 @@ def test_blank_lines_do_not_keep_a_connection_without_the_token_open(bridge):
             sock.sendall(b"\r\n")
             time.sleep(0.1)
         # Closed at the deadline set when it connected, not a full timeout after the last blank line (1.7 s).
-        assert sock.recv(1) == b""
+        assert _is_closed(sock)
         assert time.monotonic() - started < 1.5
 
 
@@ -242,7 +250,7 @@ def test_an_authenticated_connection_is_closed_when_idle(bridge):
     with socket.create_connection(("127.0.0.1", bridge.port), timeout=5) as sock:
         sock.sendall(_request())
         assert _read(sock)[0] == 200
-        assert sock.recv(1) == b""
+        assert _is_closed(sock)
 
 
 def test_connections_without_the_token_cannot_crowd_out_the_client(bridge):
@@ -251,7 +259,7 @@ def test_connections_without_the_token_cannot_crowd_out_the_client(bridge):
         ((status, _, _),) = _send(bridge.port, _request())
         assert status == 200
         # The oldest waiting connection was pushed out to make room.
-        assert idle[0].recv(1) == b""
+        assert _is_closed(idle[0])
     finally:
         for sock in idle:
             sock.close()
@@ -262,7 +270,7 @@ def test_close_drops_open_connections(bridge):
         sock.sendall(_request())
         assert _read(sock)[0] == 200
         bridge.loop.call_soon_threadsafe(bridge.server.close)
-        assert sock.recv(1) == b""
+        assert _is_closed(sock)
 
 
 def test_close_while_starting_leaves_nothing_listening():
