@@ -3,7 +3,10 @@
 import json
 import os
 
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ImageContent, TextContent
+
+from ._bridge import bridge_call
 
 # What to do about a black capture. Camera mode needs no other extension; a rig needs the viewport's lighting menu.
 LIGHTING_ADVICE = (
@@ -19,26 +22,6 @@ CAMERA_LIGHT_ON_ADVICE = (
 
 
 def register(mcp, client, h):
-    def _call(fn, *args, **kwargs):
-        """Call client method with connection error handling."""
-        try:
-            resp = fn(*args, **kwargs)
-        except Exception as e:
-            return {"status": "error", "error": f"Kit app connection failed: {e}"}
-        return resp
-
-    def _check_error(resp):
-        """Check response for errors, including traceback."""
-        if resp["status"] == "error":
-            msg = f"ERROR: {resp['error']}"
-            tb = resp.get("traceback", "")
-            if tb:
-                # Include first 5 lines of traceback for diagnosis
-                tb_lines = tb.strip().split("\n")
-                msg += "\n" + "\n".join(tb_lines[-5:])
-            return msg
-        return None
-
     @mcp.tool()
     def capture_viewport(
         width: int = 640,
@@ -61,17 +44,15 @@ def register(mcp, client, h):
             camera_path: Camera prim path (default: active viewport)
             include_image: Return viewport image inline instead of only saving to file
         """
-        resp = _call(client.capture_viewport, width, height, camera_path)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.capture_viewport, width, height, camera_path)
 
         r = resp["result"]
         lines = []
 
-        # 1. Save viewport image
-        filepath = h.save_png(r["image_base64"], "viewport")
-        capture_id = h.capture_counter  # snapshot counter for consistent filenames
+        # 1. Save viewport image. Its number names the boxes and the segmentation too, taken once: tools run several
+        # at once, and the counter can move between two reads of it.
+        capture_id = h.next_capture()
+        filepath = h.save_png(r["image_base64"], "viewport", number=capture_id)
         lighting_mode = r.get("lighting_mode", "unknown")
         lines.append(f"Viewport: {r['width']}x{r['height']} (lighting: {lighting_mode}) -> {filepath}")
         if r.get("is_black"):
@@ -91,19 +72,17 @@ def register(mcp, client, h):
         # 2. Save screen-space bounding boxes
         bboxes = r.get("screen_bboxes", [])
         if bboxes:
-            bbox_dir = os.path.join(h.output_dir, "captures")
-            os.makedirs(bbox_dir, exist_ok=True)
-            bbox_path = os.path.join(bbox_dir, f"viewport_{capture_id:04d}_bboxes.txt")
-            with open(bbox_path, "w", encoding="utf-8") as f:
-                f.write(f"# Screen-space bounding boxes ({r['width']}x{r['height']})\n")
-                f.write("# Format: [x_min, y_min, x_max, y_max] in pixels\n\n")
-                for b in bboxes:
-                    sb = b["screen_bbox"]
-                    f.write(f"[{b['prim_path']}]\n")
-                    f.write(f"type = {b['type']}\n")
-                    f.write(f"screen_bbox = [{sb[0]}, {sb[1]}, {sb[2]}, {sb[3]}]\n")
-                    f.write(f"world_center = {b['world_center']}\n")
-                    f.write(f"world_dimensions = {b['world_dimensions']}\n\n")
+            bbox_path = os.path.join(h.output_dir, "captures", f"viewport_{capture_id:04d}_bboxes.txt")
+            text = [f"# Screen-space bounding boxes ({r['width']}x{r['height']})\n"]
+            text.append("# Format: [x_min, y_min, x_max, y_max] in pixels\n\n")
+            for b in bboxes:
+                sb = b["screen_bbox"]
+                text.append(f"[{b['prim_path']}]\n")
+                text.append(f"type = {b['type']}\n")
+                text.append(f"screen_bbox = [{sb[0]}, {sb[1]}, {sb[2]}, {sb[3]}]\n")
+                text.append(f"world_center = {b['world_center']}\n")
+                text.append(f"world_dimensions = {b['world_dimensions']}\n\n")
+            h.write(bbox_path, "".join(text))
             lines.append(f"Bounding boxes ({len(bboxes)} prims) -> {h.rel(bbox_path)}")
         else:
             lines.append("Bounding boxes: none (no visible prims)")
@@ -112,26 +91,29 @@ def register(mcp, client, h):
         seg_b64 = r.get("segmentation_base64")
         legend = r.get("segmentation_legend", {})
         if seg_b64:
-            seg_path = h.save_png(seg_b64, f"viewport_{capture_id:04d}_segmentation")
-            if seg_path.startswith("ERROR"):
-                lines.append(f"Segmentation: {seg_path}")
+            # A segmentation image that won't decode costs only itself; the capture still stands.
+            try:
+                seg_path = h.save_png(seg_b64, f"viewport_{capture_id:04d}_segmentation")
+            except ToolError as e:
+                lines.append(f"Segmentation: ERROR: {e}")
             else:
                 legend_path = seg_path.replace(".png", "_legend.txt")
                 abs_legend = os.path.join(os.getcwd(), legend_path) if not os.path.isabs(legend_path) else legend_path
-                with open(abs_legend, "w", encoding="utf-8") as f:
-                    f.write("# Instance segmentation color legend\n")
-                    f.write("# Format: prim_path = [R, G, B]\n\n")
-                    for prim_path, color in legend.items():
-                        f.write(f"{prim_path} = [{color[0]}, {color[1]}, {color[2]}]\n")
+                legend_lines = [f"{prim_path} = [{c[0]}, {c[1]}, {c[2]}]\n" for prim_path, c in legend.items()]
+                h.write(
+                    abs_legend,
+                    "# Instance segmentation color legend\n# Format: prim_path = [R, G, B]\n\n" + "".join(legend_lines),
+                )
                 lines.append(f"Segmentation -> {seg_path}")
                 lines.append(f"Color legend ({len(legend)} prims) -> {h.rel(abs_legend)}")
         else:
             lines.append("Segmentation: not available (omni.syntheticdata may not be loaded)")
 
         if include_image and r.get("image_base64"):
-            content = [TextContent(type="text", text="\n".join(lines))]
-            content.append(ImageContent(type="image", data=r["image_base64"], mimeType="image/png"))
-            return content
+            return [
+                TextContent(type="text", text="\n".join(lines)),
+                ImageContent(type="image", data=r["image_base64"], mime_type="image/png"),
+            ]
         return "\n".join(lines)
 
     @mcp.tool()
@@ -142,10 +124,7 @@ def register(mcp, client, h):
             position: [x, y, z] camera position in world space
             target: [x, y, z] point to look at (optional)
         """
-        resp = _call(client.camera_set, position, target)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.camera_set, position, target)
         r = resp["result"]
         msg = f"Camera at {r['position']}"
         if r.get("target"):
@@ -170,10 +149,7 @@ def register(mcp, client, h):
             azimuth: Horizontal angle in degrees (0=front)
             elevation: Vertical angle in degrees above horizontal
         """
-        resp = _call(client.camera_look_at, prim_path, distance, azimuth, elevation)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.camera_look_at, prim_path, distance, azimuth, elevation)
         r = resp["result"]
         return (
             f"Camera at {r['camera_position']} looking at {r['target']}\n"
@@ -210,7 +186,7 @@ def register(mcp, client, h):
             isolate: Hide all other scene content during capture (restore after)
             include_segmentation: Also capture instance segmentation at each angle
         """
-        resp = _call(
+        resp = bridge_call(
             client.camera_inspect,
             prim_path,
             angles,
@@ -220,9 +196,6 @@ def register(mcp, client, h):
             isolate=isolate,
             include_segmentation=include_segmentation,
         )
-        err = _check_error(resp)
-        if err:
-            return err
 
         r = resp["result"]
         zoom_info = f", zoom_offset={r['zoom_offset']}" if r.get("zoom_offset", 0) != 0 else ""
@@ -238,17 +211,20 @@ def register(mcp, client, h):
                 filepath = h.save_png(cap["image_base64"], f"inspect_{cap['angle']}")
                 cap_line = f"  {cap['angle']}: {filepath}"
                 if cap.get("segmentation_base64"):
-                    seg_path = h.save_png(cap["segmentation_base64"], f"inspect_{cap['angle']}_seg")
-                    cap_line += f" | seg: {seg_path}"
+                    try:
+                        seg_path = h.save_png(cap["segmentation_base64"], f"inspect_{cap['angle']}_seg")
+                    except ToolError as e:
+                        seg_path = ""
+                        cap_line += f" | seg: ERROR: {e}"
+                    else:
+                        cap_line += f" | seg: {seg_path}"
                     legend = cap.get("segmentation_legend", {})
-                    if legend and not seg_path.startswith("ERROR"):
+                    if legend and seg_path:
                         legend_path = seg_path.replace(".png", "_legend.txt")
                         abs_legend = (
                             os.path.join(os.getcwd(), legend_path) if not os.path.isabs(legend_path) else legend_path
                         )
-                        with open(abs_legend, "w", encoding="utf-8") as f:
-                            for pp, clr in legend.items():
-                                f.write(f"{pp} = [{clr[0]}, {clr[1]}, {clr[2]}]\n")
+                        h.write(abs_legend, "".join(f"{pp} = [{c[0]}, {c[1]}, {c[2]}]\n" for pp, c in legend.items()))
                 if cap.get("is_black") and not warned:
                     advice = CAMERA_LIGHT_ON_ADVICE if r.get("lighting_mode") == "camera" else LIGHTING_ADVICE
                     warning = f"  WARNING: One or more captures are all-black. {advice}"
@@ -280,10 +256,7 @@ def register(mcp, client, h):
             mode: Lighting mode to set (for "set" action)
             enabled: Whether to enable (true) or disable (false) camera light (for set_camera_light)
         """
-        resp = _call(client.viewport_light, action, enabled, mode=mode)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.viewport_light, action, enabled, mode=mode)
 
         r = resp["result"]
         lines = []

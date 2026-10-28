@@ -2,28 +2,12 @@
 
 import json
 
+from mcp.server.mcpserver.exceptions import ToolError
+
+from ._bridge import bridge_call
+
 
 def register(mcp, client, h):
-    def _call(fn, *args, **kwargs):
-        """Call client method with connection error handling."""
-        try:
-            resp = fn(*args, **kwargs)
-        except Exception as e:
-            return {"status": "error", "error": f"Kit app connection failed: {e}"}
-        return resp
-
-    def _check_error(resp):
-        """Check response for errors, including traceback."""
-        if resp["status"] == "error":
-            msg = f"ERROR: {resp['error']}"
-            tb = resp.get("traceback", "")
-            if tb:
-                # Include first 5 lines of traceback for diagnosis
-                tb_lines = tb.strip().split("\n")
-                msg += "\n" + "\n".join(tb_lines[-5:])
-            return msg
-        return None
-
     @mcp.tool()
     def execute_script(code: str) -> str:
         """Execute Python inside the running Kit app (Isaac Sim, USD Composer, ...).
@@ -59,10 +43,7 @@ def register(mcp, client, h):
 
         Use Context7 MCP (library: isaac-sim/isaacsim) to look up the correct API calls.
         """
-        resp = _call(client.execute, code)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.execute, code)
 
         r = resp["result"]
         parts = []
@@ -91,10 +72,7 @@ def register(mcp, client, h):
             enabled_only: Only show enabled extensions (for action="list")
         """
         if action == "list":
-            resp = _call(client.extensions_list, enabled_only, search)
-            err = _check_error(resp)
-            if err:
-                return err
+            resp = bridge_call(client.extensions_list, enabled_only, search)
             r = resp["result"]
             lines = [f"Extensions ({r['count']} found):"]
             for ext in r["extensions"][:50]:
@@ -105,11 +83,8 @@ def register(mcp, client, h):
             text = "\n".join(lines)
             return h.text_response(text, "extensions")
         if not extension_id:
-            return "ERROR: extension_id is required for enable/disable"
-        resp = _call(client.extensions_manage, extension_id, action)
-        err = _check_error(resp)
-        if err:
-            return err
+            raise ToolError("extension_id is required for enable/disable")
+        resp = bridge_call(client.extensions_manage, extension_id, action)
         r = resp["result"]
         return f"Extension {r['extension_id']}: {r['action']}d (enabled={r['enabled']})"
 
@@ -131,10 +106,7 @@ def register(mcp, client, h):
             channel: Filter by log channel substring (e.g. "omni.physx", "omni.usd")
             search: Filter by message substring (case-insensitive)
         """
-        resp = _call(client.get_logs, count, min_level, channel, None, search)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.get_logs, count, min_level, channel, None, search)
         r = resp["result"]
         if not r["entries"]:
             return f"No log entries found (buffer has {r['total_captured']} total entries)"
