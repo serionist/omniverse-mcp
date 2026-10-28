@@ -2,16 +2,16 @@
 MCP tool modules.
 
 Each module has a register(mcp, client, helpers) function that registers
-its tools with the FastMCP server instance.
+its tools with the MCPServer instance.
 """
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from ..client import BridgeClient
 from . import camera, misc, recording, robot, scene, simulation, usd_advanced
 
 
-def register_all(mcp: FastMCP, client: BridgeClient, helpers) -> None:
+def register_all(mcp: MCPServer, client: BridgeClient, helpers) -> None:
     """Register all tool modules with the MCP server."""
     scene.register(mcp, client, helpers)
     camera.register(mcp, client, helpers)

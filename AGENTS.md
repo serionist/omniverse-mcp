@@ -21,7 +21,7 @@ extension it talks to.
 
 | Path | What |
 |---|---|
-| `src/omniverse_mcp/` | the server: `server.py` (MCP server, output files, resources), `config.py` (flags, `OMNIVERSE_MCP_*`), `client.py` (the bridge's HTTP client), `bridge_token.py`, `tools/` (the tools by area) |
+| `src/omniverse_mcp/` | the server: `server.py` (`create_server()`: MCP server, output files, resources; `main()`), `config.py` (flags, `OMNIVERSE_MCP_*`), `client.py` (the bridge's HTTP client), `bridge_token.py`, `tools/` (the tools by area; `_bridge.py`, the one call to the bridge) |
 | `extension/ovmcp.bridge/` | the extension: `config/extension.toml` (id, version, settings), `ovmcp/bridge/` (`extension.py` with the routes, `handlers/`), `ovmcp/core/` (HTTP, token, framing, isolation, bounds, the formatter, PNG, logs; `usd.py` types what the pxr stubs get wrong), `docs/README.md` |
 | `tests/` | pytest; `test_integration.py` and `test_scenarios.py` are the live suites (markers `sim`, `scenario`), which need Kit |
 | `test_project/` | an MCP client project for AI-driven scenario runs: `scenarios.md`, `CLAUDE.md`, `.mcp.json.example` |

@@ -41,6 +41,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   `omniverse`. Scene dumps and recording state files start with `# Omniverse MCP`, and their `# format` line
   reads `omniverse-mcp-v1`.
 - **Python 3.11 or newer** for the server.
+- **A tool that fails returns an error result, not `ERROR:` text.** The MCP result has `isError` set, with the
+  bridge's message and the last lines of its traceback, or why the Kit app couldn't be reached; its text no
+  longer starts `ERROR:`. A script that looked for `ERROR:` in a tool's text reads `isError` instead, or it
+  takes every failure for a success. A failed resource read is a resource error.
 
 ### Fixed
 
@@ -49,6 +53,7 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ### Changed
 
+- **The server runs on MCP SDK v2** (`mcp` 2.3.0), and its tools reach Kit one request at a time.
 - **A black capture is no longer relit behind your back.** The bridge used to turn the camera light on and capture
   again; now the capture comes back as it is, with a warning that says how to light the scene (`viewport_light`).
 - **`inspect_prim` refuses what it cannot do instead of guessing:** an unknown angle name (it used to be skipped),

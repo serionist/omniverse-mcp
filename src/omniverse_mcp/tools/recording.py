@@ -2,28 +2,10 @@
 
 import os
 
+from ._bridge import bridge_call
+
 
 def register(mcp, client, h):
-    def _call(fn, *args, **kwargs):
-        """Call client method with connection error handling."""
-        try:
-            resp = fn(*args, **kwargs)
-        except Exception as e:
-            return {"status": "error", "error": f"Kit app connection failed: {e}"}
-        return resp
-
-    def _check_error(resp):
-        """Check response for errors, including traceback."""
-        if resp["status"] == "error":
-            msg = f"ERROR: {resp['error']}"
-            tb = resp.get("traceback", "")
-            if tb:
-                # Include first 5 lines of traceback for diagnosis
-                tb_lines = tb.strip().split("\n")
-                msg += "\n" + "\n".join(tb_lines[-5:])
-            return msg
-        return None
-
     @mcp.tool()
     def start_recording(
         fps: int = 5,
@@ -51,7 +33,7 @@ def register(mcp, client, h):
             property_filter: Only record properties containing these substrings. E.g. ["joint", "pos", "vel"]
         """
         rec_dir = os.path.join(h.output_dir, "recordings")
-        resp = _call(
+        resp = bridge_call(
             client.recording_start,
             rec_dir,
             fps,
@@ -61,9 +43,6 @@ def register(mcp, client, h):
             track_prims=track_prims,
             property_filter=property_filter,
         )
-        err = _check_error(resp)
-        if err:
-            return err
         r = resp["result"]
         msg = f"Recording {r['session_id']} at {r['fps']}fps -> {h.rel(r['output_dir'])}"
         if r.get("track_prims"):
@@ -79,10 +58,7 @@ def register(mcp, client, h):
 
         Returns session info and frame count. Use get_recording_frame to review frames.
         """
-        resp = _call(client.recording_stop)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.recording_stop)
         r = resp["result"]
         msg = f"Stopped. {r['frame_count']} frames, {r['duration_seconds']}s -> {h.rel(r['output_dir'])}"
         if r.get("state_file"):
@@ -100,10 +76,7 @@ def register(mcp, client, h):
             frame_index: Frame number (0-based)
             session_dir: Session directory (uses last recording if empty)
         """
-        resp = _call(client.recording_frame, session_dir, frame_index)
-        err = _check_error(resp)
-        if err:
-            return err
+        resp = bridge_call(client.recording_frame, session_dir, frame_index)
 
         r = resp["result"]
         filepath = h.save_png(r["image_base64"], f"frame_{r['frame_index']:04d}")
