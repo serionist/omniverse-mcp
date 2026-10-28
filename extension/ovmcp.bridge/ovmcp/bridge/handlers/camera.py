@@ -4,7 +4,6 @@ Camera and viewport handlers: set_camera, look_at, inspect, capture, viewport_li
 
 import base64
 import math
-import os
 import traceback
 
 import carb
@@ -25,6 +24,7 @@ from ._utils import (
     _next_update,
     _reset_renderer,
     _settle_viewport,
+    capture_viewport_png,
 )
 
 SEGMENTATION_RETRY_FRAMES = 10
@@ -247,10 +247,8 @@ async def _capture_frame(camera_path: str, width: int, height: int) -> tuple[byt
 
     Returns (png_bytes, is_black).
     """
-    import tempfile
-
     try:
-        from omni.kit.viewport.utility import capture_viewport_to_file, get_active_viewport
+        from omni.kit.viewport.utility import get_active_viewport
     except ImportError:
         raise RuntimeError("omni.kit.viewport.utility not available")
 
@@ -267,28 +265,7 @@ async def _capture_frame(camera_path: str, width: int, height: int) -> tuple[byt
         await _next_update()
 
     async def _do_capture() -> tuple[bytes, bool]:
-        out_path = os.path.join(tempfile.gettempdir(), f"mcp_capture_{id(viewport)}.png")
-
-        cap = capture_viewport_to_file(viewport, file_path=out_path)
-        await cap.wait_for_result()
-
-        # Wait for file to be flushed to disk
-        for _ in range(10):
-            await _next_update()
-            if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
-                break
-
-        if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
-            raise RuntimeError("Viewport capture produced no output")
-
-        with open(out_path, "rb") as f:
-            data = f.read()
-
-        try:
-            os.unlink(out_path)
-        except OSError:
-            pass
-
+        data = await capture_viewport_png(viewport)
         return data, _is_image_black(data)
 
     try:

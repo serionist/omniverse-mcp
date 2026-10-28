@@ -37,7 +37,13 @@ class TestIsaacSimIntegration(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         # Clean up test prims
-        for path in ["/World/IntTestCube", "/World/IntTestLight", "/World/IntTestClone", "/World/IntTestRobot"]:
+        for path in [
+            "/World/IntTestCube",
+            "/World/IntTestLight",
+            "/World/IntTestClone",
+            "/World/IntTestRobot",
+            "/World/IntTestPair",
+        ]:
             try:
                 cls.client.delete_prim(path)
             except Exception:
@@ -201,6 +207,55 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(len(result["result"]["captures"]), 1)
         print(f"  Isolated inspect OK, dist={result['result']['distance']:.2f}m")
 
+    def _red_and_blue(self, angles: list[str]) -> list[list[float]]:
+        """Each inspect_prim frame's mean red and blue, of /World/IntTestPair isolated, as Kit (PIL, numpy) measures."""
+        result = self.client.camera_inspect("/World/IntTestPair", angles=angles, width=160, height=120, isolate=True)
+        self.assertEqual(result["status"], "success", result)
+        images = [cap["image_base64"] for cap in result["result"]["captures"]]
+        means = self.client.execute(
+            "import base64, io\nimport numpy as np\nfrom PIL import Image\n"
+            f"images = {json.dumps(images)}\n"
+            "result = [[float(np.asarray(Image.open(io.BytesIO(base64.b64decode(b))).convert('RGB'), dtype=float)"
+            "[..., i].mean()) for i in (0, 2)] for b in images]"
+        )
+        self.assertEqual(means["status"], "success", means)
+        return means["result"]["return_value"]
+
+    def test_15b_inspect_frames_show_their_own_angle(self):
+        """A red plate above a blue one: seen from the top, red; from the bottom, blue. Captures used to read the
+        previous capture's file, so each frame showed the angle before it (#32)."""
+        up = self.client.sim_state()["result"]["up_axis"]
+        axis = 2 if up == "Z" else 1
+        flat = [0.5, 0.5, 0.5]
+        flat[axis] = 0.03
+        self.client.create_prim("/World/IntTestPair", "Xform")
+        for name, height, colour in (("Top", 0.3, [1.0, 0.0, 0.0]), ("Bottom", -0.3, [0.0, 0.0, 1.0])):
+            position = [0.0, 0.0, 0.0]
+            position[axis] = height
+            self.client.create_prim(f"/World/IntTestPair/{name}", "Cube", position=position, scale=flat)
+            self.assertEqual(self.client.set_material(f"/World/IntTestPair/{name}", color=colour)["status"], "success")
+        self.client.create_prim("/World/IntTestPair/Dome", "DomeLight")
+        # A light's intensity defaults to 1, too dim to tell red from blue; the viewport's own light isn't the test's.
+        lit = self.client.execute(
+            "from pxr import UsdLux\n"
+            "stage = omni.usd.get_context().get_stage()\n"
+            "UsdLux.DomeLight(stage.GetPrimAtPath('/World/IntTestPair/Dome')).CreateIntensityAttr(1000.0)\n"
+            "result = 'lit'"
+        )
+        self.assertEqual(lit["status"], "success", lit)
+        # A frame from below first: with #32's bug the next call's first frame would be this one, blue where red is
+        # asked for.
+        (below,) = self._red_and_blue(["bottom"])
+        self.assertGreater(below[1], below[0] + 5)
+
+        (top_red, top_blue), (bottom_red, bottom_blue), (again_red, again_blue) = self._red_and_blue(
+            ["top", "bottom", "top"]
+        )
+        self.assertGreater(top_red, top_blue + 5)
+        self.assertGreater(bottom_blue, bottom_red + 5)
+        self.assertGreater(again_red, again_blue + 5)
+        print(f"  top red-blue {top_red - top_blue:.0f}, bottom blue-red {bottom_blue - bottom_red:.0f}")
+
     # ===== Viewport lighting =====
 
     def test_16_viewport_light_get(self):
@@ -361,6 +416,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
             "/World/IntTestLight",
             "/World/IntTestClone",
             "/World/IntTestRobot",
+            "/World/IntTestPair",
             "/World/Looks",
         ]:
             self.client.delete_prim(path)

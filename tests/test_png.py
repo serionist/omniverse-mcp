@@ -5,7 +5,7 @@ import zlib
 
 import numpy as np
 
-from ovmcp.core.png import encode_png
+from ovmcp.core.png import encode_png, is_complete_png
 
 
 def _read_png(data: bytes) -> tuple[dict[str, int], bytes]:
@@ -57,3 +57,12 @@ def test_other_dtypes_are_cast_to_bytes():
 def test_an_array_that_is_not_an_image_gives_nothing():
     assert encode_png(np.zeros((4, 4), dtype=np.uint8)) == b""
     assert encode_png(np.zeros(0, dtype=np.uint8)) == b""
+
+
+def test_a_whole_png_is_complete_and_a_partly_written_one_is_not():
+    # Kit writes a capture's file after it says the capture is done; the bridge reads it only once it is whole (#32).
+    data = encode_png(np.zeros((4, 6, 3), dtype=np.uint8))
+    assert is_complete_png(data)
+    for cut in (0, 8, len(data) // 2, len(data) - 1):
+        assert not is_complete_png(data[:cut])
+    assert not is_complete_png(b"not a png" + data[8:])
