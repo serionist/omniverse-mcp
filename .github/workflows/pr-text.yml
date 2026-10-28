@@ -4,8 +4,8 @@
 # head commit always carries it.
 #
 # Dependabot's PRs are skipped: their descriptions quote other projects' release notes, which may say anything, and
-# their squash message keeps only the title and the bump line (AGENTS.md, Commits and PRs). A job skipped by its `if`
-# reports success, so the required check still passes.
+# their squash message keeps only the title and a line naming what moved (AGENTS.md, Commits and PRs). A job
+# skipped by its `if` reports success, so the required check still passes.
 #
 # It runs on pull_request, never pull_request_target: a fork's PR gets a read-only token and no secrets, and this
 # workflow asks for none. The title and description are read from GitHub's event file, never put into the script by an

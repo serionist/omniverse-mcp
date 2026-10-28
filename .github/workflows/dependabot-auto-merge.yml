@@ -4,18 +4,21 @@
 # OS, never the live Kit suites (plan D11), and a major is where a dependency changes what the bridge or the server
 # does.
 #
-# The squash commit gets the PR's title and one line of its own, never the description: Dependabot's description
-# quotes other projects' release notes (AGENTS.md, Commits and PRs).
+# The squash commit gets the PR's title and one line naming what moved, never the description: Dependabot's
+# description quotes other projects' release notes (AGENTS.md, Commits and PRs).
+#
+# To hold an update, convert its PR to draft: nobody can merge a draft, and this job skips one; marking it ready for
+# review turns auto-merge on again. Turning auto-merge off by hand holds it only until Dependabot next pushes to the PR.
 #
 # It runs on pull_request for Dependabot's own PRs on this repository only. Such a run gets a read-only token unless
 # the workflow asks for more, so the job asks for the two permissions turning on auto-merge needs. Nothing is checked
-# out and no PR code runs. The PR's title and the update type reach the script through env, never an expression, so no
-# text in them can run as shell.
+# out and no PR code runs. The PR's title and the update's metadata reach the script through env, never an
+# expression, so no text in them can run as shell.
 name: Dependabot auto-merge
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize]
+    types: [opened, reopened, synchronize, ready_for_review]
 
 permissions:
   contents: read
@@ -27,7 +30,9 @@ concurrency:
 jobs:
   auto-merge:
     name: Auto-merge
-    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'serionist/omniverse-mcp'
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' && !github.event.pull_request.draft &&
+      github.repository == 'serionist/omniverse-mcp'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -50,7 +55,11 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          UPDATED: ${{ steps.metadata.outputs.updated-dependencies-json }}
         run: |
+          # A grouped PR's title only counts what moved; the line names each, with versions when Dependabot gave them.
+          bumps=$(jq -r 'map(.dependencyName + (if (.prevVersion // "") != "" and (.newVersion // "") != ""
+            then " " + .prevVersion + " to " + .newVersion else "" end)) | join(", ")' <<<"$UPDATED")
           gh pr merge --auto --squash "$PR_URL" \
             --subject "$PR_TITLE (#$PR_NUMBER)" \
-            --body "Dependabot's ${UPDATE_TYPE#version-update:semver-} update; the release notes are in #$PR_NUMBER."
+            --body "Bumps $bumps, a ${UPDATE_TYPE#version-update:semver-} update; the release notes are in #$PR_NUMBER."

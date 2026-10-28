@@ -65,7 +65,7 @@ Taken by @serionist on 2026-10-28 unless the row says otherwise.
 | D13 | The March work | `wip/2026-03-08-camera-lighting` (inspect_prim auto-fit and isolate, viewport_light modes). Kept and fixed: it lands as S1b, right after S1, with the fixes of its [review](../reviews/2026-10-28-wip-camera-lighting-code.md). |
 | D14 | How the work lands | One issue for this plan, one PR per step, squash-merged by the maintainer. (Recommended.) |
 | D15 | basedpyright with a baseline | pyright has no baseline, and 277 of its errors at `standard` sit in code S7 rewrites. basedpyright is pyright with a baseline file: today's errors live in `.basedpyright/baseline.json`, may only shrink, and new code is checked in full, the same ratchet as ruff's (D12). `types-usd` gives `pxr` its types. Taken in S3b, 2026-10-28, under the maintainer's go-ahead for the plan's steps. |
-| D16 | Dependabot merges its minor and patch updates | Once `CI` and `PR text` pass, through GitHub's auto-merge, which `dependabot-auto-merge.yml` turns on; a major waits for the maintainer, since CI never runs the live Kit suites (D11). The squash commit gets the PR's title and one line, not the release notes. Asked for by @serionist on 2026-10-28, who chose minor and patch and had the repo's merge settings applied (For the maintainers). |
+| D16 | Dependabot merges its minor and patch updates | Once `CI` and `PR text` pass, through GitHub's auto-merge, which `dependabot-auto-merge.yml` turns on; a major waits for the maintainer, since CI never runs the live Kit suites (D11). The squash commit gets the PR's title and one line naming what moved, not the release notes. To hold one, the maintainer converts its PR to draft. Asked for by @serionist on 2026-10-28, who chose minor and patch and had the repo's merge settings applied (For the maintainers). |
 
 ## Design
 
@@ -467,13 +467,13 @@ Improvements taken:
   nobody takes the name first (R9).
 - **S5, the merge rules:** applied by the main session through the GitHub API on 2026-10-28, on the maintainer's
   "apply all" (D16):
-  - a ruleset on `main`: PRs only, and two required checks: `CI` (`ci.yml`'s last job, which fails when `Checks
-    (Linux)` or any `Tests (...)` leg failed) and `PR text` (`pr-text.yml`, skipped as passed on Dependabot's PRs);
+  - the ruleset `main` (id 26045633) on `main`: no deletion, no force push, PRs only with squash, and two required
+    checks: `CI` (`ci.yml`'s last job, which fails when `Checks (Linux)` or any `Tests (...)` leg failed) and
+    `PR text` (`pr-text.yml`, skipped as passed on Dependabot's PRs); the repo's admins may bypass it;
   - squash merges only, with the commit message set to the PR title and description; a Dependabot PR's message is
-    cut to its title and the bump line at merge;
+    cut to its title and a line naming what moved, by `dependabot-auto-merge.yml` for a minor or patch, by the
+    maintainer at merge for a major;
   - auto-merge allowed, and merged branches deleted;
-  - the ruleset `main` (id 26045633): no deletion, no force push, PRs only with squash, `CI` and `PR text` required;
-    the repo's admins may bypass it;
   - CodeQL's default setup stays off: `codeql.yml` is the advanced setup, and the two would conflict. Its jobs,
     `Analyse (python)` and `Analyse (actions)`, annotate the PR without being required.
 - **For S9, any time before it:**
