@@ -29,7 +29,7 @@ extension it talks to.
 | `docs/plans/`, `docs/reviews/` | plans of non-trivial changes, with the template; review records. Dated records, never current truth |
 | `tools/` | `gate.py` (the gate), `hooks.py` (behind `.githooks/`), `setup.py` (once per clone; `link` for skills); standard library only |
 | `.githooks/` | `commit-msg` refuses attribution, `pre-push` runs gate quick on what the push sends, `post-checkout` and `post-merge` name changed AI setup files |
-| `.github/` | `workflows/`: `ci.yml` (gate quick on Linux; the tests on Linux 3.11-3.14, Windows 3.11 and 3.14, macOS 3.14; its `CI` job), `pr-text.yml` (gate text on a PR's title and description; its `PR text` job), `codeql.yml`; `CI` and `PR text` are the required checks; `dependabot.yml`, the issue forms, the PR template, `CODEOWNERS` |
+| `.github/` | `workflows/`: `ci.yml` (gate quick on Linux; the tests on Linux 3.11-3.14, Windows 3.11 and 3.14, macOS 3.14; its `CI` job), `pr-text.yml` (gate text on a PR's title and description; its `PR text` job), `codeql.yml`, `dependabot-auto-merge.yml` (turns on auto-merge for Dependabot's minor and patch updates); `CI` and `PR text` are the required checks; `dependabot.yml`, the issue forms, the PR template, `CODEOWNERS` |
 | `.claude/` | `CLAUDE.md` (imports this file), `settings.json` (no attribution; allows read-only git and gh, plus the repo's own checks), `skills/` (below) |
 | `.agents/skills/` | links to `.claude/skills/<name>` for Codex, written into git's index by `uv run tools/setup.py link` |
 | `AGENTS.md`, `REVIEW.md` | this file; what a review finding is, and the questions every review answers |
@@ -89,8 +89,10 @@ The skills in `.claude/skills/` run this loop: `start-work` (1 to 3), `review-pl
 
 - A plain imperative subject that says what changed; a body that says why, ending `Refs #<n>`, `Closes #<n>` or `Fixes #<n>`.
 - PRs are squash-merged: the PR title becomes the subject on `main`, its description the body.
-- A Dependabot PR's squash message keeps only its title and the bump line: its description quotes other projects'
-  release notes, which `pr-text.yml` doesn't check.
+- A Dependabot PR's squash message keeps only its title and a line naming what moved: its description quotes other
+  projects' release notes, which `pr-text.yml` doesn't check. A minor or patch update merges itself once `CI` and
+  `PR text` pass, unless its PR is a draft, and `dependabot-auto-merge.yml` writes that line; a major waits for the
+  maintainer, who cuts the message at merge.
 - No tool attribution anywhere: no AI co-author trailers, no "Generated with" lines, no session links, in commits,
   PR titles or PR bodies. `commit-msg` refuses them, and the gate checks every message on the branch.
 

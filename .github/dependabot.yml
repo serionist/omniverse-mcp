@@ -1,8 +1,9 @@
 # Dependabot version updates, weekly on Monday: the Python packages in pyproject.toml and uv.lock, and the actions the
 # workflows pin by SHA. Minor and patch updates come grouped, one PR a week for each; a major comes on a PR of its own.
-# Each is a PR like any other: CI must pass and the maintainer merges it (AGENTS.md, How a change lands). Security
-# updates come as soon as an advisory is published, whatever the schedule, once the maintainer turns them on in the
-# repository's settings; the cooldown holds version updates only.
+# Each is a PR like any other, and CI must pass: a minor or patch update then merges itself (dependabot-auto-merge.yml),
+# a major waits for the maintainer (AGENTS.md, Commits and PRs). Security updates come as soon as an advisory is
+# published, whatever the schedule, once the maintainer turns them on in the repository's settings; the cooldown holds
+# version updates only.
 version: 2
 
 updates:
