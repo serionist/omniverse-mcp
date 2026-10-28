@@ -90,7 +90,8 @@ The skills in `.claude/skills/` run this loop: `start-work` (1 to 3), `review-pl
 - A plain imperative subject that says what changed; a body that says why, ending `Refs #<n>`, `Closes #<n>` or `Fixes #<n>`.
 - PRs are squash-merged: the PR title becomes the subject on `main`, its description the body.
 - A Dependabot PR's squash message keeps only its title and the bump line: its description quotes other projects'
-  release notes, which `pr-text.yml` doesn't check.
+  release notes, which `pr-text.yml` doesn't check. Its minor and patch updates merge themselves once `CI` and `PR text`
+  pass (`dependabot-auto-merge.yml`); a major waits for the maintainer.
 - No tool attribution anywhere: no AI co-author trailers, no "Generated with" lines, no session links, in commits,
   PR titles or PR bodies. `commit-msg` refuses them, and the gate checks every message on the branch.
 

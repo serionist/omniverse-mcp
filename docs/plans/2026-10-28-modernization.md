@@ -65,6 +65,7 @@ Taken by @serionist on 2026-10-28 unless the row says otherwise.
 | D13 | The March work | `wip/2026-03-08-camera-lighting` (inspect_prim auto-fit and isolate, viewport_light modes). Kept and fixed: it lands as S1b, right after S1, with the fixes of its [review](../reviews/2026-10-28-wip-camera-lighting-code.md). |
 | D14 | How the work lands | One issue for this plan, one PR per step, squash-merged by the maintainer. (Recommended.) |
 | D15 | basedpyright with a baseline | pyright has no baseline, and 277 of its errors at `standard` sit in code S7 rewrites. basedpyright is pyright with a baseline file: today's errors live in `.basedpyright/baseline.json`, may only shrink, and new code is checked in full, the same ratchet as ruff's (D12). `types-usd` gives `pxr` its types. Taken in S3b, 2026-10-28, under the maintainer's go-ahead for the plan's steps. |
+| D16 | Dependabot merges its minor and patch updates | Once `CI` and `PR text` pass, through GitHub's auto-merge, which `dependabot-auto-merge.yml` turns on; a major waits for the maintainer, since CI never runs the live Kit suites (D11). The squash commit gets the PR's title and one line, not the release notes. Asked for by @serionist on 2026-10-28, who chose minor and patch and had the repo's merge settings applied (For the maintainers). |
 
 ## Design
 
@@ -453,6 +454,7 @@ Improvements taken:
 | 2026-10-28 | S4 | Draft PR #12. review-code round 1, medium tier ([record](../reviews/2026-10-28-s4-harness-code.md)): needs-fixes, 2 majors (pre-push checked `origin/main..HEAD` and the working tree, not what the push sends; a person named like a tool could not be a co-author) and 5 minors, all fixed in `8612e2e` with tests; an empty Context7 key header refuted by a probe. Merge commits are now checked too, and gitleaks reads a merge's diff against its first parent, without which a secret added in a merge went unseen. gate full passes with 337 unit tests. Not pushed. |
 | 2026-10-28 | S5 | Built on `2-s5-ci`. `ci.yml`: `Checks (Linux)` runs gate quick on the commits since the PR's base, or since the push's previous `main`, with gitleaks 8.30.1 checked against its sha256; `Tests (...)` on Linux on 3.11-3.14, Windows on 3.11 and 3.14, macOS on 3.14; `CI` needs both, and is one of the two required checks with `pr-text.yml`'s `PR text`. `pr-text.yml` runs the gate's new `text` lane on the title and description, read from the event file. `codeql.yml` (python, actions, security-extended), `dependabot.yml` (uv and github-actions, Mondays, a 7-day cooldown, minor and patch grouped, `mcp` majors ignored), the issue forms, the PR template, CODEOWNERS, SECURITY.md, CONTRIBUTING.md as a short path to AGENTS.md, the README's badges. Every action pinned to the SHA docket and WriteableFileProviders pin. `usd-core` 26.11 has a wheel for every leg. Left for later steps: Claude Code for `plugin validate` (S8, with the plugin) and the coverage floor (S6). gate full passes with 342 unit tests; the tests pass on Windows on 3.11 and 3.14, and in Docker on Linux on 3.11-3.14, where gate quick also passed on a PR's merge commit and on a squash push with gitleaks installed by the workflow's own step. Linux shows one warning from `tests/test_client.py`'s mock bridge (a writer closed after its event loop), which S6's `filterwarnings = ["error"]` will turn into a failure. The workflows and forms parse; actionlint is not installed here, and shellcheck finds nothing in the run steps. Not pushed: CI first runs on the PR. |
 | 2026-10-28 | S5 | Draft PR #13; its first Actions run passed every job, and CodeQL found nothing. review-code round 1, medium ([record](../reviews/2026-10-28-s5-ci-code.md)): needs-fixes, 2 majors (a push whose `before` is gone turned CI red on a good commit; Dependabot's co-author line and quoted release notes failed the attribution rules), 5 minors and 2 improvements, all taken in `da95e00`, `f096ac0` and `580ac43`. The text lane now also requires a `Refs`, `Closes` or `Fixes` line with an issue number; `PR text` skips Dependabot's PRs; each CI job syncs once; CodeQL's jobs are `Analyse (...)`. gate full passes with 367 unit tests. Not pushed. |
+| 2026-10-28 | S5, D16 | #13 (S5) merged as `1019117` after six review-code rounds, the last clean (record `docs/reviews/2026-10-28-s5-ci-code.md`). The repo's merge settings and the `main` ruleset were applied; auto-merge enabled after the checks had finished never fired, so #13 was merged directly. Dependabot's auto-merge for minor and patch updates (D16) added. |
 
 ## For the maintainers
 
@@ -463,11 +465,15 @@ Improvements taken:
     `Work` account).
 - **S5, PyPI:** a pending trusted publisher for `omniverse-mcp` (this repo, `release.yml`, environment `pypi`), so
   nobody takes the name first (R9).
-- **S5, the merge rules,** once the S5 PR's checks have run once (GitHub offers a check by name only after it has run):
+- **S5, the merge rules:** applied by the main session through the GitHub API on 2026-10-28, on the maintainer's
+  "apply all" (D16):
   - a ruleset on `main`: PRs only, and two required checks: `CI` (`ci.yml`'s last job, which fails when `Checks
     (Linux)` or any `Tests (...)` leg failed) and `PR text` (`pr-text.yml`, skipped as passed on Dependabot's PRs);
   - squash merges only, with the commit message set to the PR title and description; a Dependabot PR's message is
     cut to its title and the bump line at merge;
+  - auto-merge allowed, and merged branches deleted;
+  - the ruleset `main` (id 26045633): no deletion, no force push, PRs only with squash, `CI` and `PR text` required;
+    the repo's admins may bypass it;
   - CodeQL's default setup stays off: `codeql.yml` is the advanced setup, and the two would conflict. Its jobs,
     `Analyse (python)` and `Analyse (actions)`, annotate the PR without being required.
 - **For S9, any time before it:**
@@ -476,8 +482,9 @@ Improvements taken:
 - **S5, GitHub security settings:**
   - private vulnerability reporting, which `SECURITY.md` and the issue forms link to: until it is on, nobody outside
     can report through that link;
-  - secret scanning with push protection;
-  - Dependabot alerts and security updates (version updates come from `dependabot.yml`, with no setting).
+  - secret scanning with push protection: already on;
+  - Dependabot alerts and security updates (version updates come from `dependabot.yml`, with no setting): still off,
+    with private vulnerability reporting, until the maintainer says.
 - **S5, the repo page:** a description and topics, done during S1 and S1b.
 - **S9:** approve the `pypi` deployment.
 
