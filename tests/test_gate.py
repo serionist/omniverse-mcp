@@ -139,6 +139,8 @@ def test_text_without_attribution_passes(line):
         ("Jules <161369871+google-labs-jules[bot]@users.noreply.github.com>", True),
         ("dependabot-ai[bot] <6+dependabot-ai[bot]@users.noreply.github.com>", True),
         ("Dependabot[bot] <49699333+Dependabot[bot]@users.noreply.github.com>", False),
+        ("Claude <49699333+dependabot[bot]@users.noreply.github.com>", True),
+        ("GitHub Copilot <41898282+github-actions[bot]@users.noreply.github.com>", True),
         ("dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>", False),
         ("github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>", False),
         ("renovate[bot] <4+renovate[bot]@users.noreply.github.com>", False),

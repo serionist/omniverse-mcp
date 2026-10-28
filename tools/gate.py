@@ -165,8 +165,8 @@ def tool_co_author(who: str) -> bool:
         return False
     email = (match.group("email") or "").strip()
     bot = _BOT_EMAIL.match(email)
-    if bot:
-        return bot.group("login").lower() not in _NON_AI_BOTS
+    if bot and bot.group("login").lower() not in _NON_AI_BOTS:
+        return True
     return bool(_TOOL_EMAIL.match(email)) or bool(_TOOL_NAME.match(match.group("name").strip()))
 
 
