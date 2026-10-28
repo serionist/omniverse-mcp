@@ -203,6 +203,8 @@ def register(mcp, client, h):
         zoom_info = f", zoom_offset={r['zoom_offset']}" if r.get('zoom_offset', 0) != 0 else ""
         isolate_info = ", isolated" if r.get('isolate') else ""
         lines = [f"Inspect {prim_path} (dist={r['distance']}m{zoom_info}{isolate_info})"]
+        for warning in r.get("isolate_warnings", []):
+            lines.append(f"  WARNING (isolate): {warning}")
         warned = False
         for cap in r["captures"]:
             if "error" in cap:

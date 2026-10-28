@@ -34,7 +34,7 @@ def _strs(paths):
 
 
 def test_a_nested_target_hides_its_siblings_at_every_level(stage):
-    assert _strs(prims_to_hide(stage, "/World/Robot/Arm")) == [
+    assert _strs(prims_to_hide(stage, "/World/Robot/Arm")[0]) == [
         "/Environment/Ground",
         "/Untyped/Crate",
         "/World/Lights/Softbox",
@@ -44,15 +44,15 @@ def test_a_nested_target_hides_its_siblings_at_every_level(stage):
 
 
 def test_world_as_target_hides_nothing_under_it(stage):
-    assert _strs(prims_to_hide(stage, "/World")) == ["/Environment/Ground", "/Untyped/Crate"]
+    assert _strs(prims_to_hide(stage, "/World")[0]) == ["/Environment/Ground", "/Untyped/Crate"]
 
 
 def test_the_root_as_target_hides_nothing(stage):
-    assert prims_to_hide(stage, "/") == []
+    assert prims_to_hide(stage, "/") == ([], [])
 
 
 def test_lights_and_cameras_are_never_hidden(stage):
-    hidden = _strs(prims_to_hide(stage, "/World/Table"))
+    hidden = _strs(prims_to_hide(stage, "/World/Table")[0])
     assert "/World/Lights/Key" not in hidden
     assert "/World/Lights" not in hidden
     assert "/Environment/Sky" not in hidden
@@ -69,7 +69,7 @@ def test_hiding_makes_them_invisible_and_restore_puts_the_session_layer_back_exa
     layer = stage.GetSessionLayer()
     before = layer.ExportToString()
     hidden = Hidden(layer)
-    hidden.hide(prims_to_hide(stage, "/World/Robot/Arm"))
+    hidden.hide(prims_to_hide(stage, "/World/Robot/Arm")[0])
     assert len(hidden) == 5
     vis = UsdGeom.Imageable(stage.GetPrimAtPath("/World/Table")).ComputeVisibility()
     assert vis == UsdGeom.Tokens.invisible
@@ -90,7 +90,7 @@ def test_an_opinion_the_session_layer_already_had_comes_back(stage):
     before = layer.ExportToString()
 
     hidden = Hidden(layer)
-    hidden.hide(prims_to_hide(stage, "/World/Robot"))
+    hidden.hide(prims_to_hide(stage, "/World/Robot")[0])
     hidden.restore()
 
     assert layer.ExportToString() == before
@@ -116,5 +116,50 @@ def test_restore_after_a_partial_hide_undoes_what_was_done(stage):
     hidden = Hidden(layer)
     with pytest.raises(Exception):
         hidden.hide([Sdf.Path("/World/Table"), Sdf.Path("not a prim path")])
+    hidden.restore()
+    assert layer.ExportToString() == before
+
+
+@pytest.fixture
+def instanced(stage):
+    """/World/Lamp is an instance of /Prototypes/Lamp, which holds a light and a shade."""
+    stage.DefinePrim("/Prototypes", "Xform")
+    UsdGeom.Xform.Define(stage, "/Prototypes/Lamp")
+    UsdLux.SphereLight.Define(stage, "/Prototypes/Lamp/Bulb")
+    UsdGeom.Cube.Define(stage, "/Prototypes/Lamp/Shade")
+    lamp = UsdGeom.Xform.Define(stage, "/World/Lamp").GetPrim()
+    lamp.GetReferences().AddInternalReference("/Prototypes/Lamp")
+    lamp.SetInstanceable(True)
+    assert lamp.IsInstance()
+    return stage
+
+
+def test_an_instance_that_holds_a_light_is_left_whole_with_a_warning(instanced):
+    paths, warnings = prims_to_hide(instanced, "/World/Robot/Arm")
+    assert "/World/Lamp" not in _strs(paths)
+    assert [w for w in warnings if w.startswith("/World/Lamp is an instance that holds a light")]
+
+
+def test_an_instance_that_holds_the_target_is_left_whole_with_a_warning(instanced):
+    paths, warnings = prims_to_hide(instanced, "/World/Lamp/Shade")
+    assert "/World/Lamp" not in _strs(paths)
+    assert "/World/Table" in _strs(paths)
+    assert [w for w in warnings if w.startswith("/World/Lamp is an instance that holds the target")]
+
+
+def test_time_sampled_session_visibility_is_left_alone_with_a_warning(stage):
+    layer = stage.GetSessionLayer()
+    with Usd.EditContext(stage, layer):
+        attr = UsdGeom.Imageable(stage.GetPrimAtPath("/World/Table")).GetVisibilityAttr()
+        attr.Set(UsdGeom.Tokens.inherited, 1.0)
+        attr.Set(UsdGeom.Tokens.inherited, 2.0)
+    before = layer.ExportToString()
+
+    hidden = Hidden(layer)
+    hidden.hide([Sdf.Path("/World/Table"), Sdf.Path("/World/Robot/Base")])
+    assert len(hidden) == 1
+    assert hidden.warnings == ["/World/Table has time-sampled visibility in the session layer, so isolate left it visible"]
+    assert layer.GetNumTimeSamplesForPath("/World/Table.visibility") == 2
+
     hidden.restore()
     assert layer.ExportToString() == before

@@ -20,28 +20,37 @@ def is_light(prim: Usd.Prim) -> bool:
     )
 
 
-def prims_to_hide(stage: Usd.Stage, target_path: str) -> list[Sdf.Path]:
+def prims_to_hide(stage: Usd.Stage, target_path: str) -> tuple[list[Sdf.Path], list[str]]:
     """The prims to make invisible so that only the target's subtree, and the scene's lights, still render.
 
     Walks from the root down to the target and takes every visible sibling on the way. A prim that holds a light is
-    not hidden whole, or the light would go dark with it; its children are taken instead.
+    not hidden whole, or the light would go dark with it; its children are taken instead. An instance's children
+    can't be authored, so an instance the walk would go into is left as it is, with a warning; the warnings come
+    back with the paths.
     """
     target = Sdf.Path(target_path)
     if target == Sdf.Path.absoluteRootPath:
-        return []
+        return [], []
     holds_light: set[Sdf.Path] = set()
     for prim in Usd.PrimRange.Stage(stage, Usd.TraverseInstanceProxies()):
         if is_light(prim):
             holds_light.update(prim.GetPath().GetPrefixes())
 
     found: list[Sdf.Path] = []
+    warnings: list[str] = []
 
     def take(prim: Usd.Prim) -> None:
         path = prim.GetPath()
         if path == target or is_light(prim) or prim.IsA(UsdGeom.Camera):
             return
-        if target.HasPrefix(path) or path in holds_light or not prim.IsA(UsdGeom.Imageable):
+        leads_to_target = target.HasPrefix(path)
+        if leads_to_target or path in holds_light or not prim.IsA(UsdGeom.Imageable):
             # Stays visible: it leads to the target, holds a light, or has no visibility of its own.
+            if prim.IsInstance():
+                holds = "the target" if leads_to_target else "a light"
+                warnings.append(f"{path} is an instance that holds {holds}; children of an instance can't be hidden, "
+                                "so all of it stays visible")
+                return
             for child in prim.GetChildren():
                 take(child)
             return
@@ -50,7 +59,7 @@ def prims_to_hide(stage: Usd.Stage, target_path: str) -> list[Sdf.Path]:
 
     for child in stage.GetPseudoRoot().GetChildren():
         take(child)
-    return found
+    return found, warnings
 
 
 class Hidden:
@@ -58,6 +67,7 @@ class Hidden:
 
     def __init__(self, layer: Sdf.Layer):
         self.layer = layer
+        self.warnings: list[str] = []
         self._attrs: list[tuple[Sdf.Path, object]] = []
         self._created: list[Sdf.Path] = []
 
@@ -67,11 +77,16 @@ class Hidden:
     def hide(self, paths: list[Sdf.Path]) -> None:
         with Sdf.ChangeBlock():
             for path in paths:
+                attr_path = path.AppendProperty(UsdGeom.Tokens.visibility)
+                if self.layer.GetNumTimeSamplesForPath(attr_path):
+                    # Time samples outrank the default this would author; leave them, and the prim, alone.
+                    self.warnings.append(f"{path} has time-sampled visibility in the session layer, so isolate "
+                                         "left it visible")
+                    continue
                 for prefix in path.GetPrefixes():
                     if self.layer.GetPrimAtPath(prefix) is None:
                         self._created.append(prefix)
                 spec = Sdf.CreatePrimInLayer(self.layer, path)
-                attr_path = path.AppendProperty(UsdGeom.Tokens.visibility)
                 attr = self.layer.GetAttributeAtPath(attr_path)
                 if attr is None:
                     self._attrs.append((attr_path, _NO_SPEC))

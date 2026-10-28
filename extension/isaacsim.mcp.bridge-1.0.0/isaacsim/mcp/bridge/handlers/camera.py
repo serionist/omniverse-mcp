@@ -655,10 +655,13 @@ async def handle_camera_inspect(body: dict) -> dict:
 
     # Isolate: hide everything but the prim and the lights, in the session layer, inside the try so it always undoes
     hidden = Hidden(stage.GetSessionLayer())
+    isolate_warnings: list[str] = []
     captures = []
     try:
         if isolate:
-            hidden.hide(prims_to_hide(stage, prim_path))
+            paths, isolate_warnings = prims_to_hide(stage, prim_path)
+            hidden.hide(paths)
+            isolate_warnings += hidden.warnings
             await _settle_viewport()
 
         for angle_name in angles:
@@ -741,6 +744,7 @@ async def handle_camera_inspect(body: dict) -> dict:
             "distance": round(distance, 4),
             "zoom_offset": zoom_offset,
             "isolate": isolate,
+            "isolate_warnings": isolate_warnings,
             "captures": captures,
         },
     }
