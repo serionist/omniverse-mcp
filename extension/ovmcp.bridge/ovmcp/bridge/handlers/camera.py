@@ -16,7 +16,6 @@ from ovmcp.core.bounds import box_corners, center_and_size, screen_box, world_bb
 from ovmcp.core.framing import apply_zoom, bounding_radius, fit_distance, inspect_args, require_perspective
 from ovmcp.core.isolation import LIGHT_TYPES, Hidden, is_light, prims_to_hide
 from ovmcp.core.lighting import camera_light_switch, current_mode
-from ovmcp.core.png import encode_png
 from ovmcp.core.serial import LazyLock, serial
 
 from ._utils import (
@@ -396,6 +395,9 @@ def _capture_instance_segmentation():
     import numpy as np
     import omni.syntheticdata as syn
     from omni.kit.viewport.utility import get_active_viewport
+
+    # Here, not at the top: the PNG writer needs numpy, and the bridge must load in a Kit app without it.
+    from ovmcp.core.png import encode_png
 
     viewport = get_active_viewport()
     if viewport is None:

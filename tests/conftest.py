@@ -7,10 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from omniverse_mcp.config import parse_args
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# Where the live suites find the bridge, read as the server reads it, so a Kit app of your own can keep 8211.
-LIVE_HOST = os.environ.get("OMNIVERSE_MCP_HOST", "127.0.0.1")
-LIVE_PORT = int(os.environ.get("OMNIVERSE_MCP_PORT", "8211"))
 EXTENSION_ROOT = REPO_ROOT / "extension" / "ovmcp.bridge"
 sys.path.insert(0, str(EXTENSION_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "tools"))
@@ -25,6 +24,13 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     for item in items:
         if item.get_closest_marker("sim") or item.get_closest_marker("scenario"):
             item.add_marker(skip)
+
+
+def live_bridge() -> tuple[str, int]:
+    """Where the live suites find the bridge: OMNIVERSE_MCP_HOST and OMNIVERSE_MCP_PORT, read by the server's own
+    parser, so a Kit app of your own can keep 8211 while another runs them. Read when a live suite starts."""
+    args = parse_args([])
+    return args.host, args.port
 
 
 @pytest.fixture

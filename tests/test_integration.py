@@ -7,14 +7,13 @@ Usage, with Kit running: OMNIVERSE_MCP_SIM=1 uv run pytest -m sim
 """
 
 import json
-import os
 import unittest
 
 import pytest
 
 from omniverse_mcp.client import BridgeClient
 
-from .conftest import LIVE_HOST, LIVE_PORT
+from .conftest import live_bridge
 
 pytestmark = pytest.mark.sim
 
@@ -24,19 +23,13 @@ class TestIsaacSimIntegration(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.client = BridgeClient(host=LIVE_HOST, port=LIVE_PORT, timeout=30.0)
-        try:
-            result = cls.client.health()
-            if result.get("status") != "success":
-                raise ConnectionError(f"Health check failed: {result}")
-            print(f"\nConnected to Isaac Sim: {json.dumps(result['result'], indent=2)}")
-        except Exception as e:
-            if os.environ.get("OMNIVERSE_MCP_SIM") == "1":
-                raise
-            raise unittest.SkipTest(
-                f"Cannot connect to Isaac Sim at {LIVE_HOST}:{LIVE_PORT}. "
-                f"Start Isaac Sim with the ovmcp.bridge extension. Error: {e}"
-            )
+        # It runs only with OMNIVERSE_MCP_SIM=1 (conftest.py), so a bridge that doesn't answer is a failure.
+        host, port = live_bridge()
+        cls.client = BridgeClient(host=host, port=port, timeout=30.0)
+        result = cls.client.health()
+        if result.get("status") != "success":
+            raise ConnectionError(f"Health check failed at {host}:{port}: {result}")
+        print(f"\nConnected to Isaac Sim: {json.dumps(result['result'], indent=2)}")
         # Ensure sim is stopped and create a clean scene
         cls.client.sim_control("stop")
         cls.client.capture_viewport(320, 240)  # Warmup capture pipeline

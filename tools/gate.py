@@ -441,16 +441,23 @@ def floor_problems(floor: float | None, bases: list[tuple[str, float | None]]) -
     ]
 
 
-def check_coverage_floor(scope: Scope) -> Result:
-    floor = coverage_floor((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+def check_coverage_floor(scope: Scope, root: Path = ROOT) -> Result:
+    """Each range's floor is read where its head left its base (their merge base), so a branch is held to the floor it
+    started from, not to one main raised after."""
+    floor = coverage_floor((root / "pyproject.toml").read_text(encoding="utf-8"))
     bases: list[tuple[str, float | None]] = []
     for rev in scope.ranges:
-        ref = rev.split("..", 1)[0]
-        shown = git("show", f"{ref}:pyproject.toml")
+        left, _, right = rev.partition("..")
+        fork = git("merge-base", left, right or "HEAD", cwd=root)
+        ref = fork.stdout.strip() if fork.returncode == 0 else left
+        shown = git("show", f"{ref}:pyproject.toml", cwd=root)
         if shown.returncode != 0:
             return Result("coverage floor", "FAIL", f"cannot read pyproject.toml at {ref}", output=shown.stderr)
-        bases.append((_FULL_SHA.sub(r"\1", ref), coverage_floor(shown.stdout)))
-    return outcome("coverage floor", floor_problems(floor, bases), f"{floor:g}%")
+        left_sha = git("rev-parse", "--verify", "--quiet", f"{left}^{{commit}}", cwd=root).stdout.strip()
+        label = _FULL_SHA.sub(r"\1", left if ref in (left, left_sha) else f"{ref} (where it left {left})")
+        bases.append((label, coverage_floor(shown.stdout)))
+    detail = f"{floor:g}%" if floor is not None else ""
+    return outcome("coverage floor", floor_problems(floor, bases), detail)
 
 
 def check_agents_md(_scope: Scope) -> Result:
