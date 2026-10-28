@@ -52,3 +52,23 @@ After isolate every prim's visibility is back to `inherited`. Not run here: Isaa
 the lighting menu extension (F6's fallback). Seen while fixing, not in scope:
 `capture_viewport` reports the requested width and height and scales its bounding boxes to them, while the image comes
 out at the viewport's resolution.
+
+## Review-code round 1 (PR #4)
+
+High tier, one fresh reviewer, on the rebased branch after the live run. Fixed on `2-s1b-camera-lighting`; each fix
+has a test that runs without Kit, except where the row says otherwise.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| R1 | major | `viewport_light(action, mode, enabled)`: `mode` took `enabled`'s positional place, so the old `viewport_light("set_camera_light", False)` sent `mode=False` and turned the camera light on | Fixed (`8618c6b`): `enabled` back in its place, `mode` keyword-only. Test: the old call sends `enabled=false` |
+| R2 | major | `camera_inspect` and `mcp.inspect`: `zoom_offset` sat where `distance` was, so an old fifth positional distance became a zoom | Fixed (`8618c6b`): `zoom_offset`, `isolate`, `include_segmentation` keyword-only. Tests: an old fifth positional raises `TypeError` on both |
+| R3 | minor | The current mode trusted the lighting menu's stale "camera" with the camera-light flag off | Fixed (`dec8c3d`): `core/lighting.py` `current_mode()`, the flag first, tested as a table; every mode that takes sets the flag to match |
+| R4 | major | Legacy `set_camera_light(enabled=False)` set "stage" and tore down a light rig | Fixed (`dec8c3d`): `camera_light_switch()`: off sets "stage" only from camera mode, otherwise only clears the flag; the resulting mode is reported. Tested as a table; the handler checked with Kit mocked |
+| R5 | minor | Under an instance `GetChildren()` returns nothing and proxies can't be authored, so isolate silently left instances visible | Fixed (`9471460`): an instance the walk would enter is left whole and named in `isolate_warnings`, which the result carries and the tool prints. Tests on usd-core: an instance holding a light, one holding the target |
+| R6 | minor | `capture_viewport`'s black-capture warnings sent the AI to the Default rig, which needs the lighting menu | Fixed (`84ff38c`): `mode="camera"` first (always available), a rig such as Default "if `viewport_light('get')` lists it". Tests |
+| R7 | minor | `inspect_prim`'s black warning still said "enable camera light"; `test_project/scenarios.md` still described isolate as hiding the other `/World` children | Fixed (`84ff38c`): the same advice as R6, plus what isolate hid when it was on; scenarios.md describes the new isolate. Tests |
+| R8 | minor | `Hidden.hide()` authors a default, which a prim's time-sampled session-layer visibility outranks | Fixed (`9471460`): such prims are skipped and named in `isolate_warnings`; their samples are untouched. Test on usd-core |
+| R9 | improvement | `look_at` keeps the old 2.5x size guess for its distance, and repeats the orbit maths `inspect_prim` has | Later: a follow-up issue (fit `look_at` with `core/framing.py`, share the orbit position code) |
+| R10 | minor | The handler refused a requested size of 20 px or less while the capture and the fit use the viewport's resolution; identical "set" / "set_camera_light" output branches in the tool | Fixed (`d72907b`): the pre-check goes and `fit_distance`'s error on the resolved size is the handler's error (zoom_offset <= -1 still refused), checked with Kit mocked; the branches are one. Test for the output |
+
+Still to run against Kit: R4's handler on a rig, and R5 on an instanced asset, with the sim suite.

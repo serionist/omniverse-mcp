@@ -26,7 +26,8 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 - **`inspect_prim` frames the prim for you.** The camera stands where the prim's bounding sphere fills the captured
   frame with a small margin; `zoom_offset` moves it closer (`-0.3`) or further (`0.5`). `isolate=True` hides everything
-  but the prim while it captures, keeps the scene's lights on, and puts every prim's visibility back exactly as it was.
+  but the prim while it captures, keeps the scene's lights on, and puts every prim's visibility back exactly as it was;
+  what it cannot hide (inside an instance, or with time-sampled visibility) it names in `isolate_warnings`.
 - **`viewport_light(action="set", mode=...)` switches the lighting mode:** `"off"`, `"camera"`, `"stage"`, or a light
   rig such as `"Default"`, the quickest fix for black captures. It returns an error when the mode did not change, for
   example a light rig in a Kit app without the viewport's lighting menu.
