@@ -57,7 +57,7 @@ Taken by @serionist on 2026-10-28 unless the row says otherwise.
 | D5 | Security first | S1 lands before anything else, on today's names, so a clone of `main` is safe as early as possible. |
 | D6 | MCP SDK v2, pinned exactly | `mcp==2.3.0`, as docket. Majors move by hand; Dependabot ignores them. |
 | D7 | One version | SemVer. One literal version in `pyproject.toml`, `extension.toml`, `plugin.json` and the plugin's uvx pin; the gate fails when they differ, the release fails when the tag differs. First release `0.2.0`. In `0.x` a minor may break the tool contract, under CHANGELOG's Breaking. (Recommended.) |
-| D8 | Python 3.11 and up for the server | 3.10 reaches end of life this month; `usd-core` needs 3.11. Development on 3.12. CI on 3.11-3.14. The extension runs on its Kit app's Python, which is 3.10 on Kit 105 and 106: its floor is Q1. (Recommended; amended by plan review round 1.) |
+| D8 | Python 3.11 and up; Kit 107 and up | 3.10 reaches end of life this month; `usd-core` needs 3.11. The extension supports Kit 107+ apps (Isaac Sim 5.x), which embed 3.11; Kit 105 and 106 apps are not supported (Q1, 2026-10-28). Development on 3.12. CI on 3.11-3.14, plus macOS (Q4). |
 | D9 | The extension ships in the wheel | `omniverse-mcp extension install` copies it to one per-user folder that Kit's search path points at once. Server and extension then come from the same release. (Recommended.) |
 | D10 | A Kit-free extension core | HTTP, auth, formatting, geometry maths and the PNG writer move to a core that imports no `omni`, `carb` or `isaacsim`, enforced by import-linter and tested on `usd-core` in CI. (Recommended.) |
 | D11 | Live-sim tests stay off hosted CI | `sim` and `scenario` markers; skipped unless `OMNIVERSE_MCP_SIM=1`, and failing instead of skipping when it is set and Kit is not reachable. A PR that touches the extension says whether they ran. (Recommended.) |
@@ -108,8 +108,12 @@ can call `/execute` and run Python inside Kit.
 - **Kit-free:** parsing, auth and routing move to `bridge/core/http.py`, tested with plain asyncio in CI. Until S2
   the core sits under the Kit module, whose `__init__` imports the extension only when `omni` is there.
 - **Refusals close the connection** before the body is read, so a refused body is never parsed as the next request.
-- **The extension stays on Python 3.10** (Kit 105 and 106 apps): its version comes from the `ext_id` Kit hands
-  `on_startup`, not from `tomllib`.
+- **The extension's version** comes from the `ext_id` Kit hands `on_startup`, so it holds wherever the extension's
+  folder sits.
+- **Handshake:** every new connection starts with `GET /bridge`, answered by the core whatever Kit's state; a stale
+  token is refused there, on a request without a body (S1 review round 1).
+- **Idle connections** close after 5 minutes, slow headers after 10 seconds; only authenticated requests hold one of
+  the 20 handler slots.
 
 Not chosen:
 
@@ -123,8 +127,8 @@ Not chosen:
 
 - `/health` returns `extension_version` and `protocol`. `protocol` is an integer constant on each side; a test keeps
   them equal. It changes only when a request or response changes shape.
-- The server checks once per connection (S1). An extension that reports no `protocol`, or another one, is refused
-  with a message that says which side to update. A different `extension_version` alone is not refused (Q2). From S8
+- The server checks once per connection, with `GET /bridge` (S1). An extension without `/bridge`, or with another
+  `protocol`, is refused with a message that says which side to update. A different `extension_version` alone is not refused (Q2). From S8
   the message gives the command that works for the user's install: `uvx omniverse-mcp==X.Y.Z extension install`.
 - Literal versions, not versions from tags as in WriteableFileProviders: `plugin.json` must hold one, and Claude Code
   moves users to a new plugin version only when it changes. The release PR bumps all four.
@@ -188,7 +192,6 @@ Not chosen:
   - `ruff format` is enforced.
   - The one reformat is its own PR, so its squash commit is the reformat alone; a follow-up PR lists that commit's
     `main` SHA in `.git-blame-ignore-revs`. What S3 cannot fix by machine goes into per-file ignores that only shrink.
-  - The extension keeps `target-version = "py310"` per path, for Kit 105 and 106 apps (Q1).
 - **pyright:** `standard` from S3; `strict` on `src/omniverse_mcp` from S7, which rewrites the server anyway, and on the
   extension core from S6. The Kit-bound modules are excluded: there are no stubs for `omni` and `carb`.
 - **Gate:** `tools/gate.py`, standard library only, run as `uv run tools/gate.py quick|full`.
@@ -250,7 +253,8 @@ Traps, from this repo's own history:
 - **`ci.yml`** on PRs and `main`:
   - checks: gate quick on Linux, with gitleaks installed against its sha256, and Claude Code pinned for
     `plugin validate`;
-  - tests: Linux on 3.11, 3.12, 3.13 and 3.14, Windows on 3.11 and 3.14; coverage and the floor on one leg.
+  - tests: Linux on 3.11, 3.12, 3.13 and 3.14, Windows on 3.11 and 3.14, macOS on 3.14 (Q4: the server can drive a
+    remote Kit from a Mac); coverage and the floor on one leg.
 - **`pr-text.yml`:** checks the PR title and body for attribution on every edit, since the squash commit is built from
   them (D1); the repo's squash message is set to the PR title and description.
 - **`codeql.yml`:** `python` and `actions`, `security-extended`, on PRs, `main` and weekly.
@@ -264,14 +268,16 @@ Traps, from this repo's own history:
      - the wheel holds the extension.
   2. **ci:** a green `ci.yml` run on the tagged commit.
   3. **publish:** the `pypi` environment (a required reviewer), trusted publishing with `pypa/gh-action-pypi-publish`,
-     which also attests. An `-rc.N` tag goes to TestPyPI instead, and is exempt from the CHANGELOG and plugin-pin
-     checks. The rc is tried with `uvx --from <the downloaded wheel>`, never with TestPyPI as an index, which would let
-     a name like `mcp` resolve there.
+     which also attests.
   4. **github-release:**
      - notes are the CHANGELOG section;
-     - the wheel, the sdist and a zip of the extension are attached;
-     - `-rc.N` marks it a prerelease.
-- **`docs/releasing.md`:** date the CHANGELOG and bump the four versions in one PR; tag; approve the deployment.
+     - the wheel, the sdist and a zip of the extension are attached.
+- **No release candidates on an index.** The release PR's CI uploads its wheel; before merge it is tried with
+  `uvx --from <that wheel>` and the sim suite. TestPyPI is never added as an index, which would let a name like `mcp`
+  resolve there.
+- **`docs/releasing.md`:** date the CHANGELOG and bump the four versions in one PR; try its wheel; merge; tag at once;
+  approve the deployment. The marketplace serves `main` (Q3), so the time between merge and publish is the time
+  plugin users can get a pin PyPI does not have yet (R10).
 
 ### Distribution (S8)
 
@@ -343,7 +349,7 @@ Each step is one PR, buildable and testable on its own.
 | S6 | Markers, the Kit-free core in `ovmcp/core`, the import-linter contract, `usd-core` tests, the coverage floor in CI and the gate | Core tests run in CI; the floor is set |
 | S7 | SDK v2, annotations, `ToolError`, the request lock, the golden file (tools and resources), docs drift tests, no work at import, pyright strict on the server | The golden test; one in-memory client test per tool against the mock bridge; two calls at once stay serial |
 | S8 | The plugin, skills, `extension install`, the README rewrite | `claude plugin validate --strict` in CI; `extension install` into a temp folder; the setup skill on a clean machine, by hand |
-| S9 | `release.yml`, `docs/releasing.md`, `v0.2.0-rc.1` to TestPyPI, then `v0.2.0` | The rc installs with `uvx` from TestPyPI and passes the sim suite |
+| S9 | `release.yml`, `docs/releasing.md`, then the `0.2.0` release PR and tag | The release PR's wheel runs with `uvx --from` and passes the sim suite; `uvx omniverse-mcp==0.2.0` works after publish |
 
 ## Tests
 
@@ -377,6 +383,7 @@ Each step is one PR, buildable and testable on its own.
 | R7 | `usd-core` is not the USD that Kit ships | Accepted; the core uses plain `pxr` APIs, and the sim suite runs before each release |
 | R8 | Remote Kit and shared machines need the token by hand | `OMNIVERSE_MCP_TOKEN` and the `token` setting; a non-loopback bind still warns |
 | R9 | Someone takes `omniverse-mcp` on PyPI first | Register a pending trusted publisher in S5 |
+| R10 | The marketplace serves `main`, so between a release PR's merge and its publish (or after a failed publish) the plugin pins a version PyPI does not have, and the server does not start | Accepted (Q3): tag right after merge; a failed publish is fixed forward or the bump reverted at once |
 
 ## Plan review
 
@@ -392,8 +399,8 @@ Each step is one PR, buildable and testable on its own.
 | P1 | major | The core under `ovmcp/bridge/` cannot be imported without running the Kit module's `__init__` | Fixed: `ovmcp/core/` from S2; an import guard until then (S1) |
 | P2 | major | A Host check against the bound address refuses every remote request | Fixed: Host checked only on loopback binds (as built in S1) |
 | P3 | major | SDK v2 runs sync tools concurrently on threads sharing one socket; capture counters race | Fixed: S7's request lock and thread-safe counters; R3 resolved |
-| P4 | major | The marketplace serves `main`, whose uvx pin can name a version not on PyPI (release window, failed release, rc) | Owner call Q3 |
-| P5 | minor | Kit 105/106 apps run Python 3.10; `tomllib` in the core would break the extension there | Fixed in S1 (version from `ext_id`); the declared floor is owner call Q1 |
+| P4 | major | The marketplace serves `main`, whose uvx pin can name a version not on PyPI (release window, failed release, rc) | Q3: serve `main`, accepted as R10; no rc tags |
+| P5 | minor | Kit 105/106 apps run Python 3.10; `tomllib` in the core would break the extension there | Q1: Kit 107+ only; the version comes from `ext_id` anyway |
 | P6 | minor | The handshake could refuse on version or on protocol; the message's command fails for plugin users | Fixed: refuse on protocol (Q2), S8's message gives the uvx command |
 | P7 | minor | Proofs that depend on later steps: S3 on the gate, the gate on S8's files, CI on S6's floor, versions unequal from the start | Fixed: each check lands with its files; versions agree from S2 |
 | P8 | minor | Live tests turn a 401 into a skip, so S1's proof passes with every test skipped | Fixed in S1: `OMNIVERSE_MCP_SIM=1` makes them fail |
@@ -408,10 +415,10 @@ Owner calls:
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 | Which Kit apps does the extension support? | Kit 105.1 and up (Python 3.10), enforced by ruff's per-path target | Pending |
-| Q2 | Refuse on a protocol mismatch only, or on any version difference? | Protocol only; warn on versions | Pending |
-| Q3 | How does the marketplace pin the plugin to a released version? | A `git-subdir` source pinned to the release tag, moved in a PR after PyPI has it | Pending |
-| Q4 | macOS for the server? | One macOS unit-test leg, or say it is unsupported | Pending |
+| Q1 | Which Kit apps does the extension support? | Kit 105.1 and up (Python 3.10), enforced by ruff's per-path target | Kit 107+ / Isaac Sim 5.x (2026-10-28) |
+| Q2 | Refuse on a protocol mismatch only, or on any version difference? | Protocol only; warn on versions | Protocol only (2026-10-28) |
+| Q3 | How does the marketplace pin the plugin to a released version? | A `git-subdir` source pinned to the release tag, moved in a PR after PyPI has it | Serve `main` (2026-10-28); R10 |
+| Q4 | macOS for the server? | One macOS unit-test leg, or say it is unsupported | A macOS test leg (2026-10-28) |
 
 Improvements taken:
 - the extension's version from `ext_id`;
@@ -430,6 +437,7 @@ Improvements taken:
 | 2026-10-28 | S0 | The March work reviewed: needs-fixes, 6 majors and 4 minors ([record](../reviews/2026-10-28-wip-camera-lighting-code.md)); 3 rest on Kit behaviour and need a live Isaac Sim. |
 | 2026-10-28 | S0 | The maintainer approved the force push, the plan and keeping the March work (D13). `main` pushed with `--force-with-lease` (`b3cd7c5` → `ceb6dd9`); no attribution left on the remote. Issue #2 opened. S0 done. |
 | 2026-10-28 | S1 | Built on `2-s1-bridge-token`: the core server with the token, Origin and Host checks; the client's token lookup, re-read and protocol check; live tests that fail under `OMNIVERSE_MCP_SIM=1`. 99 unit tests pass; the extension's wiring checked with Kit mocked. Plan review round 1 applied (above). Not yet run against a live Kit. |
+| 2026-10-28 | S1 | Draft PR #3. The maintainer answered Q1-Q4. review-code round 1 ([record](../reviews/2026-10-28-s1-bridge-token-code.md)): needs-fixes, 3 majors and 6 minors, all fixed; the protocol check became a `GET /bridge` handshake on every new connection. 107 unit tests pass; a second Kit on the same port checked with Kit mocked. |
 
 ## For the maintainers
 
@@ -440,7 +448,7 @@ Improvements taken:
     `Work` account).
 - **S5, PyPI:** a pending trusted publisher for `omniverse-mcp` (this repo, `release.yml`, environment `pypi`).
 - **S5, GitHub environments and rulesets:**
-  - the `pypi` and `testpypi` environments, with you as required reviewer;
+  - the `pypi` environment, with you as required reviewer;
   - a ruleset on `main`: PRs only, with the required checks;
   - a ruleset on `v*` tags;
   - squash merges only, with the commit message set to the PR title and description.
