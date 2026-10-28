@@ -64,6 +64,7 @@ Taken by @serionist on 2026-10-28 unless the row says otherwise.
 | D12 | Ratchets | The coverage floor only rises; ruff's per-file ignores only shrink. (Recommended.) |
 | D13 | The March work | `wip/2026-03-08-camera-lighting` (inspect_prim auto-fit and isolate, viewport_light modes). Kept and fixed: it lands as S1b, right after S1, with the fixes of its [review](../reviews/2026-10-28-wip-camera-lighting-code.md). |
 | D14 | How the work lands | One issue for this plan, one PR per step, squash-merged by the maintainer. (Recommended.) |
+| D15 | basedpyright with a baseline | pyright has no baseline, and 277 of its errors at `standard` sit in code S7 rewrites. basedpyright is pyright with a baseline file: today's errors live in `.basedpyright/baseline.json`, may only shrink, and new code is checked in full, the same ratchet as ruff's (D12). `types-usd` gives `pxr` its types. Taken in S3b, 2026-10-28, under the maintainer's go-ahead for the plan's steps. |
 
 ## Design
 
@@ -446,6 +447,8 @@ Improvements taken:
 | 2026-10-28 | S1, S1b | PR #3 squash-merged as `937956a` and PR #4 as `1bbbcae`, both by the maintainer's word. The Isaac Sim 6.2 problems the live runs found are issues #5 (the G1 robot hangs Kit), #6 (Y-up gravity tests) and #7 (`draw_debug` needs `isaacsim.util.debug_draw`). The repo's description and 12 topics are set; Claude no longer shows among the contributors (the API lists serionist and tfoldi). |
 | 2026-10-28 | S2 | Rebased onto `main` after #4. Live on Isaac Sim 6.2: Kit loads `ovmcp.bridge-0.1.0` from the folder without a version suffix (R1 resolved), settings are read from `/exts/ovmcp.bridge/*`, the token file is written and removed, `/bridge` reports `0.1.0`, integration 27/27 (one cold first capture over the timeout on the first run, as in S1). The maintainer added S8b (presentation) and S10 (announce). |
 | 2026-10-28 | S3a | ruff 0.17.1 (the newest at least a week old) pinned in the dev group; the plan's rule set at line length 120 and Python 3.11, with a reason on every ignore. `ruff format` over the tree, then `ruff check --fix`: 94 fixed by the tool. The other 256 findings went into per-file ignores, 102 file-rule pairs in 30 files, as a baseline that only shrinks. `ruff check` and `ruff format --check` are clean; 209 tests pass. |
+| 2026-10-28 | S3a, fix | #9 (S3a) merged as `dde3738`. The live scenario suite then showed phase 22, from #4, inspecting a `/World/Franka` no test creates; #10 gives it its own prim (merged as `8a8f9a0`): 83 pass, the rest are #6 and #7. |
+| 2026-10-28 | S3b | basedpyright 1.40.2 at `standard` with a baseline of 277 errors (D15), `types-usd`; `.gitattributes` (LF everywhere; renormalizing changed nothing), `.editorconfig`, `.git-blame-ignore-revs` with #9's commit. |
 
 ## For the maintainers
 

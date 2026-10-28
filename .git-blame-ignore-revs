@@ -1,0 +1,5 @@
+# Commits that only reformat, which `git blame` skips. GitHub reads this file; locally:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# Format with ruff and hold the rest in a baseline that only shrinks (#9)
+dde37384ab1886e425fadcf2fb055b82c55a07e8
