@@ -71,4 +71,4 @@ Rules:
   added, a question or a lens removed, attribution let through, a permission widened.
 - A change that only makes a check stricter needs no more than a normal review.
 - The `Read` denies in `.claude/settings.json` don't cover Bash: an allowed command that can print any file (a
-  `git diff --no-index`, `git blame --contents`) gets around them. Keep Bash allows to narrow forms.
+  `git diff --no-index`, `git blame --contents` or `-S`) gets around them. Keep Bash allows to narrow forms.

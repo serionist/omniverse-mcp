@@ -1,7 +1,9 @@
-"""The harness's own rules: the gate's checks (tools/gate.py), the hooks behind .githooks/ (tools/hooks.py), and the
-skill links tools/setup.py writes into git's index."""
+"""The harness's own rules: the gate's checks (tools/gate.py), the hooks behind .githooks/ (tools/hooks.py), the skill
+links tools/setup.py writes into git's index, and what Claude Code's settings deny."""
 
+import fnmatch
 import io
+import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -186,6 +188,75 @@ def test_list_commits_includes_merges_and_lists_each_commit_once(tmp_path):
     assert problem is None
     assert [text.splitlines()[0] for _, text in commits] == ["Merge main", "Feature work"]
     assert gate.commit_problems(commits) == [f"{commits[0][0][:10]}: Generated with Claude Code"]
+
+
+def test_the_gate_refuses_a_tool_as_author_or_committer(tmp_path):
+    run = new_repo(tmp_path)
+    commit_file(run, tmp_path, "a.txt", "Base")
+    run("switch", "-q", "-c", "feature")
+    run("commit", "-q", "--allow-empty", "--author=Claude <noreply@anthropic.com>", "-m", "Plain message")
+    run("commit", "-q", "--allow-empty", "-m", "A person's commit")
+
+    scope = gate.Scope.of(["main..feature"], cwd=tmp_path)
+    result = gate.check_attribution(scope)
+
+    assert (result.status, result.detail) == ("FAIL", "tool attribution in 1 line(s)")
+    assert "a tool as its author: Claude <noreply@anthropic.com>" in result.output
+
+
+@pytest.mark.parametrize(
+    ("author", "committer", "expected"),
+    [
+        ("Ada Lovelace <ada@example.org>", "GitHub <noreply@github.com>", []),
+        (
+            "dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+            "GitHub <noreply@github.com>",
+            [],
+        ),
+        (
+            "Ada Lovelace <ada@example.org>",
+            "Claude <noreply@anthropic.com>",
+            ["a" * 10 + ": a tool as its committer: Claude <noreply@anthropic.com>"],
+        ),
+        (
+            "GitHub Copilot <copilot@example.org>",
+            "Ada Lovelace <ada@example.org>",
+            ["a" * 10 + ": a tool as its author: GitHub Copilot <copilot@example.org>"],
+        ),
+    ],
+)
+def test_identity_problems(author, committer, expected):
+    assert gate.identity_problems([("a" * 40, author, committer)]) == expected
+
+
+# gitleaks exits 0 when its own git log fails; the gate reads what it logged.
+GITLEAKS_ERR = (
+    "\x1b[90m5:25PM\x1b[0m \x1b[31mERR\x1b[0m [git] fatal: Could not read from remote repository.\n"
+    "\x1b[90m5:25PM\x1b[0m \x1b[32mINF\x1b[0m 0 commits scanned.\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("output", "listed", "expected"),
+    [
+        ("5:25PM INF 2 commits scanned.\n5:25PM INF no leaks found\n", 2, []),
+        ("5:25PM INF 1 commits scanned.\n", 1, []),
+        (
+            GITLEAKS_ERR,
+            2,
+            ["gitleaks could not read the commits: 5:25PM ERR [git] fatal: Could not read from remote repository."],
+        ),
+        (
+            "5:25PM INF 0 commits scanned.\n5:25PM INF no leaks found\n",
+            2,
+            ["gitleaks scanned no commit of the 2 listed"],
+        ),
+        ("5:25PM INF no leaks found\n", 3, ["gitleaks scanned no commit of the 3 listed"]),
+        ("5:25PM INF 0 commits scanned.\n", 0, []),
+    ],
+)
+def test_gitleaks_problems(output, listed, expected):
+    assert gate.gitleaks_problems(output, listed) == expected
 
 
 def test_list_commits_says_what_to_do_when_the_base_is_missing(tmp_path):
@@ -506,10 +577,14 @@ def test_setup_checks_out_a_link_that_is_only_staged(tmp_path):
 # The commit-msg hook
 
 
-def commit_msg(path: Path, text: str) -> int:
+PERSON = [("author", "Test <test@example.org>"), ("committer", "Test <test@example.org>")]
+SCISSORS_LINE = " ------------------------ >8 ------------------------"
+
+
+def commit_msg(path: Path, text: str, people: list[tuple[str, str]] = PERSON, char: str = "#") -> int:
     file = path / "COMMIT_EDITMSG"
     file.write_text(text, encoding="utf-8")
-    return hooks.commit_msg(str(file))
+    return hooks.commit_msg(str(file), people, (char,))
 
 
 @pytest.mark.parametrize("line", REFUSED)
@@ -545,9 +620,120 @@ def test_commit_msg_reads_comment_lines_but_not_the_diff_below_the_scissors(tmp_
         f"{diff}\n"
     )
     template = GIT_TEMPLATE.replace("\n#", f"\n{char}")
-    assert commit_msg(tmp_path, template + below) == 0
-    assert commit_msg(tmp_path, f"{template}{char} Generated with Claude Code\n{below}") == 1
-    assert hooks.message_text(template + below) == template.strip()
+    assert commit_msg(tmp_path, template + below, char=char) == 0
+    assert commit_msg(tmp_path, f"{template}{char} Generated with Claude Code\n{below}", char=char) == 1
+    assert hooks.message_text(template + below, (char,)) == template.strip()
+
+
+@pytest.mark.parametrize(("char", "line_char"), [("#", ";"), (";", "#"), ("#", "@")])
+def test_a_scissors_line_behind_another_character_hides_nothing(tmp_path, capsys, char, line_char):
+    # git cuts only at its own comment character; with `git commit -F` everything else is text it keeps.
+    text = f"Fix a thing\n\n{line_char}{SCISSORS_LINE}\nCo-Authored-By: Claude <noreply@anthropic.com>\n"
+    assert commit_msg(tmp_path, text, char=char) == 1
+    assert "Co-Authored-By: Claude" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        ([], ("#",)),
+        (["core.commentChar", ";"], (";",)),
+        (["core.commentString", "//"], ("//",)),
+        (["core.commentChar", "auto"], hooks.AUTO_COMMENT_CHARS),
+    ],
+)
+def test_comment_chars_come_from_git(tmp_path, config, expected):
+    run = new_repo(tmp_path)
+    if config:
+        run("config", *config)
+    assert hooks.comment_chars(cwd=tmp_path) == expected
+
+
+@pytest.mark.parametrize(
+    ("people", "role"),
+    [
+        ([("author", "Claude <noreply@anthropic.com>"), ("committer", "Test <test@example.org>")], "author"),
+        (
+            [
+                ("author", "Test <test@example.org>"),
+                ("committer", "claude[bot] <1+claude[bot]@users.noreply.github.com>"),
+            ],
+            "committer",
+        ),
+    ],
+)
+def test_commit_msg_refuses_a_tool_as_author_or_committer(tmp_path, capsys, people, role):
+    assert commit_msg(tmp_path, message("Refs #2"), people=people) == 1
+    err = capsys.readouterr().err.splitlines()
+    assert err[0].startswith(f"commit-msg: refused: a tool as the commit's {role}: ")
+    assert (
+        err[1]
+        == "commit-msg: give the commit a person as author and committer, and commit again (AGENTS.md, Commits and PRs)"
+    )
+
+
+def test_identities_come_from_git_with_the_author_a_commit_was_given(tmp_path, monkeypatch):
+    new_repo(tmp_path)
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "Claude")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "noreply@anthropic.com")
+    monkeypatch.setenv("GIT_COMMITTER_NAME", "Test")
+    monkeypatch.setenv("GIT_COMMITTER_EMAIL", "test@example.org")
+    assert hooks.identities(cwd=tmp_path) == [
+        ("author", "Claude <noreply@anthropic.com>"),
+        ("committer", "Test <test@example.org>"),
+    ]
+
+
+# Claude Code's settings. Its rules match a command as a glob; these check what they are meant to catch with
+# fnmatchcase, the nearest the standard library has.
+
+SETTINGS = json.loads((Path(__file__).resolve().parents[1] / ".claude" / "settings.json").read_text(encoding="utf-8"))
+
+
+def _bash_rules(kind: str) -> list[str]:
+    return [rule[5:-1] for rule in SETTINGS["permissions"][kind] if rule.startswith("Bash(")]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git commit -n -m Fix",
+        "git commit -m Fix -n",
+        "git commit --no-verify -m Fix",
+        "git commit --no-verif -m Fix",
+        "git commit --no-veri -m Fix",
+        "git push --no-verify origin main",
+        "git push origin main --no-ver",
+        "git blame -S secret.txt a.py",
+        "git blame -L 1,2 -S secret.txt a.py",
+        "git blame --ignore-revs-file secret.txt a.py",
+        "git blame --ignore-revs-file=secret.txt a.py",
+        "git blame --contents secret.txt a.py",
+    ],
+)
+def test_settings_deny_what_skips_the_hooks_or_prints_any_file(command):
+    # The hooks behind commit-msg and pre-push, and the Read denies, are what these would get around (#17).
+    assert any(fnmatch.fnmatchcase(command, rule) for rule in _bash_rules("deny")), command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git commit -m Fix",
+        "git commit --amend --no-edit",
+        "git push origin main",
+        "git push -n origin main",
+        "git blame -s a.py",
+    ],
+)
+def test_settings_let_ordinary_commands_through(command):
+    assert not any(fnmatch.fnmatchcase(command, rule) for rule in _bash_rules("deny")), command
+
+
+def test_git_blame_asks_first():
+    # It reads files git doesn't track through -S and --ignore-revs-file, and short options can be run together
+    # (-wS), which no glob catches: so it is never allowed without asking.
+    assert not any(fnmatch.fnmatchcase("git blame a.py", rule) for rule in _bash_rules("allow"))
 
 
 # The pre-push hook

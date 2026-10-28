@@ -3,7 +3,7 @@
 Usage (from a shim): uv run --no-sync tools/hooks.py commit-msg|pre-push|post-checkout|post-merge [git's arguments]
 
 - commit-msg refuses a message with tool attribution: a co-author that is a tool, a "Generated with" line, a tool's
-  session trailer or link (AGENTS.md, Commits and PRs).
+  session trailer or link; and a tool as the commit's author or committer (AGENTS.md, Commits and PRs).
 - pre-push runs the gate's quick lane on what the push sends: the commits' checks on each pushed range, and the
   working tree's checks only when the push sends HEAD and the tree has nothing else in it.
 - post-checkout and post-merge name the AI setup files that changed, so an agent re-reads them. They only inform:
@@ -21,9 +21,14 @@ from pathlib import Path, PurePosixPath
 
 import gate
 
-# The line above the diff `git commit -v` adds, behind whatever comment character is set; git drops it and all
-# below it. Everything above, comment lines included, is the message: with -m git keeps comment lines.
-SCISSORS = re.compile(r"^\S+ -{24} >8 -{24}\s*$")
+# The line above the diff `git commit -v` adds; git drops it and all below it, but only behind its own comment
+# character. Everything above, comment lines included, is the message: with -m git keeps comment lines, and with -F a
+# scissors line behind any other character is text it keeps, a trailer below it included.
+SCISSORS = " ------------------------ >8 ------------------------"
+# What git picks from when core.commentChar is "auto": the first that starts no line of the message.
+AUTO_COMMENT_CHARS = ("#", ";", "@", "!", "$", "%", "^", "&", "|", ":")
+# `git var GIT_AUTHOR_IDENT` ends with the time and the zone: `Name <email> 1793204818 +0100`.
+IDENT_TIME = re.compile(r"\s+\d+\s+[+-]\d{4}\s*$")
 ZERO_SHA = re.compile(r"^0+$")
 # What an agent reads as its rules when a session starts (REVIEW.md, The harness).
 AGENT_SETUP_PREFIXES = (".claude/", ".agents/")
@@ -35,21 +40,49 @@ def say(hook: str, text: str) -> None:
     print(f"{hook}: {text}", file=sys.stderr)
 
 
-def message_text(raw: str) -> str:
-    """The message git may record: everything above the scissors line, comment lines included."""
+def message_text(raw: str, comment_chars: tuple[str, ...] = ("#",)) -> str:
+    """The message git may record: everything above a scissors line behind one of git's comment characters, comment
+    lines included."""
+    cuts = {f"{char}{SCISSORS}" for char in comment_chars}
     kept = []
     for line in raw.splitlines():
-        if SCISSORS.match(line):
+        if line.rstrip() in cuts:
             break
         kept.append(line)
     return "\n".join(kept).strip()
 
 
-def commit_msg(path: str) -> int:
-    """Refuse a message with tool attribution; 1 refuses the commit."""
-    text = message_text(Path(path).read_text(encoding="utf-8", errors="replace"))
+def comment_chars(cwd: Path = gate.ROOT) -> tuple[str, ...]:
+    """git's comment character here: core.commentString, else core.commentChar, else #; any it may pick for "auto"."""
+    for key in ("core.commentString", "core.commentChar"):
+        value = gate.git("config", "--get", key, cwd=cwd).stdout.strip()
+        if value:
+            return AUTO_COMMENT_CHARS if value == "auto" else (value,)
+    return ("#",)
+
+
+def identities(cwd: Path = gate.ROOT) -> list[tuple[str, str]]:
+    """(role, `Name <email>`) of the commit being made: git hands hooks `--author` through GIT_AUTHOR_*. One git can't
+    work out (no user.name, as in CI) is left out; git refuses that commit itself."""
+    found = []
+    for role, var in (("author", "GIT_AUTHOR_IDENT"), ("committer", "GIT_COMMITTER_IDENT")):
+        done = gate.git("var", var, cwd=cwd)
+        if done.returncode == 0 and done.stdout.strip():
+            found.append((role, IDENT_TIME.sub("", done.stdout.strip())))
+    return found
+
+
+def commit_msg(path: str, people: list[tuple[str, str]] | None = None, chars: tuple[str, ...] | None = None) -> int:
+    """Refuse a message with tool attribution, or a tool as the commit's author or committer; 1 refuses the commit.
+    people and chars stand in for identities() and comment_chars(), which ask git."""
+    raw = Path(path).read_text(encoding="utf-8", errors="replace")
+    text = message_text(raw, comment_chars() if chars is None else chars)
+    people = identities() if people is None else people
+    tools = [f"a tool as the commit's {role}: {who}" for role, who in people if gate.tool_co_author(who)]
     hint = "take those lines out and commit again (AGENTS.md, Commits and PRs)"
-    return gate.report_attribution(text, "commit-msg", hint)
+    if tools:
+        hint = "give the commit a person as author and committer, and commit again (AGENTS.md, Commits and PRs)"
+    return gate.report_attribution(text, "commit-msg", hint, tools)
 
 
 def push_ranges(lines: list[str], base: str, known: Callable[[str], bool]) -> list[tuple[str, str]]:
