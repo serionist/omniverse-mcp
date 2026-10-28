@@ -31,10 +31,7 @@ def prims_to_hide(stage: Usd.Stage, target_path: str) -> tuple[list[Sdf.Path], l
     target = Sdf.Path(target_path)
     if target == Sdf.Path.absoluteRootPath:
         return [], []
-    holds_light: set[Sdf.Path] = set()
-    for prim in Usd.PrimRange.Stage(stage, Usd.TraverseInstanceProxies()):
-        if is_light(prim):
-            holds_light.update(prim.GetPath().GetPrefixes())
+    holds_light = _paths_holding_lights(stage)
 
     found: list[Sdf.Path] = []
     warnings: list[str] = []
@@ -60,6 +57,31 @@ def prims_to_hide(stage: Usd.Stage, target_path: str) -> tuple[list[Sdf.Path], l
     for child in stage.GetPseudoRoot().GetChildren():
         take(child)
     return found, warnings
+
+
+def _paths_holding_lights(stage: Usd.Stage) -> set[Sdf.Path]:
+    """Every prim path that is a light or has one below it; an instance counts when its prototype holds one.
+
+    Instance proxies are never visited, and each prototype is walked once however many instances share it.
+    """
+    lit_prototypes: dict[Sdf.Path, bool] = {}
+
+    def lit(prim: Usd.Prim) -> bool:
+        if is_light(prim):
+            return True
+        if not prim.IsInstance():
+            return False
+        prototype = prim.GetPrototype()
+        key = prototype.GetPath()
+        if key not in lit_prototypes:
+            lit_prototypes[key] = any(lit(p) for p in Usd.PrimRange(prototype))
+        return lit_prototypes[key]
+
+    holds: set[Sdf.Path] = set()
+    for prim in stage.Traverse():
+        if lit(prim):
+            holds.update(prim.GetPath().GetPrefixes())
+    return holds
 
 
 class Hidden:

@@ -163,3 +163,28 @@ def test_time_sampled_session_visibility_is_left_alone_with_a_warning(stage):
 
     hidden.restore()
     assert layer.ExportToString() == before
+
+
+def test_many_instances_of_one_lit_prototype_walk_it_once(instanced, monkeypatch):
+    from isaacsim.mcp.bridge.core import isolation
+
+    for i in range(30):
+        lamp = UsdGeom.Xform.Define(instanced, f"/World/Lamps/Lamp{i:02d}").GetPrim()
+        lamp.GetReferences().AddInternalReference("/Prototypes/Lamp")
+        lamp.SetInstanceable(True)
+    checked = []
+    real = isolation.is_light
+
+    def counting(prim):
+        checked.append(prim)
+        return real(prim)
+
+    monkeypatch.setattr(isolation, "is_light", counting)
+    paths, warnings = isolation.prims_to_hide(instanced, "/World/Robot/Arm")
+
+    assert not [p for p in checked if p.IsInstanceProxy()]
+    in_prototype = [str(p.GetPath()) for p in checked if p.IsInPrototype()]
+    assert len(in_prototype) == len(set(in_prototype))
+    lamp_warnings = [w for w in warnings if "is an instance that holds a light" in w]
+    assert len(lamp_warnings) == 31  # /World/Lamp and the 30 in /World/Lamps
+    assert not [p for p in _strs(paths) if p.startswith("/World/Lamp")]
