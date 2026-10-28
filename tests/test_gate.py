@@ -607,10 +607,10 @@ PERSON = [("author", "Test <test@example.org>"), ("committer", "Test <test@examp
 SCISSORS_LINE = " ------------------------ >8 ------------------------"
 
 
-def commit_msg(path: Path, text: str, people: list[tuple[str, str]] = PERSON, char: str = "#") -> int:
+def commit_msg(path: Path, text: str, people: list[tuple[str, str]] = PERSON) -> int:
     file = path / "COMMIT_EDITMSG"
     file.write_text(text, encoding="utf-8")
-    return hooks.commit_msg(str(file), people, (char,))
+    return hooks.commit_msg(str(file), people)
 
 
 @pytest.mark.parametrize("line", REFUSED)
@@ -646,54 +646,39 @@ def test_commit_msg_reads_comment_lines_but_not_the_diff_below_the_scissors(tmp_
         f"{diff}\n"
     )
     template = GIT_TEMPLATE.replace("\n#", f"\n{char}")
-    assert commit_msg(tmp_path, template + below, char=char) == 0
-    assert commit_msg(tmp_path, f"{template}{char} Generated with Claude Code\n{below}", char=char) == 1
-    assert hooks.message_text(template + below, (char,)) == template.strip()
+    assert commit_msg(tmp_path, template + below) == 0
+    assert commit_msg(tmp_path, f"{template}{char} Generated with Claude Code\n{below}") == 1
+    # git's own notes below the line are read, and hold nothing; the diff isn't.
+    assert hooks.message_text(template + below) == "\n".join(
+        [
+            template.strip(),
+            f"{char} Do not modify or remove the line above.",
+            f"{char} Everything below it will be ignored.",
+        ]
+    )
 
 
-@pytest.mark.parametrize(("char", "line_char"), [("#", ";"), (";", "#"), ("#", "@")])
-def test_a_scissors_line_behind_another_character_hides_nothing(tmp_path, capsys, char, line_char):
-    # git cuts only at its own comment character; with `git commit -F` everything else is text it keeps.
-    text = f"Fix a thing\n\n{line_char}{SCISSORS_LINE}\nCo-Authored-By: Claude <noreply@anthropic.com>\n"
-    assert commit_msg(tmp_path, text, char=char) == 1
+@pytest.mark.parametrize("char", ["#", ";", "@"])
+def test_a_trailer_below_a_scissors_line_is_read(tmp_path, capsys, char):
+    # Without -v, commit.verbose or --cleanup=scissors, git keeps a scissors line and all below it, behind its own
+    # comment character too (git commit -F, -m, -e); the hook can't tell, so it reads every line no diff holds.
+    text = f"Fix a thing\n\n{char}{SCISSORS_LINE}\nCo-Authored-By: Claude <noreply@anthropic.com>\n"
+    assert commit_msg(tmp_path, text) == 1
     assert "Co-Authored-By: Claude" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize(
-    ("config", "expected"),
-    [
-        ([], ("#",)),
-        ([("core.commentChar", ";")], (";",)),
-        ([("core.commentString", "//")], ("//",)),
-        ([("core.commentChar", "auto")], hooks.AUTO_COMMENT_CHARS),
-        ([("core.commentChar", "AUTO")], hooks.AUTO_COMMENT_CHARS),
-        # One setting under two names: the last git reads wins.
-        ([("core.commentString", "//"), ("core.commentChar", ";")], (";",)),
-    ],
-)
-def test_comment_chars_come_from_git(tmp_path, monkeypatch, config, expected):
-    # Only this repository's config: not the developer's ~/.gitconfig, nor the system's.
-    (tmp_path / "global").write_text("", encoding="utf-8")
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "global"))
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    run = new_repo(repo)
-    for key, value in config:
-        run("config", key, value)
-    assert hooks.comment_chars(cwd=repo) == expected
-
-
-def test_without_an_editor_a_scissors_line_hides_nothing(tmp_path, capsys, monkeypatch):
-    # git cuts at the scissors line only in a message it opened an editor for; with -m, -F or --no-edit it hands the
-    # hook GIT_EDITOR=: and keeps the line and all below it, behind its own comment character too.
-    monkeypatch.setenv("GIT_EDITOR", ":")
-    text = f"Fix a thing\n\n#{SCISSORS_LINE}\nCo-Authored-By: Claude <noreply@anthropic.com>\n"
-    file = tmp_path / "COMMIT_EDITMSG"
-    file.write_text(text, encoding="utf-8")
-    assert hooks.editor_ran() is False
-    assert hooks.commit_msg(str(file), PERSON) == 1
-    assert "Co-Authored-By: Claude" in capsys.readouterr().err
+def test_a_diff_below_a_scissors_line_is_not_read(tmp_path):
+    # What the cut is for: `git commit -v` on a change to this file's REFUSED list, whose diff git drops.
+    diff = "\n".join(
+        ["diff --git a/tests/test_gate.py b/tests/test_gate.py", "index 1111111..2222222 100644"]
+        + ["--- a/tests/test_gate.py", "+++ b/tests/test_gate.py", "@@ -1,3 +1,4 @@"]
+        + [f'+    "{line}",' for line in REFUSED]
+        + [f'-    "{line}",' for line in REFUSED]
+        + [f'     "{line}",' for line in REFUSED]
+        + ["\\ No newline at end of file"]
+    )
+    text = f"Fix a thing\n\nRefs #2\n#{SCISSORS_LINE}\n{diff}\n"
+    assert commit_msg(tmp_path, text) == 0
 
 
 @pytest.mark.parametrize(

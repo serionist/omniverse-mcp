@@ -11,7 +11,7 @@ Two kinds of check:
   checked;
 - the commits': no tool attribution in any message, and no tool as any commit's author or committer, and gitleaks,
   on base..head (merges included). gitleaks exits 0 when it could not read the commits, so a run that logged an
-  error, or scanned none of them, fails too.
+  error fails too.
 
 It prints a table of the checks and exits 1 when any failed; a warning or a skip never fails it. Without gitleaks the
 secret scan is skipped with a warning, unless GATE_REQUIRE_GITLEAKS=1 (as CI sets it), which makes that a failure.

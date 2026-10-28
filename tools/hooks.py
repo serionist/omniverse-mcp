@@ -14,7 +14,6 @@ Standard library only: in a new worktree the shims' `uv run --no-sync` environme
 
 from __future__ import annotations
 
-import os
 import re
 import sys
 from collections.abc import Callable
@@ -22,12 +21,16 @@ from pathlib import Path, PurePosixPath
 
 import gate
 
-# The line above the diff `git commit -v` adds. git drops it and all below it only in a message it opened an editor
-# for, and only behind its own comment character; with -m, -F or --no-edit it keeps that line and everything after
-# it, a trailer included. Everything above, comment lines included, is the message: with -m git keeps comment lines.
-SCISSORS = " ------------------------ >8 ------------------------"
-# What git picks from when core.commentChar is "auto": the first that starts no line of the message.
-AUTO_COMMENT_CHARS = ("#", ";", "@", "!", "$", "%", "^", "&", "|", ":")
+# The line above the diff `git commit -v` adds. git drops it and everything below it only for -v, commit.verbose or
+# --cleanup=scissors, and only behind its own comment character, none of which a hook can see; otherwise it keeps
+# them, a trailer included. So below a scissors line behind any character, every line a diff can't hold is read too.
+# Everything above, comment lines included, is the message: with -m git keeps comment lines.
+SCISSORS = re.compile(r"^\S+ -{24} >8 -{24}\s*$")
+# The lines of the diff below the scissors line: its headers, its hunks, and the lines of each hunk.
+DIFF_LINE = re.compile(
+    r"^(?:[-+ ]|@@|diff --git |index |(?:old|new|new file|deleted file) mode |(?:dis)?similarity index |"
+    r"(?:rename|copy) (?:from|to) |Binary files |\\ No newline)"
+)
 # `git var GIT_AUTHOR_IDENT` ends with the time and the zone: `Name <email> 1793204818 +0100`.
 IDENT_TIME = re.compile(r"\s+\d+\s+[+-]\d{4}\s*$")
 ZERO_SHA = re.compile(r"^0+$")
@@ -41,32 +44,16 @@ def say(hook: str, text: str) -> None:
     print(f"{hook}: {text}", file=sys.stderr)
 
 
-def message_text(raw: str, comment_chars: tuple[str, ...] = ("#",)) -> str:
-    """The message git may record: everything above a scissors line behind one of git's comment characters, comment
-    lines included."""
-    cuts = {f"{char}{SCISSORS}" for char in comment_chars}
-    kept = []
+def message_text(raw: str) -> str:
+    """The message as far as git may record it: every line above a scissors line, comment lines included, and below
+    it every line that a diff can't hold."""
+    kept, below = [], False
     for line in raw.splitlines():
-        if line.rstrip() in cuts:
-            break
-        kept.append(line)
+        if not below and SCISSORS.match(line):
+            below = True
+        elif not (below and DIFF_LINE.match(line)):
+            kept.append(line)
     return "\n".join(kept).strip()
-
-
-def comment_chars(cwd: Path = gate.ROOT) -> tuple[str, ...]:
-    """git's comment character here, # unless set; any it may pick for "auto". git reads core.commentChar and
-    core.commentString as one setting, and the last one it reads wins."""
-    done = gate.git("config", "--get-regexp", r"^core\.comment(char|string)$", cwd=cwd)
-    settings = done.stdout.strip().splitlines()
-    value = settings[-1].partition(" ")[2] if settings else ""
-    if not value:
-        return ("#",)
-    return AUTO_COMMENT_CHARS if value.lower() == "auto" else (value,)
-
-
-def editor_ran() -> bool:
-    """Whether git opened an editor for this message: it hands a hook GIT_EDITOR=: when it opened none."""
-    return os.environ.get("GIT_EDITOR") != ":"
 
 
 def identities(cwd: Path = gate.ROOT) -> list[tuple[str, str]]:
@@ -80,13 +67,10 @@ def identities(cwd: Path = gate.ROOT) -> list[tuple[str, str]]:
     return found
 
 
-def commit_msg(path: str, people: list[tuple[str, str]] | None = None, chars: tuple[str, ...] | None = None) -> int:
+def commit_msg(path: str, people: list[tuple[str, str]] | None = None) -> int:
     """Refuse a message with tool attribution, or a tool as the commit's author or committer; 1 refuses the commit.
-    people stands in for identities(), and chars for the comment characters git cuts behind: none without an editor."""
-    raw = Path(path).read_text(encoding="utf-8", errors="replace")
-    if chars is None:
-        chars = comment_chars() if editor_ran() else ()
-    text = message_text(raw, chars)
+    people stands in for identities(), which asks git."""
+    text = message_text(Path(path).read_text(encoding="utf-8", errors="replace"))
     people = identities() if people is None else people
     tools = [f"a tool as the commit's {role}: {who}" for role, who in people if gate.tool_co_author(who)]
     hint = "take those lines out and commit again (AGENTS.md, Commits and PRs)"
