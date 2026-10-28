@@ -75,11 +75,13 @@ _TOOL_EMAIL = re.compile(
     r"|\d+\+copilot@users\.noreply\.github\.com)$",
     re.IGNORECASE,
 )
-# A GitHub bot is a tool unless it is one of the bots GitHub names a co-author when a person pushes onto their PR. An
-# allowlist, matched exactly: a new AI bot is refused without anyone adding it here (S5 review, round 2, F10).
-_BOT_EMAIL = re.compile(r"^(?:\d+\+)?(?P<login>[^@\s\[\]]+)\[bot\]@users\.noreply\.github\.com$", re.IGNORECASE)
+# Any GitHub bot address is a tool, unless the trailer is one of the bots GitHub names a co-author when a person
+# pushes onto their PR, under that bot's own name. An allowlist matched exactly on name and address: a new AI bot, or
+# a tool's name with an allowed bot's address, is refused without anyone adding it here (S5 review, F10-F14).
+_BOT_EMAIL = re.compile(r"^(?:\d+\+)?(?P<login>[^@\s]*)\[bot\]@users\.noreply\.github\.com$", re.IGNORECASE)
 _NON_AI_BOTS = frozenset({"dependabot", "github-actions", "renovate"})
-# A bot's name in the trailer, `claude[bot]`: refused by the same allowlist whatever address it carries.
+_NON_AI_BOT_NAMES = frozenset(f"{login}[bot]" for login in _NON_AI_BOTS)
+# A bot's name with any other address, `claude[bot] <claude@example.org>`: refused by the same allowlist.
 _BOT_NAME = re.compile(r"^(?P<login>[^\s\[\]]+)\[bot\]$", re.IGNORECASE)
 # The line a PR's description names its issue with; a squash merge keeps it in the commit on main (AGENTS.md, Commits
 # and PRs). A bare one is the PR template's last line left unfilled.
@@ -166,10 +168,14 @@ def tool_co_author(who: str) -> bool:
     if not match:
         return False
     email = (match.group("email") or "").strip()
-    for bot in (_BOT_EMAIL.match(email), _BOT_NAME.match(match.group("name").strip())):
-        if bot and bot.group("login").lower() not in _NON_AI_BOTS:
-            return True
-    return bool(_TOOL_EMAIL.match(email)) or bool(_TOOL_NAME.match(match.group("name").strip()))
+    name = match.group("name").strip()
+    bot = _BOT_EMAIL.match(email)
+    if bot:
+        return not (bot.group("login").lower() in _NON_AI_BOTS and name.lower() in _NON_AI_BOT_NAMES)
+    named_bot = _BOT_NAME.match(name)
+    if named_bot and named_bot.group("login").lower() not in _NON_AI_BOTS:
+        return True
+    return bool(_TOOL_EMAIL.match(email)) or bool(_TOOL_NAME.match(name))
 
 
 def attribution_lines(message: str) -> list[str]:
