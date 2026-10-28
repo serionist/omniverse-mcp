@@ -1,6 +1,11 @@
-# The PR's title and description, checked for tool attribution whenever they change: a squash merge makes them the
-# commit on main (plan D1). The gate in ci.yml checks the branch's commits; this checks the text, in a workflow of its
-# own so that an edit re-runs only this. It runs again on every push too, so the PR's head commit always carries it.
+# The PR's title and description, checked whenever they change: a squash merge makes them the commit on main, so they
+# carry no tool attribution (plan D1) and name the issue. The gate in ci.yml checks the branch's commits; this checks
+# the text, in a workflow of its own so that an edit re-runs only this. It runs again on every push too, so the PR's
+# head commit always carries it.
+#
+# Dependabot's PRs are skipped: their descriptions quote other projects' release notes, which may say anything, and
+# their squash message keeps only the title and the bump line (AGENTS.md, Commits and PRs). A job skipped by its `if`
+# reports success, so the required check still passes.
 #
 # It runs on pull_request, never pull_request_target: a fork's PR gets a read-only token and no secrets, and this
 # workflow asks for none. The title and description are read from GitHub's event file, never put into the script by an
@@ -21,6 +26,7 @@ concurrency:
 jobs:
   text:
     name: PR text
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -32,7 +38,7 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: false
-      - name: No tool attribution in the title or the description
+      - name: No tool attribution, and the issue named
         run: |
           jq -r '.pull_request.title, (.pull_request.body // "")' "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/pr-text.txt"
           uv run --no-sync tools/gate.py text --file "$RUNNER_TEMP/pr-text.txt"

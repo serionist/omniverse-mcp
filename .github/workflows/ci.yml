@@ -1,8 +1,8 @@
 # The gate on every pull request and every push to main. Checks (Linux) runs the gate's quick lane (lock, lint, format,
 # types, the harness, no tool attribution in the commits, gitleaks over them); the tests run on Linux on Python 3.11 to
-# 3.14, on Windows on 3.11 and 3.14, and on macOS on 3.14 (plan D8). CI needs both and is the one check the ruleset on
-# main requires. The live suites need a Kit app and skip themselves here: hosted CI never runs Kit (plan D11), so a PR
-# that touches the extension, the client or a tool says whether they ran.
+# 3.14, on Windows on 3.11 and 3.14, and on macOS on 3.14 (plan D8). CI needs both; it and pr-text.yml's PR text are the
+# two checks the ruleset on main requires. The live suites need a Kit app and skip themselves here: hosted CI never runs
+# Kit (plan D11), so a PR that touches the extension, the client or a tool says whether they ran.
 name: CI
 
 on:
@@ -39,16 +39,21 @@ jobs:
             https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
           echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tgz" | sha256sum -c -
           sudo tar -xzf /tmp/gitleaks.tgz -C /usr/local/bin gitleaks
-      - name: Install
-        run: uv sync --locked
       # The commits checked start after the PR's base, or after the commit main was on before the push. A PR's checkout
-      # is the merge of its branch into the base, so that merge is checked too. GATE_REQUIRE_GITLEAKS makes a missing
-      # gitleaks a failure, not a warning.
+      # is the merge of its branch into the base, so that merge is checked too. A push's before is all zeros for a new
+      # branch, and a commit no longer in the history after a force push: then the pushed commit alone is checked, as
+      # tools/hooks.py falls back for a push, since a squash merge is one commit. --locked fails on a stale uv.lock
+      # before anything is installed. GATE_REQUIRE_GITLEAKS makes a missing gitleaks a failure, not a warning.
       - name: The gate's quick lane
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           GATE_REQUIRE_GITLEAKS: "1"
-        run: uv run tools/gate.py quick --base "$BASE"
+        run: |
+          if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "::notice::$BASE is not in the history; checking HEAD~1..HEAD"
+            BASE=HEAD~1
+          fi
+          uv run --locked tools/gate.py quick --base "$BASE"
 
   tests:
     name: Tests (${{ matrix.name }}, Python ${{ matrix.python }})
@@ -72,11 +77,10 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
-      # --python on both steps: .python-version says 3.12, and uv run without it would rebuild the environment on 3.12.
-      - name: Install
-        run: uv sync --locked --python ${{ matrix.python }}
+      # uv run makes the environment on the leg's Python, which overrides .python-version's 3.12, and fails on a stale
+      # uv.lock before anything is installed.
       - name: Tests
-        run: uv run --python ${{ matrix.python }} pytest
+        run: uv run --locked --python ${{ matrix.python }} pytest
 
   # The check the ruleset on main requires: the checks and every test leg passed. It runs when one of them failed too,
   # since a skipped job would count as passed.
