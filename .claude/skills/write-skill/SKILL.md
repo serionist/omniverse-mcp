@@ -49,21 +49,25 @@ hold, with these differences:
 
 - **`allowed-tools`** may join `name` and `description`, as a `>-` block naming only tools whose `readOnlyHint` is
   true in `tests/fixtures/mcp-tools.json`, as `mcp__plugin_omniverse-mcp_omniverse__<tool>`: a tool that edits the
-  stage, writes a file or runs code always asks the user. Never `execute_script`, never a shell command.
+  stage, saves or exports a file, or runs code always asks the user. Never `execute_script`, never a shell command.
 - **Links** are full GitHub URLs: Claude Code installs `plugin/` without the rest of the repo.
 - **A version** is written as the plugin pins it, `omniverse-mcp==<version>`; the gate holds every pin under
   `plugin/` equal to `pyproject.toml`'s, and a release bumps them together.
 - **No link and no AGENTS.md line:** list it as `/omniverse-mcp:<name>` in `plugin/README.md`'s table instead, and in
   `docs/AI_GUIDE.md`'s, which other clients read.
 
-Gate quick checks all of it, then runs `claude plugin validate --strict` on the plugin and the marketplace when
-Claude Code is installed.
+Gate quick checks each of these: the frontmatter and `allowed-tools`, every link, every version, both listings, and
+that `plugin/` holds no file it doesn't check (a command, an agent, a hook would each run something). Then it runs
+`claude plugin validate --strict` on the plugin and the marketplace when Claude Code is installed; that reads no
+skill's frontmatter.
 
 ## Done means
 
 - The skill fires on the requests in its description and on nothing unrelated.
 - Every path, tool and command it names exists.
-- `.agents/skills/<name>` links to it, `AGENTS.md` names it, and gate quick passes.
+- A repo skill: `.agents/skills/<name>` links to it and `AGENTS.md` names it. A plugin skill: `plugin/README.md`
+  and `docs/AI_GUIDE.md` list it.
+- Gate quick passes.
 
 ## Never
 

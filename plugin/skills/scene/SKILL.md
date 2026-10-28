@@ -45,8 +45,8 @@ while physics plays. Never edit blind: look, change, look again.
 
 Kit 105.1 and later have no default light, so a scene without lights captures black, and the capture says so.
 `viewport_light("get")` shows the lighting mode and whether the stage has lights; `viewport_light(action="set",
-mode="Default")` is the quickest fix, `mode="camera"` a light that follows the camera. Nothing relights the scene on
-its own.
+mode="Default")` is the quickest fix, `mode="camera"` a light that follows the camera. When neither suits, add a light
+to the stage with `create_prim` (`DistantLight`, `DomeLight`). Nothing relights the scene on its own.
 
 ## Traps
 
@@ -57,5 +57,5 @@ its own.
 | Segmentation missing or empty | it needs `omni.syntheticdata` (Isaac Sim has it), and the first capture after Kit starts can come back empty: capture again |
 | Materials look grey at first | MDL compiles on first use: capture again before deciding a material is broken |
 | `UsdGeom.Cube` and the like have no faces | implicit shapes, not meshes: `get_mesh_stats` counts only `UsdGeom.Mesh` |
-| An anonymous stage (`anon:...`) | no file is loaded: `save_scene` before relying on a path |
-| A scene with thousands of instances | loading can take minutes: check `get_sim_state` before working |
+| A new stage has no file | `save_scene` to a path before anything relies on one |
+| A scene with thousands of instances | loading can take minutes, and tools answer slowly meanwhile: ask the user whether it has finished |

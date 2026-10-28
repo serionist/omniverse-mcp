@@ -29,7 +29,8 @@ and checks the connection.
 | `/omniverse-mcp:script` | `execute_script`, with the API looked up first |
 
 Claude uses the skills on its own when a request fits them. Each pre-approves only tools that read (the
-`readOnlyHint` ones): every tool that edits the stage, writes a file or runs code still asks you.
+`readOnlyHint` ones), which write nothing but their own output under `mcp_output/`: every tool that edits the stage,
+saves or exports a file, or runs code still asks you.
 
 ## Settings
 

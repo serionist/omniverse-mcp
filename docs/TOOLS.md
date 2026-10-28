@@ -544,6 +544,9 @@ Get the current simulation state. No parameters.
 - `fps` -- Current frames per second
 - `prim_count` -- Total number of prims in the scene
 - `meters_per_unit` -- Stage scale factor
+- `extension_version`, `server_version` -- the Kit extension's release, from the bridge's handshake, and this server's
+- `note` -- only when the two differ: the command that installs the server's extension. The server refuses another
+  bridge protocol, not another release, so an update that keeps the protocol shows here
 
 **When to use:** Always call this first to understand the environment (especially up axis and whether physics is running).
 

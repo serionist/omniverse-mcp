@@ -78,6 +78,9 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   skills: `/omniverse-mcp:setup` installs the Kit extension and checks the connection; `scene`, `geometry`,
   `simulate` and `script` hold the workflows and traps `docs/AI_GUIDE.md` used to. A skill pre-approves read-only
   tools only. It works once 0.2.0 is on PyPI.
+- **`get_sim_state` reports the Kit extension's release beside the server's,** and when they differ, the command
+  that installs the server's extension. A different release on the same bridge protocol works, so nothing else would
+  show that Kit still runs the old extension after an update.
 - **`docs/AI_GUIDE.md` is short:** the context every client needs, and links to the skills for the workflows.
 - **`omniverse-mcp extension install`** copies the Kit extension of the server's own release to your user data
   folder, in place of an older one, and prints the folder Kit's extension search paths need; `omniverse-mcp extension

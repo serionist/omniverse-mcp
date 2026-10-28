@@ -66,11 +66,20 @@ PLUGIN_MCP = "plugin/.mcp.json"
 PLUGIN_SKILLS_DIR = "plugin/skills"
 PLUGIN_SKILL_KEYS = ("name", "description", "allowed-tools")
 PLUGIN_SERVER = "omniverse"
-PLUGIN_DIR_NAME = "omniverse-mcp"  # the plugin's and the marketplace's name
+PLUGIN_NAME = "omniverse-mcp"  # the plugin's and the marketplace's name
+# What plugin.json may hold. Each other key (mcpServers, hooks, commands, agents) gives the plugin a way to run
+# something the gate doesn't check, as would a file under plugin/ other than these.
+PLUGIN_KEYS = ("name", "version", "description", "author", "homepage", "repository", "license", "keywords")
+PLUGIN_FILES = (".claude-plugin/plugin.json", ".mcp.json", "README.md")
+AI_GUIDE = "docs/AI_GUIDE.md"
+SKILL_URL = "https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/{}/SKILL.md"
 TOOL_CONTRACT = "tests/fixtures/mcp-tools.json"
-# Every `omniverse-mcp==X.Y.Z` the plugin names: the server it starts, the extension its setup installs.
 _ALLOWED_ENTRY = re.compile(r"[^\s,(]+(?:\([^)]*\))?")
-_PIN = re.compile(r"omniverse-mcp==([0-9A-Za-z.+!-]*[0-9A-Za-z])")
+# Every version the plugin names: `omniverse-mcp==X.Y.Z` (the server it starts, the extension its setup installs) and
+# `ovmcp.bridge-X.Y.Z` (the extension Kit reports at startup). A placeholder such as <version> starts no digit.
+_PIN = re.compile(r"(?:omniverse-mcp==|ovmcp\.bridge-)([0-9](?:[0-9A-Za-z.+!-]*[0-9A-Za-z])?)")
+# A Markdown link's target: Claude Code installs plugin/ alone, so a relative one leads nowhere.
+_LINK = re.compile(r"\]\(([^)\s]+)")
 GITLEAKS_IGNORE = ".gitleaksignore"
 # The git log options every scan starts with. gitleaks reads `git log -p` as git prints it, and a developer's git
 # config can reshape that: colour codes leave it reading no commit, a short commit id or a missing path prefix loses
@@ -362,7 +371,7 @@ def plugin_skill_problems(folder: str, text: str, reads: set[str]) -> list[str]:
         allowed = frontmatter(text).get("allowed-tools", ("", True))[0]
     except ValueError:
         return problems
-    prefix = f"mcp__plugin_{PLUGIN_DIR_NAME}_{PLUGIN_SERVER}__"
+    prefix = f"mcp__plugin_{PLUGIN_NAME}_{PLUGIN_SERVER}__"
     # Entries are separated by spaces or commas; a rule such as Bash(uvx ... install) holds spaces of its own.
     for entry in _ALLOWED_ENTRY.findall(allowed):
         if not (entry.startswith(prefix) and entry.removeprefix(prefix) in reads):
@@ -387,10 +396,10 @@ def manifest_problems(plugin: dict[str, Any], market: dict[str, Any], servers: d
     """plugin.json names the plugin and its version; the marketplace lists it once, from ./plugin, as plugin.json
     describes it; .mcp.json starts one server, under the key tools are named by."""
     problems = [f"{PLUGIN_MANIFEST} needs {key}" for key in ("name", "version", "description") if not plugin.get(key)]
-    if plugin.get("name") != PLUGIN_DIR_NAME:
-        problems.append(f"{PLUGIN_MANIFEST}: the plugin is {PLUGIN_DIR_NAME!r}, a one-way door")
-    if market.get("name") != PLUGIN_DIR_NAME:
-        problems.append(f"{MARKETPLACE}: the marketplace is {PLUGIN_DIR_NAME!r}, as the README's install names it")
+    if plugin.get("name") != PLUGIN_NAME:
+        problems.append(f"{PLUGIN_MANIFEST}: the plugin is {PLUGIN_NAME!r}, a one-way door")
+    if market.get("name") != PLUGIN_NAME:
+        problems.append(f"{MARKETPLACE}: the marketplace is {PLUGIN_NAME!r}, as the README's install names it")
     entries = [e for e in market.get("plugins") or [] if isinstance(e, dict) and e.get("name") == plugin.get("name")]
     if len(entries) != 1:
         problems.append(f"{MARKETPLACE} must list the plugin {plugin.get('name')!r} once")
@@ -627,6 +636,25 @@ def plugin_versions(root: Path, plugin: dict[str, Any]) -> dict[str, str | None]
     return versions
 
 
+def plugin_file_problems(root: Path) -> list[str]:
+    """Only the files the gate checks are under plugin/, and no Markdown in it links to a relative path."""
+    problems: list[str] = []
+    base = root / PLUGIN_DIR
+    for path in sorted(p for p in base.rglob("*") if p.is_file()):
+        rel = path.relative_to(base).as_posix()
+        parts = rel.split("/")
+        if rel not in PLUGIN_FILES and not (len(parts) == 3 and parts[0] == "skills" and parts[2] == "SKILL.md"):
+            problems.append(f"{PLUGIN_DIR}/{rel}: a file the gate doesn't check; give it a check first (write-skill)")
+        if path.suffix == ".md":
+            for target in _LINK.findall(path.read_text(encoding="utf-8")):
+                if not target.startswith(("https://", "http://", "#")):
+                    problems.append(
+                        f"{PLUGIN_DIR}/{rel}: the link {target!r} is relative; Claude Code installs {PLUGIN_DIR}/ "
+                        "alone, so link the GitHub URL"
+                    )
+    return problems
+
+
 def check_plugin(_scope: Scope, root: Path = ROOT) -> Result:
     try:
         plugin = _json(root / PLUGIN_MANIFEST)
@@ -636,20 +664,26 @@ def check_plugin(_scope: Scope, root: Path = ROOT) -> Result:
     except (OSError, ValueError) as exc:
         return Result("plugin", "FAIL", f"a plugin manifest or the tool contract can't be read: {exc}")
     problems = manifest_problems(plugin, market, servers)
+    problems += [
+        f"{PLUGIN_MANIFEST}: the key {key!r} isn't checked by the gate" for key in plugin if key not in PLUGIN_KEYS
+    ]
+    problems += plugin_file_problems(root)
     versions = plugin_versions(root, plugin)
     if not any(where.startswith(PLUGIN_MCP) for where in versions):
         problems.append(f"{PLUGIN_MCP} must start the server of this release, omniverse-mcp==<version>")
     problems += version_problems(versions)
     reads = {name for name, tool in tools.items() if tool.get("annotations", {}).get("readOnlyHint")}
     skills = sorted((root / PLUGIN_SKILLS_DIR).glob("*/SKILL.md"))
-    readme = root / PLUGIN_DIR / "README.md"
+    readme, guide = root / PLUGIN_DIR / "README.md", root / AI_GUIDE
     listed = readme.read_text(encoding="utf-8") if readme.is_file() else ""
+    guided = guide.read_text(encoding="utf-8") if guide.is_file() else ""
     for path in skills:
-        problems += plugin_skill_problems(path.parent.name, path.read_text(encoding="utf-8"), reads)
-        if f"`/{PLUGIN_DIR_NAME}:{path.parent.name}`" not in listed:
-            problems.append(
-                f"{PLUGIN_DIR}/README.md does not list `/{PLUGIN_DIR_NAME}:{path.parent.name}` (write-skill)"
-            )
+        name = path.parent.name
+        problems += plugin_skill_problems(name, path.read_text(encoding="utf-8"), reads)
+        if f"`/{PLUGIN_NAME}:{name}`" not in listed:
+            problems.append(f"{PLUGIN_DIR}/README.md does not list `/{PLUGIN_NAME}:{name}` (write-skill)")
+        if SKILL_URL.format(name) not in guided:
+            problems.append(f"{AI_GUIDE} does not link the skill {name}, for clients without the plugin (write-skill)")
     if problems:
         return outcome("plugin", problems, "")
     detail = f"{len(skills)} skills, version {versions['pyproject.toml']}"

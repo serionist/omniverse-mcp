@@ -2,7 +2,12 @@
   "mcpServers": {
     "omniverse": {
       "command": "uvx",
-      "args": ["omniverse-mcp==0.1.0"]
+      "args": [
+        "omniverse-mcp==0.1.0"
+      ],
+      "env": {
+        "PYTHONPATH": ""
+      }
     }
   }
 }

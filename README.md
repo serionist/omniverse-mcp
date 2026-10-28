@@ -76,7 +76,8 @@ Add the server to your client's MCP configuration, such as a project's `.mcp.jso
 Install the extension of the same release and turn it on in Kit (below). `uvx` fetches the newest release the first
 time and keeps it until its cache is refreshed; `uvx omniverse-mcp@latest extension install` fetches the newest server
 and installs its extension. Copy [`docs/AI_GUIDE.md`](docs/AI_GUIDE.md) into
-your client's instruction file (`AGENTS.md`, `.cursorrules`): the workflows and the traps the tools can't tell it.
+your client's instruction file (`AGENTS.md`, `.cursorrules`): the context every session needs, with links to the
+skills that hold the workflows and traps; copy the ones your work needs too.
 
 ### The Kit extension
 
@@ -191,7 +192,7 @@ For a remote setup, set the extension's `token` to a long random value and give 
 
 **"The Kit extension is older than this MCP server", or "speaks bridge protocol"** -- The server and the extension come from different releases. Run the command the message names (or `git pull` in a clone), then restart Kit so it loads the new extension.
 
-**"Cannot connect"** -- Is the Kit app running, with the extension on? Its console shows `[ext: ovmcp.bridge-<version>] startup`. The server looks for it on port 8211 unless `OMNIVERSE_MCP_PORT` or `--port` says otherwise.
+**"Kit app connection failed"** -- Is the Kit app running, with the extension on? Its console shows `[ext: ovmcp.bridge-<version>] startup`. The server looks for it on port 8211 unless `OMNIVERSE_MCP_PORT` or `--port` says otherwise.
 
 **The plugin's server doesn't start** -- `/mcp` in Claude Code shows its error. Is `uv` on the PATH Claude Code starts with? Before 0.2.0 is on PyPI, use a clone (Install, From a clone).
 

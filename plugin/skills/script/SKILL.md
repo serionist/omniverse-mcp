@@ -18,8 +18,9 @@ using it, never guess.
 ## Steps
 
 1. **Prefer a tool.** A tool that does the job is checked, bounded and safer; script only what no tool covers.
-2. **Look the API up** with Context7, library `isaac-sim/isaacsim`, for the Isaac Sim version `get_sim_state` and
-   the logs report. Without Context7, NVIDIA's documentation for that version.
+2. **Look the API up** with Context7, library `isaac-sim/isaacsim`, for the app's version: ask the user, or in Isaac
+   Sim run `from isaacsim.core.version import get_version; result = get_version()`. Without Context7, NVIDIA's
+   documentation for that version.
 3. **Write the script.** Already imported: `omni`, `carb`, `Usd`, `UsdGeom`, `UsdLux`, `UsdPhysics`, `Sdf`, `Gf` and
    `mcp`. Set `result = <value>` to return data. `await mcp.<handler>(...)` calls the tools' handlers from the
    script, so one script can capture, measure and move:

@@ -627,9 +627,18 @@ def test_claude_validates_the_plugin_and_the_marketplace(monkeypatch):
     assert "✘ marketplace" in result.output
 
 
+def test_a_plugin_claude_validates_passes(monkeypatch):
+    monkeypatch.setattr(gate.shutil, "which", lambda name: "claude")
+    monkeypatch.setattr(gate, "run", lambda cmd, cwd=gate.ROOT, stdin=None: subprocess.CompletedProcess(cmd, 0, "", ""))
+    result = gate.check_plugin(gate.Scope([]))
+    assert result.status == "pass"
+    assert result.detail.endswith("validated by Claude Code")
+
+
 def _plugin_tree(tmp_path: Path) -> Path:
     """The files check_plugin reads, copied from the repo."""
-    for rel in ("pyproject.toml", "extension/ovmcp.bridge/config/extension.toml", gate.TOOL_CONTRACT, gate.MARKETPLACE):
+    files = ("pyproject.toml", "extension/ovmcp.bridge/config/extension.toml", gate.TOOL_CONTRACT, gate.MARKETPLACE)
+    for rel in (*files, gate.AI_GUIDE):
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / rel).write_bytes((gate.ROOT / rel).read_bytes())
     for path in (gate.ROOT / gate.PLUGIN_DIR).rglob("*"):
@@ -661,6 +670,41 @@ def test_a_plugin_server_without_its_pin_fails(tmp_path, monkeypatch):
     )
     result = gate.check_plugin(gate.Scope([]), root=root)
     assert "must start the server of this release" in result.output + result.detail
+
+
+@pytest.mark.parametrize(
+    ("rel", "old", "new", "expected"),
+    [
+        ("plugin/skills/setup/SKILL.md", "ovmcp.bridge-0.1.0", "ovmcp.bridge-9.9.9", "has version '9.9.9'"),
+        ("plugin/README.md", "`/omniverse-mcp:scene`", "`/omniverse-mcp:look`", "does not list `/omniverse-mcp:scene`"),
+        (gate.AI_GUIDE, "skills/geometry/SKILL.md", "skills/geo/SKILL.md", "does not link the skill geometry"),
+        (
+            "plugin/README.md",
+            "## Install",
+            "[x](../docs/TOOLS.md)\n## Install",
+            "the link '../docs/TOOLS.md' is relative",
+        ),
+        ("plugin/hooks/hooks.json", None, "{}", "plugin/hooks/hooks.json: a file the gate doesn't check"),
+        (gate.PLUGIN_MANIFEST, '"license"', '"mcpServers": {}, "license"', "the key 'mcpServers' isn't checked"),
+        (gate.MARKETPLACE, None, "{not json", "can't be read"),
+    ],
+    ids=["extension pin", "README", "AI guide", "relative link", "a hooks file", "a manifest key", "unreadable"],
+)
+def test_the_plugin_check_finds(rel, old, new, expected, tmp_path, monkeypatch):
+    root = _plugin_tree(tmp_path)
+    monkeypatch.setattr(gate.shutil, "which", lambda name: None)
+    assert gate.check_plugin(gate.Scope([]), root=root).status == "warn"
+    path = root / rel
+    if old is None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(new, encoding="utf-8")
+    else:
+        text = path.read_text(encoding="utf-8")
+        assert old in text
+        path.write_text(text.replace(old, new, 1), encoding="utf-8")
+    result = gate.check_plugin(gate.Scope([]), root=root)
+    assert result.status == "FAIL"
+    assert expected in result.output + result.detail
 
 
 # Skill links

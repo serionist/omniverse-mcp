@@ -41,4 +41,4 @@ before play, so pause to look at a moment in the middle.
 | `raycast` finds nothing | play first: it uses PhysX |
 | A stopped run loses the state you wanted | `pause`, not `stop`, to look at it |
 | Gravity along the wrong axis | the up axis from `get_sim_state`: a Y-up stage falls along -Y |
-| `draw_debug` fails on Isaac Sim 6.2 | its drawing extension moved (#7); mark points with small prims instead |
+| `draw_debug` fails on Isaac Sim 6.2 | its drawing extension moved ([#7](https://github.com/serionist/omniverse-mcp/issues/7)); mark points with small prims instead |

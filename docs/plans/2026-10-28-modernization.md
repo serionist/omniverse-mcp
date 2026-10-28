@@ -386,7 +386,7 @@ Each step is one PR, buildable and testable on its own.
 | R6 | Live-sim tests never run in CI | Accepted (D11); the PR template asks whether they ran |
 | R7 | `usd-core` is not the USD that Kit ships | Accepted; the core uses plain `pxr` APIs, and the sim suite runs before each release |
 | R8 | Remote Kit and shared machines need the token by hand | `OMNIVERSE_MCP_TOKEN` and the `token` setting; a non-loopback bind still warns |
-| R9 | Someone takes `omniverse-mcp` on PyPI first | Register a pending trusted publisher in S5 |
+| R9 | Someone takes `omniverse-mcp` on PyPI first | Open: a pending trusted publisher doesn't reserve the name (PyPI's docs: only its first use to publish does), so the name is free until the first upload. From S8 the marketplace on `main` starts `uvx omniverse-mcp==0.1.0`, a version never published: a squatter's 0.1.0 would run for anyone who installed the plugin before 0.2.0. Put to the maintainer in #29's review |
 | R10 | The marketplace serves `main`, so between a release PR's merge and its publish (or after a failed publish) the plugin pins a version PyPI does not have, and the server does not start | Accepted (Q3): tag right after merge; a failed publish is fixed forward or the bump reverted at once |
 
 ## Plan review
