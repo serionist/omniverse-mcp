@@ -103,3 +103,14 @@ Kit unless the row says otherwise.
 | R9 | improvement | isolate's light search walked every instance proxy, so N instances of one asset cost N walks of it | Fixed (`bbfc434`): no proxies; each prototype walked once and cached, nested instances included; same results. Test on usd-core with 30 instances of one lamp |
 
 Still to run against Kit: R1 with two overlapping requests, R4 on `/OmniverseKit_Top`, and R5's mode "off".
+
+### Live run of round 2's fixes
+
+On Isaac Sim 6.2.0, headless, at `5aed93e`.
+
+| Check | Result |
+|---|---|
+| `test_integration.py` with `OMNIVERSE_MCP_SIM=1` | 27/27 |
+| R1: two `inspect_prim(isolate=True)` calls on sibling prims, at once, from two connections, run twice | Both succeed with their own target in every capture; the second waits for the first (0.8 s of its own, 0.7 s queued); both prims visible afterwards. One earlier attempt, the session's first segmentation, missed the target in one capture; it did not happen again in four calls, alone or together. |
+| R4: `inspect_prim` with `/OmniverseKit_Top` active | Error: "The viewport camera /OmniverseKit_Top is orthographic, so its distance frames nothing. Switch the viewport to a perspective camera such as /OmniverseKit_Persp and inspect again." |
+| R5: `set` to off, stage, camera, then `get` | Each took; R5 stays as is. |
