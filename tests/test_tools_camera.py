@@ -106,3 +106,18 @@ def test_viewport_light_reports_the_resulting_mode(tmp_path, action):
     out = fns["viewport_light"](action=action, mode="Default", enabled=False)
     assert out.splitlines() == ["Lighting mode: Default", answer["result"]["message"]]
     assert client.calls == [("viewport_light", (action, False), {"mode": "Default"})]
+
+
+def test_a_black_capture_with_the_camera_light_on_does_not_suggest_it_again(tmp_path):
+    fns, _ = _tools(tmp_path, {"capture_viewport": _capture_answer("camera", False)})
+    out = fns["capture_viewport"]()
+    assert "mode='camera'" not in out
+    assert "camera light is already on" in out
+    assert "look_at_prim" in out
+
+
+def test_a_black_inspect_with_the_camera_light_on_does_not_suggest_it_again(tmp_path):
+    fns, _ = _tools(tmp_path, {"camera_inspect": _inspect_answer(is_black=True, lighting_mode="camera")})
+    out = fns["inspect_prim"]("/World/Lamp")
+    assert "mode='camera'" not in out
+    assert "look_at_prim" in out

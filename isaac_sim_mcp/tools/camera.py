@@ -8,6 +8,10 @@ from mcp.types import TextContent, ImageContent
 # What to do about a black capture. Camera mode needs no other extension; a rig needs the viewport's lighting menu.
 LIGHTING_ADVICE = ("Use viewport_light(action='set', mode='camera') for a light that follows the camera (always "
                    "available), or a light rig such as mode='Default' if viewport_light('get') lists it.")
+# When the camera light is already on, more light is not the answer.
+CAMERA_LIGHT_ON_ADVICE = ("The camera light is already on, so the camera may be inside or facing away from the "
+                          "geometry, or the renderer is still warming up: recapture, or move the camera with "
+                          "look_at_prim.")
 
 
 def register(mcp, client, h):
@@ -68,7 +72,9 @@ def register(mcp, client, h):
         lines.append(f"Viewport: {r['width']}x{r['height']} (lighting: {lighting_mode}) -> {filepath}")
         if r.get("is_black"):
             has_lights = r.get("has_scene_lights", False)
-            if lighting_mode == "off":
+            if lighting_mode == "camera":
+                lines.append(f"WARNING: Image is all-black. {CAMERA_LIGHT_ON_ADVICE}")
+            elif lighting_mode == "off":
                 lines.append(f"WARNING: Image is all-black. Lighting mode is 'off'. {LIGHTING_ADVICE}")
             elif not has_lights and lighting_mode == "stage":
                 lines.append(f"WARNING: Image is all-black. No scene lights and mode is 'stage'. {LIGHTING_ADVICE}")
@@ -228,7 +234,8 @@ def register(mcp, client, h):
                             for pp, clr in legend.items():
                                 f.write(f"{pp} = [{clr[0]}, {clr[1]}, {clr[2]}]\n")
                 if cap.get("is_black") and not warned:
-                    warning = f"  WARNING: One or more captures are all-black. {LIGHTING_ADVICE}"
+                    advice = CAMERA_LIGHT_ON_ADVICE if r.get("lighting_mode") == "camera" else LIGHTING_ADVICE
+                    warning = f"  WARNING: One or more captures are all-black. {advice}"
                     if r.get("isolate"):
                         warning += (" isolate=True hid the other prims, though not the lights: if the scene is lit by"
                                     " something it hid, such as emissive geometry, try again without isolate.")

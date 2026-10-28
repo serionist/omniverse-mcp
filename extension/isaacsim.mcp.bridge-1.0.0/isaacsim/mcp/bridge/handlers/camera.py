@@ -717,6 +717,7 @@ async def handle_camera_inspect(body: dict) -> dict:
             "zoom_offset": zoom_offset,
             "isolate": isolate,
             "isolate_warnings": isolate_warnings,
+            "lighting_mode": _get_current_lighting_mode(),
             "captures": captures,
         },
     }

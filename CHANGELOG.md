@@ -24,6 +24,8 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ### Changed
 
+- **A black capture is no longer relit behind your back.** The bridge used to turn the camera light on and capture
+  again; now the capture comes back as it is, with a warning that says how to light the scene (`viewport_light`).
 - **`inspect_prim` refuses what it cannot do instead of guessing:** an unknown angle name (it used to be skipped),
   a non-numeric `width`, `height` or `zoom_offset`, and an orthographic viewport camera, where distance frames
   nothing.
