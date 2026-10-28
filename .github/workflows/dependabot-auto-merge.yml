@@ -7,6 +7,11 @@
 # The squash commit gets the PR's title and one line naming what moved, never the description: Dependabot's
 # description quotes other projects' release notes (AGENTS.md, Commits and PRs).
 #
+# GitHub records the merge as github-actions[bot], since the workflow's token turned auto-merge on, and a push made
+# with that token starts no workflow: CI and CodeQL don't run on main for it. ci.yml's daily run and CodeQL's weekly
+# one test main afterwards instead, a gap the maintainer agreed to on 2026-10-28 over a GitHub App's token, which would
+# close it at the cost of a standing credential (plan D16).
+#
 # To hold an update, convert its PR to draft: nobody can merge a draft, and this job skips one; marking it ready for
 # review turns auto-merge on again. Turning auto-merge off by hand holds it only until Dependabot next pushes to the PR.
 #

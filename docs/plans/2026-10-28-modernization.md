@@ -65,7 +65,7 @@ Taken by @serionist on 2026-10-28 unless the row says otherwise.
 | D13 | The March work | `wip/2026-03-08-camera-lighting` (inspect_prim auto-fit and isolate, viewport_light modes). Kept and fixed: it lands as S1b, right after S1, with the fixes of its [review](../reviews/2026-10-28-wip-camera-lighting-code.md). |
 | D14 | How the work lands | One issue for this plan, one PR per step, squash-merged by the maintainer. (Recommended.) |
 | D15 | basedpyright with a baseline | pyright has no baseline, and 277 of its errors at `standard` sit in code S7 rewrites. basedpyright is pyright with a baseline file: today's errors live in `.basedpyright/baseline.json`, may only shrink, and new code is checked in full, the same ratchet as ruff's (D12). `types-usd` gives `pxr` its types. Taken in S3b, 2026-10-28, under the maintainer's go-ahead for the plan's steps. |
-| D16 | Dependabot merges its minor and patch updates | Once `CI` and `PR text` pass, through GitHub's auto-merge, which `dependabot-auto-merge.yml` turns on; a major waits for the maintainer, since CI never runs the live Kit suites (D11). The squash commit gets the PR's title and one line naming what moved, not the release notes. To hold one, the maintainer converts its PR to draft. Asked for by @serionist on 2026-10-28, who chose minor and patch and had the repo's merge settings applied (For the maintainers). |
+| D16 | Dependabot merges its minor and patch updates | Once `CI` and `PR text` pass, through GitHub's auto-merge, which `dependabot-auto-merge.yml` turns on; a major waits for the maintainer, since CI never runs the live Kit suites (D11). The squash commit gets the PR's title and one line naming what moved, not the release notes. To hold one, the maintainer converts its PR to draft. A merge made this way starts no push run, since the workflow's token turned auto-merge on: `ci.yml` runs daily on `main` too, and CodeQL weekly, so `main` is tested within a day; @serionist agreed to that gap on 2026-10-28, over a GitHub App token. Asked for by @serionist on 2026-10-28, who chose minor and patch and had the repo's merge settings applied (For the maintainers). |
 
 ## Design
 
@@ -252,7 +252,7 @@ Traps, from this repo's own history:
   - `permissions: contents: read`, raised per job with a reason;
   - `persist-credentials: false`, `timeout-minutes`, `fail-fast: false`;
   - only PR runs are cancelled by a newer one.
-- **`ci.yml`** on PRs and `main`:
+- **`ci.yml`** on PRs, `main` and daily (D16):
   - checks: gate quick on Linux, with gitleaks installed against its sha256, and Claude Code pinned for
     `plugin validate`;
   - tests: Linux on 3.11, 3.12, 3.13 and 3.14, Windows on 3.11 and 3.14, macOS on 3.14 (Q4: the server can drive a

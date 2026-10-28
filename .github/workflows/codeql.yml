@@ -1,5 +1,6 @@
 # CodeQL code scanning, with the security-extended queries, on every pull request, every push to main and once a week,
 # so new queries also reach code that has not changed. Results go to the repository's Security tab and annotate the PR.
+# A Dependabot merge starts no push run (dependabot-auto-merge.yml): the weekly run covers main after one.
 #
 # Python runs in build mode "none": CodeQL reads the sources, with nothing to build. The workflows themselves (language
 # "actions") are scanned too, for script injection and over-broad permissions.
