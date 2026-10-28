@@ -52,10 +52,23 @@ def _tools(tmp_path, answers):
 
 
 def _inspect_answer(**extra):
-    capture = {"angle": "front", "azimuth": 0, "elevation": 0, "camera_position": [0, 0, 5],
-               "image_base64": "iVBORw0KGgo=", "is_black": extra.pop("is_black", False)}
-    result = {"prim_path": "/World/Lamp", "center": [0, 0, 0], "distance": 5.0, "zoom_offset": 0.0,
-              "isolate": False, "isolate_warnings": [], "captures": [capture]}
+    capture = {
+        "angle": "front",
+        "azimuth": 0,
+        "elevation": 0,
+        "camera_position": [0, 0, 5],
+        "image_base64": "iVBORw0KGgo=",
+        "is_black": extra.pop("is_black", False),
+    }
+    result = {
+        "prim_path": "/World/Lamp",
+        "center": [0, 0, 0],
+        "distance": 5.0,
+        "zoom_offset": 0.0,
+        "isolate": False,
+        "isolate_warnings": [],
+        "captures": [capture],
+    }
     result.update(extra)
     return {"status": "success", "result": result}
 
@@ -68,11 +81,22 @@ def test_inspect_prints_the_isolate_warnings(tmp_path):
 
 
 def _capture_answer(lighting_mode, has_scene_lights):
-    return {"status": "success", "result": {
-        "image_base64": "iVBORw0KGgo=", "width": 1280, "height": 720, "camera_path": "/OmniverseKit_Persp",
-        "format": "png", "is_black": True, "lighting_mode": lighting_mode, "has_scene_lights": has_scene_lights,
-        "screen_bboxes": [], "segmentation_base64": None, "segmentation_legend": {},
-    }}
+    return {
+        "status": "success",
+        "result": {
+            "image_base64": "iVBORw0KGgo=",
+            "width": 1280,
+            "height": 720,
+            "camera_path": "/OmniverseKit_Persp",
+            "format": "png",
+            "is_black": True,
+            "lighting_mode": lighting_mode,
+            "has_scene_lights": has_scene_lights,
+            "screen_bboxes": [],
+            "segmentation_base64": None,
+            "segmentation_legend": {},
+        },
+    }
 
 
 @pytest.mark.parametrize(("mode", "lights"), [("off", True), ("stage", False), ("Default", True)])
@@ -100,8 +124,13 @@ def test_a_black_isolated_inspect_says_what_isolate_hid(tmp_path):
 
 @pytest.mark.parametrize("action", ["set", "set_camera_light"])
 def test_viewport_light_reports_the_resulting_mode(tmp_path, action):
-    answer = {"status": "success", "result": {"lighting_mode": "Default",
-                                              "message": "Viewport camera light turned off; the lighting mode is unchanged"}}
+    answer = {
+        "status": "success",
+        "result": {
+            "lighting_mode": "Default",
+            "message": "Viewport camera light turned off; the lighting mode is unchanged",
+        },
+    }
     fns, client = _tools(tmp_path, {"viewport_light": answer})
     out = fns["viewport_light"](action=action, mode="Default", enabled=False)
     assert out.splitlines() == ["Lighting mode: Default", answer["result"]["message"]]

@@ -19,6 +19,7 @@ def _get_active_camera_path() -> str:
     """Get the active viewport camera path, with fallback to default perspective camera."""
     try:
         from omni.kit.viewport.utility import get_active_viewport
+
         viewport = get_active_viewport()
         return str(viewport.camera_path) if viewport else DEFAULT_CAMERA_PATH
     except ImportError:
@@ -32,7 +33,10 @@ def _get_valid_prim(prim_path: str):
     stage = _get_stage()
     prim = stage.GetPrimAtPath(prim_path)
     if not prim.IsValid():
-        return None, {"status": "error", "error": f"Prim not found: {prim_path}. Use get_scene_tree() to see available prims."}
+        return None, {
+            "status": "error",
+            "error": f"Prim not found: {prim_path}. Use get_scene_tree() to see available prims.",
+        }
     return prim, None
 
 
@@ -77,6 +81,7 @@ async def _settle_viewport(frames: int = None):
         frames = CAMERA_SETTLE_FRAMES
     try:
         from omni.kit.viewport.utility import get_active_viewport
+
         viewport = get_active_viewport()
         if viewport and hasattr(viewport, "wait_for_rendered_frames"):
             await viewport.wait_for_rendered_frames(frames)
@@ -125,6 +130,7 @@ async def _reset_renderer(wait_frames: int = 10):
             get_active_viewport,
             next_viewport_frame_async,
         )
+
         viewport = get_active_viewport()
         if viewport:
             await next_viewport_frame_async(viewport, wait_frames)
@@ -333,12 +339,14 @@ def _compute_mesh_stats(prim) -> dict:
         stats["total_vertices"] += n_vertices
         stats["total_triangles"] += n_triangles
         stats["mesh_count"] += 1
-        stats["meshes"].append({
-            "path": str(p.GetPath()),
-            "faces": n_faces,
-            "vertices": n_vertices,
-            "triangles": n_triangles,
-        })
+        stats["meshes"].append(
+            {
+                "path": str(p.GetPath()),
+                "faces": n_faces,
+                "vertices": n_vertices,
+                "triangles": n_triangles,
+            }
+        )
     return stats
 
 

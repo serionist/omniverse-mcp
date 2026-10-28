@@ -67,6 +67,7 @@ _client = BridgeClient(host=_args.host, port=_args.port)
 # Helpers (passed to tool modules via Helpers object)
 # ---------------------------------------------------------------------------
 
+
 class _Helpers:
     """Shared helper methods passed to tool registration functions."""
 
@@ -119,12 +120,14 @@ _helpers = _Helpers(OUTPUT_DIR)
 # ---------------------------------------------------------------------------
 
 from .tools import register_all
+
 register_all(mcp, _client, _helpers)
 
 
 # ---------------------------------------------------------------------------
 # Resources
 # ---------------------------------------------------------------------------
+
 
 @mcp.resource("omniverse://scene/tree")
 def scene_tree_resource() -> str:
@@ -153,6 +156,7 @@ def sim_state_resource() -> str:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main():
     mcp.run()

@@ -42,6 +42,7 @@ def _clear_articulation_cache():
 # /robot/create
 # ---------------------------------------------------------------------------
 
+
 async def handle_create_robot(body: dict) -> dict:
     robot_type = body.get("robot_type", "").lower()
     prim_path = body.get("prim_path", "")
@@ -64,6 +65,7 @@ async def handle_create_robot(body: dict) -> dict:
 
     try:
         from isaacsim.storage.native import get_assets_root_path
+
         assets_root = get_assets_root_path()
         full_usd_path = (assets_root + usd_path) if assets_root else usd_path
     except ImportError:
@@ -100,6 +102,7 @@ async def handle_create_robot(body: dict) -> dict:
 # /robot/info
 # ---------------------------------------------------------------------------
 
+
 async def handle_get_robot_info(body: dict) -> dict:
     """Get robot joint info, DOF count, limits — pure USD, no sim needed."""
     prim_path = body.get("prim_path", "")
@@ -128,17 +131,23 @@ async def handle_get_robot_info(body: dict) -> dict:
         if desc.IsA(UsdPhysics.RevoluteJoint):
             rev = UsdPhysics.RevoluteJoint(desc)
             lo, hi = rev.GetLowerLimitAttr().Get(), rev.GetUpperLimitAttr().Get()
-            if lo is not None: jd["lower_limit"] = float(lo)
-            if hi is not None: jd["upper_limit"] = float(hi)
+            if lo is not None:
+                jd["lower_limit"] = float(lo)
+            if hi is not None:
+                jd["upper_limit"] = float(hi)
             axis = rev.GetAxisAttr().Get()
-            if axis: jd["axis"] = str(axis)
+            if axis:
+                jd["axis"] = str(axis)
         elif desc.IsA(UsdPhysics.PrismaticJoint):
             pri = UsdPhysics.PrismaticJoint(desc)
             lo, hi = pri.GetLowerLimitAttr().Get(), pri.GetUpperLimitAttr().Get()
-            if lo is not None: jd["lower_limit"] = float(lo)
-            if hi is not None: jd["upper_limit"] = float(hi)
+            if lo is not None:
+                jd["lower_limit"] = float(lo)
+            if hi is not None:
+                jd["upper_limit"] = float(hi)
             axis = pri.GetAxisAttr().Get()
-            if axis: jd["axis"] = str(axis)
+            if axis:
+                jd["axis"] = str(axis)
 
         for dt in ("angular", "linear"):
             drive = UsdPhysics.DriveAPI.Get(desc, dt)
@@ -171,6 +180,7 @@ async def handle_get_robot_info(body: dict) -> dict:
 # /robot/joint_states
 # ---------------------------------------------------------------------------
 
+
 async def handle_get_joint_states(body: dict) -> dict:
     """Get current joint positions/velocities. Requires sim to have been played."""
     prim_path = body.get("prim_path", "")
@@ -199,12 +209,12 @@ async def handle_get_joint_states(body: dict) -> dict:
         positions = art.get_joint_positions()
         velocities = art.get_joint_velocities()
 
-        pos_list = positions.tolist() if hasattr(positions, 'tolist') else list(positions)
-        vel_list = velocities.tolist() if hasattr(velocities, 'tolist') else list(velocities)
+        pos_list = positions.tolist() if hasattr(positions, "tolist") else list(positions)
+        vel_list = velocities.tolist() if hasattr(velocities, "tolist") else list(velocities)
 
         names = []
         try:
-            names = list(art.dof_names) if hasattr(art, 'dof_names') and art.dof_names else []
+            names = list(art.dof_names) if hasattr(art, "dof_names") and art.dof_names else []
         except Exception:
             pass
 
@@ -229,6 +239,7 @@ async def handle_get_joint_states(body: dict) -> dict:
 # ---------------------------------------------------------------------------
 # /robot/joint_targets
 # ---------------------------------------------------------------------------
+
 
 async def handle_set_joint_targets(body: dict) -> dict:
     """Set joint drive targets via USD. Works without articulation init."""

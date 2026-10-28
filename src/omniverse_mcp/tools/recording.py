@@ -53,8 +53,13 @@ def register(mcp, client, h):
         rec_dir = os.path.join(h.output_dir, "recordings")
         resp = _call(
             client.recording_start,
-            rec_dir, fps, width, height, camera_path,
-            track_prims=track_prims, property_filter=property_filter,
+            rec_dir,
+            fps,
+            width,
+            height,
+            camera_path,
+            track_prims=track_prims,
+            property_filter=property_filter,
         )
         err = _check_error(resp)
         if err:

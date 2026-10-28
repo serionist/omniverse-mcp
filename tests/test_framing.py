@@ -55,7 +55,9 @@ def test_sine_not_tangent():
 
 
 def test_distance_scales_with_the_radius():
-    assert fit_distance(2.0, FOCAL, H_AP, V_AP, 800, 600) == pytest.approx(2 * fit_distance(1.0, FOCAL, H_AP, V_AP, 800, 600))
+    assert fit_distance(2.0, FOCAL, H_AP, V_AP, 800, 600) == pytest.approx(
+        2 * fit_distance(1.0, FOCAL, H_AP, V_AP, 800, 600)
+    )
 
 
 @pytest.mark.parametrize(("width", "height"), [(20, 600), (800, 20), (16, 16), (0, 0)])
@@ -87,7 +89,13 @@ def test_bounding_radius():
 
 def test_inspect_args_defaults():
     args = inspect_args({"prim_path": "/World/Box"})
-    assert (args.width, args.height, args.zoom_offset, args.isolate, args.include_segmentation) == (800, 600, 0.0, False, False)
+    assert (args.width, args.height, args.zoom_offset, args.isolate, args.include_segmentation) == (
+        800,
+        600,
+        0.0,
+        False,
+        False,
+    )
     assert [name for name, _, _ in args.angles] == list(ANGLES)
 
 

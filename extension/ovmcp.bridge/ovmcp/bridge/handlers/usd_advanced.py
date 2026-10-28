@@ -21,6 +21,7 @@ from ._utils import (
 # /scene/flatten
 # ---------------------------------------------------------------------------
 
+
 async def handle_flatten_usd(body: dict) -> dict:
     """Flatten a USD file (resolve references, payloads, sublayers) into one file."""
     input_path = body.get("input_path", "")
@@ -68,6 +69,7 @@ async def handle_flatten_usd(body: dict) -> dict:
 # ---------------------------------------------------------------------------
 # /scene/export
 # ---------------------------------------------------------------------------
+
 
 async def handle_export_prim(body: dict) -> dict:
     """Export a prim subtree as a standalone USD file.
@@ -153,6 +155,7 @@ async def handle_export_prim(body: dict) -> dict:
 # /scene/variant_selection
 # ---------------------------------------------------------------------------
 
+
 async def handle_set_variant_selection(body: dict) -> dict:
     """Switch variant selection with Hydra rprim refresh workaround.
 
@@ -184,7 +187,10 @@ async def handle_set_variant_selection(body: dict) -> dict:
     vs = vsets.GetVariantSet(variant_set)
     available_variants = vs.GetVariantNames()
     if variant_name not in available_variants:
-        return {"status": "error", "error": f"Variant '{variant_name}' not in '{variant_set}'. Available: {available_variants}"}
+        return {
+            "status": "error",
+            "error": f"Variant '{variant_name}' not in '{variant_set}'. Available: {available_variants}",
+        }
 
     old_selection = vs.GetVariantSelection()
 
@@ -197,6 +203,7 @@ async def handle_set_variant_selection(body: dict) -> dict:
     fsd_on = False
     try:
         import carb.settings
+
         fsd_on = carb.settings.get_settings().get_as_bool("/app/useFabricSceneDelegate") or False
     except Exception:
         pass
@@ -231,6 +238,7 @@ async def handle_set_variant_selection(body: dict) -> dict:
 # ---------------------------------------------------------------------------
 # /scene/create_variant_structure
 # ---------------------------------------------------------------------------
+
 
 async def handle_create_variant_structure(body: dict) -> dict:
     """Create variant set boilerplate: add variantSet, create variant bodies, set default."""
@@ -276,6 +284,7 @@ async def handle_create_variant_structure(body: dict) -> dict:
 # ---------------------------------------------------------------------------
 # /scene/compare
 # ---------------------------------------------------------------------------
+
 
 async def handle_compare_prims(body: dict) -> dict:
     """Compare two prims or two variants — mesh counts, bounds, materials.
@@ -352,7 +361,10 @@ async def handle_compare_prims(body: dict) -> dict:
         label_a = prim_path_a
         label_b = prim_path_b
     else:
-        return {"status": "error", "error": "Provide (prim_path_a, prim_path_b) or (prim_path, variant_set, variant_a, variant_b)"}
+        return {
+            "status": "error",
+            "error": "Provide (prim_path_a, prim_path_b) or (prim_path, variant_set, variant_a, variant_b)",
+        }
 
     face_delta = stats_b["total_faces"] - stats_a["total_faces"]
     face_pct = (face_delta / stats_a["total_faces"] * 100) if stats_a["total_faces"] > 0 else 0
@@ -395,6 +407,7 @@ async def handle_compare_prims(body: dict) -> dict:
 # /scene/update_material_paths
 # ---------------------------------------------------------------------------
 
+
 async def handle_update_material_paths(body: dict) -> dict:
     """Bulk-update material reference paths (relationship targets + asset paths)."""
     prim_path = body.get("prim_path", "/")
@@ -425,7 +438,7 @@ async def handle_update_material_paths(body: dict) -> dict:
             for t in targets:
                 t_str = str(t)
                 if t_str.startswith(old_prefix):
-                    new_targets.append(Sdf.Path(new_prefix + t_str[len(old_prefix):]))
+                    new_targets.append(Sdf.Path(new_prefix + t_str[len(old_prefix) :]))
                     changed = True
                 else:
                     new_targets.append(t)
@@ -443,7 +456,7 @@ async def handle_update_material_paths(body: dict) -> dict:
             if isinstance(val, Sdf.AssetPath):
                 path_str = val.path
                 if path_str.startswith(old_prefix):
-                    new_path = new_prefix + path_str[len(old_prefix):]
+                    new_path = new_prefix + path_str[len(old_prefix) :]
                     attr.Set(Sdf.AssetPath(new_path))
                     updated_count += 1
                     updated_prims.add(str(prim.GetPath()))

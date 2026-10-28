@@ -44,11 +44,20 @@ class TestScenarios(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         # Cleanup
-        for path in ["/World/Ground", "/World/RedCube", "/World/BlueSphere",
-                      "/World/Light", "/World/G1", "/World/PhysicsScene",
-                      "/World/Looks", "/World/RedCube_Clone",
-                      "/World/CloneBatch_001", "/World/CloneBatch_002", "/World/CloneBatch_003",
-                      "/World/PhysicsMaterials"]:
+        for path in [
+            "/World/Ground",
+            "/World/RedCube",
+            "/World/BlueSphere",
+            "/World/Light",
+            "/World/G1",
+            "/World/PhysicsScene",
+            "/World/Looks",
+            "/World/RedCube_Clone",
+            "/World/CloneBatch_001",
+            "/World/CloneBatch_002",
+            "/World/CloneBatch_003",
+            "/World/PhysicsMaterials",
+        ]:
             try:
                 cls.c.delete_prim(path)
             except Exception:
@@ -141,7 +150,7 @@ class TestScenarios(unittest.TestCase):
         tree = self.c.scene_tree("/World", 2)
         # Check prim path is gone (material BlueSphere_Mat may still exist under /World/Looks)
         tree_str = json.dumps(tree["result"])
-        self.assertNotIn("/World/BlueSphere\"", tree_str)
+        self.assertNotIn('/World/BlueSphere"', tree_str)
 
         r = self.c.delete_prim("/World/Nonexistent")
         self.assertEqual(r["status"], "error")
@@ -247,7 +256,9 @@ class TestScenarios(unittest.TestCase):
 
     def test_04_03_usd_api_access(self):
         """Phase 4.3: USD API Access"""
-        r = self.c.execute("stage = omni.usd.get_context().get_stage(); result = [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChildren()]")
+        r = self.c.execute(
+            "stage = omni.usd.get_context().get_stage(); result = [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChildren()]"
+        )
         self.assertEqual(r["status"], "success")
         paths = r["result"]["return_value"]
         self.assertIsInstance(paths, list)
@@ -383,8 +394,7 @@ class TestScenarios(unittest.TestCase):
         time.sleep(0.2)
 
         output_dir = os.path.join(os.path.dirname(__file__), "..", "test_project", "results", "recordings_state")
-        r = self.c.recording_start(output_dir, fps=10, width=320, height=240,
-                                    track_prims=["/World/RedCube"])
+        r = self.c.recording_start(output_dir, fps=10, width=320, height=240, track_prims=["/World/RedCube"])
         self.assertEqual(r["status"], "success")
         self.__class__._state_rec_dir = r["result"]["output_dir"]
 
@@ -427,8 +437,7 @@ class TestScenarios(unittest.TestCase):
         if len(positions) >= 2:
             max_y = max(positions)
             min_y = min(positions)
-            self.assertGreater(max_y - min_y, 0.1,
-                               f"Y should vary due to gravity: max={max_y:.2f}, min={min_y:.2f}")
+            self.assertGreater(max_y - min_y, 0.1, f"Y should vary due to gravity: max={max_y:.2f}, min={min_y:.2f}")
             print(f"  Y positions: max={max_y:.2f}, min={min_y:.2f}, frames={len(positions)}")
         self._pass()
 
@@ -440,9 +449,14 @@ class TestScenarios(unittest.TestCase):
         time.sleep(0.2)
 
         output_dir = os.path.join(os.path.dirname(__file__), "..", "test_project", "results", "recordings_filtered")
-        r = self.c.recording_start(output_dir, fps=10, width=320, height=240,
-                                    track_prims=["/World/RedCube"],
-                                    property_filter=["xformOp", "physics"])
+        r = self.c.recording_start(
+            output_dir,
+            fps=10,
+            width=320,
+            height=240,
+            track_prims=["/World/RedCube"],
+            property_filter=["xformOp", "physics"],
+        )
         self.assertEqual(r["status"], "success")
 
         self.c.sim_control("play")
@@ -460,8 +474,11 @@ class TestScenarios(unittest.TestCase):
             # Should have filtered properties
             self.assertIn("[/World/RedCube]", content)
             # Should NOT have unrelated properties like "extent" or "purpose"
-            lines = [l for l in content.split("\n")
-                     if "=" in l and not l.startswith("#") and not l.startswith("===") and not l.startswith("[")]
+            lines = [
+                l
+                for l in content.split("\n")
+                if "=" in l and not l.startswith("#") and not l.startswith("===") and not l.startswith("[")
+            ]
             # Formatter always adds: type, pos, rot, rigid_body, articulation_root
             always_keys = {"type", "pos", "rot", "rigid_body", "articulation_root"}
             for line in lines:
@@ -469,8 +486,7 @@ class TestScenarios(unittest.TestCase):
                 if key in always_keys:
                     continue
                 self.assertTrue(
-                    any(f in key for f in ["xformOp", "physics"]),
-                    f"Unexpected property in filtered output: {key}"
+                    any(f in key for f in ["xformOp", "physics"]), f"Unexpected property in filtered output: {key}"
                 )
             print(f"  Property filter working, {len(lines)} filtered lines")
         self._pass()
@@ -637,8 +653,7 @@ class TestScenarios(unittest.TestCase):
 
     def test_12_03_set_material_pbr_props(self):
         """Phase 12.3: Set Material - PBR Properties"""
-        r = self.c.set_material("/World/RedCube", color=[0.8, 0.1, 0.1],
-                                roughness=0.2, metallic=0.9)
+        r = self.c.set_material("/World/RedCube", color=[0.8, 0.1, 0.1], roughness=0.2, metallic=0.9)
         self.assertEqual(r["status"], "success")
         self.assertAlmostEqual(r["result"]["roughness"], 0.2)
         self.assertAlmostEqual(r["result"]["metallic"], 0.9)
@@ -657,8 +672,7 @@ class TestScenarios(unittest.TestCase):
 
     def test_12_05_set_material_custom_path(self):
         """Phase 12.5: Set Material - Custom Material Path"""
-        r = self.c.set_material("/World/RedCube", color=[0, 1, 0],
-                                material_path="/World/Looks/MyGreenMat")
+        r = self.c.set_material("/World/RedCube", color=[0, 1, 0], material_path="/World/Looks/MyGreenMat")
         self.assertEqual(r["status"], "success")
         self.assertEqual(r["result"]["material_path"], "/World/Looks/MyGreenMat")
         print(f"  Custom path: /World/Looks/MyGreenMat")
@@ -689,7 +703,6 @@ class TestScenarios(unittest.TestCase):
         self.assertGreater(len(r["result"]["image_base64"]), 100)
         print(f"  Visual verification captured")
         self._pass()
-
 
     # ===== Phase 13: Visibility & Cloning =====
 
@@ -890,24 +903,23 @@ class TestScenarios(unittest.TestCase):
 
     def test_16_03_draw_debug_line(self):
         """Phase 16.3: Draw Debug Line"""
-        r = self.c.draw_debug("line", start=[0, 0, 0], end=[5, 5, 0],
-                               color=[1, 0, 0], duration=3.0)
+        r = self.c.draw_debug("line", start=[0, 0, 0], end=[5, 5, 0], color=[1, 0, 0], duration=3.0)
         self.assertEqual(r["status"], "success")
         print(f"  Drew debug line")
         self._pass()
 
     def test_16_04_draw_debug_sphere(self):
         """Phase 16.4: Draw Debug Sphere"""
-        r = self.c.draw_debug("sphere", center=[0, 2, 0], radius=0.5,
-                               color=[0, 1, 0], duration=3.0)
+        r = self.c.draw_debug("sphere", center=[0, 2, 0], radius=0.5, color=[0, 1, 0], duration=3.0)
         self.assertEqual(r["status"], "success")
         print(f"  Drew debug sphere")
         self._pass()
 
     def test_16_05_draw_debug_points(self):
         """Phase 16.5: Draw Debug Points"""
-        r = self.c.draw_debug("points", points=[[0, 0, 0], [1, 1, 0], [2, 0, 0]],
-                               color=[0, 0, 1], duration=3.0, size=10.0)
+        r = self.c.draw_debug(
+            "points", points=[[0, 0, 0], [1, 1, 0], [2, 0, 0]], color=[0, 0, 1], duration=3.0, size=10.0
+        )
         self.assertEqual(r["status"], "success")
         print(f"  Drew debug points")
         self._pass()
@@ -917,6 +929,7 @@ class TestScenarios(unittest.TestCase):
     def test_17_01_save_scene(self):
         """Phase 17.1: Save Scene to File"""
         import tempfile
+
         save_path = os.path.join(tempfile.gettempdir(), "mcp_test_scene.usd")
         r = self.c.save_scene(save_path)
         self.assertEqual(r["status"], "success")
@@ -959,8 +972,7 @@ class TestScenarios(unittest.TestCase):
         self.assertEqual(r["status"], "success")
         result = r["result"]
         for entry in result["entries"]:
-            self.assertIn(entry["level"], ["warn", "error", "fatal"],
-                          f"Entry level {entry['level']} should be warn+")
+            self.assertIn(entry["level"], ["warn", "error", "fatal"], f"Entry level {entry['level']} should be warn+")
         print(f"  {result['count']} warn+ entries")
         self._pass()
 
@@ -970,8 +982,7 @@ class TestScenarios(unittest.TestCase):
         self.assertEqual(r["status"], "success")
         result = r["result"]
         for entry in result["entries"]:
-            self.assertIn("mcp", entry["msg"].lower(),
-                          f"Entry should contain 'MCP': {entry['msg'][:80]}")
+            self.assertIn("mcp", entry["msg"].lower(), f"Entry should contain 'MCP': {entry['msg'][:80]}")
         print(f"  {result['count']} entries matching 'MCP'")
         self._pass()
 
@@ -981,8 +992,7 @@ class TestScenarios(unittest.TestCase):
         self.assertEqual(r["status"], "success")
         result = r["result"]
         for entry in result["entries"]:
-            self.assertIn("omni", entry["channel"].lower(),
-                          f"Channel should contain 'omni': {entry['channel']}")
+            self.assertIn("omni", entry["channel"].lower(), f"Channel should contain 'omni': {entry['channel']}")
         print(f"  {result['count']} entries with channel matching 'omni'")
         self._pass()
 
@@ -1001,8 +1011,7 @@ class TestScenarios(unittest.TestCase):
         r2 = self.c.get_logs(since_index=last_index)
         self.assertEqual(r2["status"], "success")
         for entry in r2["result"]["entries"]:
-            self.assertGreater(entry["index"], last_index,
-                               f"Entry index {entry['index']} should be > {last_index}")
+            self.assertGreater(entry["index"], last_index, f"Entry index {entry['index']} should be > {last_index}")
         print(f"  {r2['result']['count']} entries after index {last_index}")
         self._pass()
 
@@ -1023,10 +1032,7 @@ class TestScenarios(unittest.TestCase):
 
     def test_25_01_async_scene_tree(self):
         """Phase 25.1: Async Scene Tree via MCP Bridge"""
-        r = self.c.execute(
-            "tree = await mcp.scene_tree()\n"
-            "result = tree['status']"
-        )
+        r = self.c.execute("tree = await mcp.scene_tree()\nresult = tree['status']")
         self.assertEqual(r["status"], "success")
         self.assertEqual(r["result"]["return_value"], "success")
         print(f"  Async scene_tree returned success")
@@ -1124,10 +1130,7 @@ class TestScenarios(unittest.TestCase):
 
     def test_25_08_async_error_handling(self):
         """Phase 25.8: Async Script Error Handling"""
-        r = self.c.execute(
-            "bounds = await mcp.prim_bounds('/World/Nonexistent_MCP_Test')\n"
-            "result = bounds['status']"
-        )
+        r = self.c.execute("bounds = await mcp.prim_bounds('/World/Nonexistent_MCP_Test')\nresult = bounds['status']")
         self.assertEqual(r["status"], "success")
         self.assertEqual(r["result"]["return_value"], "error")
         print(f"  Async error handled gracefully")
@@ -1137,8 +1140,7 @@ class TestScenarios(unittest.TestCase):
 
     def test_22_01_inspect_with_segmentation(self):
         """Phase 22.1: Inspect with Segmentation"""
-        r = self.c.camera_inspect("/World/Franka", angles=["front", "right"],
-                                  include_segmentation=True)
+        r = self.c.camera_inspect("/World/Franka", angles=["front", "right"], include_segmentation=True)
         self.assertEqual(r["status"], "success")
         captures = r["result"]["captures"]
         self.assertEqual(len(captures), 2)
@@ -1150,9 +1152,9 @@ class TestScenarios(unittest.TestCase):
 
     def test_22_02_inspect_cube_corner_angles(self):
         """Phase 22.2: Inspect with Cube Corner Angles"""
-        r = self.c.camera_inspect("/World/Franka",
-                                  angles=["top_front_right", "top_back_left",
-                                          "bottom_front_right", "bottom"])
+        r = self.c.camera_inspect(
+            "/World/Franka", angles=["top_front_right", "top_back_left", "bottom_front_right", "bottom"]
+        )
         self.assertEqual(r["status"], "success")
         self.assertEqual(len(r["result"]["captures"]), 4)
         self.assertGreater(r["result"]["distance"], 0)

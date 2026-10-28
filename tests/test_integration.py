@@ -42,8 +42,7 @@ class TestIsaacSimIntegration(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         # Clean up test prims
-        for path in ["/World/IntTestCube", "/World/IntTestLight",
-                     "/World/IntTestClone", "/World/IntTestRobot"]:
+        for path in ["/World/IntTestCube", "/World/IntTestLight", "/World/IntTestClone", "/World/IntTestRobot"]:
             try:
                 cls.client.delete_prim(path)
             except Exception:
@@ -99,10 +98,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
 
     def test_07_create_and_delete_prim(self):
         # Create
-        result = self.client.create_prim(
-            "/World/MCPTestCube", "Cube",
-            position=[2, 0, 0.5], scale=0.3
-        )
+        result = self.client.create_prim("/World/MCPTestCube", "Cube", position=[2, 0, 0.5], scale=0.3)
         self.assertEqual(result["status"], "success")
         print(f"  Created: {result['result']['prim_path']}")
 
@@ -161,8 +157,10 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertIn("image_base64", result["result"])
         self.assertIn("lighting_mode", result["result"])
         img_size = len(result["result"]["image_base64"])
-        print(f"  Captured {result['result']['width']}x{result['result']['height']}, "
-              f"lighting: {result['result']['lighting_mode']}, base64 size: {img_size}")
+        print(
+            f"  Captured {result['result']['width']}x{result['result']['height']}, "
+            f"lighting: {result['result']['lighting_mode']}, base64 size: {img_size}"
+        )
 
     def test_11_camera_set(self):
         result = self.client.camera_set([5, 3, 5], [0, 0, 0])
@@ -195,8 +193,10 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(r_default["status"], "success")
         self.assertEqual(r_closer["status"], "success")
         self.assertLess(r_closer["result"]["distance"], r_default["result"]["distance"])
-        print(f"  Default dist={r_default['result']['distance']:.2f}m, "
-              f"zoom_offset=-0.3 dist={r_closer['result']['distance']:.2f}m")
+        print(
+            f"  Default dist={r_default['result']['distance']:.2f}m, "
+            f"zoom_offset=-0.3 dist={r_closer['result']['distance']:.2f}m"
+        )
 
     def test_15_camera_inspect_isolate(self):
         """Inspect with isolate=True."""
@@ -216,8 +216,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         modes = result["result"]["available_modes"]
         self.assertIn("camera", modes)
         self.assertIn("stage", modes)
-        print(f"  Lighting mode: {result['result']['lighting_mode']}, "
-              f"modes: {', '.join(modes)}")
+        print(f"  Lighting mode: {result['result']['lighting_mode']}, modes: {', '.join(modes)}")
 
     def test_17_viewport_light_set(self):
         # Set to camera light
@@ -244,8 +243,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         result = self.client.set_material("/World/IntTestCube", color=[1, 0, 0], roughness=0.3)
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["result"]["color"], [1, 0, 0])
-        print(f"  Material set: color={result['result']['color']}, "
-              f"roughness={result['result']['roughness']}")
+        print(f"  Material set: color={result['result']['color']}, roughness={result['result']['roughness']}")
 
     def test_20_visibility(self):
         # Hide
@@ -270,8 +268,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(result["status"], "success")
         self.assertIn("center", result["result"])
         self.assertIn("dimensions", result["result"])
-        print(f"  Bounds: center={result['result']['center']}, "
-              f"dims={result['result']['dimensions']}")
+        print(f"  Bounds: center={result['result']['center']}, dims={result['result']['dimensions']}")
 
     def test_23_mesh_stats(self):
         """Procedural prims return 0 faces (expected)."""
@@ -288,8 +285,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(result["status"], "success")
         self.assertIn("entries", result["result"])
         self.assertIn("total_captured", result["result"])
-        print(f"  Logs: {result['result']['count']} entries, "
-              f"total captured: {result['result']['total_captured']}")
+        print(f"  Logs: {result['result']['count']} entries, total captured: {result['result']['total_captured']}")
 
     # ===== Error handling =====
 
@@ -307,9 +303,13 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
 
     def test_99_cleanup(self):
         """Clean up test prims."""
-        for path in ["/World/IntTestCube", "/World/IntTestLight",
-                     "/World/IntTestClone", "/World/IntTestRobot",
-                     "/World/Looks"]:
+        for path in [
+            "/World/IntTestCube",
+            "/World/IntTestLight",
+            "/World/IntTestClone",
+            "/World/IntTestRobot",
+            "/World/Looks",
+        ]:
             self.client.delete_prim(path)
         print(f"  Cleanup done")
 

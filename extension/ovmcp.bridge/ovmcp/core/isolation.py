@@ -45,8 +45,10 @@ def prims_to_hide(stage: Usd.Stage, target_path: str) -> tuple[list[Sdf.Path], l
             # Stays visible: it leads to the target, holds a light, or has no visibility of its own.
             if prim.IsInstance():
                 holds = "the target" if leads_to_target else "a light"
-                warnings.append(f"{path} is an instance that holds {holds}; children of an instance can't be hidden, "
-                                "so all of it stays visible")
+                warnings.append(
+                    f"{path} is an instance that holds {holds}; children of an instance can't be hidden, "
+                    "so all of it stays visible"
+                )
                 return
             for child in prim.GetChildren():
                 take(child)
@@ -102,8 +104,9 @@ class Hidden:
                 attr_path = path.AppendProperty(UsdGeom.Tokens.visibility)
                 if self.layer.GetNumTimeSamplesForPath(attr_path):
                     # Time samples outrank the default this would author; leave them, and the prim, alone.
-                    self.warnings.append(f"{path} has time-sampled visibility in the session layer, so isolate "
-                                         "left it visible")
+                    self.warnings.append(
+                        f"{path} has time-sampled visibility in the session layer, so isolate left it visible"
+                    )
                     continue
                 for prefix in path.GetPrefixes():
                     if self.layer.GetPrimAtPath(prefix) is None:
