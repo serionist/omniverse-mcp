@@ -5,6 +5,10 @@ import os
 
 from mcp.types import TextContent, ImageContent
 
+# What to do about a black capture. Camera mode needs no other extension; a rig needs the viewport's lighting menu.
+LIGHTING_ADVICE = ("Use viewport_light(action='set', mode='camera') for a light that follows the camera (always "
+                   "available), or a light rig such as mode='Default' if viewport_light('get') lists it.")
+
 
 def register(mcp, client, h):
     def _call(fn, *args, **kwargs):
@@ -65,11 +69,12 @@ def register(mcp, client, h):
         if r.get("is_black"):
             has_lights = r.get("has_scene_lights", False)
             if lighting_mode == "off":
-                lines.append("WARNING: Image is all-black. Lighting mode is 'off'. Use viewport_light(action='set', mode='Default') to add light.")
+                lines.append(f"WARNING: Image is all-black. Lighting mode is 'off'. {LIGHTING_ADVICE}")
             elif not has_lights and lighting_mode == "stage":
-                lines.append("WARNING: Image is all-black. No scene lights and mode is 'stage'. Use viewport_light(action='set', mode='Default') to add light.")
+                lines.append(f"WARNING: Image is all-black. No scene lights and mode is 'stage'. {LIGHTING_ADVICE}")
             else:
-                lines.append(f"WARNING: Image is all-black (lighting: {lighting_mode}). Renderer may need warmup — try recapturing, or change lighting mode with viewport_light.")
+                lines.append(f"WARNING: Image is all-black (lighting: {lighting_mode}). The renderer may need warmup: "
+                             f"try recapturing. If it stays black: {LIGHTING_ADVICE}")
 
         # 2. Save screen-space bounding boxes
         bboxes = r.get("screen_bboxes", [])
@@ -223,7 +228,11 @@ def register(mcp, client, h):
                             for pp, clr in legend.items():
                                 f.write(f"{pp} = [{clr[0]}, {clr[1]}, {clr[2]}]\n")
                 if cap.get("is_black") and not warned:
-                    lines.append("  WARNING: One or more captures are all-black. Scene may have no lights. Use viewport_light tool to check and enable camera light.")
+                    warning = f"  WARNING: One or more captures are all-black. {LIGHTING_ADVICE}"
+                    if r.get("isolate"):
+                        warning += (" isolate=True hid the other prims, though not the lights: if the scene is lit by"
+                                    " something it hid, such as emissive geometry, try again without isolate.")
+                    lines.append(warning)
                     warned = True
                 lines.append(cap_line)
         return "\n".join(lines)

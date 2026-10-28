@@ -562,8 +562,11 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 > so the prim fills the viewport with ~10px margin. The `zoom_offset` parameter adjusts this:
 > negative = closer, positive = further, 0 = auto-fit default.
 >
-> **Isolate:** `isolate=True` hides all other `/World` children during capture (via session layer),
-> then restores them. The target prim renders alone against an empty background.
+> **Isolate:** `isolate=True` hides everything but the target during capture, in the session layer: the target's
+> siblings at every level from the root down, never a light (a prim that holds a light keeps it on and only its
+> other children are hidden). Afterwards each prim's visibility is put back exactly as it was. Instances it would
+> have to look inside, and prims with time-sampled session visibility, are left as they are and named in
+> `isolate_warnings`.
 
 ### 22.1 Inspect with Segmentation
 - `inspect_prim("/World/TestCube", angles=["front", "right"], include_segmentation=True)`
@@ -585,7 +588,7 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 ### 22.5 Inspect with Isolate
 - `inspect_prim("/World/Franka", angles=["front"], isolate=True)`
 - Verify: response includes `isolate=true`, prim captures successfully
-- Other scene prims should not be visible in the captured image
+- Other scene prims should not be visible in the captured image; the scene's lights still light it
 - After capture, other prims should be restored (check with `capture_viewport`)
 
 ---
