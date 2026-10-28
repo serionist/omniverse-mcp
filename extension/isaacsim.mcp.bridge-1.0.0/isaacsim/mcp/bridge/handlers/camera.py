@@ -14,6 +14,7 @@ from pxr import Gf, Usd, UsdGeom
 
 from ..core.framing import MARGIN_PX, apply_zoom, bounding_radius, fit_distance
 from ..core.isolation import LIGHT_TYPES, Hidden, is_light, prims_to_hide
+from ..core.lighting import camera_light_switch, current_mode
 from ._utils import (
     CAMERA_SETTLE_FRAMES,
     _compute_world_bbox,
@@ -132,9 +133,7 @@ def _get_current_lighting_mode() -> str:
     """Get the current viewport lighting mode.
 
     Returns one of: "camera", "stage", "off", or a light rig name
-    (e.g., "Default", "Colored Lights", "Grey Studio"). The renderer's own
-    camera-light flag wins over the lighting menu's record, since scripts and
-    older versions of this bridge set the flag without the menu.
+    (e.g., "Default", "Colored Lights", "Grey Studio"); core/lighting.py decides.
     """
     menu_mode = None
     try:
@@ -143,9 +142,7 @@ def _get_current_lighting_mode() -> str:
         menu_mode = settings.get(_make_light_mode_setting_key(omni.usd.get_context()))
     except Exception as e:
         _warn_once("lighting-mode", f"[MCP Bridge] Can't read the lighting menu's mode, using the renderer's flag: {e}")
-    if _get_camera_light_enabled():
-        return "camera"
-    return menu_mode or "stage"
+    return current_mode(_get_camera_light_enabled(), menu_mode)
 
 
 def _get_available_lighting_modes() -> list[str]:
@@ -168,21 +165,27 @@ def _set_lighting_mode(mode: str) -> str | None:
     Kit apps), "camera" and "stage" fall back to the renderer's camera-light
     flag, which needs no other extension.
     """
+    ran = False
+    reason = ""
     try:
         import omni.kit.commands
         outcome = omni.kit.commands.execute("SetLightingMenuModeCommand", lighting_mode=mode)
         # Kit returns (success, result) and logs, rather than raises, for a missing command.
-        if outcome[0] if isinstance(outcome, tuple) else outcome:
-            return None
-        reason = "SetLightingMenuModeCommand did not run (is omni.kit.viewport.menubar.lighting enabled?)"
+        ran = bool(outcome[0] if isinstance(outcome, tuple) else outcome)
+        if not ran:
+            reason = "SetLightingMenuModeCommand did not run (is omni.kit.viewport.menubar.lighting enabled?)"
     except Exception as e:
         reason = f"SetLightingMenuModeCommand failed: {e}"
 
-    if mode in ("camera", "stage"):
-        carb.settings.get_settings().set("/rtx/useViewLightingMode", mode == "camera")
-        if _get_camera_light_enabled() == (mode == "camera"):
-            return None
-    return f"Lighting mode not changed to '{mode}': {reason}"
+    if not ran and mode not in ("camera", "stage"):
+        return f"Lighting mode not changed to '{mode}': {reason}"
+    # The camera-light flag decides what current_mode() reports, so it follows every mode that takes: on for
+    # "camera", off for the rest. For "camera" and "stage" it also stands in for a missing menu.
+    flag = mode == "camera"
+    carb.settings.get_settings().set("/rtx/useViewLightingMode", flag)
+    if _get_camera_light_enabled() != flag:
+        return f"Lighting mode not changed to '{mode}': the renderer's camera-light flag did not take. {reason}".strip()
+    return None
 
 
 def _viewport_resolution(requested: tuple[int, int]) -> tuple[int, int]:
@@ -853,19 +856,24 @@ async def handle_viewport_light(body: dict) -> dict:
             if mode not in available:
                 return {"status": "error", "error": f"Unknown mode: '{mode}'. Available: {', '.join(available)}"}
         else:
-            # Legacy alias: enabled=true → "camera", enabled=false → "stage"
-            mode = "camera" if body.get("enabled", True) else "stage"
+            # Legacy alias: on is mode "camera"; off leaves a rig alone (core/lighting.py)
+            mode = camera_light_switch(bool(body.get("enabled", True)), _get_current_lighting_mode())
 
         try:
-            error = _set_lighting_mode(mode)
-            if error:
-                return {"status": "error", "error": error}
+            if mode is None:
+                carb.settings.get_settings().set("/rtx/useViewLightingMode", False)
+                message = "Viewport camera light turned off; the lighting mode is unchanged"
+            else:
+                error = _set_lighting_mode(mode)
+                if error:
+                    return {"status": "error", "error": error}
+                message = f"Lighting mode set to '{mode}'"
             await _reset_renderer(wait_frames=CAMERA_SETTLE_FRAMES)
             return {
                 "status": "success",
                 "result": {
                     "lighting_mode": _get_current_lighting_mode(),
-                    "message": f"Lighting mode set to '{mode}'",
+                    "message": message,
                 },
             }
         except Exception as e:
