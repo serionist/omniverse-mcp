@@ -1,7 +1,7 @@
 """The token file and the protocol constant: what the extension writes, the MCP server reads."""
 
+import re
 import sys
-import tomllib
 
 import pytest
 from isaacsim.mcp.bridge.core import protocol as ext_protocol
@@ -10,13 +10,6 @@ from isaacsim.mcp.bridge.core import token as ext_token
 from isaac_sim_mcp import bridge_token, client
 
 from .conftest import EXTENSION_ROOT
-
-
-@pytest.fixture
-def state(tmp_path, monkeypatch):
-    monkeypatch.setenv("OMNIVERSE_MCP_STATE_DIR", str(tmp_path))
-    monkeypatch.delenv("OMNIVERSE_MCP_TOKEN", raising=False)
-    return tmp_path
 
 
 def test_both_sides_agree_on_the_token_path(state):
@@ -53,6 +46,16 @@ def test_token_file_is_readable_by_its_owner_only(state):
     assert path.stat().st_mode & 0o777 == 0o600
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+def test_a_leftover_temporary_file_never_holds_the_token_with_its_old_mode(state):
+    leftover = state / "bridge-8211.token.tmp"
+    leftover.write_text("old")
+    leftover.chmod(0o644)
+    path = ext_token.write_token(8211, "secret")
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert not leftover.exists()
+
+
 def test_remove_leaves_another_instances_token(state):
     ext_token.write_token(8211, "ours")
     ext_token.remove_token(8211, "theirs")
@@ -73,8 +76,8 @@ def test_both_sides_speak_the_same_protocol():
 
 def test_extension_folder_name_matches_its_id_and_version():
     # Kit derives the ext_id it hands on_startup from these; version_from_ext_id reads it back.
-    with (EXTENSION_ROOT / "config" / "extension.toml").open("rb") as f:
-        version = tomllib.load(f)["package"]["version"]
+    toml = (EXTENSION_ROOT / "config" / "extension.toml").read_text(encoding="utf-8")
+    version = re.search(r'^version\s*=\s*"([^"]+)"', toml, re.MULTILINE).group(1)
     assert EXTENSION_ROOT.name == f"{ext_protocol.EXTENSION_NAME}-{version}"
     assert ext_protocol.version_from_ext_id(EXTENSION_ROOT.name) == version
 

@@ -66,7 +66,7 @@ This keeps the MCP context window clean -- the AI reads files on demand rather t
 
 - Persistent keep-alive connections
 - The bridge token on every request (see [The bridge token](#the-bridge-token)), read again after a 401
-- A bridge protocol check on the first request after each (re)connect
+- A handshake, `GET /bridge`, at the start of every new connection
 - Automatic reconnection on failure (1 retry, 2 total attempts)
 - Configurable timeout (default 120s)
 - Proper Content-Length framing with chunked body reading (avoids O(n²) buffer concatenation)
@@ -97,10 +97,11 @@ The extension runs an asyncio HTTP server on the application's event loop (same 
 
 | Step | What happens |
 |---|---|
-| Kit starts the extension | A new random token (or the `token` setting, if set) is written to the token file, readable by this user only |
+| Kit starts the extension | A new random token (or the `token` setting, if set); once the port is bound, it is written to the token file, readable by this user only |
+| The MCP server opens a connection | `GET /bridge` first, with no body: the token is checked, and the extension's `protocol` compared with the server's |
 | The MCP server sends a request | `Authorization: Bearer <token>`, from `OMNIVERSE_MCP_TOKEN` or else the token file |
-| Kit restarts | A new token; the server gets a 401, reads the file again and retries once |
-| The extension stops | The token file is removed |
+| Kit restarts | A new token; the server's handshake gets a 401, it reads the file again and retries once |
+| The extension stops | The token file is removed, if this instance wrote it |
 
 The token file is `bridge-<port>.token` in:
 
@@ -110,7 +111,8 @@ The token file is `bridge-<port>.token` in:
 | Linux | `$XDG_STATE_HOME/omniverse-mcp/`, else `~/.local/state/omniverse-mcp/` |
 | macOS | `~/Library/Application Support/omniverse-mcp/` |
 
-`OMNIVERSE_MCP_STATE_DIR` overrides the folder on both sides.
+`OMNIVERSE_MCP_STATE_DIR` overrides the folder on both sides. On Windows the folder's permissions are what keep the
+file private (`%LOCALAPPDATA%` is per user), so an override must point at a folder only you can read.
 
 A request is refused, and its connection closed, before its body is read when:
 
@@ -118,8 +120,12 @@ A request is refused, and its connection closed, before its body is read when:
 - it carries an `Origin` header (403). Browsers send one on every POST, so a web page cannot reach the bridge;
 - the bridge is bound to loopback and the `Host` header names something else (403), which stops DNS rebinding.
 
-`/health` reports `protocol` and `extension_version`. The server refuses to work with an extension whose `protocol`
-differs from its own, and says which side to update.
+A connection that sends nothing for 5 minutes is closed (the client reconnects without notice), and one that takes
+over 10 seconds to send its headers too. Connections without the token never hold one of the 20 handler slots.
+
+`GET /bridge` is answered by the HTTP server itself, whatever state Kit is in. The server refuses an extension whose
+`protocol` differs from its own, or that has no `/bridge`, and says which side to update. `/health` reports
+`protocol` and `extension_version` as well, for people.
 
 ### Request routing
 

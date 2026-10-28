@@ -144,15 +144,7 @@ class Extension(omni.ext.IExt):
         self._log_buffer = log_buffer
         self._log_buffer.start()
 
-        try:
-            token_file = write_token(self._port, self._token)
-            carb.log_info(f"[MCP Bridge] Token written to {token_file}")
-        except OSError as e:
-            carb.log_error(
-                f"[MCP Bridge] Could not write the bridge token file ({e}). Set the extension's token setting "
-                "and give the MCP server the same value in OMNIVERSE_MCP_TOKEN."
-            )
-
+        self._token_written = False
         self._server = BridgeServer(routes, self._token, self._host, self._port, log=_CarbLog())
         _get_event_loop().create_task(self._start_server())
         _get_event_loop().create_task(self._init_sensors())
@@ -181,7 +173,8 @@ class Extension(omni.ext.IExt):
             self._server.close()
             carb.log_info("[MCP Bridge] Server shut down")
             self._server = None
-        remove_token(self._port, self._token)
+        if self._token_written:
+            remove_token(self._port, self._token)
 
     async def _init_sensors(self):
         """Pre-initialize syntheticdata sensors so capture_viewport works on first call."""
@@ -215,3 +208,14 @@ class Extension(omni.ext.IExt):
             await self._server.start()
         except Exception as e:
             carb.log_error(f"[MCP Bridge] Failed to start server: {e}")
+            return
+        # Only once the port is ours: an instance that fails to bind must not replace the running one's token.
+        try:
+            token_file = write_token(self._port, self._token)
+            self._token_written = True
+            carb.log_info(f"[MCP Bridge] Token written to {token_file}")
+        except OSError as e:
+            carb.log_error(
+                f"[MCP Bridge] Could not write the bridge token file ({e}). Set the extension's token setting "
+                "and give the MCP server the same value in OMNIVERSE_MCP_TOKEN."
+            )

@@ -11,9 +11,13 @@ import traceback
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
+from .protocol import PROTOCOL, extension_version
+
 MAX_BODY_SIZE = 100 * 1024 * 1024  # 100 MB
-MAX_CONNECTIONS = 20
+MAX_HANDLERS = 20
 MAX_HEADERS = 100
+IDLE_TIMEOUT = 300.0  # seconds a kept-alive connection may wait for its next request
+HEADER_TIMEOUT = 10.0  # seconds to send the headers once the request line has arrived
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 Handler = Callable[[dict], Awaitable[dict]]
@@ -57,6 +61,8 @@ class BridgeServer:
     A request is refused before its body is read when it carries an Origin header (browsers send one on every POST,
     our client never does), when the server is bound to loopback and the Host header names something else (DNS
     rebinding), or when its bearer token is missing or wrong. A refusal closes the connection.
+
+    `GET /bridge` is answered here, not by a handler, so the client's handshake works whatever state Kit is in.
     """
 
     def __init__(
@@ -73,11 +79,18 @@ class BridgeServer:
         self.port = port
         self._log: Log = log or logging.getLogger(__name__)
         self._server: asyncio.Server | None = None
-        self._connections = asyncio.Semaphore(MAX_CONNECTIONS)
+        # Taken only by authenticated requests, so connections without the token cannot crowd the client out.
+        self._handlers = asyncio.Semaphore(MAX_HANDLERS)
+        self.idle_timeout = IDLE_TIMEOUT
+        self.header_timeout = HEADER_TIMEOUT
 
     @property
     def checks_host(self) -> bool:
         return self.host in LOOPBACK_HOSTS
+
+    def info(self) -> dict | None:
+        """What GET /bridge answers: the client's handshake."""
+        return {"protocol": PROTOCOL, "extension_version": extension_version()}
 
     async def start(self) -> None:
         self._server = await asyncio.start_server(self._handle_connection, self.host, self.port)
@@ -106,21 +119,20 @@ class BridgeServer:
     async def _handle_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         peer = writer.get_extra_info("peername")
         self._log.info(f"[MCP Bridge] Connection from {peer}")
-        async with self._connections:
-            try:
-                while await self._serve_one(reader, writer):
-                    pass
-            except (asyncio.IncompleteReadError, ConnectionResetError):
+        try:
+            while await self._serve_one(reader, writer):
                 pass
-            except Exception as e:
-                self._log.error(f"[MCP Bridge] Connection error: {e}")
-            finally:
-                writer.close()
-                self._log.info(f"[MCP Bridge] Connection closed from {peer}")
+        except (asyncio.IncompleteReadError, ConnectionResetError, asyncio.TimeoutError):
+            pass
+        except Exception as e:
+            self._log.error(f"[MCP Bridge] Connection error: {e}")
+        finally:
+            writer.close()
+            self._log.info(f"[MCP Bridge] Connection closed from {peer}")
 
     async def _serve_one(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> bool:
         """Answer one request; False when the connection should close."""
-        request_line = await reader.readline()
+        request_line = await asyncio.wait_for(reader.readline(), self.idle_timeout)
         if not request_line:
             return False
         parts = request_line.decode("latin-1").strip().split(" ")
@@ -130,7 +142,7 @@ class BridgeServer:
             await self._send(writer, 400, _error("Bad request"), close=True)
             return False
         method, path = parts[0], parts[1]
-        headers = await self._read_headers(reader)
+        headers = await asyncio.wait_for(self._read_headers(reader), self.header_timeout)
 
         refused = self.refusal(headers)
         if refused is not None:
@@ -165,6 +177,11 @@ class BridgeServer:
             await self._send(writer, 400, _error("The JSON body must be an object"))
             return True
 
+        info = self.info()
+        if path == "/bridge" and method == "GET" and info is not None:
+            await self._send(writer, 200, {"status": "success", "result": info})
+            return True
+
         handler = self.routes.get(path)
         if handler is None:
             await self._send(writer, 404, _error(f"Unknown endpoint: {path}"))
@@ -173,15 +190,16 @@ class BridgeServer:
             await self._send(writer, 405, _error("Method not allowed, use POST"))
             return True
 
-        try:
-            # Run the handler as its own task so this connection's task suspends properly and doesn't block Kit's
-            # async work (viewport updates, property widgets); awaiting it inline broke Kit's UI.
-            result = await asyncio.ensure_future(handler(body))
-            await self._send(writer, 200, result)
-        except Exception as e:
-            tb = traceback.format_exc()
-            self._log.error(f"[MCP Bridge] Handler error on {path}: {tb}")
-            await self._send(writer, 500, {"status": "error", "error": str(e), "traceback": tb})
+        async with self._handlers:
+            try:
+                # Run the handler as its own task so this connection's task suspends properly and doesn't block
+                # Kit's async work (viewport updates, property widgets); awaiting it inline broke Kit's UI.
+                result = await asyncio.ensure_future(handler(body))
+                await self._send(writer, 200, result)
+            except Exception as e:
+                tb = traceback.format_exc()
+                self._log.error(f"[MCP Bridge] Handler error on {path}: {tb}")
+                await self._send(writer, 500, {"status": "error", "error": str(e), "traceback": tb})
         return True
 
     async def _read_headers(self, reader: asyncio.StreamReader) -> dict[str, str]:

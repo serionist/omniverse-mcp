@@ -91,6 +91,7 @@ class TestIsaacSimClient(unittest.TestCase):
     def setUpClass(cls):
         cls.mock = MockIsaacServer()
         # Register mock responses for all endpoints
+        cls.mock.set_response("/bridge", {"status": "success", "result": {"protocol": 1, "extension_version": "1.0.0"}})
         cls.mock.set_response("/health", {"status": "success", "result": {"stage_path": "/test.usd", "up_axis": "Y", "meters_per_unit": 1.0, "recording_active": False, "protocol": 1, "extension_version": "1.0.0"}})
         cls.mock.set_response("/execute", {"status": "success", "result": {"stdout": "hello\n", "stderr": "", "return_value": 42}})
         cls.mock.set_response("/scene/tree", {"status": "success", "result": {"path": "/", "type": "Xform", "children": [{"path": "/World", "type": "Xform", "world_position": [0, 0, 0]}]}})
@@ -328,7 +329,16 @@ class TestIsaacSimClient(unittest.TestCase):
         self.client.health()
         self.client.sim_state()
         self.client.scene_tree()
-        self.assertEqual(len(self.mock.requests), 3)
+        # One connection: one handshake, then the three requests.
+        self.assertEqual([path for _, path, _ in self.mock.requests],
+                         ["/bridge", "/health", "/sim/state", "/scene/tree"])
+
+    def test_handshake_on_every_new_connection(self):
+        self.client.health()
+        self.client._disconnect()
+        self.client.health()
+        self.assertEqual([path for _, path, _ in self.mock.requests],
+                         ["/bridge", "/health", "/bridge", "/health"])
 
     def test_reconnect_after_disconnect(self):
         self.client.health()

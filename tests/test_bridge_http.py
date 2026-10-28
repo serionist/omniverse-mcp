@@ -6,17 +6,18 @@ import socket
 import threading
 
 import pytest
-from isaacsim.mcp.bridge.core.http import MAX_BODY_SIZE, BridgeServer, host_name
+from isaacsim.mcp.bridge.core.http import MAX_BODY_SIZE, MAX_HANDLERS, BridgeServer, host_name
 from isaacsim.mcp.bridge.core.token import write_token
 
 from isaac_sim_mcp.client import PROTOCOL, BridgeError, IsaacSimClient
 
 TOKEN = "t0k3n"
+CURRENT = object()
 
 
-def _routes(health: dict):
+def _routes():
     async def handle_health(_body):
-        return {"status": "success", "result": health}
+        return {"status": "success", "result": {"up_axis": "Z"}}
 
     async def handle_echo(body):
         return {"status": "success", "result": body}
@@ -28,10 +29,15 @@ def _routes(health: dict):
 
 
 class RunningBridge:
-    """A BridgeServer on its own event loop in a thread, the way Kit runs it on Kit's loop."""
+    """A BridgeServer on its own event loop in a thread, the way Kit runs it on Kit's loop.
 
-    def __init__(self, health: dict):
-        self.server = BridgeServer(_routes(health), token=TOKEN, port=0)
+    `info` replaces what GET /bridge answers: None plays an extension from before the handshake.
+    """
+
+    def __init__(self, info=CURRENT):
+        self.server = BridgeServer(_routes(), token=TOKEN, port=0)
+        if info is not CURRENT:
+            self.server.info = lambda: info
         self.loop = asyncio.new_event_loop()
         self.thread = threading.Thread(target=self.loop.run_forever, daemon=True)
         self.thread.start()
@@ -56,15 +62,8 @@ class RunningBridge:
 
 
 @pytest.fixture
-def state(tmp_path, monkeypatch):
-    monkeypatch.setenv("OMNIVERSE_MCP_STATE_DIR", str(tmp_path))
-    monkeypatch.delenv("OMNIVERSE_MCP_TOKEN", raising=False)
-    return tmp_path
-
-
-@pytest.fixture
 def bridge(state):
-    running = RunningBridge({"protocol": PROTOCOL, "extension_version": "test"})
+    running = RunningBridge()
     yield running
     running.stop()
 
@@ -198,7 +197,34 @@ def test_connection_stays_open_across_requests_and_errors(bridge):
 def test_health_answers_get(bridge):
     (status, _, body), = _send(bridge.port, _request(method="GET", path="/health", body=b""))
     assert status == 200
+    assert body["result"]["up_axis"] == "Z"
+
+
+def test_the_handshake_is_answered_without_a_handler(bridge):
+    (status, _, body), = _send(bridge.port, _request(method="GET", path="/bridge", body=b""))
+    assert status == 200
     assert body["result"]["protocol"] == PROTOCOL
+
+
+def test_the_handshake_needs_the_token_too(bridge):
+    (status, _, _), = _send(bridge.port, _request(method="GET", path="/bridge", body=b"", token=None))
+    assert status == 401
+
+
+def test_an_idle_connection_is_closed(bridge):
+    bridge.server.idle_timeout = 0.2
+    with socket.create_connection(("127.0.0.1", bridge.port), timeout=5) as sock:
+        assert sock.recv(1) == b""
+
+
+def test_connections_without_the_token_cannot_crowd_out_the_client(bridge):
+    idle = [socket.create_connection(("127.0.0.1", bridge.port), timeout=5) for _ in range(MAX_HANDLERS + 5)]
+    try:
+        (status, _, _), = _send(bridge.port, _request())
+        assert status == 200
+    finally:
+        for sock in idle:
+            sock.close()
 
 
 def test_oversized_body_is_refused_unread(bridge):
@@ -232,6 +258,20 @@ def test_client_finds_the_new_token_after_kit_restarts(bridge):
         client.close()
 
 
+def test_client_finds_the_new_token_before_sending_a_large_body(bridge):
+    write_token(bridge.port, TOKEN)
+    client = IsaacSimClient(port=bridge.port, timeout=5)
+    try:
+        client.health()
+        client._disconnect()  # Kit restarted: the old connection is gone, and the token with it
+        bridge.server.token = "after-restart"
+        write_token(bridge.port, "after-restart")
+        script = "x" * 2_000_000
+        assert client.request("/echo", {"code": script})["result"]["code"] == script
+    finally:
+        client.close()
+
+
 def test_client_without_a_token_says_where_it_looked(bridge, state):
     client = IsaacSimClient(port=bridge.port, timeout=5)
     try:
@@ -242,26 +282,49 @@ def test_client_without_a_token_says_where_it_looked(bridge, state):
         client.close()
 
 
-def test_client_with_a_stale_token_is_refused(bridge):
+def test_client_with_a_stale_token_file_is_refused(bridge):
     write_token(bridge.port, "stale")
     client = IsaacSimClient(port=bridge.port, timeout=5)
     try:
-        with pytest.raises(BridgeError, match="was refused"):
+        with pytest.raises(BridgeError, match="is not the running extension's"):
+            client.health()
+    finally:
+        client.close()
+
+
+def test_client_names_the_environment_when_its_token_is_refused(bridge, monkeypatch):
+    monkeypatch.setenv("OMNIVERSE_MCP_TOKEN", "wrong")
+    client = IsaacSimClient(port=bridge.port, timeout=5)
+    try:
+        with pytest.raises(BridgeError, match="OMNIVERSE_MCP_TOKEN was refused"):
+            client.health()
+    finally:
+        client.close()
+
+
+def test_client_keeps_a_token_it_was_given(bridge):
+    write_token(bridge.port, TOKEN)
+    client = IsaacSimClient(port=bridge.port, timeout=5, token="given")
+    try:
+        with pytest.raises(BridgeError, match="this client was given"):
             client.health()
     finally:
         client.close()
 
 
 @pytest.mark.parametrize(
-    ("health", "message"),
-    [({}, "older than this MCP server"), ({"protocol": PROTOCOL + 1, "extension_version": "9.0.0"}, "9.0.0")],
+    ("info", "message"),
+    [(None, "older than this MCP server"), ({"protocol": PROTOCOL + 1, "extension_version": "9.0.0"}, "9.0.0")],
 )
-def test_client_refuses_an_extension_that_speaks_another_protocol(state, health, message):
-    other = RunningBridge(health)
+def test_client_refuses_an_extension_that_speaks_another_protocol(state, info, message):
+    other = RunningBridge(info)
     try:
         write_token(other.port, TOKEN)
         client = IsaacSimClient(port=other.port, timeout=5)
         try:
+            with pytest.raises(BridgeError, match=message):
+                client.request("/echo", {})
+            # Asked again on the next request, not remembered as passed.
             with pytest.raises(BridgeError, match=message):
                 client.request("/echo", {})
         finally:

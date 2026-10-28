@@ -6,6 +6,7 @@ Uses persistent HTTP connections with keep-alive for efficiency.
 
 import json
 import logging
+import os
 import socket
 from typing import Any
 
@@ -13,7 +14,7 @@ from .bridge_token import ENV_TOKEN, read_token, token_path
 
 logger = logging.getLogger(__name__)
 
-# The bridge protocol this server speaks. The extension reports its own in /health; its copy is
+# The bridge protocol this server speaks. The extension answers its own to GET /bridge; its copy is
 # isaacsim.mcp.bridge.core.protocol.PROTOCOL, and tests/test_bridge_token.py keeps them equal.
 PROTOCOL = 1
 
@@ -31,9 +32,10 @@ class IsaacSimClient:
         self.port = port
         self.timeout = timeout
         self._sock: socket.socket | None = None
-        # Kit may start after this server; a missing token is looked for again on the first 401.
-        self._token = token or read_token(port)
-        self._bridge_checked = False
+        # A token handed in stays. Otherwise it comes from the environment or the token file, and is read again
+        # after a 401: Kit may start after this server, and makes a new token at every start.
+        self._fixed_token = token is not None
+        self._token = token if token is not None else read_token(port)
 
     def _connect(self):
         if self._sock is not None:
@@ -53,19 +55,17 @@ class IsaacSimClient:
 
     def request(self, path: str, body: dict | None = None, method: str = "POST") -> dict:
         """Send an HTTP request and return the parsed JSON response."""
-        if path != "/health" and not self._bridge_checked:
-            self.health()
         status, data = self._exchange(path, body, method)
         if status == 401 and self._reload_token():
             status, data = self._exchange(path, body, method)
         if status in (401, 403):
             raise BridgeError(self._refusal(status, data))
-        if path == "/health" and status == 200:
-            self._check_protocol(data)
         return data
 
     def _reload_token(self) -> bool:
-        """Read the token again (Kit restarts make a new one); True when it changed."""
+        """Read the token again; True when it changed."""
+        if self._fixed_token:
+            return False
         fresh = read_token(self.port)
         if fresh and fresh != self._token:
             self._token = fresh
@@ -76,30 +76,37 @@ class IsaacSimClient:
         message = data.get("error", f"HTTP {status}")
         if status != 401:
             return message
+        if self._fixed_token:
+            return f"{message} The token this client was given was refused."
+        if os.environ.get(ENV_TOKEN, "").strip():
+            return f"{message} The token in {ENV_TOKEN} was refused: it must equal the extension's token setting."
         path = token_path(self.port)
-        where = f"{ENV_TOKEN}, then {path}"
         if not path.exists():
-            return (f"{message} No token found ({where}): is the MCP Bridge extension enabled in a running "
-                    "Kit app on this machine?")
-        return f"{message} The token in {path} was refused; restart the MCP server if Kit was restarted."
+            return (f"{message} No token found ({ENV_TOKEN} is not set and there is no {path}): is the MCP "
+                    "Bridge extension enabled in a running Kit app on this machine?")
+        return (f"{message} The token in {path} is not the running extension's: is another Kit app on port "
+                f"{self.port}, or did the extension fail to write it? Kit's log says which.")
 
-    def _check_protocol(self, health: dict) -> None:
-        result = health.get("result") or {}
-        theirs = result.get("protocol")
-        version = result.get("extension_version", "unknown")
-        if theirs is None:
-            raise BridgeError(
-                f"The Kit extension is older than this MCP server: it reports no bridge protocol, the server "
-                f"speaks {PROTOCOL}. Update the extension (git pull in the omniverse-mcp checkout) and restart Kit."
-            )
-        if theirs != PROTOCOL:
-            raise BridgeError(
-                f"The Kit extension {version} speaks bridge protocol {theirs} and this MCP server speaks "
-                f"{PROTOCOL}. Update the older of the two and restart it."
-            )
-        self._bridge_checked = True
+    def _check_handshake(self, status: int, data: dict) -> None:
+        """Refuse an extension that speaks another protocol, before any request runs on it."""
+        problem = None
+        result = data.get("result") or {}
+        if status == 404:
+            problem = (f"The Kit extension is older than this MCP server: it has no bridge handshake, the server "
+                       f"speaks protocol {PROTOCOL}. Update the extension (git pull in the omniverse-mcp checkout) "
+                       "and restart Kit.")
+        elif status != 200 or "protocol" not in result:
+            problem = f"Unexpected handshake answer from the Kit extension (HTTP {status}): {data.get('error', data)}"
+        elif result["protocol"] != PROTOCOL:
+            problem = (f"The Kit extension {result.get('extension_version', 'unknown')} speaks bridge protocol "
+                       f"{result['protocol']} and this MCP server speaks {PROTOCOL}. Update the older of the two "
+                       "and restart it.")
+        if problem:
+            # The next request reconnects and asks again.
+            self._disconnect()
+            raise BridgeError(problem)
 
-    def _exchange(self, path: str, body: dict | None, method: str) -> tuple[int, dict]:
+    def _build(self, path: str, body: dict | None, method: str) -> bytes:
         body_bytes = b""
         if body is not None:
             body_bytes = json.dumps(body).encode("utf-8")
@@ -115,17 +122,25 @@ class IsaacSimClient:
             f"Connection: keep-alive\r\n"
             f"\r\n"
         )
-        raw_request = (request_line + headers).encode("utf-8") + body_bytes
+        return (request_line + headers).encode("utf-8") + body_bytes
 
+    def _exchange(self, path: str, body: dict | None, method: str) -> tuple[int, dict]:
+        raw_request = self._build(path, body, method)
         for attempt in range(2):
             try:
-                self._connect()
+                if self._sock is None:
+                    self._connect()
+                    # Every new connection starts with the handshake, a request without a body: a stale token is
+                    # refused there, and a Kit restarted with another extension is caught before the request runs.
+                    self._sock.sendall(self._build("/bridge", None, "GET"))
+                    status, data = self._read_response()
+                    if status in (401, 403):
+                        return status, data
+                    self._check_handshake(status, data)
                 self._sock.sendall(raw_request)
                 return self._read_response()
             except (ConnectionError, BrokenPipeError, OSError, socket.timeout) as e:
                 self._disconnect()
-                # Kit may have restarted with another extension version.
-                self._bridge_checked = False
                 if attempt == 1:
                     raise
                 logger.warning(f"Connection failed (attempt {attempt+1}/2), retrying: {e}")

@@ -38,12 +38,11 @@ def write_token(port: int, token: str) -> Path:
     path = token_path(port)
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # A file left over from an earlier run would keep its old mode; a new one gets 0600 before the token is in it.
+    tmp.unlink(missing_ok=True)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(token)
-    if sys.platform != "win32":
-        # O_CREAT keeps the mode of a file left over from an earlier run.
-        os.chmod(tmp, 0o600)
     os.replace(tmp, path)
     return path
 
