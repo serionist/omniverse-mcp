@@ -1,11 +1,13 @@
 """Simulation and physics tools."""
 
+from importlib.metadata import version
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from mcp.server.mcpserver import MCPServer
 from pydantic import Field
 
 from omniverse_mcp.client import BridgeClient
+from omniverse_mcp.kit_extension import carried_version, install_command
 
 from ._annotations import EDITS, READS
 from ._bridge import bridge_call
@@ -27,9 +29,13 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
     @mcp.tool(annotations=READS)
     def get_sim_state() -> str:
-        """Get simulation state: playing/paused/stopped, time, FPS, prim count, up axis."""
+        """Get simulation state: playing/paused/stopped, time, FPS, prim count, up axis, and the versions of the Kit
+        extension and this server, with what to run when they differ."""
         resp = bridge_call(client.sim_state)
         r = resp["result"]
+        server = version("omniverse-mcp")
+        extension = client.extension_version or "unknown"
+        carried = carried_version()
         lines = [
             f"state = {r.get('state', 'unknown')}",
             f"up_axis = {r.get('up_axis', '?')}",
@@ -37,7 +43,14 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             f"fps = {r.get('fps', 0):.1f}",
             f"prim_count = {r.get('prim_count', 0)}",
             f"meters_per_unit = {r.get('meters_per_unit', 1.0)}",
+            f"extension_version = {extension}",
+            f"server_version = {server}",
         ]
+        if extension != carried:
+            lines.append(
+                f"note = the Kit extension is {extension} and this server's is {carried}: install the server's, "
+                f"{install_command()}, then restart Kit"
+            )
         return "\n".join(lines)
 
     @mcp.tool(annotations=EDITS)

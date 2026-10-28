@@ -61,6 +61,16 @@ def extension_version(folder: Path) -> str | None:
         return None
 
 
+def carried_version() -> str:
+    """The version of the extension this server carries, which `install_command()` installs: the same string Kit
+    reports. A checkout's package metadata keeps the version of its last sync; its extension.toml doesn't."""
+    try:
+        carried = extension_version(source())
+    except InstallError:
+        carried = None
+    return carried or version("omniverse-mcp")
+
+
 def install_command() -> str:
     """The command that installs the extension of this server's release, for messages. A checkout's version need not
     be on PyPI, nor its extension the release's, so a checkout gets its own."""

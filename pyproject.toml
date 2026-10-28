@@ -73,8 +73,11 @@ dev-mode-dirs = ["src", "extension/ovmcp.bridge"]
 "extension/ovmcp.bridge" = "omniverse_mcp/_extension/ovmcp.bridge"
 
 [tool.hatch.build.targets.sdist]
-# tools/ too: tests/test_gate.py and the hook tests import the gate.
-include = ["src/", "extension/", "tests/", "tools/", "docs/", "README.md", "CHANGELOG.md", "LICENSE"]
+# tools/ too: tests/test_gate.py and the hook tests import the gate, which reads the plugin.
+include = [
+    "src/", "extension/", "plugin/", ".claude-plugin/", "tests/", "tools/", "docs/", "README.md", "CHANGELOG.md",
+    "LICENSE",
+]
 
 # Strict from the start (plan S6): an unknown marker or setting, an xfail that passes, a repeated parametrize id and
 # any warning are errors. Each by name rather than `strict`, so a newer pytest can't turn on more unseen. The live
