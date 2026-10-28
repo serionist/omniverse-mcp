@@ -84,3 +84,22 @@ On Isaac Sim 6.2.0, headless, at `b16328e`.
 | R4: `set_camera_light(False)` under the Default rig | rig kept, mode `Default` |
 | R4: `set_camera_light(False)` from camera, then `True` | `stage`, then `camera` |
 | R5: `inspect_prim("/World/Inst/A", isolate=True)` on an instanceable prim | success, with the warning "/World/Inst is an instance that holds the target; children of an instance can't be hidden, so all of it stays visible" |
+
+## Review-code round 2 (PR #4)
+
+High tier, one fresh reviewer, at `4404717`. Fixed on `2-s1b-camera-lighting`; each fix with a test that runs without
+Kit unless the row says otherwise.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| R1 | major | Handlers interleave on Kit's loop at every await, so another request saw isolate's hidden prims and inspect's moved camera; two isolated inspects of siblings hid each other's target | Fixed (`a25bd69`): one asyncio lock, made on first use in the running loop (`core/serial.py`), held for the whole of inspect, capture, set_camera and look_at. No locked handler calls another (inspect captures through `_capture_frame`); scripts using the `mcp` object wait their turn. Tests with plain asyncio: two locked coroutines never overlap, a second waits, an unlocked one still runs |
+| R2 | minor | The March work dropped `_capture_frame`'s "turn the camera light on and capture again" fallback without saying so | Kept as designed (lighting modes replace silent relighting); CHANGELOG says so under Changed (`e490248`) |
+| R3 | minor | A non-numeric `zoom_offset`, `width` or `height`, or a malformed `[azimuth, elevation]` pair, raised a TypeError (a 500 with a traceback, the pair only mid-capture after isolate had hidden prims); unknown angle names were skipped silently | Fixed (`c729901`): `inspect_args` in `core/framing.py` checks the body first and the handler answers its ValueError as an error; unknown names are refused too (CHANGELOG). Tests |
+| R4 | minor | With an orthographic active camera (such as `/OmniverseKit_Top`) the fitted distance frames nothing | Fixed (`c729901`): the fit refuses it and names `/OmniverseKit_Persp`. Test for the check; the handler checked with Kit mocked |
+| R5 | minor | `_set_lighting_mode` sets the camera-light flag on every mode that takes | Left as is: checked live on Isaac Sim 6.2 for camera, stage and Default. Mode "off" is to be checked live by the main session |
+| R6 | minor | With the camera light already on, both black-capture warnings said to set mode "camera" | Fixed (`e490248`): they say the camera may be inside or facing away from the geometry, or the renderer is warming up: recapture, or move it with look_at_prim. inspect_prim's result carries `lighting_mode`. Tests |
+| R7 | improvement | `handle_viewport_light`'s local `current_mode` shadowed the imported core function | Fixed (`e80a133`): renamed `mode_now` |
+| R8 | minor | The execute_script docstring's `mcp.inspect(..., zoom_offset=, isolate=)` is not valid Python | Fixed (`e80a133`): `zoom_offset=0.0, isolate=False`, in TOOLS.md too |
+| R9 | improvement | isolate's light search walked every instance proxy, so N instances of one asset cost N walks of it | Fixed (`bbfc434`): no proxies; each prototype walked once and cached, nested instances included; same results. Test on usd-core with 30 instances of one lamp |
+
+Still to run against Kit: R1 with two overlapping requests, R4 on `/OmniverseKit_Top`, and R5's mode "off".
