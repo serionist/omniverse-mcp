@@ -234,18 +234,42 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
 
     # ===== Materials & Visibility =====
 
+    def _shader_source(self, material_path: str) -> list[str]:
+        done = self.client.execute(
+            "from pxr import UsdShade\n"
+            f"s = UsdShade.Shader(omni.usd.get_context().get_stage().GetPrimAtPath('{material_path}/Shader'))\n"
+            "result = [str(s.GetImplementationSource()), s.GetSourceAsset('mdl').path]"
+        )
+        self.assertEqual(done["status"], "success", done)
+        return done["result"]["return_value"]
+
     def test_19_set_material(self):
+        # A material from before #30 named only its id, which some Kit apps don't resolve: Kit then rendered its red
+        # error material and logged "Unable to find SdrShaderNode". Both kinds must resolve after set_material.
+        old = "/World/Looks/IntTestOld_Mat"
+        made = self.client.execute(
+            "from pxr import UsdShade, Sdf\n"
+            "stage = omni.usd.get_context().get_stage()\n"
+            f"mat = UsdShade.Material.Define(stage, '{old}')\n"
+            f"shader = UsdShade.Shader.Define(stage, '{old}/Shader')\n"
+            "shader.CreateIdAttr('OmniPBR')\n"
+            "shader.CreateOutput('out', Sdf.ValueTypeNames.Token)\n"
+            "mat.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), 'out')\n"
+            "result = 'made'"
+        )
+        self.assertEqual(made["status"], "success", made)
+        since = self.client.get_logs(count=1)["result"]["total_captured"]
         result = self.client.set_material("/World/IntTestCube", color=[1, 0, 0], roughness=0.3)
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["result"]["color"], [1, 0, 0])
-        # Named by its MDL source, which Kit resolves; an id alone rendered Kit's red error material (#30).
-        path = f"{result['result']['material_path']}/Shader"
-        shader = self.client.execute(
-            "from pxr import UsdShade\n"
-            f"s = UsdShade.Shader(omni.usd.get_context().get_stage().GetPrimAtPath('{path}'))\n"
-            "result = [str(s.GetImplementationSource()), s.GetSourceAsset('mdl').path]"
-        )
-        self.assertEqual(shader["result"]["return_value"], ["sourceAsset", "OmniPBR.mdl"])
+        upgraded = self.client.set_material("/World/IntTestCube", color=[0, 1, 0], material_path=old)
+        self.assertEqual(upgraded["status"], "success")
+        for path in (result["result"]["material_path"], old):
+            self.assertEqual(self._shader_source(path), ["sourceAsset", "OmniPBR.mdl"])
+        # A frame renders the bound material; the renderer logs a shader it can't resolve.
+        self.assertEqual(self.client.capture_viewport(320, 240)["status"], "success")
+        unresolved = self.client.get_logs(count=50, since_index=since, search="SdrShaderNode")["result"]["entries"]
+        self.assertEqual(unresolved, [])
         print(f"  Material set: color={result['result']['color']}, roughness={result['result']['roughness']}")
 
     def test_20_visibility(self):
