@@ -70,5 +70,9 @@ Rules:
 - That includes a gate step dropped or made a warning, a lint rule or a test skipped, an ignore or a baseline entry
   added, a question or a lens removed, attribution let through, a permission widened.
 - A change that only makes a check stricter needs no more than a normal review.
-- The `Read` denies in `.claude/settings.json` don't cover Bash: an allowed command that can print any file (a
-  `git diff --no-index`, `git blame --contents` or `-S`) gets around them. Keep Bash allows to narrow forms.
+- The `Read` denies in `.claude/settings.json` don't cover every Bash command: one that can print any file (a
+  `git diff --no-index`, `git blame --contents` or `-S`) can get around them. An allow names its whole command; a
+  ` *` is only for a git command `tests/test_gate.py` sweeps, or a gh command that only reads from GitHub. Claude Code
+  runs git's read-only forms without any allow, so the usual spellings of what can read a file outside the repo get
+  an `ask`; text rules can't catch every spelling. Bash rules don't reach PowerShell: each ask and deny has a
+  `PowerShell(...)` twin.
