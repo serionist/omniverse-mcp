@@ -3,16 +3,18 @@ Integration test for the Omniverse MCP Bridge (ovmcp.bridge).
 
 Requires Isaac Sim to be running with the ovmcp.bridge extension enabled.
 
-Usage:
-    python -m pytest tests/test_integration.py -v
-    python tests/test_integration.py
+Usage, with Kit running: OMNIVERSE_MCP_SIM=1 uv run pytest -m sim
 """
 
 import json
 import os
 import unittest
 
+import pytest
+
 from omniverse_mcp.client import BridgeClient
+
+pytestmark = pytest.mark.sim
 
 
 class TestIsaacSimIntegration(unittest.TestCase):

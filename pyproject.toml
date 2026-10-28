@@ -70,6 +70,22 @@ packages = ["src/omniverse_mcp"]
 # tools/ too: tests/test_gate.py and the hook tests import the gate.
 include = ["src/", "extension/", "tests/", "tools/", "docs/", "README.md", "CHANGELOG.md", "LICENSE"]
 
+# Strict from the start (plan S6): an unknown marker or setting, an xfail that passes, a repeated parametrize id and
+# any warning are errors. Each by name rather than `strict`, so a newer pytest can't turn on more unseen. The live
+# suites carry the markers sim and scenario: with no Kit answering they skip, and OMNIVERSE_MCP_SIM=1 fails them.
+[tool.pytest]
+addopts = ["--import-mode=importlib", "-ra"]
+testpaths = ["tests"]
+strict_config = true
+strict_markers = true
+strict_parametrization_ids = true
+strict_xfail = true
+filterwarnings = ["error"]
+markers = [
+    "sim: needs a Kit app running ovmcp.bridge (tests/test_integration.py)",
+    "scenario: the scenario suite, against a Kit app running ovmcp.bridge (tests/test_scenarios.py)",
+]
+
 [tool.ruff]
 line-length = 120
 target-version = "py311"  # Kit 107+ embeds 3.11 (plan D8), the server needs 3.11 too

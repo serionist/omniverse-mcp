@@ -2,7 +2,7 @@
 Full scenario tests against live Isaac Sim.
 Covers phases 1-17, 22-23, and 24-26 from test_project/scenarios.md.
 
-Run: conda run -n isaac-mcp python -m pytest tests/test_scenarios.py -v -s
+Usage, with Kit running: OMNIVERSE_MCP_SIM=1 uv run pytest -m scenario
 """
 
 import json
@@ -10,7 +10,11 @@ import os
 import time
 import unittest
 
+import pytest
+
 from omniverse_mcp.client import BridgeClient
+
+pytestmark = pytest.mark.scenario
 
 
 def _skip_if_no_sim():
