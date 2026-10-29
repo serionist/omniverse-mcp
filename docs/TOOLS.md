@@ -691,6 +691,7 @@ The simulation must be playing or paused.
 | the body is disabled (`physics:rigidBodyEnabled` is false) | PhysX holds it as a static body, which no force moves |
 | the body is kinematic (`physics:kinematicEnabled` is true) | PhysX takes the force and moves it only by its transform |
 | PhysX holds no rigid body at `prim_path` | nothing to push; `get_logs(min_level="warn")` may say why |
+| the body is a link of an articulation, such as a robot's | PhysX takes the push and moves nothing, as measured on Isaac Sim 6.2 with the G1 ([#58](https://github.com/serionist/omniverse-mcp/issues/58)). A link is any body joined through joints to the body, joint or prim that carries `ArticulationRootAPI`, as UsdPhysics reads an articulation |
 | `position` is left out and PhysX gives the body no mass | no centre of mass to push at: give a `position` |
 
 **Returns:** `position`, the world point pushed at; `at`, `given` or `centre of mass`; `method`, `physx`. A point off

@@ -28,8 +28,9 @@ before play, so pause to look at a moment in the middle.
    `set_joint_targets` drives them.
 4. **Run.** `sim_control("play")`, `"pause"`, `"step"` or `"stop"`. `apply_force` pushes a rigid body through
    PhysX while the simulation plays or is paused, at its centre of mass unless a `position` is given: an impulse
-   acts at once, a force for one physics step, so a sustained push is an impulse of force times seconds. `raycast`
-   needs the simulation to have played.
+   acts at once, a force for one physics step, so a sustained push is an impulse of force times seconds. It can't
+   push a robot's links yet ([#58](https://github.com/serionist/omniverse-mcp/issues/58)). `raycast` needs the
+   simulation to have played.
 5. **Record what happens.** `start_recording` with `track_prims`, play, then `stop_recording`: each frame's image and
    the tracked prims' state land in `mcp_output/recordings/<session>/`. `get_recording_frame` reads one frame back.
    Frames keep the viewport's size and camera for now: set the camera before recording.

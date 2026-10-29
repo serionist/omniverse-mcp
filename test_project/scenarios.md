@@ -425,9 +425,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 - A cube with `physics:kinematicEnabled` true; play; `apply_force` → error
 
 ### 15.11 Apply Force to a Robot Link
-- Play; `apply_force(link, force=[100,0,0], impulse=True)` on the pelvis of `/World/G1` → success, pushed at the
-  centre of mass
-- Verify: in about 0.2 s the link moves further along X than it does without the push
+- Play; `apply_force(link, force=[100,0,0], impulse=True)` on the pelvis of `/World/G1`, then on another of its
+  links → error each time: PhysX's push doesn't reach a robot's links yet (#58)
 
 ### 15.12 Apply Force to a Disabled Body
 - A cube with `physics:rigidBodyEnabled` false; play; `apply_force` → error: PhysX holds it as a static body

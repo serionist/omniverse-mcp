@@ -1178,39 +1178,31 @@ class TestScenarios(unittest.TestCase):
         self._pass()
 
     def test_15_11_apply_force_to_a_robot_link(self):
-        """Phase 15.11: PhysX holds an articulation's link as a body, and a push on it moves the robot"""
+        """Phase 15.11: A push on a robot's link is refused: PhysX takes it and moves nothing (#58)"""
         r = self.c.execute(
             "root = omni.usd.get_context().get_stage().GetPrimAtPath('/World/G1')\n"
             "links = [str(p.GetPath()) for p in Usd.PrimRange(root, Usd.TraverseInstanceProxies()) "
             "if p.HasAPI(UsdPhysics.RigidBodyAPI)]\n"
-            "result = next((p for p in links if p.endswith('/pelvis')), links[0] if links else '')"
+            "pelvis = next((p for p in links if p.endswith('/pelvis')), '')\n"
+            "result = [pelvis, next((p for p in links if p != pelvis), '')]"
         )
         self.assertEqual(r["status"], "success", r)
-        link = r["result"]["return_value"]
-        self.assertTrue(link, "No rigid body under /World/G1: test_10_01 loads the G1")
+        pelvis, other = r["result"]["return_value"]
+        self.assertTrue(pelvis and other, "No pelvis and other link under /World/G1: test_10_01 loads the G1")
+
+        self.c.sim_control("stop")
+        time.sleep(0.3)
         self.addCleanup(self.c.sim_control, "stop")
-
-        def drift_along_x(push: bool) -> float:
-            """How far the link moves along X in about 0.2 s, half a second after play, with or without a push."""
-            self.c.sim_control("stop")
-            time.sleep(0.3)
-            self.c.sim_control("play")
-            time.sleep(0.5)
-            before = self._physx_pose(link)
-            if push:
-                # apply_force_at_pos returns None whether PhysX pushed or not: only the pose tells them apart.
-                r = self.c.apply_force(link, force=[100, 0, 0], impulse=True)
-                self.assertEqual(r["status"], "success", r)
-                self.assertEqual(r["result"]["at"], "centre of mass")
-                print(f"  Pushed {link} at {r['result']['position']}")
-            time.sleep(0.2)
-            return self._physx_pose(link)["position"][0] - before["position"][0]
-
-        unpushed = drift_along_x(push=False)
-        pushed = drift_along_x(push=True)
-        # 100 N s on a robot of about 35 kg is near 3 units/s along X; gravity alone moves it along the up axis.
-        print(f"  Along X in 0.2 s: {unpushed:.3f} without the push, {pushed:.3f} with it")
-        self.assertGreater(pushed, abs(unpushed) + 0.05)
+        self.c.sim_control("play")
+        time.sleep(0.5)
+        # Measured on Isaac Sim 6.2 before the refusal: 100 N s on the pelvis succeeded and moved it no further along
+        # X than gravity alone did. The pelvis holds the G1's ArticulationRootAPI; the other link is its sibling.
+        for link in (pelvis, other):
+            r = self.c.apply_force(link, force=[100, 0, 0], impulse=True)
+            self.assertEqual(r["status"], "error", r)
+            self.assertIn(f"is a link of the articulation at {pelvis}", r["error"])
+            self.assertIn("#58", r["error"])
+            print(f"  Refused on {link}")
         self._pass()
 
     def test_15_12_apply_force_to_a_disabled_body(self):

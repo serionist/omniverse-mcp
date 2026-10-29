@@ -9,7 +9,15 @@ import omni.kit.app
 import omni.usd
 from pxr import UsdGeom, UsdPhysics, UsdShade
 
-from ovmcp.core.force import AT_CENTRE_OF_MASS, AT_GIVEN, centre_of_mass, force_args, refusal, world_point
+from ovmcp.core.force import (
+    AT_CENTRE_OF_MASS,
+    AT_GIVEN,
+    articulation_holding,
+    centre_of_mass,
+    force_args,
+    refusal,
+    world_point,
+)
 
 from ._utils import _get_stage, _next_update
 
@@ -176,7 +184,7 @@ async def handle_apply_force(body: dict) -> dict:
     """Apply a force or impulse to a rigid body through PhysX, at a world point or at its centre of mass.
 
     Refused where PhysX would move nothing: the timeline stopped, a disabled or kinematic body, a prim PhysX holds no
-    body for. A PhysX failure is an error; nothing else moves the body in its place.
+    body for, an articulation's link (#58). A PhysX failure is an error; nothing else moves the body in its place.
     """
     try:
         args = force_args(body)
@@ -207,7 +215,12 @@ async def handle_apply_force(body: dict) -> dict:
     try:
         pose = {} if stopped else get_physx_interface().get_rigidbody_transformation(args.prim_path)
         refused = refusal(
-            args.prim_path, stopped=stopped, enabled=enabled, kinematic=kinematic, held=bool(pose.get("ret_val"))
+            args.prim_path,
+            stopped=stopped,
+            enabled=enabled,
+            kinematic=kinematic,
+            held=bool(pose.get("ret_val")),
+            articulation=None if stopped else articulation_holding(stage, args.prim_path),
         )
         if refused:
             return {"status": "error", "error": refused}
