@@ -1,10 +1,13 @@
 # The release: pushing a tag vX.Y.Z on main builds the wheel and the sdist, checks them and the repo against the tag,
 # waits for ci.yml to have passed on the tagged commit, publishes to PyPI once a maintainer approves the pypi
-# environment, and makes the GitHub release with CHANGELOG.md's section as its notes, the wheel, the sdist and a zip of
-# the Kit extension attached. docs/releasing.md is the runbook (plan S9).
+# environment, and makes the GitHub release with CHANGELOG.md's section and the install lines as its notes, the wheel,
+# the sdist and a zip of the Kit extension attached, and publishes server.json to the official MCP registry.
+# docs/releasing.md is the runbook (plans S9 and S10).
 #
 # No API token exists anywhere: PyPI trusts this workflow, in the pypi environment, through a trusted publisher, and
-# pypa/gh-action-pypi-publish trades the job's OIDC token for a short-lived one and attests the files it uploads.
+# pypa/gh-action-pypi-publish trades the job's OIDC token for a short-lived one and attests the files it uploads. The
+# MCP registry takes an OIDC token too, but from any workflow of any repository serionist owns, for the whole
+# io.github.serionist/ namespace: in this one, only the registry job asks for it.
 name: Release
 
 on:
@@ -36,9 +39,9 @@ jobs:
             exit 1
           fi
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
-      # The tag is vX.Y.Z, pyproject.toml, extension.toml, plugin.json and every omniverse-mcp== pin under plugin/ say
-      # X.Y.Z, and CHANGELOG.md has a dated section for it, the release's notes. Before the approval, so nothing is
-      # published without them.
+      # The tag is vX.Y.Z, pyproject.toml, extension.toml, plugin.json, server.json and every omniverse-mcp== pin under
+      # plugin/ say X.Y.Z, and CHANGELOG.md has a dated section for it, the release's notes. Before the approval, so
+      # nothing is published without them.
       - name: Check the repo against the tag
         run: uv run --no-project tools/release.py check "$GITHUB_REF_NAME"
       - name: Build
@@ -162,3 +165,49 @@ jobs:
           python3 tools/release.py notes "${GITHUB_REF_NAME#v}" > release-notes.md
           gh release create "$GITHUB_REF_NAME" dist/* release/*.zip --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "omniverse-mcp ${GITHUB_REF_NAME#v}" --notes-file release-notes.md
+
+  registry:
+    name: MCP registry
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # The registry's login: it trusts this repository's OIDC token for the io.github.serionist/ namespace.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: server.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      # As ci.yml's package job checks server.json, with the same pin.
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Install mcp-publisher
+        env:
+          MCP_PUBLISHER_VERSION: v1.8.1
+        run: |
+          set -euo pipefail
+          archive=mcp-publisher_linux_amd64.tar.gz
+          base="https://github.com/modelcontextprotocol/registry/releases/download/$MCP_PUBLISHER_VERSION"
+          curl --fail --location --silent --show-error -o "$RUNNER_TEMP/$archive" "$base/$archive"
+          curl --fail --location --silent --show-error -o "$RUNNER_TEMP/$archive.sigstore.json" "$base/$archive.sigstore.json"
+          cosign verify-blob --bundle "$RUNNER_TEMP/$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/$MCP_PUBLISHER_VERSION" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com "$RUNNER_TEMP/$archive"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" mcp-publisher
+      # The registry checks the release's README on PyPI for server.json's name, and PyPI can take minutes to show a
+      # new upload: a failure is tried again, with a fresh login, since the registry's lasts minutes. A version the
+      # registry already has is refused, so a re-run after a success fails here and changes nothing.
+      - name: Publish server.json
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            if "$RUNNER_TEMP/mcp-publisher" login github-oidc && "$RUNNER_TEMP/mcp-publisher" publish; then
+              exit 0
+            fi
+            echo "Attempt $attempt failed; trying again in 60 s."
+            sleep 60
+          done
+          echo "::error::The MCP registry refused server.json five times; see each attempt above."
+          exit 1

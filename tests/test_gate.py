@@ -637,7 +637,13 @@ def test_a_plugin_claude_validates_passes(monkeypatch):
 
 def _plugin_tree(tmp_path: Path) -> Path:
     """The files check_plugin reads, copied from the repo."""
-    files = ("pyproject.toml", "extension/ovmcp.bridge/config/extension.toml", gate.TOOL_CONTRACT, gate.MARKETPLACE)
+    files = (
+        "pyproject.toml",
+        "extension/ovmcp.bridge/config/extension.toml",
+        gate.TOOL_CONTRACT,
+        gate.MARKETPLACE,
+        gate.SERVER_JSON,
+    )
     for rel in (*files, gate.AI_GUIDE):
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / rel).write_bytes((gate.ROOT / rel).read_bytes())
@@ -690,6 +696,17 @@ def test_a_plugin_server_without_its_pin_fails(tmp_path, monkeypatch):
         (gate.MARKETPLACE, '"source"', '"hooks": {}, "source"', "the plugin's key 'hooks' isn't checked"),
         (gate.PLUGIN_MCP, '"args": [', '"args": [\n"--from", "git+https://example.org/x",', "must be exactly"),
         (gate.PLUGIN_MCP, '"PYTHONPATH": ""', '"PYTHONPATH": "", "X": "1"', "must be exactly"),
+        (gate.SERVER_JSON, '"version": "{version}"', '"version": "9.9.9"', "server.json has version '9.9.9'"),
+        (
+            gate.SERVER_JSON,
+            '"{version}",\n      "runtimeHint"',
+            '"9.9.9",\n      "runtimeHint"',
+            "server.json (package 1) has version '9.9.9'",
+        ),
+        (gate.SERVER_JSON, None, "[]", "server.json or the tool contract can't be read"),
+        (gate.SERVER_JSON, '"name": "io.github.serionist/', '"name": "io.github.someone/', "not 'io.github.serionist/"),
+        (gate.SERVER_JSON, '"identifier": "omniverse-mcp"', '"identifier": "other-mcp"', "must be 'omniverse-mcp'"),
+        (gate.SERVER_JSON, '"registryType": "pypi"', '"registryType": "npm"', "must be 'omniverse-mcp' on PyPI"),
     ],
     ids=[
         "extension pin",
@@ -702,6 +719,12 @@ def test_a_plugin_server_without_its_pin_fails(tmp_path, monkeypatch):
         "a marketplace key",
         "a server argument",
         "a server variable",
+        "server.json",
+        "server.json's package",
+        "server.json unreadable",
+        "registry name",
+        "registry package",
+        "registry type",
     ],
 )
 def test_the_plugin_check_finds(rel, old, new, expected, tmp_path, monkeypatch):

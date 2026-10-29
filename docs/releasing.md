@@ -2,7 +2,8 @@
 
 A release is one pull request that dates the changelog and bumps every version, then a tag `vX.Y.Z` on its merge
 commit. The tag starts `.github/workflows/release.yml`, which checks, waits for CI, publishes to PyPI once the
-maintainer approves, and makes the GitHub release. The plan's S9 and D7 say why it works this way.
+maintainer approves, makes the GitHub release and publishes `server.json` to the official MCP registry. The
+plan's S9, S10 and D7 say why it works this way.
 
 ## Once
 
@@ -11,6 +12,7 @@ maintainer approves, and makes the GitHub release. The plan's S9 and D7 say why 
 | A trusted publisher: project `omniverse-mcp`, owner `serionist`, repository `omniverse-mcp`, workflow `release.yml`, environment `pypi` | PyPI, your account, Publishing (pending until the first upload) | 2026-10-29 |
 | The environment `pypi`, with the maintainer as required reviewer, deploying from `v*` tags only | GitHub, Settings, Environments | 2026-10-28 |
 | The ruleset "release tags": only admins create, move or delete a `v*` tag | GitHub, Settings, Rules | 2026-10-28 |
+| Nothing for the MCP registry: it takes a GitHub Actions OIDC token from any repository `serionist` owns for `io.github.serionist/*`, and the README on PyPI for the package; here only `release.yml`'s `registry` job asks for one | none | |
 
 ## Each release
 
@@ -18,8 +20,8 @@ maintainer approves, and makes the GitHub release. The plan's S9 and D7 say why 
    - `CHANGELOG.md`: `## Unreleased` becomes `## X.Y.Z (YYYY-MM-DD)`, with a new empty `## Unreleased` above it. The
      section is the release's notes;
    - the version, X.Y.Z, in `pyproject.toml`, `extension/ovmcp.bridge/config/extension.toml`,
-     `plugin/.claude-plugin/plugin.json`, and every `omniverse-mcp==` and `ovmcp.bridge-` under `plugin/`. The gate's
-     `plugin` check names each one that differs;
+     `plugin/.claude-plugin/plugin.json`, `server.json` (twice: the server's and its package's), and every
+     `omniverse-mcp==` and `ovmcp.bridge-` under `plugin/`. The gate's `plugin` check names each one that differs;
    - `uv lock`, which records the project's own version;
    - `uv run --no-project tools/release.py check vX.Y.Z` passes; CI's `Package (Linux)` runs the same check on the PR;
    - the README says nothing that is true only before this release: PyPI keeps the description it is given.
@@ -36,8 +38,9 @@ maintainer approves, and makes the GitHub release. The plan's S9 and D7 say why 
 4. **Approve the deployment.** The run waits at `Publish to PyPI` for the `pypi` environment's reviewer, after its
    checks and a green `ci.yml` run on the tagged commit.
 5. **Check it:** `uvx omniverse-mcp==X.Y.Z --help` runs, PyPI's page shows the README's images and its in-page links
-   land on their headings, and the GitHub release has the wheel, the sdist and `ovmcp.bridge-X.Y.Z.zip`, with the
-   changelog section as its notes.
+   land on their headings, the GitHub release has the wheel, the sdist and `ovmcp.bridge-X.Y.Z.zip`, with the
+   changelog section and the install lines as its notes, and the registry lists X.Y.Z:
+   `curl "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.serionist/omniverse-mcp"`.
 
 ## When it fails
 
@@ -52,3 +55,6 @@ Nothing is published before the approval. Then:
 - **The publish step:** re-run the job. It passes over a file PyPI already has (`skip-existing`), so a partial upload
   finishes.
 - **After the publish:** fix forward with the next patch version. A release on PyPI can be yanked, never replaced.
+- **The MCP registry job:** it tries five times over five minutes, for PyPI to show the upload. Re-run it while
+  the registry lacks the version; a version it has is refused, so a re-run after a success changes nothing. A
+  refusal of `server.json` itself is fixed in the next patch version, since `ci.yml` checks it on every PR.
