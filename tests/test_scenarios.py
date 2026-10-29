@@ -170,7 +170,14 @@ class TestScenarios(unittest.TestCase):
         self.assertEqual(r["status"], "success", r)
         return r["result"]["return_value"]
 
-    def _force_body(self, name: str, *, kinematic: bool = False, centre_of_mass: list[float] | None = None) -> str:
+    def _force_body(
+        self,
+        name: str,
+        *,
+        enabled: bool = True,
+        kinematic: bool = False,
+        centre_of_mass: list[float] | None = None,
+    ) -> str:
         """A 5 kg cube of its own for a force test, with the simulation stopped. Gravity is off, so only the push
         moves it, and it sits away from the scene, so it touches nothing. Deleted after, the simulation stopped
         first."""
@@ -185,7 +192,9 @@ class TestScenarios(unittest.TestCase):
         r = self.c.execute(
             "from pxr import PhysxSchema\n"
             f"prim = omni.usd.get_context().get_stage().GetPrimAtPath({path!r})\n"
-            f"UsdPhysics.RigidBodyAPI.Apply(prim).CreateKinematicEnabledAttr().Set({kinematic})\n"
+            "body = UsdPhysics.RigidBodyAPI.Apply(prim)\n"
+            f"body.CreateRigidBodyEnabledAttr().Set({enabled})\n"
+            f"body.CreateKinematicEnabledAttr().Set({kinematic})\n"
             "UsdPhysics.CollisionAPI.Apply(prim)\n"
             "mass = UsdPhysics.MassAPI.Apply(prim)\n"
             "mass.CreateMassAttr().Set(5.0)\n"
@@ -1169,26 +1178,50 @@ class TestScenarios(unittest.TestCase):
         self._pass()
 
     def test_15_11_apply_force_to_a_robot_link(self):
-        """Phase 15.11: PhysX holds an articulation's link as a body: its pose and its centre of mass"""
+        """Phase 15.11: PhysX holds an articulation's link as a body, and a push on it moves the robot"""
         r = self.c.execute(
             "root = omni.usd.get_context().get_stage().GetPrimAtPath('/World/G1')\n"
             "links = [str(p.GetPath()) for p in Usd.PrimRange(root, Usd.TraverseInstanceProxies()) "
             "if p.HasAPI(UsdPhysics.RigidBodyAPI)]\n"
-            "result = links[0] if links else ''"
+            "result = next((p for p in links if p.endswith('/pelvis')), links[0] if links else '')"
         )
         self.assertEqual(r["status"], "success", r)
         link = r["result"]["return_value"]
         self.assertTrue(link, "No rigid body under /World/G1: test_10_01 loads the G1")
-
-        self.c.sim_control("stop")
-        time.sleep(0.3)
         self.addCleanup(self.c.sim_control, "stop")
+
+        def drift_along_x(push: bool) -> float:
+            """How far the link moves along X in about 0.2 s, half a second after play, with or without a push."""
+            self.c.sim_control("stop")
+            time.sleep(0.3)
+            self.c.sim_control("play")
+            time.sleep(0.5)
+            before = self._physx_pose(link)
+            if push:
+                # apply_force_at_pos returns None whether PhysX pushed or not: only the pose tells them apart.
+                r = self.c.apply_force(link, force=[100, 0, 0], impulse=True)
+                self.assertEqual(r["status"], "success", r)
+                self.assertEqual(r["result"]["at"], "centre of mass")
+                print(f"  Pushed {link} at {r['result']['position']}")
+            time.sleep(0.2)
+            return self._physx_pose(link)["position"][0] - before["position"][0]
+
+        unpushed = drift_along_x(push=False)
+        pushed = drift_along_x(push=True)
+        # 100 N s on a robot of about 35 kg is near 3 units/s along X; gravity alone moves it along the up axis.
+        print(f"  Along X in 0.2 s: {unpushed:.3f} without the push, {pushed:.3f} with it")
+        self.assertGreater(pushed, abs(unpushed) + 0.05)
+        self._pass()
+
+    def test_15_12_apply_force_to_a_disabled_body(self):
+        """Phase 15.12: PhysX holds a disabled rigid body as a static one, which no force moves, so a push is
+        refused"""
+        body = self._force_body("ForceDisabledCube", enabled=False)
         self.c.sim_control("play")
-        time.sleep(0.5)
-        r = self.c.apply_force(link, force=[1, 0, 0])
-        self.assertEqual(r["status"], "success", r)
-        self.assertEqual(r["result"]["at"], "centre of mass")
-        print(f"  Pushed {link} at {r['result']['position']}")
+        time.sleep(0.3)
+        r = self.c.apply_force(body, force=[1, 0, 0])
+        self.assertEqual(r["status"], "error", r)
+        self.assertIn("physics:rigidBodyEnabled is false", r["error"])
         self._pass()
 
     # ===== Phase 16: Raycasting & Debug Draw =====

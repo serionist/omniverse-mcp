@@ -681,13 +681,14 @@ The simulation must be playing or paused.
 | `prim_path` | string | required | Rigid body prim |
 | `force` | list[float] | required | `[fx, fy, fz]`: an impulse in N s, or a force in N for one physics step |
 | `position` | list[float] | `null` | World-space point to push at; the body's centre of mass, as PhysX holds it, when omitted |
-| `impulse` | bool | `false` | `true` for an impulse in N s, which changes the velocity at once by `force / mass`; `false` for a force in N for one physics step, which changes it by `force * dt / mass`, `dt` being the physics step (1/60 s by default): call it each step to hold a push |
+| `impulse` | bool | `false` | `true` for an impulse in N s, which changes the velocity at once by `force / mass`; `false` for a force in N for one physics step, which changes it by `force * dt / mass`, `dt` being the physics step (1/60 s by default). One call can't hold a force over many steps: for a sustained push, give an impulse of force times seconds, the same change in velocity at once |
 
 **Refused,** before anything is applied:
 
 | When | Why |
 |---|---|
 | the simulation is stopped | PhysX holds no bodies then; paused works |
+| the body is disabled (`physics:rigidBodyEnabled` is false) | PhysX holds it as a static body, which no force moves |
 | the body is kinematic (`physics:kinematicEnabled` is true) | PhysX takes the force and moves it only by its transform |
 | PhysX holds no rigid body at `prim_path` | nothing to push; `get_logs(min_level="warn")` may say why |
 | `position` is left out and PhysX gives the body no mass | no centre of mass to push at: give a `position` |

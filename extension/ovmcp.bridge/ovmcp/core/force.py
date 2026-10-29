@@ -45,13 +45,19 @@ def force_args(body: Mapping[str, Any]) -> ForceArgs:
     return ForceArgs(prim_path, force, position, impulse)
 
 
-def refusal(prim_path: str, *, stopped: bool, kinematic: bool, held: bool) -> str | None:
+def refusal(prim_path: str, *, stopped: bool, enabled: bool, kinematic: bool, held: bool) -> str | None:
     """Why PhysX won't move the body, or None when it will. A stopped timeline first: PhysX holds no bodies then, so
-    the other two say nothing."""
+    the others say nothing. Then what the prim says of itself, then whether PhysX holds it."""
     if stopped:
         return (
             "The simulation is stopped, so PhysX holds no bodies to push: play it first with sim_control('play'); "
             "paused works too"
+        )
+    if not enabled:
+        # PhysX makes such a body a static rigid, as NVIDIA's own rigid body tests count it, and nothing moves one.
+        return (
+            f"{prim_path}'s rigid body is disabled (physics:rigidBodyEnabled is false): PhysX holds it as a static "
+            "body, which no force moves"
         )
     if kinematic:
         return (

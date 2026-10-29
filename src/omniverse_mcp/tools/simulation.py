@@ -92,13 +92,13 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         impulse: Annotated[
             bool,
             Field(
-                description="True for an impulse in N s, False for a force in N for one physics step: call it each "
-                "step to hold a push"
+                description="True for an impulse in N s, False for a force in N for one physics step. For a sustained "
+                "push, give an impulse of force times seconds"
             ),
         ] = False,
     ) -> str:
-        """Push a rigid body through PhysX, so its mass counts. The simulation must be playing or paused; a kinematic
-        body is refused."""
+        """Push a rigid body through PhysX, so its mass counts. The simulation must be playing or paused; a disabled or
+        kinematic body is refused."""
         resp = bridge_call(client.apply_force, prim_path, force, position, impulse)
         r = resp["result"]
         mode = "impulse" if r.get("impulse") else "force"

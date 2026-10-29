@@ -75,26 +75,33 @@ def test_force_args_refuse_what_physx_cant_take(body, says):
 
 def test_a_stopped_timeline_is_refused_first():
     # Stopped, PhysX holds no bodies, so whether it holds this one says nothing.
-    why = refusal("/World/Box", stopped=True, kinematic=True, held=False)
+    why = refusal("/World/Box", stopped=True, enabled=False, kinematic=True, held=False)
     assert why is not None
     assert why.startswith("The simulation is stopped")
     assert "paused works too" in why
 
 
+def test_a_disabled_rigid_body_is_refused_before_a_kinematic_one():
+    why = refusal("/World/Box", stopped=False, enabled=False, kinematic=True, held=True)
+    assert why is not None
+    assert why.startswith("/World/Box's rigid body is disabled (physics:rigidBodyEnabled is false)")
+    assert "static body" in why
+
+
 def test_a_kinematic_body_is_refused():
-    why = refusal("/World/Box", stopped=False, kinematic=True, held=True)
+    why = refusal("/World/Box", stopped=False, enabled=True, kinematic=True, held=True)
     assert why is not None
     assert why.startswith("/World/Box is kinematic (physics:kinematicEnabled is true)")
 
 
 def test_a_body_physx_doesnt_hold_is_refused():
-    why = refusal("/World/Box", stopped=False, kinematic=False, held=False)
+    why = refusal("/World/Box", stopped=False, enabled=True, kinematic=False, held=False)
     assert why is not None
     assert why.startswith("PhysX holds no rigid body at /World/Box")
 
 
 def test_a_body_physx_holds_while_it_plays_or_pauses_is_pushed():
-    assert refusal("/World/Box", stopped=False, kinematic=False, held=True) is None
+    assert refusal("/World/Box", stopped=False, enabled=True, kinematic=False, held=True) is None
 
 
 def test_the_centre_of_mass_comes_from_physx_s_mass_information():

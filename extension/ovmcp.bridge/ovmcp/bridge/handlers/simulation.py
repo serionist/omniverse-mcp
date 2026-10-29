@@ -175,8 +175,8 @@ async def handle_set_physics_properties(body: dict) -> dict:
 async def handle_apply_force(body: dict) -> dict:
     """Apply a force or impulse to a rigid body through PhysX, at a world point or at its centre of mass.
 
-    Refused where PhysX would move nothing: the timeline stopped, a kinematic body, a prim PhysX holds no body for. A
-    PhysX failure is an error; nothing else moves the body in its place.
+    Refused where PhysX would move nothing: the timeline stopped, a disabled or kinematic body, a prim PhysX holds no
+    body for. A PhysX failure is an error; nothing else moves the body in its place.
     """
     try:
         args = force_args(body)
@@ -194,24 +194,42 @@ async def handle_apply_force(body: dict) -> dict:
 
     # From here to the push nothing awaits, so the pose, the centre of mass and the push are all of one update.
     try:
-        from omni.physx import get_physx_interface, get_physx_simulation_interface, get_physxunittests_interface
+        from omni.physx import get_physx_interface, get_physx_simulation_interface
         from pxr import PhysicsSchemaTools
     except ImportError as e:
         return {"status": "error", "error": f"PhysX (omni.physx) is not loaded in this Kit app: {e}"}
 
     stopped = omni.timeline.get_timeline_interface().is_stopped()
-    kinematic = bool(UsdPhysics.RigidBodyAPI(prim).GetKinematicEnabledAttr().Get())
+    body_api = UsdPhysics.RigidBodyAPI(prim)
+    # Both attributes have fallbacks (enabled, not kinematic); only an authored false disables the body.
+    enabled = body_api.GetRigidBodyEnabledAttr().Get() is not False
+    kinematic = bool(body_api.GetKinematicEnabledAttr().Get())
     try:
         pose = {} if stopped else get_physx_interface().get_rigidbody_transformation(args.prim_path)
-        refused = refusal(args.prim_path, stopped=stopped, kinematic=kinematic, held=bool(pose.get("ret_val")))
+        refused = refusal(
+            args.prim_path, stopped=stopped, enabled=enabled, kinematic=kinematic, held=bool(pose.get("ret_val"))
+        )
         if refused:
             return {"status": "error", "error": refused}
 
         if args.position is not None:
             point, at = args.position, AT_GIVEN
         else:
+            # PhysX's unit-tests interface, which NVIDIA may change or drop: only a push without a point needs it.
             # Synchronous, with no Python callback for Kit to call from another thread (#5), as query_prim would need.
-            info = get_physxunittests_interface().get_mass_information(args.prim_path)
+            try:
+                from omni.physx import get_physxunittests_interface
+
+                mass_information = get_physxunittests_interface().get_mass_information
+            except (ImportError, AttributeError) as e:
+                return {
+                    "status": "error",
+                    "error": (
+                        "No centre of mass: this Kit's omni.physx lacks get_physxunittests_interface()."
+                        f"get_mass_information ({e}); give a position to push at"
+                    ),
+                }
+            info = mass_information(args.prim_path)
             point = world_point(pose["position"], pose["rotation"], centre_of_mass(info, args.prim_path))
             at = AT_CENTRE_OF_MASS
 
