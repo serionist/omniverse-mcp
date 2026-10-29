@@ -654,7 +654,7 @@ def test_a_pin_out_of_step_fails_the_plugin(tmp_path, monkeypatch):
     monkeypatch.setattr(gate.shutil, "which", lambda name: None)
     setup_skill = root / gate.PLUGIN_SKILLS_DIR / "setup" / "SKILL.md"
     text = setup_skill.read_text(encoding="utf-8")
-    version = gate.plugin_versions(gate.ROOT, gate._json(gate.ROOT / gate.PLUGIN_MANIFEST))["pyproject.toml"]
+    version = gate.plugin_versions(gate.ROOT, gate.json_object(gate.ROOT / gate.PLUGIN_MANIFEST))["pyproject.toml"]
     assert f"omniverse-mcp=={version}" in text
     setup_skill.write_text(text.replace(f"omniverse-mcp=={version}", "omniverse-mcp==9.9.9", 1), encoding="utf-8")
     result = gate.check_plugin(gate.Scope([]), root=root)
@@ -712,7 +712,9 @@ def test_the_plugin_check_finds(rel, old, new, expected, tmp_path, monkeypatch):
     path = root / rel
     if old is not None:
         # The release's version where a case names it, so the cases hold after the next bump.
-        old = old.format(version=gate.plugin_versions(root, gate._json(root / gate.PLUGIN_MANIFEST))["pyproject.toml"])
+        old = old.format(
+            version=gate.plugin_versions(root, gate.json_object(root / gate.PLUGIN_MANIFEST))["pyproject.toml"]
+        )
     if old is None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(new, encoding="utf-8")

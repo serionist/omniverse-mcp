@@ -1,0 +1,164 @@
+# The release: pushing a tag vX.Y.Z on main builds the wheel and the sdist, checks them and the repo against the tag,
+# waits for ci.yml to have passed on the tagged commit, publishes to PyPI once a maintainer approves the pypi
+# environment, and makes the GitHub release with CHANGELOG.md's section as its notes, the wheel, the sdist and a zip of
+# the Kit extension attached. docs/releasing.md is the runbook (plan S9).
+#
+# No API token exists anywhere: PyPI trusts this workflow, in the pypi environment, through a trusted publisher, and
+# pypa/gh-action-pypi-publish trades the job's OIDC token for a short-lived one and attests the files it uploads.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Build and check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The check below needs main's history.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the tag is on main
+        run: |
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::$GITHUB_REF_NAME is not on main. A release is tagged on a commit of main."
+            exit 1
+          fi
+      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+      # The tag is vX.Y.Z, pyproject.toml, extension.toml, plugin.json and every omniverse-mcp== pin under plugin/ say
+      # X.Y.Z, and CHANGELOG.md has a dated section for it, the release's notes. Before the approval, so nothing is
+      # published without them.
+      - name: Check the repo against the tag
+        run: uv run --no-project tools/release.py check "$GITHUB_REF_NAME"
+      - name: Build
+        run: uv build
+      # As ci.yml's package job checks every pull request: PyPI's rules for the metadata, the wheel's contents, the
+      # extension inside it at the wheel's version, and a README PyPI can show (#36).
+      - name: Check the wheel and the sdist
+        run: |
+          uvx twine==7.0.0 check --strict dist/*
+          uvx check-wheel-contents==0.6.3 dist/*.whl
+          uv run --no-project tools/release.py wheel dist/*.whl
+      # The extension alone, for a Kit app pointed at a folder: unzip it into one of Kit's extension search paths.
+      - name: Zip the Kit extension
+        run: |
+          mkdir release
+          git archive --format=zip --prefix=ovmcp.bridge/ -o "release/ovmcp.bridge-${GITHUB_REF_NAME#v}.zip" \
+            HEAD:extension/ovmcp.bridge
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: extension
+          path: release/
+          if-no-files-found: error
+
+  ci:
+    name: CI passed on the tagged commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      # Reads the ci.yml runs of the tagged commit.
+      actions: read
+    steps:
+      # ci.yml runs on every push to main, so the tagged commit has a run of its own, the test legs on Windows and macOS
+      # included: it must have concluded success before anything is published. A run still going (a tag pushed right
+      # after the merge) is waited for; a run that failed, or none at all, stops the release. Re-run this workflow once
+      # CI is green.
+      - name: Require a successful ci.yml run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 40 * 60))
+          while :; do
+            counts=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" \
+              --branch main --event push --limit 20 --json status,conclusion \
+              --jq '"\([.[] | select(.conclusion == "success")] | length) \([.[] | select(.status != "completed")] | length) \(length)"')
+            read -r succeeded running total <<<"$counts"
+            if [ "$succeeded" -gt 0 ]; then
+              echo "ci.yml concluded success on $GITHUB_SHA."
+              exit 0
+            fi
+            if [ "$total" -gt 0 ] && [ "$running" -eq 0 ]; then
+              echo "::error::ci.yml did not conclude success on $GITHUB_SHA. Fix main and tag a new commit, or re-run CI and then this workflow."
+              exit 1
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::No successful ci.yml run on $GITHUB_SHA within 40 minutes ($total found, $running still running). Re-run this workflow once CI is green."
+              exit 1
+            fi
+            echo "Waiting for ci.yml on $GITHUB_SHA ($total found, $running still running)..."
+            sleep 30
+          done
+
+  publish:
+    name: Publish to PyPI
+    needs: [verify, ci]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The maintainer approves here: the environment's required reviewer, and the trusted publisher names it.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/omniverse-mcp/
+    permissions:
+      # Trusted publishing, and the attestations of what it uploads.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          # A re-run after a partial upload passes over the file PyPI already has, which it would never replace.
+          skip-existing: true
+
+  github-release:
+    name: GitHub release
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Creates the release and uploads its files.
+      contents: write
+    steps:
+      # Only what the notes need: the changelog, and the script that cuts its section out.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: |
+            CHANGELOG.md
+            tools/release.py
+            tools/gate.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: extension
+          path: release/
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 tools/release.py notes "${GITHUB_REF_NAME#v}" > release-notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* release/*.zip --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "omniverse-mcp ${GITHUB_REF_NAME#v}" --notes-file release-notes.md
