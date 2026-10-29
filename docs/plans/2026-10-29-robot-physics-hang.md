@@ -164,6 +164,7 @@ both still have to run on 5.1 before the PR. The lines below are invented to sho
 | E6, the root | The bridge's USD walk (`Usd.PrimRange(prim, Usd.TraverseInstanceProxies())`, the first prim with `UsdPhysics.ArticulationRootAPI`) finds the G1's root at `<robot>/pelvis` |
 | E6, stopped | `Articulation(root)` builds (43 `dof_names`), and `is_physics_tensor_entity_valid()` is false: 65 to 120 ms. D answers "play or step the simulation first" here |
 | E6, playing and paused | `is_physics_tensor_entity_valid()` true; `get_dof_positions()` and `get_dof_velocities()` give `(1, 43)` arrays; a new `Articulation` and both reads take 2 to 5 ms |
+| E6, 1,000 reads | On this branch's bridge (`c40c74b`), the G1 played then paused: 1,000 `get_joint_states` reads, 43 DOF each, all answered. No growth: Kit's working set 5,020 MB before and 4,988 MB after, handles 4,044 and 4,026; 12.5 ms a read at the start, 14.1 ms at the end. D keeps a new object per call. After `stop`, the read errors "play or step the simulation first" |
 
 **What E2 left behind:** Kit's cook cache, `kit/cache/DerivedDataCache`, was written during E2 and outlives the Kit.
 The next G1 `play` on this machine cooks nothing and passes on unfixed code. Any evidence after E2 needs a cold cook
