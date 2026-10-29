@@ -111,7 +111,7 @@ extension come from one release. `omniverse-mcp extension install` (`src/omniver
 | File | Purpose |
 |------|---------|
 | `ovmcp/bridge/extension.py` | Kit lifecycle: makes the token, starts the core's HTTP server with the routes |
-| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `capture.py` (the capture path's waits, each bounded by time, and a call's bookkeeping), `png.py` (the PNG writer), `logs.py` (the log ring and its query), `framing.py`, `isolation.py`, `lighting.py`, `material.py` (set_material's OmniPBR, named by its MDL source), `robot.py` (where create_robot loads a USD file from, and its prim's name), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `serial.py`, `usd.py` (typed forms of pxr calls the stubs get wrong) |
+| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `capture.py` (the capture path's waits, each bounded by time, and a call's bookkeeping), `png.py` (the PNG writer), `logs.py` (Kit's log file read into the log ring, and its query), `framing.py`, `isolation.py`, `lighting.py`, `material.py` (set_material's OmniPBR, named by its MDL source), `robot.py` (where create_robot loads a USD file from, and its prim's name), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `serial.py`, `usd.py` (typed forms of pxr calls the stubs get wrong) |
 | `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, simulation, recording, robot, debug_draw, misc, usd_advanced, logging) with shared utilities in `_utils.py` (among them `enable_extension`) and `_mcp_bridge.py` |
 | `config/extension.toml` | Extension metadata and default settings |
 
@@ -262,20 +262,31 @@ The format is implemented in `ovmcp/core/formatter.py` with functions for:
 2. Handlers use `await omni.kit.app.get_app().next_update_async()` to sync with the main thread before accessing USD/PhysX state
 3. Script execution (`execute_script`) runs `exec()` directly on the main thread with stdout/stderr captured via `io.StringIO`. It must run on the main thread because USD/Omniverse APIs are not thread-safe. If the code contains `await` expressions, it is automatically wrapped in an async function and awaited, allowing scripts to call async `mcp.*` methods while still running on the main thread's event loop
 4. Viewport capture waits for the viewport's frame, then for its file, each wait bounded by time (`ovmcp/core/capture.py`): `asyncio.wait_for` and polls on the same loop, no thread, so a viewport that renders nothing fails the call rather than hanging it. A frame wait observes Kit's `NEW_FRAME` event through omni.usd's `next_frame_async`, as an immediate observer, which Kit 110's own code says fires on the renderer thread. Isaac Sim turns async rendering off (`asyncRendering = false` in its `.kit` files), and `omni.syntheticdata` does too when it loads, so there the event comes on the main thread; a Kit app with async rendering on and without `omni.syntheticdata`, such as USD Composer, is untested
-5. The log buffer's `_on_log` callback uses a `threading.Lock` since `omni.log` may fire from any thread
+5. The bridge hands Kit's logging no Python callback. Kit runs one on whichever thread logs, and a physics worker that
+   logged waited for the GIL that the main thread held while it waited for the worker, so Kit hung
+   ([#5](https://github.com/serionist/omniverse-mcp/issues/5)). `get_logs` reads Kit's log file on the main thread
+   instead; `tests/test_logs.py` fails on any Python hook on Kit's logging in the extension
 
 This means all handler code runs on the main thread - there are no threading issues with USD access, but long-running handlers will block the simulation for the duration of their execution.
 
-## Log Buffer
+## Kit's log
 
-The extension captures Omniverse log messages in a ring buffer (`collections.deque`, default 2000 entries) via `omni.log.get_log().add_message_consumer()`. This captures all log sources: `carb.log_*()`, Python `logging`, and internal Kit/PhysX/USD messages.
+`get_logs` reads Kit's log file; `ovmcp/core/logs.py` holds the reader and the ring, and `handlers/logging.py` only
+hands it Kit's `/log/file` setting and the bridge token.
 
-- **Started** in `on_startup` before the HTTP server, so startup messages are captured
-- **Stopped** in `on_shutdown` to clean up the consumer
-- **Queried** via `POST /logs` with filters for count, min_level, channel, search, since_index
-- Each entry has: index (monotonic), level, channel, module, source (file:line), func, msg, timestamp
+- **Where reading starts:** where the file ended when the extension started. Kit's first lines hold its command
+  line, where a remote setup can pass the bridge token.
+- **Each `POST /logs`,** on the main thread, reads what Kit appended since the last, at most the newest 1 MB, then
+  filters the ring by count, min_level, channel, search and since_index.
+- **An entry** starts with a header line, such as `2026-01-01T00:00:00Z [1,234ms] [Warning] [omni.physx] text`; the
+  lines after it that start none, a multi-line message or a traceback, join its `msg`, in a later read too. After a
+  read that skipped bytes, reading resumes at the next header.
+- **Each entry** has: index (monotonic), level, channel, msg, timestamp (the line's text), and module, source and
+  func, which Kit's file leaves empty. The bridge token is replaced by `<redacted>`.
+- **A `/log/file` that is empty,** or holds a `${...}` token `carb.tokens` can't resolve, makes `/logs` an error that
+  names `--/log/file=<path>`.
 
-The log buffer is useful for diagnosing tool failures - when an MCP tool returns an error, the AI can call `get_logs(min_level="warn")` to see what Omniverse reported internally (e.g., PhysX errors, USD composition failures, missing extensions).
+The log is useful for diagnosing tool failures - when an MCP tool returns an error, the AI can call `get_logs(min_level="warn")` to see what Omniverse reported internally (e.g., PhysX errors, USD composition failures, missing extensions).
 
 ## MCPBridge (execute_script internal API)
 

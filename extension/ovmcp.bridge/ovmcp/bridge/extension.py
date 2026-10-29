@@ -89,6 +89,11 @@ class Extension(omni.ext.IExt):
         configured = settings.get(f"{prefix}/token")
         self._token = (str(configured).strip() if configured is not None else "") or new_token()
 
+        # Before the bridge logs anything: get_logs reads Kit's log file from where it ends now, the token redacted.
+        from .handlers.logging import start as start_log_reader
+
+        start_log_reader(self._token)
+
         routes = {
             "/health": handle_health,
             "/execute": handle_execute,
@@ -142,12 +147,6 @@ class Extension(omni.ext.IExt):
                 "Keep the token secret and the port off untrusted networks, or use 127.0.0.1."
             )
 
-        # Start log buffer before anything else so it captures startup messages
-        from .handlers.logging import log_buffer
-
-        self._log_buffer = log_buffer
-        self._log_buffer.start()
-
         self._token_port = None
         self._server = BridgeServer(routes, self._token, self._host, self._port, log=_CarbLog())
         _get_event_loop().create_task(self._start_server())
@@ -176,9 +175,6 @@ class Extension(omni.ext.IExt):
             _clear_articulation_cache()
         except Exception:
             pass
-
-        if hasattr(self, "_log_buffer") and self._log_buffer is not None:
-            self._log_buffer.stop()
 
         if self._server is not None:
             self._server.close()
