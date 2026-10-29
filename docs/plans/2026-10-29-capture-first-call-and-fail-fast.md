@@ -329,8 +329,8 @@ one frame after the first.
 
 ### Round 1
 
-- **How:** review-plan, one fresh reviewer agent started by the main session (its model was not passed to the
-  author), 2026-10-29, on `6129de2`.
+- **How:** review-plan, one fresh reviewer agent on Claude Opus 5.5 (`claude-opus-5-5`), started by the main
+  session, 2026-10-29, on `6129de2`.
 - **Verdict:** needs-changes: one major, seven minors.
 - **Now:** all eight fixed in `8caecab`; every improvement taken.
 
@@ -368,8 +368,8 @@ lines, so they reach whatever `get_logs` reads, and Kit's log file in any case.
 
 ### Round 2
 
-- **How:** review-plan, one fresh reviewer agent started by the main session (its model was not passed to the
-  author), 2026-10-29, on `8caecab`: round 1's edits and its findings.
+- **How:** review-plan, one fresh reviewer agent on Claude Opus 5.5 (`claude-opus-5-5`), started by the main
+  session, 2026-10-29, on `8caecab`: round 1's edits and its findings.
 - **Verdict:** approved: no blocker or major; round 1's eight findings confirmed fixed; three minors.
 - **Now:** the three minors fixed and the three improvements taken, in the commit after `8caecab`. `status` stays
   `draft` until the maintainer approves the plan and answers Q1 to Q6.
