@@ -1,9 +1,9 @@
 ---
 title: Bound the capture waits, and wait for segmentation by time after a stage opens
 issue: "#27, #35"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-10-29
 ---
 
 # Bound the capture waits, and wait for segmentation by time after a stage opens
@@ -201,6 +201,8 @@ apart unseen. The bounds are timers on Kit's loop, so a stalled main thread dela
 | Q4 | `set_camera`, `look_at_prim` and `viewport_light` share the bounded settle and reset, so they stop hanging too | yes; they answer as today, with a log line; `test_15f` checks `set_camera` |
 | Q5 | Close #27 with this PR, or keep it open for more cold runs | `Closes #27` once three cold runs pass with the new logs; then README's #27 line goes too |
 | Q6 | A run on Isaac Sim 5.1 (Kit 107), which is installed at `D:\isaacsim5.1` | yes, one cold and one warm run, if you start it (its EULA) |
+
+The maintainer answered all six as recommended and approved the plan on 2026-10-29.
 
 ## Compatibility
 
