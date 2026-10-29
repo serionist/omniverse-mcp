@@ -19,7 +19,7 @@ True when this is done:
 |---|---|---|---|
 | 1 | A capture whose `wait_for_result` names nothing captured (`[]` or `None`) fails at once, not after ten seconds | #35 | `test_15e` |
 | 2 | No wait in the capture path is unbounded: a viewport that renders nothing fails after 30 s instead of hanging the call and the viewport lock | #35 | `test_15f` |
-| 3 | `inspect_prim` and `capture_viewport` answer within about 90 s, under the server's 120 s, and name each angle they did not capture | #35 | unit tests, `test_15e` |
+| 3 | `inspect_prim` and `capture_viewport` answer within about 90 s, under the server's 120 s, and name each angle they did not capture | #35 | unit tests, `test_15f` |
 | 4 | Segmentation that is late after the sensor is enabled is waited for by time (up to 5 s, read each update), not dropped after 10 app updates, and an answer without it says why | #27 | `test_15c` (fails on `main`), `test_15d` |
 | 5 | Three cold starts of Isaac Sim 6.2 pass `test_13_camera_inspect_auto_fit`, `test_17_03_segmentation_after_a_new_stage` (now the first segmentation on a new stage) and `test_22_01_inspect_with_segmentation` on their first run, with Kit's log showing how long the first frames and the first segmentation took | #27 | the cold runs |
 
@@ -48,7 +48,7 @@ race of the same shape that nothing has removed yet, and it fails silently.
 | #33 gave each capture a fresh file and 10 s to arrive. Every cold-start run since passed test_22_01 and test_13: #33's own, 0.2.0's release check, #48's | PR #33; `docs/reviews/2026-10-29-release-0.2.0-code.md`, `docs/reviews/2026-10-29-robot-usd-path-code.md` |
 | Kit's `omni.syntheticdata` drops all its graphs on every stage CLOSING and OPENED, so the sensor `_init_sensors` enabled at startup is gone after `new_scene` or an open | `omni.syntheticdata` 0.6.17 (Isaac Sim 6.2) and 0.6.13 (5.1), `scripts/extension.py`, `_on_stage_opened`: `SyntheticData.Get().reset(False)` |
 | unittest sorts by name, so the scenario suite runs `test_17_02_new_scene` before phase 22: on `main`, test_22_01 is the first segmentation on a new stage | `tests/test_scenarios.py` |
-| The handler then enables the sensor and reads it at once, which is empty by Kit's own account, pumps 10 app updates, reads once more, and drops the segmentation if it is still empty: three reads in all | `_capture_instance_segmentation`, `SEGMENTATION_RETRY_FRAMES = 10`; Kit's `create_or_retrieve_sensor`: "the sensor will be uninitialized until a frame is rendered after the sensor is created" |
+| The handler's `_capture_instance_segmentation` reads the sensor and, when empty, enables it and reads again at once, which is empty by Kit's own account. `inspect` calls it, pumps 10 app updates, calls it again, and drops the segmentation if it is still empty: four reads in all | `camera.py` lines 382-388, 653 and 658, `SEGMENTATION_RETRY_FRAMES = 10`; Kit's `create_or_retrieve_sensor`: "the sensor will be uninitialized until a frame is rendered after the sensor is created" |
 
 **The likely root cause:** a fixed count of app updates against a renderer whose time to its first frame varies, and
 is longest on the first run after Kit starts: 10 updates for the colour file (gone since #33), and 10 for the
@@ -105,7 +105,7 @@ the handlers wire Kit into it.
 | `frames(next_frame, count, budget)` | `count` frames, each through `bounded(next_frame(), FRAME_SECONDS, ...)`; the bridge passes `lambda: next_viewport_frame_async(viewport, 1)` |
 | `poll(read, ready, next_update, seconds, budget, clock)` | `read()` after each update until `ready(value)`; `None` once the time is up |
 | `capture_png(schedule, read_file, next_update, budget)` | `schedule()` (`None`: `CaptureError`, the viewport has no render texture yet); `wait_for_result()` through `bounded`; a result of `[]` or `None`: `CaptureError` at once, naming the result (#35); otherwise `poll` the file for a whole PNG (`is_complete_png`) for `FILE_SECONDS` |
-| `Call(seconds)` | one inspect or capture call: its `Budget`, and the error that stopped it. `failed(error)` keeps a `NoFrame` or `OutOfTime`, since the next angle would wait the same; `skipped(angle)` gives that angle's `{"angle": ..., "error": "Not captured: <reason>"}` once stopped, else `None`; `settle_after_restore()` says whether the restore after `isolate` should settle (not after a `NoFrame`) |
+| `Call(seconds)` | one inspect or capture call: its `Budget`, and what stopped it. `failed(error)` keeps the kind and message of a `NoFrame` or `OutOfTime`, since the next angle would wait the same; never the exception, whose traceback would hold the cancelled frame wait's coroutine and its subscription; `skipped(angle)` gives that angle's `{"angle": ..., "error": "Not captured: <reason>"}` once stopped, else `None`; `settle_after_restore()` says whether the restore after `isolate` should settle (not after a `NoFrame`) |
 | `SegmentationWaits` | per (stage id, render product path): `seconds(key)` is `SEGMENTATION_SECONDS`, or 0 once a wait there ended with no data; `failed(key)` records that; `got_data(key)` clears it. A new or opened stage has a new key, so it waits afresh |
 | constants | `FRAME_SECONDS = 30`, `FILE_SECONDS = 10` (today's `CAPTURE_TIMEOUT_SECONDS`), `SEGMENTATION_SECONDS = 5`, `CALL_SECONDS = 80`, `CLEANUP_SECONDS = 10`. Read when a function runs, never bound as defaults, so a live test can shorten one through `execute_script` |
 
@@ -129,9 +129,11 @@ the handlers wire Kit into it.
     updates and seconds the first data took, or that none came.
   - Still empty: `failed(key)`, and an error that says what to do: "Instance segmentation gave no data within 5 s
     of enabling it: capture again, and if it stays empty, get_logs(search="syntheticdata") shows why"; after an
-    earlier failure on the same stage, without waiting: "... gave no data on this stage, as before; it is tried
-    again after a new or opened stage"; without the module: "omni.syntheticdata is not loaded: enable it with
-    manage_extensions".
+    earlier failure on the same stage, without waiting: "Instance segmentation gave no data on this stage, as
+    before, so this capture did not wait: capture again in a few seconds; get_logs(search="syntheticdata") shows
+    why"; without the module: "omni.syntheticdata is not loaded: enable it with manage_extensions". None points at
+    a new stage, which would throw the user's scene away: every call reads the sensor first, so data that starts
+    flowing is picked up on the same stage.
   - The colouring and the legend are unchanged.
 - **`handle_camera_inspect`:**
   - a `Call(CALL_SECONDS)` at its start; each angle's settle, capture and segmentation run under its budget;
@@ -231,7 +233,7 @@ Each step is a commit on `27-capture-first-call`, after this plan.
 4. **The server's text** for `segmentation_error`, with its tests in `tests/test_tools_camera.py`.
 5. **The docs** (Docs).
 6. **The live runs**, by the main session (Tests): warm, the new tests against `main`'s extension, three cold starts,
-   Isaac Sim 5.1 if Q6 is yes. Then `uv run tools/gate.py full` and finish-work.
+   Isaac Sim 5.1 if Q6 is yes. Then finish-work: `uv run tools/gate.py full`, `review-code` until clean, the PR.
 
 ## Tests
 
@@ -249,7 +251,7 @@ Each step is a commit on `27-capture-first-call`, after this plan.
 | `test_the_budget_caps_each_wait_and_says_out_of_time` | a wait cut short by the budget is `OutOfTime`, not `NoFrame`; a spent budget starts no capture |
 | `test_frames_bounds_each_frame` | `frames()` raises `NoFrame` on the one slow frame |
 | `test_poll_returns_the_first_ready_value_or_none` | `poll` stops at the first ready read, and gives `None` after its time |
-| `test_a_call_stops_on_no_frame_and_out_of_time` | `Call.failed` keeps those two, not other `CaptureError`s; `skipped` then gives each later angle its "Not captured" entry; no settle after the restore once stopped on `NoFrame` |
+| `test_a_call_stops_on_no_frame_and_out_of_time` | `Call.failed` keeps those two, not other `CaptureError`s, and keeps their message, not the exception; `skipped` then gives each later angle its "Not captured" entry; no settle after the restore once stopped on `NoFrame` |
 | `test_segmentation_waits_once_per_stage_until_data` | `seconds` is 5 for a new key, 0 after `failed`, 5 again after `got_data` or for another stage's key |
 | `test_the_waits_read_their_seconds_when_called` | a patched `FRAME_SECONDS` takes effect, as the live test needs |
 | `test_a_call_ends_before_the_server_gives_up` | `CALL_SECONDS + CLEANUP_SECONDS + 20` is within `BridgeClient`'s default timeout |
@@ -259,12 +261,13 @@ Each step is a commit on `27-capture-first-call`, after this plan.
 
 **Live, new.** Each changes Kit only through `/execute`, which is not behind the viewport lock, and undoes it in
 `finally`; each patch also schedules its own undo on Kit's loop (`call_later`, 60 s), in case the test process dies
-before its `finally`.
+before its `finally`. An undo puts the original back only while the attribute is still that test's own wrapper
+(`if module.attr is wrapper`), so a late undo never removes a later test's patch.
 
 | Test | Does | On `main`'s extension |
 |---|---|---|
-| `test_integration.py::test_15c_segmentation_that_comes_late_is_waited_for` | wraps `omni.syntheticdata.sensors.get_instance_segmentation` to give an empty array for its first 15 reads, then the real data; `inspect_prim(["front"], include_segmentation=True)` returns `segmentation_base64` and no `segmentation_error`, and the wrapper counts more than 3 reads. No failed wait is on record for the stage: the suite's warmup capture reads real data, which clears one a previous run's `test_15d` left | fails: `main` reads three times (read; enable and read; 10 updates and read) and drops the segmentation |
-| `test_integration.py::test_15d_inspect_says_why_segmentation_is_missing` | the same wrapper, always empty; `inspect_prim(["front", "right"], include_segmentation=True)` returns both images, each with a `segmentation_error`, the second without a second wait, in under 15 s | fails: no `segmentation_error` |
+| `test_integration.py::test_15c_segmentation_that_comes_late_is_waited_for` | wraps `omni.syntheticdata.sensors.get_instance_segmentation` to give an empty array for its first 15 reads, then the real data; `inspect_prim(["front"], include_segmentation=True)` returns `segmentation_base64` and no `segmentation_error`, and the wrapper counts at least 16 reads (the 15 empty ones, then the real one). No failed wait is on record for the stage: the suite's warmup capture reads real data, which clears one a previous run's `test_15d` left | fails: `main` reads four times (each of its two calls reads, then enables and reads) and drops the segmentation |
+| `test_integration.py::test_15d_inspect_says_why_segmentation_is_missing` | the same wrapper, always empty; `inspect_prim(["front", "right"], include_segmentation=True)` returns both images, each with a `segmentation_error`: the first's says no data came within 5 s, the second's is the "as before, so this capture did not wait" text, which tells one wait from two; under 15 s, a guard against a hang | fails: no `segmentation_error` |
 | `test_integration.py::test_15e_an_empty_capture_fails_at_once` | patches `omni.kit.viewport.utility.capture_viewport_to_file` with a capture whose `wait_for_result` gives `[]`: `inspect_prim` over 4 angles returns each with an error naming it, in under 15 s. Then a capture that names `LdrColor` but writes no file (Kit 110's missing resource), with `FILE_SECONDS = 2` if `ovmcp.core.capture` exists: 3 angles, each an error after the file wait, in under 15 s | fails: 4 x 10 s, past the test client's 30 s |
 | `test_integration.py::test_15f_a_viewport_that_renders_nothing_fails_in_time` | sets `updates_enabled = False` on the active viewport, and `FRAME_SECONDS = 3` only if `ovmcp.core.capture` exists. Asserts through Kit's own API that no frame comes: `asyncio.wait_for(next_viewport_frame_async(vp, 1), 3)` times out. Then `set_camera` answers within `FRAME_SECONDS` plus 5 s (Q4); `inspect_prim` over 3 angles returns in under 15 s, the first angle's error saying no frame, the others "Not captured"; after the restore, `capture_viewport` succeeds | fails for the right reason: `set_camera`, then `inspect_prim`, hang past the client's timeout |
 | `test_scenarios.py::test_17_03_segmentation_after_a_new_stage`, and 17.3 in `test_project/scenarios.md` | right after `test_17_02`'s `new_scene`, reads the sensor through `execute_script` and asserts it empty (Kit's reset, the mechanism above); then a cube, `inspect_prim(["front"], include_segmentation=True)` with segmentation and the cube in its legend, and the cube deleted at the end. Now the first segmentation on a new stage in the suite | the first part passes; the second may, as `main` passes on a warm Kit |
@@ -314,7 +317,7 @@ one frame after the first.
 | The bounds are asyncio timers on Kit's loop: they fire only when the loop runs, so a main thread blocked by a shader compile or a long load delays them, and a call can outlast its budget in wall time. A frame wait that times out logs "no frame in 30 s", not the frame's real time | Accepted: nothing in the bridge can preempt Kit's main thread. The log lines carry wall-clock seconds, so a stall shows; any `NoFrame` in a cold run counts as evidence the bound is short (Q1) |
 | `updates_enabled = False` may not stop frames in some Kit app | Resolved by the live run: `test_15f` asserts it through Kit's own frame wait first, and says so if not |
 | A capture abandoned after `NoFrame` stays queued in Kit, and writes its file when the viewport renders again: one temp file per abandoned capture | Accepted: the name is unique and never read; only a stalled viewport causes it |
-| A cancelled frame wait | Resolved: the per-frame wait is `next_viewport_frame_async`, whose subscription is a local that goes when the cancelled coroutine ends. `wait_for_rendered_frames`, which would leave its callback in the viewport for good, is no longer used for these waits |
+| A cancelled frame wait | Resolved: the per-frame wait is `next_viewport_frame_async`, whose subscription is a local that goes when the cancelled coroutine ends, as long as no stored exception's traceback holds that frame: `Call` keeps a message, not the exception. `wait_for_rendered_frames`, which would leave its callback in the viewport for good, is no longer used for these waits |
 | Eco Mode on a static scene can pause rendering | Accepted: it hung before; now it fails after 30 s, and `NoFrame`'s message names Eco Mode. Lifting it for captures is a later issue if anyone hits it |
 | Time spent waiting for the viewport lock is outside the call's budget | Accepted: the server's client sends one request at a time; only a script's or a second client's capture can queue |
 | The scenario client's 10 s timeout is shorter than a slow cold `inspect` | Accepted, unchanged as #27 asks; the cold runs show whether it bites |
@@ -324,20 +327,28 @@ one frame after the first.
 
 ## Plan review
 
-### Round 1, 2026-10-29: needs-changes
+### Round 1
 
-review-plan, one reviewer; one major and seven minors, all fixed in this revision.
+- **How:** review-plan, one fresh reviewer agent started by the main session (its model was not passed to the
+  author), 2026-10-29, on `6129de2`.
+- **Verdict:** needs-changes: one major, seven minors.
+- **Now:** all eight fixed in `8caecab`; every improvement taken.
 
 | # | Sev | Finding | Status |
 |---|---|---|---|
-| P1 | major | Goal row 4 and Tests: #27's fix, waiting by time for late segmentation, had no test that fails on `main`: `test_17_03`'s second part may pass there, the old `test_15c` covered only the error path, and the unit test covered `poll`, not its use | Fixed: `test_15c_segmentation_that_comes_late_is_waited_for` wraps `get_instance_segmentation` to be empty for 15 reads, then real; `main`'s three reads drop it, the new poll gets it. Goal row 4 names it |
-| P2 | minor | Design `frames()`, the API table, Risks: `wait_for_rendered_frames(1)` returns before a frame, since `__subscribe_to_change` calls the callback on subscribe, and a cancelled wait's callback stays in the viewport's `__frame_changed` set; "until it is garbage collected" was wrong | Fixed: checked in `api.py` (Kit 107 and 110) and omni.usd's `_next_frame_async` (1.13.10 and 1.19.11, the same text). `frames()` uses `next_viewport_frame_async(viewport, 1)`; the API table says why not `wait_for_rendered_frames`; the Risk is corrected |
-| P3 | minor | `test_15e` (now `test_15f`): on `main`, setting `ovmcp.core.capture.FRAME_SECONDS` raises `ImportError`, so it failed for the wrong reason | Fixed: the constant is patched only if the module exists, the frame wait is asserted through `next_viewport_frame_async`, and on `main` the calls really hang |
-| P4 | minor | Steps 2 and 3: step 2 named the test of step 3's stop rule; Q4's `set_camera` behaviour had no test | Fixed: the test moved to step 3; step 2 is checked by the unit tests and the existing camera and lighting tests; `test_15f` calls `set_camera` with updates off and bounds its answer |
-| P5 | minor | `test_17_03` re-enables the sensor, so `test_22_01` was no longer the first segmentation on a new stage; its cube was left behind | Fixed: Goal row 5 and the cold-run evidence name `test_17_03`; it uses `inspect_prim` with segmentation, as #27's title, and deletes its cube |
-| P6 | minor | `handle_capture`: `capture_viewport` always captures segmentation, so a viewport that never gives it would cost every call 5 s | Fixed: `SegmentationWaits` remembers a wait that got nothing, per stage and render product, until a read gets data or a stage opens; the alternative of waiting only when this call enabled the sensor is in the Alternatives |
-| P7 | minor | Risks: the bounds are timers on Kit's loop, held in loop time, not wall time; a first frame over 30 s is logged as 30 s | Fixed: a Risk row. In detail, asyncio's clock is monotonic, but its timers fire only when Kit's loop runs, which a blocked main thread delays |
-| P8 | minor | Docs and the cold-run evidence: (a) ARCHITECTURE's `ovmcp/core/` module list; (b) README's #27 line only if Q5 closes #27; (c) `_init_sensors` logs no startup timing, yet Tests expected one; (d) the 2000-entry log ring may drop the warmup's lines | Fixed: (a) and (b) in Docs and Q5; (c) Tests expects timing only from captures, and the Design says `_init_sensors` is unchanged; (d) the timing is read from Kit's log file, or from `get_logs` right after the warmup and after `test_17_03` while it reads the ring, and after #5's fix from whatever `get_logs` then reads |
+| P1 | major | Goal row 4 and Tests: #27's fix, waiting by time for late segmentation, had no test that fails on `main`: `test_17_03`'s second part may pass there, the old `test_15c` covered only the error path, and the unit test covered `poll`, not its use | fixed: `test_15c_segmentation_that_comes_late_is_waited_for` wraps `get_instance_segmentation` to be empty for 15 reads, then real; `main`'s reads drop it, the new poll gets it. Goal row 4 names it. The count of `main`'s reads is corrected in round 2 (P9) |
+| P2 | minor | Design `frames()`, the API table, Risks: `wait_for_rendered_frames(1)` returns before a frame, since `__subscribe_to_change` calls the callback on subscribe, and a cancelled wait's callback stays in the viewport's `__frame_changed` set; "until it is garbage collected" was wrong | fixed: checked in `api.py` (Kit 107 and 110) and omni.usd's `_next_frame_async` (1.13.10 and 1.19.11, the same text). `frames()` uses `next_viewport_frame_async(viewport, 1)`; the API table says why not `wait_for_rendered_frames`; the Risk is corrected |
+| P3 | minor | `test_15e` (now `test_15f`): on `main`, setting `ovmcp.core.capture.FRAME_SECONDS` raises `ImportError`, so it failed for the wrong reason | fixed: the constant is patched only if the module exists, the frame wait is asserted through `next_viewport_frame_async`, and on `main` the calls really hang |
+| P4 | minor | Steps 2 and 3: step 2 named the test of step 3's stop rule; Q4's `set_camera` behaviour had no test | fixed: the test moved to step 3; step 2 is checked by the unit tests and the existing camera and lighting tests; `test_15f` calls `set_camera` with updates off and bounds its answer |
+| P5 | minor | `test_17_03` re-enables the sensor, so `test_22_01` was no longer the first segmentation on a new stage; its cube was left behind | fixed: Goal row 5 and the cold-run evidence name `test_17_03`; it uses `inspect_prim` with segmentation, as #27's title, and deletes its cube |
+| P6 | minor | `handle_capture`: `capture_viewport` always captures segmentation, so a viewport that never gives it would cost every call 5 s | fixed: `SegmentationWaits` remembers a wait that got nothing, per stage and render product, until a read gets data or a stage opens; the alternative of waiting only when this call enabled the sensor is in the Alternatives |
+| P7 | minor | Risks: the bounds are timers on Kit's loop, held in loop time, not wall time; a first frame over 30 s is logged as 30 s | fixed: a Risk row. In detail, asyncio's clock is monotonic, but its timers fire only when Kit's loop runs, which a blocked main thread delays |
+| P8 | minor | Docs and the cold-run evidence: (a) ARCHITECTURE's `ovmcp/core/` module list; (b) README's #27 line only if Q5 closes #27; (c) `_init_sensors` logs no startup timing, yet Tests expected one; (d) the 2000-entry log ring may drop the warmup's lines | fixed: (a) and (b) in Docs and Q5; (c) Tests expects timing only from captures, and the Design says `_init_sensors` is unchanged; (d) the timing is read from Kit's log file, or from `get_logs` right after the warmup and after `test_17_03` while it reads the ring, and after #5's fix from whatever `get_logs` then reads |
+
+Refuted: none.
+
+Owner calls: none from the review. The plan's own questions, Q1 to Q6 (Design, For the maintainer), wait for the
+maintainer's approval.
 
 Improvements:
 
@@ -354,3 +365,32 @@ Improvements:
 A fact from outside the review: #5 was traced live to a deadlock between Kit's main thread and the bridge's `omni.log`
 consumer; its fix drops that consumer and has `get_logs` read Kit's log file. This plan's timing lines are carb log
 lines, so they reach whatever `get_logs` reads, and Kit's log file in any case.
+
+### Round 2
+
+- **How:** review-plan, one fresh reviewer agent started by the main session (its model was not passed to the
+  author), 2026-10-29, on `8caecab`: round 1's edits and its findings.
+- **Verdict:** approved: no blocker or major; round 1's eight findings confirmed fixed; three minors.
+- **Now:** the three minors fixed and the three improvements taken, in the commit after `8caecab`. `status` stays
+  `draft` until the maintainer approves the plan and answers Q1 to Q6.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P9 | minor | The Design's "three reads in all" and `test_15c`: `main` reads four times, since `_capture_instance_segmentation` reads, then enables and reads (`camera.py` 382-388), and `inspect` calls it twice (653, 658); "more than 3 reads" passes on `main` | fixed: the Design row says four reads and cites the lines; `test_15c` asserts at least 16 reads, the 15 empty ones and the real one |
+| P10 | minor | `test_15d`: "the second without a second wait, in under 15 s" can't tell one wait from two (two 5 s waits and the settles come to 11-12 s warm) | fixed: the second angle's `segmentation_error` must be the "as before, so this capture did not wait" text; the 15 s stays as a guard against a hang |
+| P11 | minor | The `_segmentation` message "it is tried again after a new or opened stage" was wrong, since every call reads the sensor first and a read with data clears the record, and it pointed an assistant at `new_scene`, which throws away the user's scene | fixed: "Instance segmentation gave no data on this stage, as before, so this capture did not wait: capture again in a few seconds; get_logs(search="syntheticdata") shows why"; the Design says why no message points at a new stage |
+
+Refuted: none.
+
+Owner calls: none from the review.
+
+Improvements:
+
+| Improvement | Answer |
+|---|---|
+| `Call` keeps the stopping error's message, not the exception: on 3.12 a stored `NoFrame` chains to `_next_frame_async`'s frame and its `sub` | taken: Design (`Call`), its unit test, and the Risk on a cancelled frame wait |
+| Each heal undoes only if the attribute is still its own wrapper | taken: Tests, Live, new |
+| Goal row 3's "name each angle they did not capture" is shown by `test_15f`, not `test_15e` | taken |
+
+Also in this commit: step 6 names `review-code` inside finish-work, as review-plan's verdict rule asks of a plan's
+last step.
