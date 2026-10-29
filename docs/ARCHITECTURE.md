@@ -110,8 +110,8 @@ extension come from one release. `omniverse-mcp extension install` (`src/omniver
 | File | Purpose |
 |------|---------|
 | `ovmcp/bridge/extension.py` | Kit lifecycle: makes the token, starts the core's HTTP server with the routes |
-| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `png.py` (the PNG writer), `logs.py` (the log ring and its query), `framing.py`, `isolation.py`, `lighting.py`, `material.py` (set_material's OmniPBR, named by its MDL source), `robot.py` (where create_robot loads a USD file from, and its prim's name), `serial.py`, `usd.py` (typed forms of pxr calls the stubs get wrong) |
-| `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, simulation, recording, robot, misc, usd_advanced, logging) with shared utilities in `_utils.py` and `_mcp_bridge.py` |
+| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `png.py` (the PNG writer), `logs.py` (the log ring and its query), `framing.py`, `isolation.py`, `lighting.py`, `material.py` (set_material's OmniPBR, named by its MDL source), `robot.py` (where create_robot loads a USD file from, and its prim's name), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `serial.py`, `usd.py` (typed forms of pxr calls the stubs get wrong) |
+| `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, simulation, recording, robot, debug_draw, misc, usd_advanced, logging) with shared utilities in `_utils.py` (among them `enable_extension`) and `_mcp_bridge.py` |
 | `config/extension.toml` | Extension metadata and default settings |
 
 ### HTTP Server
@@ -312,6 +312,20 @@ type = Xform
 pos = 0.0000, 0.9500, 0.0000
 ```
 
+## Debug Drawing
+
+`draw_debug` (`handlers/debug_draw.py`) draws with `isaacsim.util.debug_draw`, or `omni.debugdraw` in a Kit app
+without it, turned on at the first call by `enable_extension` (`handlers/_utils.py`) when the app has it on disk.
+
+1. The handler draws a shape's segments at once and adds them to the book (`core/debug_draw.py`), with the stage's
+   id and the moment they expire, by `time.monotonic()`.
+2. While the book holds a drawing, one subscription to the update event stream runs on the main thread: it drops
+   drawings that expired or belong to another stage, then clears and draws the rest again, since
+   `isaacsim.util.debug_draw`'s clear takes every line. `omni.debugdraw` forgets a line after a frame, so with it the
+   book's lines are drawn on every update.
+3. A clear waits for an update with the stage `OPENED`, never while it opens or closes, and the subscription goes
+   once nothing is left.
+
 ## Robot System
 
 The robot tools use a hybrid approach:
@@ -333,7 +347,8 @@ the answer says so, with the lighting mode.
 ## Extension Lifecycle
 
 - **on_startup**: Creates the HTTP server, binds to configured host:port, registers all routes. Pre-initialises the `omni.syntheticdata` segmentation sensor (with retry) so the first `capture_viewport` call returns segmentation data without needing warmup frames
-- **on_shutdown**: Stops any active recording, clears caches, closes the HTTP server
+- **on_shutdown**: Stops any active recording, drops the debug drawing subscription and its book (clearing nothing:
+  the stage may be tearing down), clears caches, closes the HTTP server
 
 The extension includes:
 - **Content-Length validation**: Rejects request bodies over 100 MB
