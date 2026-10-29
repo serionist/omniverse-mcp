@@ -7,7 +7,7 @@ Standalone MCP server that bridges AI assistants to a running NVIDIA Omniverse K
 Design principles:
 - Images are always saved as PNG files, returning paths; capture_viewport(include_image=True) also returns one inline.
 - Scene/prim data uses grep-friendly prim-block text format.
-- Any response > FILE_THRESHOLD chars is written to a file, returning a relative path.
+- Any response > FILE_THRESHOLD chars is written to a file, returning its path (Helpers.rel).
 - Small responses are returned inline as text.
 
 Usage:
@@ -75,9 +75,17 @@ class Helpers:
     def rel(self, path: str) -> str:
         """The path the client is given: `mcp_output/...` relative to the working folder when the file is under it, else
         absolute, so a client that reads files from another folder can still open it."""
-        absolute = Path(path).resolve()
         try:
-            return absolute.relative_to(Path.cwd().resolve()).as_posix()
+            absolute = Path(path).resolve()
+            cwd = Path.cwd().resolve()
+        except (OSError, RuntimeError):  # an unreachable share, a symlink loop: the path as given, made whole
+            return str(Path(path).absolute())
+        # A working folder at a drive's root, where some clients start servers, holds every path: a relative one would
+        # still need a reader in that folder.
+        if cwd == Path(cwd.anchor):
+            return str(absolute)
+        try:
+            return absolute.relative_to(cwd).as_posix()
         except ValueError:  # not under the working folder, another drive included
             return str(absolute)
 
@@ -107,7 +115,7 @@ class Helpers:
 
     def save_png(self, image_base64: str, prefix: str = "capture", number: int | None = None) -> str:
         """Decode base64 PNG and save to mcp_output/captures/, named with number or the next capture number. Returns
-        the relative path; ToolError on bad data or a folder that can't be written."""
+        the path as rel gives it; ToolError on bad data or a folder that can't be written."""
         try:
             data = base64.b64decode(image_base64)
         except (binascii.Error, ValueError) as e:
@@ -158,8 +166,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.command == "extension":
         sys.exit(kit_extension.main(args.action))
     # Output dir defaults to ./mcp_output relative to CWD. It is made by the first file written there, by the server or
-    # by Kit (dump_scene, recordings), not here: a client's health check starts the server and calls no tool.
-    output_dir = args.output_dir or os.path.join(os.getcwd(), "mcp_output")
+    # by Kit (dump_scene, recordings), not here: a client's health check starts the server and calls no tool. A relative
+    # one is made whole here, since Kit would read it against its own working folder.
+    output_dir = str(Path(args.output_dir).absolute()) if args.output_dir else os.path.join(os.getcwd(), "mcp_output")
     create_server(args.host, args.port, output_dir).run()
 
 

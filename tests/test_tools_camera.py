@@ -179,3 +179,6 @@ def test_a_captures_files_keep_its_number_while_other_tools_take_numbers(tmp_pat
     segmentation = re.search(r"viewport_(\d{4})_segmentation_\d{4}\.png", out)
     assert image and boxes and segmentation, out
     assert image[1] == boxes[1] == segmentation[1], out
+    # The legend sits beside the segmentation, here outside the working folder, so its path came back absolute (#41).
+    (legend,) = (tmp_path / "captures").glob("viewport_*_segmentation_*_legend.txt")
+    assert "/World/Cube = [255, 0, 0]" in legend.read_text(encoding="utf-8")

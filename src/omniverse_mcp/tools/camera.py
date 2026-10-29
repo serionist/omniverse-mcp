@@ -2,6 +2,7 @@
 
 import json
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal
 
 from mcp.server.mcpserver import MCPServer
@@ -32,6 +33,14 @@ CAMERA_LIGHT_ON_ADVICE = (
     "geometry, or the renderer is still warming up: recapture, or move the camera with "
     "look_at_prim."
 )
+
+
+def _legend_beside(seg_path: str) -> str:
+    """The legend file beside a segmentation image, from the path save_png gave: relative to the working folder, or
+    absolute. Only the file's own suffix changes, whatever its folders are called."""
+    seg = Path(seg_path)
+    legend = seg.with_name(f"{seg.stem}_legend.txt")
+    return str(legend if legend.is_absolute() else Path.cwd() / legend)
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
@@ -108,8 +117,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             except ToolError as e:
                 lines.append(f"Segmentation: ERROR: {e}")
             else:
-                legend_path = seg_path.replace(".png", "_legend.txt")
-                abs_legend = os.path.join(os.getcwd(), legend_path) if not os.path.isabs(legend_path) else legend_path
+                abs_legend = _legend_beside(seg_path)
                 legend_lines = [f"{prim_path} = [{c[0]}, {c[1]}, {c[2]}]\n" for prim_path, c in legend.items()]
                 h.write(
                     abs_legend,
@@ -229,11 +237,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
                         cap_line += f" | seg: {seg_path}"
                     legend = cap.get("segmentation_legend", {})
                     if legend and seg_path:
-                        legend_path = seg_path.replace(".png", "_legend.txt")
-                        abs_legend = (
-                            os.path.join(os.getcwd(), legend_path) if not os.path.isabs(legend_path) else legend_path
+                        h.write(
+                            _legend_beside(seg_path),
+                            "".join(f"{pp} = [{c[0]}, {c[1]}, {c[2]}]\n" for pp, c in legend.items()),
                         )
-                        h.write(abs_legend, "".join(f"{pp} = [{c[0]}, {c[1]}, {c[2]}]\n" for pp, c in legend.items()))
                 if cap.get("is_black") and not warned:
                     advice = CAMERA_LIGHT_ON_ADVICE if r.get("lighting_mode") == "camera" else LIGHTING_ADVICE
                     warning = f"  WARNING: One or more captures are all-black. {advice}"
