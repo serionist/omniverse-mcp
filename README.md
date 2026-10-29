@@ -37,7 +37,8 @@ parts, from one release:
 Claude Code users get both from one plugin, with skills for each kind of work.
 
 ```
-AI client  --MCP, stdio-->  omniverse-mcp  --HTTP, with a token-->  ovmcp.bridge, inside the Kit app (port 8211)
+AI client  --MCP, stdio-->  omniverse-mcp  --HTTP, with a token-->  ovmcp.bridge
+                            (the server)                         (inside the Kit app, port 8211)
 ```
 
 ## Requirements
