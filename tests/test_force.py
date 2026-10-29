@@ -116,7 +116,8 @@ def test_an_articulation_s_link_is_refused_naming_its_issue():
         "/World/G1/hip", stopped=False, enabled=True, kinematic=False, held=True, articulation="/World/G1/pelvis"
     )
     assert why == (
-        "/World/G1/hip is a link of the articulation at /World/G1/pelvis: PhysX's push doesn't reach a robot's links "
+        "/World/G1/hip is a link of the articulation at /World/G1/pelvis: PhysX's push doesn't reach an "
+        "articulation's links "
         "yet (#58)"
     )
 
@@ -165,6 +166,14 @@ def robots() -> Usd.Stage:
     _body(stage, "/World/Arm/link")
     _joint(stage, "/World/Arm/fix", None, "/World/Arm/base")
     _joint(stage, "/World/Arm/j1", "/World/Arm/base/flange", "/World/Arm/link")
+    # Bolted to the wall the gate below hangs on: a static anchor joins the arm to nothing.
+    _joint(stage, "/World/Arm/mount", "/World/Wall", "/World/Arm/base")
+    # A crane whose root is on its fixed joint to the world, as UsdPhysics allows for a fixed articulation.
+    UsdGeom.Xform.Define(stage, "/World/Crane")
+    _body(stage, "/World/Crane/base")
+    _body(stage, "/World/Crane/boom")
+    UsdPhysics.ArticulationRootAPI.Apply(_joint(stage, "/World/Crane/fix", None, "/World/Crane/base"))
+    _joint(stage, "/World/Crane/slew", "/World/Crane/base", "/World/Crane/boom")
     # No articulation: a hinged door, a gate hinged to a wall that is no body, and a loose box.
     _body(stage, "/World/Door")
     _body(stage, "/World/Frame")
@@ -187,6 +196,8 @@ def robots() -> Usd.Stage:
         ("/World/Dog/leg", "/World/Dog"),
         ("/World/Arm/base", "/World/Arm"),
         ("/World/Arm/link", "/World/Arm"),
+        ("/World/Crane/base", "/World/Crane/fix"),
+        ("/World/Crane/boom", "/World/Crane/fix"),
         ("/World/Door", None),
         ("/World/Frame", None),
         ("/World/Gate", None),
@@ -204,7 +215,7 @@ def test_the_links_are_the_articulated_bodies_usd_physics_parses(robots: Usd.Sta
     _, descs = parsed[physics.ObjectType.Articulation]
     articulated = {str(b) for desc in descs for b in desc.articulatedBodies} - {""}  # "" is the world
     bodies = [str(p.GetPath()) for p in robots.Traverse() if has_api(p, UsdPhysics.RigidBodyAPI)]
-    assert len(bodies) == 12
+    assert len(bodies) == 14
     assert {b for b in bodies if articulation_holding(robots, b) is not None} == articulated
 
 

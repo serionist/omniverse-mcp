@@ -77,8 +77,8 @@ def refusal(
     if articulation is not None:
         # Measured on Isaac Sim 6.2: apply_force_at_pos on the G1's pelvis returns as on any body and moves nothing.
         return (
-            f"{prim_path} is a link of the articulation at {articulation}: PhysX's push doesn't reach a robot's links "
-            "yet (#58)"
+            f"{prim_path} is a link of the articulation at {articulation}: PhysX's push doesn't reach an "
+            "articulation's links yet (#58)"
         )
     return None
 
@@ -90,7 +90,8 @@ def articulation_holding(stage: Usd.Stage, body_path: str) -> str | None:
     Read as UsdPhysics's own parser reads an articulation: every body joined to the root's through joints belongs to
     it, wherever it sits in the hierarchy (the G1's links are its pelvis's siblings, the root on the pelvis), and the
     root may be on one of those bodies, on one of those joints, or on a prim above either (a robot's Xform). A joint
-    excluded from articulations still joins, as the parser counts it.
+    excluded from articulations still joins, as the parser counts it. An end that is no body, the world or a static
+    prim, joins nothing: two things fixed to one wall are not one articulation.
     """
     neighbours: dict[str, set[str]] = {}
     joints_at: dict[str, list[Usd.Prim]] = {}
@@ -101,8 +102,10 @@ def articulation_holding(stage: Usd.Stage, body_path: str) -> str | None:
         ends: list[str] = []
         for rel in (joint.GetBody0Rel(), joint.GetBody1Rel()):
             targets: list[Sdf.Path] = rel.GetTargets()
-            if targets:  # none: the joint holds that end to the world
-                ends.append(_body_of(stage, targets[0]))
+            # No target holds that end to the world; a target in no body anchors it to a static prim.
+            end = _body_of(stage, targets[0]) if targets else None
+            if end is not None:
+                ends.append(end)
         for end in ends:
             joints_at.setdefault(end, []).append(prim)
         if len(ends) == 2 and ends[0] != ends[1]:
@@ -123,15 +126,15 @@ def articulation_holding(stage: Usd.Stage, body_path: str) -> str | None:
     return None
 
 
-def _body_of(stage: Usd.Stage, path: Sdf.Path) -> str:
+def _body_of(stage: Usd.Stage, path: Sdf.Path) -> str | None:
     """The rigid body a joint's target belongs to: the target, or the nearest prim above it with RigidBodyAPI, as a
-    joint may name a body's child. The target itself when none is."""
+    joint may name a body's child. None when none is: a static anchor, as UsdPhysics reads it."""
     prim = stage.GetPrimAtPath(path)
     while prim.IsValid() and not prim.IsPseudoRoot():
         if has_api(prim, UsdPhysics.RigidBodyAPI):
             return str(prim.GetPath())
         prim = prim.GetParent()
-    return str(path)
+    return None
 
 
 def _root_at_or_above(prim: Usd.Prim) -> str | None:

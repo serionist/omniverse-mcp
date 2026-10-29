@@ -47,7 +47,8 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   of mass. Before, the PhysX call it made didn't exist, so every call added `force / 100` (all of it for an
   impulse) to `physics:velocity`, ignoring mass and point. It is now refused while the simulation is stopped, for a
   disabled or kinematic body and for a prim PhysX holds no body for, where it reported success; a PhysX failure is
-  an error. A robot's link is refused too, since PhysX's push doesn't reach an articulation's links yet (#58).
+  an error. An articulation's link, such as a robot's, is refused too, since PhysX's push doesn't reach it yet
+  (#58).
   `impulse` says what PhysX does: a force lasts one physics step, so a sustained push is an impulse of force times
   seconds (#25). The fix is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit.
 

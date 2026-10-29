@@ -98,7 +98,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         ] = False,
     ) -> str:
         """Push a rigid body through PhysX, so its mass counts. The simulation must be playing or paused. Refused for a
-        disabled or kinematic body, and for a robot's link, which PhysX's push doesn't reach yet (#58)."""
+        disabled or kinematic body, and for an articulation's link, such as a robot's, which PhysX's push doesn't
+        reach yet (#58)."""
         resp = bridge_call(client.apply_force, prim_path, force, position, impulse)
         r = resp["result"]
         mode = "impulse" if r.get("impulse") else "force"
