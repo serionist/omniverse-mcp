@@ -63,21 +63,26 @@ untested.
 
 ## Live run
 
-Not yet: the live suites wait for #5's fix on `main` (the plan's R11), and the main session runs them then, on Isaac
-Sim 6.2.0 with the extension installed from this branch. They must show:
+On `a9e3182`, Isaac Sim 6.2.0 headless, a fresh Kit with the extension installed from the branch, both suites with
+nothing excluded, #5's fix on `main`: 145 passed, 1 failed. The plain bodies measured as the descriptions say:
 
-| Test | Shows |
+| Test | Measured |
 |---|---|
-| `test_15_04` | `method` is `physx`, `at` is `centre of mass` |
-| `test_15_06` | 10 N s on 5 kg gives about 2 units/s along X (within 25%); 10 N gives `10 * dt / 5` (within 50%), a force for one physics step, as the descriptions say. A held force would fail it, and the descriptions would change to match. |
-| `test_15_07` | under 2 degrees pushed at the centre of mass, over 5 at a point 0.2 above it |
-| `test_15_08` | the point 0.15 off the origin; under 2 degrees without `position`, over 5 at the origin |
-| `test_15_09`, `test_15_10`, `test_15_12` | errors naming the stopped simulation, the kinematic body, the disabled body |
-| `test_15_11` | the G1's pelvis pushed at its centre of mass, and further along X than without the push. If `ret_val` is false for a link, the plan drops that check. |
-| both suites in full | no failures beyond `main`'s on the same Kit |
+| `test_15_06` | 10 N s on 5 kg: 2.000 units/s along X. 10 N: 0.0333 units/s, one step of 0.0167 s, so a force lasts one physics step |
+| `test_15_07` | 0.00 degrees pushed at the centre of mass, 15.74 at a point 0.2 above it |
+| `test_15_08` | the point 0.150 off the origin; 16.49 degrees pushed at the origin |
+| `test_15_04`, `test_15_09`, `test_15_10`, `test_15_12` | passed: PhysX did the push; the stopped simulation, the kinematic body and the disabled body refused |
+| `test_15_11` | failed: `0.13294577598571777 not greater than 0.15211944580078124` |
+
+| # | Sev | Where | Finding | Status |
+|---|---|---|---|---|
+| F2 | major | `handlers/simulation.py`, `handle_apply_force` | A push on a robot's link reports success and moves nothing. 100 N s along X on the G1's pelvis, which PhysX holds (`ret_val` true): it moved 0.133 along X in 0.2 s, against 0.152 without the push, where about half a metre was expected. `IPhysxSimulation.apply_force_at_pos` takes a push on an articulation's link and ignores it. Found by the live run, which the review couldn't make. | Fixed in `4646bf3`: refused after the checks that PhysX holds the body, naming #58, which tracks pushing a link. A link is read from the stage as UsdPhysics's own parser reads an articulation: every body joined through joints to the body, joint or prim that carries `ArticulationRootAPI` (`articulation_holding` in `core/force.py`; the G1's links are its pelvis's siblings, the root on the pelvis). Unit tests on robots shaped as Isaac Sim builds them, one checking the links against UsdPhysics's parser in usd-core; `test_15_11` now expects the refusal on the pelvis and on another link. |
+
+F2 is a major, so `review-code` reads `4646bf3` in a round 2. The refusal has not run live yet: `test_15_11` must
+show the error, naming the articulation at the pelvis and #58, for both links, and the rest of both suites as above.
 
 ## Checks
 
 `uv run tools/gate.py full` passed on `8855653` (758 tests, 94.02%), on the fixes before the last rebase (767
-tests, 94.16%), and on `81f9da7` rebased onto `76b0f75` (944 tests, 95.29%), with the guard in `tests/test_logs.py`
-finding no Python hook on Kit's logging.
+tests, 94.16%), on `81f9da7` rebased onto `76b0f75` (944 tests, 95.29%), with the guard in `tests/test_logs.py`
+finding no Python hook on Kit's logging, and on `4646bf3` (958 tests, 95.38%).
