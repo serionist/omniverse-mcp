@@ -87,7 +87,8 @@ A Kit app without its window takes the bridge on its command line:
   ```
 
   The bridge runs on Kit's event loop, so it answers only while the script keeps calling `update()`. A script's own
-  unknown command-line arguments reach Kit too, so `python.sh my_script.py --enable ovmcp.bridge` works as well.
+  unknown command-line arguments reach Kit too, so `python.sh my_script.py --ext-folder <folder> --enable
+  ovmcp.bridge` works as well.
 - Isaac Sim asks for NVIDIA's licence on its first start; accepting it, or setting `OMNI_KIT_ACCEPT_EULA=YES`, is your
   decision.
 
@@ -106,6 +107,10 @@ Kit logs `[MCP Bridge] Failed to start server` and the bridge doesn't answer.
 The bridge runs any Python the server sends, and the link is plain HTTP with a bearer token. Keep it off networks you
 don't trust.
 
+First install the bridge of the server's release on the Kit machine, `uvx omniverse-mcp==<version> extension
+install` there (or the release's zip, below), and pin the server to the same `omniverse-mcp==<version>`: unpinned,
+two machines can each fetch a different release.
+
 **The safer way, an SSH tunnel:** the bridge keeps listening on `127.0.0.1` on the Kit machine, and the tunnel
 brings it to the server's machine.
 
@@ -115,13 +120,17 @@ brings it to the server's machine.
 2. On the server's machine: `ssh -N -L 8211:127.0.0.1:8211 <you>@<the Kit machine>`.
 3. Give the server the same token: `"env": { "PYTHONPATH": "", "OMNIVERSE_MCP_TOKEN": "<the token>" }`.
 
+Kit's command line, the token in it, is visible to every user of the Kit machine (`ps` on Linux): there, a token is
+only as private as the machine.
+
 **Over the network:** `--/exts/ovmcp.bridge/host=0.0.0.0` and the token on the Kit machine, and
 `OMNIVERSE_MCP_HOST=<the Kit machine>` with `OMNIVERSE_MCP_TOKEN` on the server's. Kit warns at start that anyone on
 the network who holds the token can run code in the app.
 
 A container, or Kit running as another user, is the same case: the server can't read the token file, so set the
-token on both sides. `OMNIVERSE_MCP_STATE_DIR`, set the same on both sides, moves the token file instead, when both
-can reach one folder.
+token on both sides. Only for the same user, such as a container running as your user with a folder of yours
+mounted, can `OMNIVERSE_MCP_STATE_DIR`, set the same on both sides, move the token file there instead; that folder
+must be one only you can read.
 
 **Where files land:** captures and long answers come back over the link and are written on the server's machine.
 `dump_scene` and recordings are written by Kit itself, so with a remote Kit they land on the Kit machine, under the
@@ -161,7 +170,7 @@ The server and the bridge come from one release; update both, then restart Kit a
 ## Uninstalling
 
 1. **In the Kit app:** turn **Omniverse MCP Bridge** off, and remove its folder from **Extension Search Paths**.
-2. **The bridge's folders:** `omniverse-mcp extension path` prints the `exts` folder; delete the `omniverse-mcp`
+2. **The bridge's folders:** `uvx omniverse-mcp extension path` prints the `exts` folder; delete the `omniverse-mcp`
    folder around it. On Linux the token files are in `~/.local/state/omniverse-mcp/` too.
 3. **The client:** remove the `omniverse` server from its config; for the plugin,
    `claude plugin uninstall omniverse-mcp@omniverse-mcp` and `claude plugin marketplace remove omniverse-mcp`.
@@ -174,7 +183,7 @@ The server and the bridge come from one release; update both, then restart Kit a
 |---|---|
 | "Missing or wrong bridge token" | The server can't read the bridge's token file: Kit runs as another user, in a container or on another machine. Set a token on both sides ([Kit on another machine](#kit-on-another-machine)). |
 | "older than this MCP server", "speaks bridge protocol" | The server and the bridge come from different releases. Run the command the message names, then restart Kit. |
-| "Kit app connection failed", refused | Kit isn't running, the bridge is off, or it listens on another port. `omniverse-mcp extension path` says whether the bridge is installed. |
+| "Kit app connection failed", refused | Kit isn't running, the bridge is off, or it listens on another port. `uvx omniverse-mcp extension path` says whether the bridge is installed. |
 | timed out | Kit is busy: on its first start Isaac Sim compiles shaders for minutes; a long physics step or script holds it too. Kit's console shows what it is doing. |
 | Kit logs `[MCP Bridge] Failed to start server` | Another program holds the port ([Ports](#ports-and-two-kit-apps)). |
 | The server doesn't start | `uvx` isn't on the PATH the client starts with: restart the client after installing uv. Claude Code's `/mcp` shows the error. |

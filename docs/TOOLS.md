@@ -3,8 +3,8 @@
 Reference for every tool the MCP server provides.
 
 - **Where answers go:** a text answer over 1,000 characters is written to `mcp_output/responses/` and the tool
-  returns its path; images go to `mcp_output/captures/`, scene dumps and recordings to their own folders. Paths are
-  relative to the server's working folder. Open them with your client's file tool.
+  returns its path; images go to `mcp_output/captures/`, recordings to `mcp_output/recordings/`, and a scene dump to
+  `mcp_output/scene_dump.txt`, which the next dump replaces. Paths are relative to the server's working folder. Open them with your client's file tool.
 - **Prim blocks:** text about prims comes as a `[/prim/path]` header, then `key = value` lines, so you can grep for a
   path or a property.
 - **Known issues** on Isaac Sim 6.2 are in the [README](../README.md#known-issues).
@@ -211,7 +211,8 @@ Save the current scene to a USD file.
 
 Discard the open scene, unsaved changes too, and start an empty one with a `/World` prim. The new stage is
 Y-up, while Isaac Sim's robots and stages are Z-up: for robot work, open a Z-up stage or set the axis with
-`execute_script` (`UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.z)`) before adding anything.
+`execute_script` (`UsdGeom.SetStageUpAxis(omni.usd.get_context().get_stage(), UsdGeom.Tokens.z)`) before adding
+anything.
 
 No parameters.
 
@@ -377,7 +378,7 @@ Spawn a robot from the asset library (Isaac Sim only).
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `robot_type` | string | required | Robot name or full USD asset path |
+| `robot_type` | string | required | A robot name from the table below |
 | `prim_path` | string | `""` | Scene path (auto-generated if empty) |
 | `position` | list[float] | `null` | `[x, y, z]` spawn position |
 | `rotation` | list[float] | `null` | Euler or quaternion |
@@ -573,7 +574,7 @@ Get the current simulation state. No parameters.
 - `state` - `playing`, `paused`, or `stopped`
 - `up_axis` - `Y` or `Z`
 - `time` - Elapsed simulation time in seconds
-- `fps` - Current frames per second
+- `fps` - the timeline's time codes per second, not the render rate
 - `prim_count` - Total number of prims in the scene
 - `meters_per_unit` - Stage scale factor
 - `extension_version`, `server_version` - the Kit extension's release, from the bridge's handshake, and this server's

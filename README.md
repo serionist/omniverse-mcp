@@ -78,7 +78,8 @@ when a request fits ([the plugin](plugin/README.md)).
    uvx omniverse-mcp extension install
    ```
 
-   It copies `ovmcp.bridge` into your user data folder and prints that folder.
+   It copies `ovmcp.bridge` into your user data folder, then prints the folder Kit needs, under "Kit finds it once
+   its extension search paths hold this folder".
 2. **Turn it on in the Kit app,** once:
    1. **Window > Extensions**, the menu (☰) at the top right, **Settings**.
    2. Under **Extension Search Paths**, the green **+**, then paste the folder. The **+** adds an empty row: click it

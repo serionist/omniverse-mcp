@@ -6,8 +6,8 @@
 
 ## What your client already has
 
-The server sends the short context below to every client as its MCP instructions, and most clients pass them to the
-model. Paste the [Context](#context) section into your instruction file (`AGENTS.md`, or `.cursor/rules/` in Cursor)
+The server sends much the same context as the one below to every client as its MCP instructions, and most clients
+pass them to the model. Paste the [Context](#context) section into your instruction file (`AGENTS.md`, or `.cursor/rules/` in Cursor)
 only if your client ignores a server's instructions.
 
 ## The workflows

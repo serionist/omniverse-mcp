@@ -14,7 +14,7 @@ The `omniverse-mcp` package carries this extension. `uvx omniverse-mcp extension
 own release to your user data folder and prints the folder. Add that folder to Kit's extension search paths once
 (**Window > Extensions**, the menu (☰) at the top right, **Settings**), then turn on **Omniverse MCP Bridge** with
 **Autoload**. A headless Kit takes `--ext-folder <that folder> --enable ovmcp.bridge` instead.
-`omniverse-mcp extension path` prints the folder again.
+`uvx omniverse-mcp extension path` prints the folder again.
 
 The [project's README](https://github.com/serionist/omniverse-mcp#install) has the whole setup.
 
