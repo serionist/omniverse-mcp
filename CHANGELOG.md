@@ -5,6 +5,11 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Added
+
+- **The official MCP registry lists the server,** as `io.github.serionist/omniverse-mcp`, from this release on, for
+  clients and directories that look servers up there. Each GitHub release's notes end with the install lines (#64).
+
 ### Fixed
 
 - **The README's in-page links work on PyPI's page,** where 0.2.1's pointed nowhere: the build gave them the

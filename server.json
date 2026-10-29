@@ -1,0 +1,50 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.serionist/omniverse-mcp",
+  "title": "Omniverse MCP",
+  "description": "Let an AI assistant work in NVIDIA Isaac Sim and other Omniverse Kit apps",
+  "repository": {
+    "url": "https://github.com/serionist/omniverse-mcp",
+    "source": "github",
+    "id": "1174271151"
+  },
+  "version": "0.2.1",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "omniverse-mcp",
+      "version": "0.2.1",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "PYTHONPATH",
+          "description": "Empty, so a Python path that Isaac Sim's environment sets stays out of the server's Python",
+          "value": ""
+        },
+        {
+          "name": "OMNIVERSE_MCP_HOST",
+          "description": "The host of the Kit app running the ovmcp.bridge extension",
+          "default": "127.0.0.1"
+        },
+        {
+          "name": "OMNIVERSE_MCP_PORT",
+          "description": "The bridge's port in the Kit app",
+          "default": "8211"
+        },
+        {
+          "name": "OMNIVERSE_MCP_OUTPUT_DIR",
+          "description": "The folder for images and long answers (default: ./mcp_output)"
+        },
+        {
+          "name": "OMNIVERSE_MCP_TOKEN",
+          "description": "The bridge's token, for Kit on another machine; on the same machine the server reads it from Kit",
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

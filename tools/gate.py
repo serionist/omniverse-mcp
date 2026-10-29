@@ -67,6 +67,8 @@ PLUGIN_SKILLS_DIR = "plugin/skills"
 PLUGIN_SKILL_KEYS = ("name", "description", "allowed-tools")
 PLUGIN_SERVER = "omniverse"
 PLUGIN_NAME = "omniverse-mcp"  # the plugin's and the marketplace's name
+# The official MCP registry's entry (plan S10), at the release's version too; its name is a one-way door (AGENTS.md).
+SERVER_JSON = "server.json"
 # What plugin.json may hold. Each other key (mcpServers, hooks, commands, agents) gives the plugin a way to run
 # something the gate doesn't check, as would a file under plugin/ other than these.
 PLUGIN_KEYS = ("name", "version", "description", "author", "homepage", "repository", "license", "keywords")
@@ -629,13 +631,18 @@ def json_object(path: Path) -> dict[str, Any]:
 
 
 def plugin_versions(root: Path, plugin: dict[str, Any]) -> dict[str, str | None]:
-    """The version in each place that carries one (plan D7), and each `omniverse-mcp==` pin under plugin/."""
+    """The version in each place that carries one (plan D7), server.json's and its packages' among them, and each
+    `omniverse-mcp==` pin under plugin/."""
     with (root / "pyproject.toml").open("rb") as f:
         versions: dict[str, str | None] = {"pyproject.toml": tomllib.load(f).get("project", {}).get("version")}
     extension = root / "extension" / "ovmcp.bridge" / "config" / "extension.toml"
     with extension.open("rb") as f:
         versions[extension.relative_to(root).as_posix()] = tomllib.load(f).get("package", {}).get("version")
     versions[PLUGIN_MANIFEST] = plugin.get("version")
+    server = json_object(root / SERVER_JSON)
+    versions[SERVER_JSON] = server.get("version")
+    for n, package in enumerate(server.get("packages") or [], 1):
+        versions[f"{SERVER_JSON} (package {n})"] = package.get("version") if isinstance(package, dict) else None
     for path in sorted((root / PLUGIN_DIR).rglob("*")):
         if path.is_file() and path.suffix in (".json", ".md"):
             for n, pin in enumerate(_PIN.findall(path.read_text(encoding="utf-8")), 1):
@@ -668,14 +675,14 @@ def check_plugin(_scope: Scope, root: Path = ROOT) -> Result:
         market = json_object(root / MARKETPLACE)
         servers = json_object(root / PLUGIN_MCP).get("mcpServers") or {}
         tools = json_object(root / TOOL_CONTRACT).get("tools") or {}
+        versions = plugin_versions(root, plugin)
     except (OSError, ValueError) as exc:
-        return Result("plugin", "FAIL", f"a plugin manifest or the tool contract can't be read: {exc}")
+        return Result("plugin", "FAIL", f"a plugin manifest, {SERVER_JSON} or the tool contract can't be read: {exc}")
     problems = manifest_problems(plugin, market, servers)
     problems += [
         f"{PLUGIN_MANIFEST}: the key {key!r} isn't checked by the gate" for key in plugin if key not in PLUGIN_KEYS
     ]
     problems += plugin_file_problems(root)
-    versions = plugin_versions(root, plugin)
     # The server exactly as the release starts it: another argument (--from a URL) or variable is code the gate can't
     # vouch for. PYTHONPATH empty: one from the user's shell (Isaac Sim's conda setup sets one) would reach uvx's
     # Python.

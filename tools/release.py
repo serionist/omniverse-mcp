@@ -3,9 +3,10 @@
 Usage: python tools/release.py check <tag>      the tag is vX.Y.Z, every version the repo names is X.Y.Z, and
                                                 CHANGELOG.md has a dated section for it
        python tools/release.py wheel <wheel>    the wheel carries the extension of its own version, and the README
-                                                PyPI shows has no relative path left, nor a link PyPI prefixes twice
+                                                PyPI shows has no relative path left, nor a link PyPI prefixes twice,
+                                                and names server.json's server for the MCP registry
        python tools/release.py notes <version>  print CHANGELOG.md's section for the version, each paragraph on one
-                                                line: the release's notes
+                                                line, and the install lines: the release's notes
        python tools/release.py pr               when CHANGELOG.md has a section for pyproject.toml's version (a
                                                 release PR, and every change after one), check as its tag would
 
@@ -39,6 +40,18 @@ _RELATIVE = re.compile(
 )
 # PyPI prefixes an in-page link with `user-content-` itself, so one that already has it points nowhere there (#62).
 _PREFIXED = re.compile(r'\]\(#user-content-[^)\s]*\)|href="#user-content-[^"]*"')
+# Under each release's notes on GitHub (plan S10), as the README's Install and Updating say it. GitHub breaks a release
+# body where its lines break, so each item is one line.
+INSTALL = (
+    "### Install\n\n"
+    "- **Claude Code:** `/plugin marketplace add serionist/omniverse-mcp`, then"
+    " `/plugin install omniverse-mcp@omniverse-mcp` and `/omniverse-mcp:setup`. To update:"
+    " `claude plugin marketplace update omniverse-mcp`, then `claude plugin update omniverse-mcp@omniverse-mcp`,"
+    " restart Claude Code and run `/omniverse-mcp:setup`.\n"
+    "- **Other MCP clients:** `uvx omniverse-mcp=={version} extension install`, then the server,"
+    " `uvx omniverse-mcp=={version}`, in the client's config"
+    " ([Install](https://github.com/serionist/omniverse-mcp#other-mcp-clients)).\n"
+)
 
 
 def section(changelog: str, version: str) -> tuple[str | None, str]:
@@ -108,8 +121,10 @@ def pull_request_problems(root: Path = ROOT) -> list[str] | None:
     return None if heading is None else tag_problems(f"v{version}", root)
 
 
-def wheel_problems(path: Path) -> list[str]:
-    """The wheel carries the Kit extension of its own version, and PyPI's copy of the README resolves."""
+def wheel_problems(path: Path, root: Path = ROOT) -> list[str]:
+    """The wheel carries the Kit extension of its own version, and PyPI's copy of the README resolves and names the
+    server for the MCP registry."""
+    name = gate.json_object(root / gate.SERVER_JSON).get("name")
     with zipfile.ZipFile(path) as wheel:
         names = wheel.namelist()
         metadata = next((n for n in names if n.endswith(".dist-info/METADATA")), None)
@@ -129,6 +144,10 @@ def wheel_problems(path: Path) -> list[str]:
     prefixed = [m.group(0) for m in _PREFIXED.finditer(description)]
     if prefixed:
         problems.append(f"{path.name}'s README has links PyPI prefixes twice (#62): {', '.join(prefixed[:5])}")
+    # The registry trusts a PyPI package whose README holds `mcp-name: <the name>`, ended by a space, a tag or a
+    # comment's end, and refuses the entry otherwise; PyPI's copy can't change once uploaded.
+    if not isinstance(name, str) or not re.search(rf"mcp-name: {re.escape(name)}(?=\s|<|-->|$)", description):
+        problems.append(f"{path.name}'s README lacks `mcp-name: {name}`, by which the MCP registry trusts it")
     return problems
 
 
@@ -151,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         if heading is None or not body:
             print(f"CHANGELOG.md has no section for {value}", file=sys.stderr)
             return 1
-        print(unwrap(body))
+        print(f"{unwrap(body)}\n\n{INSTALL.format(version=value)}", end="")
         return 0
     problems = tag_problems(value) if command == "check" else wheel_problems(Path(value))
     for problem in problems:

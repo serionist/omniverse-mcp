@@ -18,6 +18,9 @@
   <a href="LICENSE"><img alt="Licence: MIT" src="https://img.shields.io/github/license/serionist/omniverse-mcp?label=licence"></a>
 </p>
 
+<!-- The official MCP registry trusts the PyPI package by this line, as server.json names it. -->
+<!-- mcp-name: io.github.serionist/omniverse-mcp -->
+
 <p align="center">
   <img src="docs/images/hero-viewport.jpg" width="49%" alt="A Franka arm on a table with a red, a green and a blue block and a yellow ball, as capture_viewport returns it from Isaac Sim">
   <img src="docs/images/hero-segmentation.png" width="49%" alt="The same view's instance segmentation: each link of the arm, the table, each block and the ball in its own colour">
