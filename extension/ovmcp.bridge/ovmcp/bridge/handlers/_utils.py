@@ -11,12 +11,14 @@ import time
 import uuid
 from pathlib import Path
 
+import carb
 import omni.kit.app
 import omni.usd
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade
 
+# The module, not its names: its limits are read when a wait runs, so a live test can shorten one.
+from ovmcp.core import capture
 from ovmcp.core.extensions import extension_step, is_listed
-from ovmcp.core.png import is_complete_png
 
 DEFAULT_CAMERA_PATH = "/OmniverseKit_Persp"
 
@@ -78,71 +80,88 @@ def _get_stage() -> Usd.Stage:
 
 CAMERA_SETTLE_FRAMES = 20
 
+# A capture that took longer than this logs how long its frame and its file took, for the cold-start runs of #27.
+SLOW_CAPTURE_SECONDS = 2.0
+
 
 async def _next_update():
     """Wait for next sim update frame to ensure thread safety."""
     await omni.kit.app.get_app().next_update_async()
 
 
-# How long a capture may take to reach disk. On Kit 110 capture_viewport_to_file's wait_for_result returns before
-# the file is written, so the file is waited for, not the capture.
-CAPTURE_TIMEOUT_SECONDS = 10.0
+async def capture_viewport_png(viewport, budget: capture.Budget | None = None) -> bytes:
+    """The viewport's frame as PNG bytes, read once Kit has written all of it (ovmcp.core.capture.capture_png).
 
-
-async def capture_viewport_png(viewport) -> bytes:
-    """The viewport's frame as PNG bytes, read once Kit has written all of it. RuntimeError when no whole file arrives.
-
+    A CaptureError, a RuntimeError, when no whole file arrives in time; each wait is bounded, and capped by `budget`.
     Each capture gets a file of its own: with one path for every capture, a capture whose file wasn't written yet read
-    the previous capture's file, so every image was one capture behind (#32).
+    the previous capture's file, so every image was one capture behind (#32). On Kit 110 wait_for_result returns before
+    the file is written, so the file is waited for too.
     """
     from omni.kit.viewport.utility import capture_viewport_to_file
 
     path = Path(tempfile.gettempdir()) / f"ovmcp_capture_{uuid.uuid4().hex}.png"
+    started = time.monotonic()
     try:
-        await capture_viewport_to_file(viewport, file_path=str(path)).wait_for_result()
-        deadline = time.monotonic() + CAPTURE_TIMEOUT_SECONDS
-        while True:
-            with contextlib.suppress(OSError):
-                data = path.read_bytes()
-                if is_complete_png(data):
-                    return data
-            if time.monotonic() > deadline:
-                raise RuntimeError("Viewport capture produced no output")
-            await _next_update()
+        png = await capture.capture_png(
+            lambda: capture_viewport_to_file(viewport, file_path=str(path)), path.read_bytes, _next_update, budget
+        )
+    except capture.CaptureError as e:
+        carb.log_warn(f"[MCP Bridge] Capture failed after {time.monotonic() - started:.1f} s: {e}")
+        raise
     finally:
         # A file Kit is still writing can't be deleted on Windows; its name is never read again.
         with contextlib.suppress(OSError):
             path.unlink()
+    if png.frame_seconds + png.file_seconds > SLOW_CAPTURE_SECONDS:
+        carb.log_info(
+            f"[MCP Bridge] Slow capture: the frame took {png.frame_seconds:.2f} s, the file {png.file_seconds:.2f} s"
+        )
+    return png.data
 
 
-async def _settle_viewport(frames: int = None):
+async def _viewport_frames(count: int, budget: capture.Budget | None):
+    """`count` frames of the active viewport, each bounded by time (ovmcp.core.capture.frames).
+
+    Frame by frame through next_viewport_frame_async, not ViewportAPI.wait_for_rendered_frames: that counts the call
+    it makes on subscribe as a frame, and a cancelled wait leaves its callback in the viewport for good. Without the
+    viewport utility or a viewport, it pumps app updates, as it always has.
+    """
+    try:
+        from omni.kit.viewport.utility import get_active_viewport, next_viewport_frame_async
+
+        viewport = get_active_viewport()
+    except Exception:
+        viewport = None
+    if viewport is None:
+        for _ in range(count):
+            await _next_update()
+        return
+    try:
+        await capture.frames(lambda: next_viewport_frame_async(viewport, 1), count, budget)
+    except capture.CaptureError:
+        raise
+    except Exception as e:
+        # A Kit without the frame event (no usd_context on the viewport, say): wait as before rather than fail.
+        carb.log_warn(f"[MCP Bridge] Can't wait for the viewport's frames, pumping app updates instead: {e}")
+        for _ in range(count):
+            await _next_update()
+
+
+async def _settle_viewport(frames: int | None = None, budget: capture.Budget | None = None):
     """Wait for the viewport renderer to settle after camera/scene changes.
 
-    Camera moves, resolution changes, and render product updates don't
-    propagate instantly through the rendering pipeline.  This helper uses
-    ``viewport_api.wait_for_rendered_frames()`` when available (Kit 105+)
-    and falls back to pumping ``_next_update()`` in a loop.
+    Camera moves, resolution changes, and render product updates don't propagate instantly through the rendering
+    pipeline. Each frame is bounded (ovmcp.core.capture): NoFrameError when the viewport renders nothing, or
+    OutOfTimeError when `budget` runs out; without a budget, all the frames share FRAME_SECONDS.
 
     Args:
         frames: Number of frames to wait.  Defaults to CAMERA_SETTLE_FRAMES (20).
+        budget: The calling handler's time, if it has one.
     """
-    if frames is None:
-        frames = CAMERA_SETTLE_FRAMES
-    try:
-        from omni.kit.viewport.utility import get_active_viewport
-
-        viewport = get_active_viewport()
-        if viewport and hasattr(viewport, "wait_for_rendered_frames"):
-            await viewport.wait_for_rendered_frames(frames)
-            return
-    except (ImportError, Exception):
-        pass
-    # Fallback: pump update loop
-    for _ in range(frames):
-        await _next_update()
+    await _viewport_frames(CAMERA_SETTLE_FRAMES if frames is None else frames, budget)
 
 
-async def _reset_renderer(wait_frames: int = 10):
+async def _reset_renderer(wait_frames: int = 10, budget: capture.Budget | None = None):
     """Reset renderer accumulation and wait for fresh frames.
 
     This forces the RTX renderer to discard its cached frame data and
@@ -150,14 +169,15 @@ async def _reset_renderer(wait_frames: int = 10):
     or whenever the viewport shows stale/black content.
 
     Temporarily disables Eco Mode (which pauses rendering on static
-    scenes) so that the reset actually produces new frames.
+    scenes) so that the reset actually produces new frames. The frames are
+    bounded as _settle_viewport's are, and Eco Mode comes back on whatever
+    the wait gives.
 
     Args:
         wait_frames: Number of viewport frames to wait after the reset.
+        budget: The calling handler's time, if it has one.
     """
-    import carb as _carb
-
-    settings = _carb.settings.get_settings()
+    settings = carb.settings.get_settings()
 
     # Eco Mode pauses rendering when the scene is static, which prevents
     # the renderer from producing new frames after a reset.  Temporarily
@@ -165,36 +185,16 @@ async def _reset_renderer(wait_frames: int = 10):
     eco_was_on = bool(settings.get("/rtx/ecoMode/enabled"))
     if eco_was_on:
         settings.set_bool("/rtx/ecoMode/enabled", False)
-
     try:
-        ctx = omni.usd.get_context()
-        ctx.reset_renderer_accumulation()
-    except Exception:
-        pass
-
-    # Use viewport-level frame waiting if available (more accurate than
-    # app-level next_update which doesn't guarantee a render completed).
-    try:
-        from omni.kit.viewport.utility import (
-            get_active_viewport,
-            next_viewport_frame_async,
-        )
-
-        viewport = get_active_viewport()
-        if viewport:
-            await next_viewport_frame_async(viewport, wait_frames)
-            if eco_was_on:
-                settings.set_bool("/rtx/ecoMode/enabled", True)
-            return
-    except (ImportError, Exception):
-        pass
-
-    # Fallback: pump app updates
-    for _ in range(wait_frames):
-        await _next_update()
-
-    if eco_was_on:
-        settings.set_bool("/rtx/ecoMode/enabled", True)
+        try:
+            ctx = omni.usd.get_context()
+            ctx.reset_renderer_accumulation()
+        except Exception:
+            pass
+        await _viewport_frames(wait_frames, budget)
+    finally:
+        if eco_was_on:
+            settings.set_bool("/rtx/ecoMode/enabled", True)
 
 
 def _serialize_value(val):

@@ -11,6 +11,7 @@ import omni.kit.app
 import omni.usd
 from pxr import Gf, Usd, UsdGeom
 
+from ovmcp.core import capture
 from ovmcp.core.bounds import box_corners, center_and_size, screen_box, world_bbox
 from ovmcp.core.framing import apply_zoom, bounding_radius, fit_distance, inspect_args, require_perspective
 from ovmcp.core.isolation import LIGHT_TYPES, Hidden, is_light, prims_to_hide
@@ -42,6 +43,15 @@ def _warn_once(key: str, message: str):
     if key not in _warned:
         _warned.add(key)
         carb.log_warn(message)
+
+
+async def _settle_or_log(what: str):
+    """Settle the viewport for a handler that answers the same with or without the frames: one that renders nothing
+    costs FRAME_SECONDS and a warning, where the wait used to hang the handler and the viewport lock (#35)."""
+    try:
+        await _settle_viewport()
+    except capture.CaptureError as e:
+        carb.log_warn(f"[MCP Bridge] {what}: the viewport did not settle: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -481,7 +491,7 @@ async def handle_camera_set(body: dict) -> dict:
         _apply_xform(cam_prim, position=position)
 
     # Wait for camera transform to propagate through the rendering pipeline
-    await _settle_viewport()
+    await _settle_or_log("set_camera")
 
     return {
         "status": "success",
@@ -547,7 +557,7 @@ async def handle_camera_look_at(body: dict) -> dict:
             xformable.AddTranslateOp().Set(Gf.Vec3d(*cam_pos))
 
     # Wait for camera transform to propagate through the rendering pipeline
-    await _settle_viewport()
+    await _settle_or_log("look_at_prim")
 
     return {
         "status": "success",
@@ -818,7 +828,11 @@ async def handle_viewport_light(body: dict) -> dict:
                 if error:
                     return {"status": "error", "error": error}
                 message = f"Lighting mode set to '{mode}'"
-            await _reset_renderer(wait_frames=CAMERA_SETTLE_FRAMES)
+            try:
+                await _reset_renderer(wait_frames=CAMERA_SETTLE_FRAMES)
+            except capture.CaptureError as e:
+                # The mode is set; only the fresh frames after it are missing, as a viewport that renders nothing has.
+                carb.log_warn(f"[MCP Bridge] viewport_light: the viewport did not render after the reset: {e}")
             return {
                 "status": "success",
                 "result": {
