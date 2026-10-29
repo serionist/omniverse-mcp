@@ -101,6 +101,8 @@ README = f"{IMAGE} [Tools](https://github.com/x/y/blob/main/b.md) [#](#c)"
 
 def test_a_wheel_with_its_extension_and_absolute_paths_passes(tmp_path):
     assert release.wheel_problems(_wheel(tmp_path, "1.2.0", "1.2.0", README)) == []
+    mail = README + ' [mail](mailto:a@example.org) <a href="mailto:a@example.org">'
+    assert release.wheel_problems(_wheel(tmp_path, "1.2.0", "1.2.0", mail)) == []
 
 
 @pytest.mark.parametrize(
@@ -111,12 +113,45 @@ def test_a_wheel_with_its_extension_and_absolute_paths_passes(tmp_path):
         ("1.2.0", '<img src="docs/images/a.png">', 'src="docs/images/a.png"'),
         ("1.2.0", '<a href="LICENSE">', 'href="LICENSE"'),
         ("1.2.0", "[Tools](docs/TOOLS.md)", "](docs/TOOLS.md)"),
+        ("1.2.0", '[Tools](docs/TOOLS.md "Every tool")', "](docs/TOOLS.md "),
+        ("1.2.0", "See [the tools].\n\n[the tools]: docs/TOOLS.md", "[the tools]: docs/TOOLS.md"),
+        ("1.2.0", "![A](https://github.com/x/y/blob/main/a.png)", "![A](https://github.com/x/y/blob/main/a.png"),
+        ("1.2.0", '<img src="https://github.com/x/y/blob/main/a.png">', 'src="https://github.com/x/y/blob/main/a.png"'),
     ],
-    ids=["no extension", "another extension", "relative image", "relative href", "relative link"],
+    ids=[
+        "no extension",
+        "another extension",
+        "relative image",
+        "relative href",
+        "relative link",
+        "link with a title",
+        "reference",
+        "image on a page",
+        "img on a page",
+    ],
 )
 def test_a_wheel_that_is_wrong_says_how(extension, description, expected, tmp_path):
     problems = release.wheel_problems(_wheel(tmp_path, "1.2.0", extension, description))
     assert any(expected in p for p in problems), problems
+
+
+def test_the_notes_put_each_paragraph_on_one_line():
+    items = ["- **A thing** that wraps", "  onto a second line.", "- Another.", "", "A paragraph", "that wraps.", ""]
+    wrapped = "\n".join([*items, "### Added", "", "1. One", "   more."])
+    unwrapped = ["- **A thing** that wraps onto a second line.", "- Another.", "", "A paragraph that wraps.", ""]
+    assert release.unwrap(wrapped) == "\n".join([*unwrapped, "### Added", "", "1. One more."])
+
+
+def test_a_release_pr_is_checked_as_its_tag_will_be(tmp_path):
+    version = gate.plugin_versions(gate.ROOT, gate.json_object(gate.ROOT / gate.PLUGIN_MANIFEST))["pyproject.toml"]
+    assert version
+    root = _repo(tmp_path, version)
+    assert release.pull_request_problems(root) == []
+    (root / "CHANGELOG.md").write_text(f"# Changelog\n\n## {version}\n\n- Undated.\n", encoding="utf-8")
+    (problem,) = release.pull_request_problems(root) or []
+    assert "(YYYY-MM-DD)" in problem
+    (root / "CHANGELOG.md").write_text("# Changelog\n\n## Unreleased\n\n- Work.\n", encoding="utf-8")
+    assert release.pull_request_problems(root) is None
 
 
 def test_the_notes_are_the_section(tmp_path, monkeypatch, capsys):

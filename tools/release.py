@@ -4,7 +4,10 @@ Usage: python tools/release.py check <tag>      the tag is vX.Y.Z, every version
                                                 CHANGELOG.md has a dated section for it
        python tools/release.py wheel <wheel>    the wheel carries the extension of its own version, and the README
                                                 PyPI shows has no relative path left
-       python tools/release.py notes <version>  print CHANGELOG.md's section for the version: the release's notes
+       python tools/release.py notes <version>  print CHANGELOG.md's section for the version, each paragraph on one
+                                                line: the release's notes
+       python tools/release.py pr               on a release PR (CHANGELOG.md has a section for pyproject.toml's
+                                                version), check as its tag will be; on any other change, pass
 
 Standard library only, as the gate: CI runs it before anything is installed.
 """
@@ -22,8 +25,18 @@ import gate
 ROOT = Path(__file__).resolve().parents[1]
 TAG = re.compile(r"^v(\d+\.\d+\.\d+)$")
 EXTENSION_TOML = "omniverse_mcp/_extension/ovmcp.bridge/config/extension.toml"
-# What PyPI can't resolve, with no repo around the README (#36): an image or a link that isn't absolute or an anchor.
-_RELATIVE = re.compile(r'src="(?!https?://)[^"]+"|href="(?!https?://|#)[^"]+"|\]\((?!https?://|#)[^)\s]+\)')
+# What PyPI can't show, with no repo around the README (#36): an image or a link that isn't absolute (or an anchor, or
+# mail), whatever its form, and an image pointing at a github.com page instead of the file. pyproject.toml's
+# substitutions rewrite the common forms; this finds any they miss, such as a link with a title or a reference.
+_RELATIVE = re.compile(
+    r'src="(?!https?://)[^"]+"'
+    r'|href="(?!https?://|#|mailto:)[^"]+"'
+    r"|\]\((?!https?://|#|mailto:)[^)\s]+[)\s]"
+    r"|^ {0,3}\[[^\]]+\]:[ \t]*(?!https?://|#|mailto:)\S+"
+    r'|src="https://github\.com/[^"]*/blob/[^"]*"'
+    r"|!\[[^\]]*\]\(https://github\.com/[^)\s]*/blob/[^)\s]*",
+    re.MULTILINE,
+)
 
 
 def section(changelog: str, version: str) -> tuple[str | None, str]:
@@ -39,6 +52,20 @@ def section(changelog: str, version: str) -> tuple[str | None, str]:
         if inside:
             body.append(line)
     return heading, "\n".join(body).strip()
+
+
+def unwrap(markdown: str) -> str:
+    """The text with each wrapped paragraph or list item on one line: GitHub renders a release body's every newline as a
+    line break, so CHANGELOG.md's 120-column lines would break mid-sentence."""
+    lines: list[str] = []
+    for line in markdown.splitlines():
+        text = line.strip()
+        starts = not text or text.startswith(("#", "- ", "* ", "|", ">")) or re.match(r"\d+\. ", text)
+        if lines and lines[-1].strip() and not starts:
+            lines[-1] = f"{lines[-1]} {text}"
+        else:
+            lines.append(line.rstrip())
+    return "\n".join(lines)
 
 
 def changelog_problems(changelog: str, version: str) -> list[str]:
@@ -70,6 +97,15 @@ def tag_problems(tag: str, root: Path = ROOT) -> list[str]:
     return problems + changelog_problems((root / "CHANGELOG.md").read_text(encoding="utf-8"), version)
 
 
+def pull_request_problems(root: Path = ROOT) -> list[str] | None:
+    """On a release PR, the problems its tag would meet: CHANGELOG.md has a section for pyproject.toml's version.
+    None on any other change, which carries the version of the last release."""
+    with (root / "pyproject.toml").open("rb") as f:
+        version = str(tomllib.load(f)["project"]["version"])
+    heading, _ = section((root / "CHANGELOG.md").read_text(encoding="utf-8"), version)
+    return None if heading is None else tag_problems(f"v{version}", root)
+
+
 def wheel_problems(path: Path) -> list[str]:
     """The wheel carries the Kit extension of its own version, and PyPI's copy of the README resolves."""
     with zipfile.ZipFile(path) as wheel:
@@ -85,7 +121,7 @@ def wheel_problems(path: Path) -> list[str]:
     problems = []
     if extension != version:
         problems.append(f"{path.name} is {version} and carries the extension {extension}")
-    relative = _RELATIVE.findall(description)
+    relative = [m.group(0) for m in _RELATIVE.finditer(description)]
     if relative:
         problems.append(f"{path.name}'s README has relative paths PyPI can't resolve (#36): {', '.join(relative[:5])}")
     return problems
@@ -93,6 +129,14 @@ def wheel_problems(path: Path) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
+    if args == ["pr"]:
+        problems = pull_request_problems()
+        if problems is None:
+            print("release.py pr: not a release PR (CHANGELOG.md has no section for pyproject.toml's version)")
+            return 0
+        for problem in problems:
+            print(f"release.py pr: {problem}", file=sys.stderr)
+        return 1 if problems else 0
     if len(args) != 2 or args[0] not in ("check", "wheel", "notes"):
         print(__doc__, file=sys.stderr)
         return 2
@@ -102,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
         if heading is None or not body:
             print(f"CHANGELOG.md has no section for {value}", file=sys.stderr)
             return 1
-        print(body)
+        print(unwrap(body))
         return 0
     problems = tag_problems(value) if command == "check" else wheel_problems(Path(value))
     for problem in problems:

@@ -76,11 +76,16 @@ pattern = 'src="(?!https?://)([^"]+)"'
 replacement = 'src="https://raw.githubusercontent.com/serionist/omniverse-mcp/main/\1"'
 
 [[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
-pattern = 'href="(?!https?://|#)([^"]+)"'
+pattern = 'href="(?!https?://|#|mailto:)([^"]+)"'
 replacement = 'href="https://github.com/serionist/omniverse-mcp/blob/main/\1"'
 
+# A Markdown image before a link: an image needs the file itself, which a github.com page isn't.
 [[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
-pattern = '\]\((?!https?://|#)([^)\s]+)\)'
+pattern = '!\[([^\]]*)\]\((?!https?://)([^)\s]+)\)'
+replacement = '![\1](https://raw.githubusercontent.com/serionist/omniverse-mcp/main/\2)'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\]\((?!https?://|#|mailto:)([^)\s]+)\)'
 replacement = '](https://github.com/serionist/omniverse-mcp/blob/main/\1)'
 
 # check-wheel-contents, which release.yml and ci.yml's package job run. W004 (a module at a path Python can't import):

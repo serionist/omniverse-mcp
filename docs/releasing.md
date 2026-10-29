@@ -21,7 +21,8 @@ maintainer approves, and makes the GitHub release. The plan's S9 and D7 say why 
      `plugin/.claude-plugin/plugin.json`, and every `omniverse-mcp==` and `ovmcp.bridge-` under `plugin/`. The gate's
      `plugin` check names each one that differs;
    - `uv lock`, which records the project's own version;
-   - `uv run --no-project tools/release.py check vX.Y.Z` passes.
+   - `uv run --no-project tools/release.py check vX.Y.Z` passes; CI's `Package (Linux)` runs the same check on the PR;
+   - the README says nothing that is true only before this release: PyPI keeps the description it is given.
 2. **Try its wheel before it merges.** CI's `Package (Linux)` job keeps it as the `dist` artifact:
    `gh run download <run id> -n dist -D <folder>`. Then, against a Kit app of your own:
    - `uvx --from <folder>/omniverse_mcp-X.Y.Z-py3-none-any.whl omniverse-mcp extension install`, and Kit started with
@@ -39,8 +40,14 @@ maintainer approves, and makes the GitHub release. The plan's S9 and D7 say why 
 
 ## When it fails
 
-- **Before the approval** (a check, the build, CI): nothing is published. Fix it on `main` in a pull request, and
-  release the next patch version: a tag can't be moved, and a version is never published twice.
+Nothing is published before the approval. Then:
+
+- **By chance** (a CI leg or the build fails on a runner or the network, or CI isn't done within 40 minutes): re-run
+  the failed jobs of `ci.yml`'s run on the tagged commit, then the release run's failed jobs. Its checked files stay in
+  the run.
+- **For a reason** (`release.py check`, a content check, a test): fix it on `main` in a pull request, and release the
+  next patch version. A released tag is never moved, by this repo's rule (the ruleset lets only admins move one), and a
+  version is never published twice.
 - **The publish step:** re-run the job. It passes over a file PyPI already has (`skip-existing`), so a partial upload
   finishes.
 - **After the publish:** fix forward with the next patch version. A release on PyPI can be yanked, never replaced.
