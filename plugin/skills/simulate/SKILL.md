@@ -23,8 +23,9 @@ before play, so pause to look at a moment in the middle.
    `set_physics_properties` sets mass, density, friction and restitution. Without a collider an object falls through
    the ground.
 3. **Robots.** `create_robot` spawns one of franka, ur10, carter, jetbot, g1, go1, go2, h1, spot or anymal from
-   Isaac Sim's asset library (Isaac Sim only). `get_robot_info` lists its joints; `get_joint_states` reads them and
-   `set_joint_targets` drives them, once the simulation has played.
+   Isaac Sim's asset library (Isaac Sim only), or a robot's own USD file, a path or a URL, in any Kit app.
+   `get_robot_info` lists its joints; `get_joint_states` reads them and `set_joint_targets` drives them, once the
+   simulation has played.
 4. **Run.** `sim_control("play")`, `"pause"`, `"step"` or `"stop"`. `apply_force` pushes a rigid body, at the
    world origin unless a `position` is given; `raycast` needs the simulation to have played.
 5. **Record what happens.** `start_recording` with `track_prims`, play, then `stop_recording`: each frame's image and

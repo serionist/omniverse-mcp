@@ -7,7 +7,10 @@ Usage, with Kit running: OMNIVERSE_MCP_SIM=1 uv run pytest -m sim
 """
 
 import json
+import shutil
+import tempfile
 import unittest
+from pathlib import Path
 
 import pytest
 
@@ -16,6 +19,21 @@ from omniverse_mcp.client import BridgeClient
 from .conftest import live_bridge
 
 pytestmark = pytest.mark.sim
+
+
+# A robot's USD file in its smallest form: a default prim, with a child the test reads back after the reference loads.
+_ROBOT_USDA = """#usda 1.0
+(
+    defaultPrim = "Bot"
+)
+
+def Xform "Bot"
+{
+    def Cube "Body"
+    {
+    }
+}
+"""
 
 
 class TestIsaacSimIntegration(unittest.TestCase):
@@ -409,6 +427,43 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         result = self.client.sim_control("invalid_action_xyz")
         self.assertEqual(result["status"], "error")
         print("  Error on invalid action: OK")
+
+    # ===== A robot from its own USD file (#40) =====
+
+    def test_27_create_robot_from_a_usd_file(self):
+        # Kit runs on this machine, so it reads the file this test writes. The folder's case is kept, and the prim is
+        # named after the file; before #40 the path was lowercased and put under Isaac Sim's asset root.
+        usd = Path(tempfile.mkdtemp(prefix="ovmcp-Robots-")) / "IntTestRobot.usda"
+        self.addCleanup(shutil.rmtree, usd.parent, True)
+        usd.write_text(_ROBOT_USDA, encoding="utf-8")
+        result = self.client.create_robot(str(usd))
+        self.assertEqual(result["status"], "success", result.get("error"))
+        self.assertEqual(result["result"]["prim_path"], "/World/IntTestRobot")
+        self.assertEqual(result["result"]["usd_path"], str(usd))
+        body = self.client.prim_properties("/World/IntTestRobot/Body")
+        self.assertEqual(body["status"], "success", body.get("error"))
+        print(f"  Robot from {usd.name}: /World/IntTestRobot/Body loaded")
+
+    def test_28_create_robot_from_a_missing_file(self):
+        missing = Path(tempfile.gettempdir()) / "ovmcp-No-Such-Robot.usd"
+        result = self.client.create_robot(str(missing))
+        self.assertEqual(result["status"], "error")
+        self.assertIn(str(missing), result["error"])
+        print("  Error on a missing USD file: OK")
+
+    def test_29_create_robot_from_a_url_that_wont_open(self):
+        # A URL isn't checked on disk, so the layer is opened before the reference: no empty prim reported created.
+        url = (Path(tempfile.gettempdir()) / "ovmcp-no-such" / "Robot.usd").as_uri()
+        result = self.client.create_robot(url)
+        self.assertEqual(result["status"], "error")
+        self.assertIn("Could not open", result["error"])
+        self.assertEqual(self.client.prim_properties("/World/Robot")["status"], "error")
+
+    def test_30_create_robot_on_a_taken_prim(self):
+        # test_27 left /World/IntTestRobot; a second robot there would compose into it.
+        result = self.client.create_robot("franka", "/World/IntTestRobot")
+        self.assertEqual(result["status"], "error")
+        self.assertIn("already exists", result["error"])
 
     # ===== Cleanup =====
 
