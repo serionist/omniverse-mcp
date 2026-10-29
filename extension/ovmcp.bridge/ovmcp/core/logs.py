@@ -84,6 +84,15 @@ def no_log_file(setting: object) -> str:
     )
 
 
+def no_header_note(lines: int) -> str:
+    """What /logs adds when Kit wrote lines and none started an entry: a log format get_logs doesn't read."""
+    return (
+        f"Kit's log file has {lines} lines since the extension started, and none starts an entry in the format "
+        "get_logs reads, Kit's default: `<time> [<elapsed>] [<Level>] [<channel>] <message>`. A /log/include* or "
+        "/log/detail setting can change Kit's format."
+    )
+
+
 class LogRing:
     """The latest entries, up to max_entries, each numbered in arrival order."""
 
@@ -186,8 +195,8 @@ class LogFileReader:
     """Kit's log file, read into a ring from where it ended when the reader was made.
 
     Each read takes what Kit appended since the last, the newest max_read bytes at most. An entry is a header line and
-    the lines after it that start none: a multi-line message, or a traceback. It enters the ring with its header, and
-    continuation lines amend it, in a later read too.
+    the lines after it that start none: a multi-line message, or a traceback. It enters the ring whole with the read
+    that brings its header, and the continuation lines a later read brings amend it, once a read.
     """
 
     def __init__(self, path: str, ring: LogRing, token: str, max_read: int = MAX_READ_BYTES) -> None:
@@ -200,6 +209,7 @@ class LogFileReader:
         self._offset = _size(self.path)
         self._in_line = False  # the offset is inside a line, after a cut: skip to the next one
         self._open: int | None = None  # the entry continuation lines amend; None after a cut, or before a header
+        self.unjoined = 0  # lines that joined no entry: the tail of one from before, or a format this can't read
 
     def read(self) -> None:
         """Read what Kit appended since the last read into the ring. OSError when the file can't be read."""
@@ -222,19 +232,31 @@ class LogFileReader:
             self._in_line = False
         end = data.rfind(b"\n") + 1  # a line Kit is still writing waits for the next read
         self._offset += end
-        for raw in data[start:end].split(b"\n")[:-1]:
-            self._take(raw.decode("utf-8", errors="replace").removesuffix("\r"))
+        lines = data[start:end].split(b"\n")[:-1]
+        self._take([redact(raw.decode("utf-8", errors="replace").removesuffix("\r"), self._token) for raw in lines])
 
-    def _take(self, line: str) -> None:
-        line = redact(line, self._token)
-        header = parse_header(line)
-        if header is None:
-            # With no entry open, this continues one from before the cut or the extension's start, which the ring
-            # never got.
-            if self._open is not None and not self._ring.amend(self._open, line):
-                self._open = None
-            return
-        self._open = self._ring.add(header.channel, header.level, None, None, None, 0, header.msg, header.timestamp)
+    def _take(self, lines: list[str]) -> None:
+        # Each entry's lines are gathered and joined once: one entry can run to thousands of lines, such as Kit's
+        # extension dependency dump, and adding them one at a time would copy the message for each.
+        header: Header | None = None  # None: the lines continue the entry an earlier read added
+        more: list[str] = []
+        for line in lines:
+            parsed = parse_header(line)
+            if parsed is None:
+                more.append(line)
+                continue
+            self._enter(header, more)
+            header, more = parsed, []
+        self._enter(header, more)
+
+    def _enter(self, header: Header | None, more: list[str]) -> None:
+        if header is not None:
+            msg = "\n".join([header.msg, *more])
+            self._open = self._ring.add(header.channel, header.level, None, None, None, 0, msg, header.timestamp)
+        elif more and (self._open is None or not self._ring.amend(self._open, "\n".join(more))):
+            # With no entry open, after a cut or the extension's start, they continue one the ring never got.
+            self._open = None
+            self.unjoined += len(more)
 
 
 class KitLog:
@@ -272,4 +294,7 @@ class KitLog:
             since_index=body.get("since_index"),
             search=body.get("search"),
         )
+        if not result["total_captured"] and self._reader.unjoined:
+            # Lines, and not one entry: an empty answer alone would read as a quiet Kit.
+            result["note"] = no_header_note(self._reader.unjoined)
         return {"status": "success", "result": result}

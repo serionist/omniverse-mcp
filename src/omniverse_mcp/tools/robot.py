@@ -75,7 +75,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Get joint positions and velocities while the simulation plays or is paused; an error while it is stopped.
 
         Radians for revolute joints and metres for prismatic ones, velocities per second (set_joint_targets takes
-        degrees). Needs Isaac Sim 5.1 or 6.x.
+        degrees). Needs Isaac Sim; tested on 6.2.
         """
         resp = bridge_call(client.get_joint_states, prim_path)
         r = resp["result"]

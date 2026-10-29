@@ -198,7 +198,8 @@ async def handle_get_robot_info(body: dict) -> dict:
 
 async def handle_get_joint_states(body: dict) -> dict:
     """Joint positions and velocities while physics plays or is paused, through Isaac Sim's
-    isaacsim.core.experimental.prims.Articulation (5.1 and 6.x): radians or metres, and the same per second.
+    isaacsim.core.experimental.prims.Articulation, which 5.1 and 6.x ship (tested live on 6.2): radians or metres,
+    and the same per second.
 
     A new Articulation per call, a few milliseconds while physics runs: one kept would outlive a stop.
     """
@@ -224,7 +225,7 @@ async def handle_get_joint_states(body: dict) -> dict:
     except ImportError as e:
         return {
             "status": "error",
-            "error": f"get_joint_states needs Isaac Sim 5.1 or later, with isaacsim.core.experimental.prims: {e}",
+            "error": f"get_joint_states needs Isaac Sim's isaacsim.core.experimental.prims extension: {e}",
         }
 
     # The call under way, so an error names the one Isaac Sim's experimental API changed.

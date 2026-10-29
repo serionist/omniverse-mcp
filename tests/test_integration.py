@@ -790,7 +790,7 @@ for i, seed in enumerate(SEEDS):
         for segment in range(SEGMENTS):
             a, b = ring * SEGMENTS + segment, ring * SEGMENTS + (segment + 1) % SEGMENTS
             indices += [a, b, b + SEGMENTS, a + SEGMENTS]
-    mesh = UsdGeom.Mesh.Define(stage, f"{ROOT}/Sphere_{i}")
+    mesh = UsdGeom.Mesh.Define(stage, f"{ROOT}/Sphere_{i:02d}")
     mesh.CreatePointsAttr(points)
     mesh.CreateFaceVertexCountsAttr([4] * (RINGS * SEGMENTS))
     mesh.CreateFaceVertexIndicesAttr(indices)
@@ -839,7 +839,7 @@ class TestColdCook(unittest.TestCase):
             cooked = self.client.get_logs(count=2000, channel="omni.physx.cooking", search="ConvexMeshCookingTask")
             self.assertEqual(cooked["status"], "success", cooked.get("error"))
             named = {
-                i for i in range(_SPHERES) for e in cooked["result"]["entries"] if f"{root}/Sphere_{i}" in e["msg"]
+                i for i in range(_SPHERES) for e in cooked["result"]["entries"] if f"{root}/Sphere_{i:02d}" in e["msg"]
             }
             self.assertEqual(named, set(range(_SPHERES)), "every sphere is named in a ConvexMeshCookingTask line")
             print(f"  play answered; {len(named)} spheres cooked")

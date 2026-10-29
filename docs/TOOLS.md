@@ -433,8 +433,9 @@ joints, metres and metres per second for prismatic ones. `set_joint_targets` tak
   play or step it first. The tool never starts physics itself.
 - **The robot:** `prim_path` itself, or the first prim under it with `UsdPhysics.ArticulationRootAPI`, as
   `get_robot_info` finds it.
-- **Isaac Sim 5.1 and 6.x:** it reads through `isaacsim.core.experimental.prims.Articulation`; a Kit app without it,
-  such as USD Composer, gets an error naming it.
+- **Isaac Sim:** it reads through `isaacsim.core.experimental.prims.Articulation`, which Isaac Sim 5.1 and 6.x
+  ship; it is tested live on 6.2, not yet on 5.x. A Kit app without it, such as USD Composer, gets an error
+  naming it.
 
 ---
 
@@ -776,6 +777,9 @@ extension started, into a ring of the latest 2000 entries.
 - **What Kit's file holds:** Info and above by default, from `carb.log_*()`, Python `logging` and Kit's own
   extensions. Verbose lines need Kit started with both `--/log/level=verbose` and `--/log/fileLogLevel=verbose`.
   A Kit app whose `/log/file` setting is empty gets an error naming `--/log/file=<path>`.
+- **Kit's default line format:** `<time> [<elapsed>] [<Level>] [<channel>] <message>`. A `/log/include*` or
+  `/log/detail` setting can change it; when Kit has written lines and none reads as an entry, the answer says
+  so instead of coming back empty.
 - **An entry:** `index`, `level`, `channel`, `msg`, `timestamp`, and `module`, `source` and `func`, which Kit's
   file doesn't carry, so they are empty. `timestamp` is the line's own text, its time and elapsed milliseconds, such
   as `2026-01-01T00:00:00Z [1,234ms]`. A message's further lines, such as a traceback, are part of its `msg`.

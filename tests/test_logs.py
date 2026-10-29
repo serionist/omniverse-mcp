@@ -16,6 +16,7 @@ from ovmcp.core.logs import (
     LogFileReader,
     LogRing,
     log_file_path,
+    no_header_note,
     no_log_file,
     parse_header,
     redact,
@@ -49,18 +50,43 @@ def _ring(*messages: tuple[str, int, str], max_entries: int = 2000) -> LogRing:
 
 # Each hands Kit's logging a Python callback that Kit then runs on whichever thread logs: omni.log's consumers and
 # loggers, carb's log event stream, and omni.kit.app's error_log events, by constant or by event name. A physics worker
-# that logged while Kit's main thread held the GIL waited on one of ours forever, and so did Kit (#5).
+# that logged while Kit's main thread held the GIL waited on one of ours forever, and so did Kit (#5). Matched in any
+# case: the event constants are GLOBAL_EVENT_ERROR_LOG and GLOBAL_EVENT_ERROR_LOG_IMMEDIATE.
 LOG_HOOKS = ("add_message_consumer", "add_channel_update_consumer", "add_logger", "get_log_event_stream", "error_log")
+
+
+def _log_hooks(data: bytes) -> list[str]:
+    """The LOG_HOOKS that data holds, in any case."""
+    lowered = data.lower()
+    return [hook for hook in LOG_HOOKS if hook.encode() in lowered]
+
+
+@pytest.mark.parametrize(
+    ("sample", "hook"),
+    [
+        ("omni.log.get_log().add_message_consumer(on_log)", "add_message_consumer"),
+        ("omni.log.get_log().add_channel_update_consumer(on_channel)", "add_channel_update_consumer"),
+        ("carb.logging.acquire_logging().add_logger(logger)", "add_logger"),
+        ("carb.log.get_log_event_stream().create_subscription_to_pop(on_log)", "get_log_event_stream"),
+        ("observe_event(event_name=omni.kit.app.GLOBAL_EVENT_ERROR_LOG, on_event=on_error)", "error_log"),
+        ("observe_event(event_name=omni.kit.app.GLOBAL_EVENT_ERROR_LOG_IMMEDIATE, on_event=on_error)", "error_log"),
+        ("observe_event(event_name='omni.kit.app:error_log', on_event=on_error)", "error_log"),
+        ("observe_event(event_name='omni.kit.app:error_log:immediate', on_event=on_error)", "error_log"),
+    ],
+)
+def test_the_guard_finds_each_hook(sample, hook):
+    assert _log_hooks(sample.encode()) == [hook]
+
+
+def test_the_guard_lets_logging_itself_pass():
+    assert _log_hooks(b"carb.log_error('invented'); carb.log_warn('invented'); logging.getLogger(__name__)") == []
 
 
 def test_the_bridge_hands_kits_logging_no_python_callback():
     files = [p for p in sorted(EXTENSION.rglob("*")) if p.is_file() and "__pycache__" not in p.parts]
     assert EXTENSION / "ovmcp" / "bridge" / "handlers" / "logging.py" in files  # the scan sees the bridge's code
     found = [
-        f"{path.relative_to(EXTENSION).as_posix()}: {hook}"
-        for path in files
-        for hook in LOG_HOOKS
-        if hook.encode() in path.read_bytes()
+        f"{path.relative_to(EXTENSION).as_posix()}: {hook}" for path in files for hook in _log_hooks(path.read_bytes())
     ]
     assert not found, (
         "A Python hook on Kit's logging deadlocks Kit when a worker logs while the main thread holds the GIL (#5, "
@@ -419,6 +445,39 @@ def test_continuation_lines_in_a_later_read_amend_the_newest_entry(tmp_path):
     assert ring.get_entries()["total_captured"] == 1
 
 
+class _CountingRing(LogRing):
+    def __init__(self) -> None:
+        super().__init__()
+        self.amends = 0
+
+    def amend(self, index: int, line: str) -> bool:
+        self.amends += 1
+        return super().amend(index, line)
+
+
+def test_a_long_entry_is_joined_once_a_read(tmp_path):
+    # Like Kit's extension dependency dump: one header, then some 1,650 lines. Added a line at a time, each copied the
+    # whole message so far.
+    path = tmp_path / "kit.log"
+    path.write_bytes(b"")
+    ring = _CountingRing()
+    reader = LogFileReader(str(path), ring, TOKEN)
+    dump = [f"  invented.extension.{i} = 1.0.{i}" for i in range(1650)]
+    _append(path, _line("Resolving extension dependencies:") + "".join(f"{line}\n" for line in dump))
+
+    reader.read()
+
+    assert _msgs(ring) == ["\n".join(["Resolving extension dependencies:", *dump])]
+    assert ring.amends == 0
+
+    more = [f"  invented.extension.{i} = 2.0" for i in range(1000)]
+    _append(path, "".join(f"{line}\n" for line in more) + _line("next"))
+    reader.read()
+
+    assert _msgs(ring) == ["\n".join(["Resolving extension dependencies:", *dump, *more]), "next"]
+    assert ring.amends == 1
+
+
 def test_lines_before_the_first_header_are_left_out(tmp_path):
     # The tail of an entry Kit wrote before the extension started.
     path, reader, ring = _reader(tmp_path)
@@ -589,6 +648,27 @@ def test_logs_read_kits_file_at_each_query(tmp_path):
     filtered = log.query({"min_level": "warn", "channel": "", "search": "A ", "count": 5})["result"]
     assert [e["msg"] for e in filtered["entries"]] == [f"a {REDACTED}"]
     assert filtered["total_captured"] == 3
+
+
+def test_logs_say_when_no_line_starts_an_entry(tmp_path):
+    # A format other than Kit's default, here with no channel: an empty answer alone would read as a quiet Kit.
+    path = tmp_path / "kit.log"
+    path.write_text("", encoding="utf-8")
+    log = KitLog()
+    log.start(str(path), _no_resolve, TOKEN)
+    _append(path, "".join(f"2026-01-01T00:00:00Z [{i}ms] [Info] invented line {i}\n" for i in range(3)))
+
+    result = log.query({})["result"]
+
+    assert (result["entries"], result["total_captured"]) == ([], 0)
+    assert result["note"] == no_header_note(3)
+    assert "3 lines" in result["note"]
+    assert "[<elapsed>] [<Level>] [<channel>]" in result["note"]
+
+    _append(path, _line("a line in Kit's default format"))
+    result = log.query({})["result"]
+    assert [e["msg"] for e in result["entries"]] == ["a line in Kit's default format"]
+    assert "note" not in result
 
 
 def test_logs_when_kits_file_is_gone(tmp_path):

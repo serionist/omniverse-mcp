@@ -111,7 +111,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         resp = bridge_call(client.get_logs, count, min_level, channel, None, search)
         r = resp["result"]
         if not r["entries"]:
-            return f"No log entries found (buffer has {r['total_captured']} total entries)"
+            text = f"No log entries found (buffer has {r['total_captured']} total entries)"
+            # The bridge's note: Kit wrote lines, in a format get_logs doesn't read.
+            return f"{text}\n{r['note']}" if r.get("note") else text
         lines = [f"Log entries ({r['count']}/{r['total_captured']} total, buffer={r['buffer_size']}):"]
         for e in r["entries"]:
             level = e["level"].upper().ljust(5)
