@@ -78,11 +78,50 @@ nothing excluded, #5's fix on `main`: 145 passed, 1 failed. The plain bodies mea
 |---|---|---|---|---|
 | F2 | major | `handlers/simulation.py`, `handle_apply_force` | A push on a robot's link reports success and moves nothing. 100 N s along X on the G1's pelvis, which PhysX holds (`ret_val` true): it moved 0.133 along X in 0.2 s, against 0.152 without the push, where about half a metre was expected. `IPhysxSimulation.apply_force_at_pos` takes a push on an articulation's link and ignores it. Found by the live run, which the review couldn't make. | Fixed in `4646bf3`: refused after the checks that PhysX holds the body, naming #58, which tracks pushing a link. A link is read from the stage as UsdPhysics's own parser reads an articulation: every body joined through joints to the body, joint or prim that carries `ArticulationRootAPI` (`articulation_holding` in `core/force.py`; the G1's links are its pelvis's siblings, the root on the pelvis). Unit tests on robots shaped as Isaac Sim builds them, one checking the links against UsdPhysics's parser in usd-core; `test_15_11` now expects the refusal on the pelvis and on another link. |
 
-F2 is a major, so `review-code` reads `4646bf3` in a round 2. The refusal has not run live yet: `test_15_11` must
-show the error, naming the articulation at the pelvis and #58, for both links, and the rest of both suites as above.
+F2 being a major, round 2 read the fix (below). On `6f1d7a2`, the same Kit app, again a fresh Kit with both suites
+and nothing excluded: 146 passed, none failed. `test_15_11` refused both G1 links, naming the articulation at the
+pelvis and #58, and the plain bodies measured as before: 2.000 and 0.0333 units/s, 0.00 and 15.74 degrees, the point
+0.150 off the origin, 16.49 degrees.
+
+Round 2's fixes (`f38c8e9`) were not run live. On the suites' stage they change nothing `test_15_11` reads: the G1
+is fixed to no static prim, so its links and their root are the same, and the error still names the articulation
+at the pelvis and #58.
+
+## Round 2
+
+**How:** `review-code`, one fresh reviewer on Claude Opus 5.5, 2026-10-29, on `6f1d7a2`. **Verdict:** `clean`: two
+minors, both fixed in `f38c8e9`; no major, so no round 3.
+
+| # | Sev | Where | Finding | Status |
+|---|---|---|---|---|
+| F3 | minor | `core/force.py`, `_body_of` and `articulation_holding` | A joint end in no rigid body became a node of the joint graph, so two things jointed to one static prim merged: a gate hinged to the wall an arm is bolted to was refused as the arm's link. UsdPhysics reads such an end as a static anchor, as it reads the world, and doesn't traverse through it. | Fixed in `f38c8e9`: `_body_of` gives None for no body, and a None end is dropped as the world's is. The `robots` fixture bolts the arm to the gate's wall; `articulation_holding(stage, "/World/Gate")` stays None, and the parser comparison agrees. Both fail on the old walk. |
+| F4 | minor | `tests/test_force.py` | A root on a joint was untested: dropping `*joints_at.get(path, [])` from the root search passed every test. | Fixed in `f38c8e9`: a crane whose `ArticulationRootAPI` sits on its fixed joint to the world (body0 empty), in the cases and the parser comparison. Its two cases and the comparison fail without the joints in the search. |
+
+Refuted, or checked and found right:
+
+- **Isaac Sim's robot shapes:** a root on the root link with the links its siblings (the G1), a root on the robot's
+  Xform (a floating robot, a fixed arm), and now a root on the fixed joint, each read as UsdPhysics reads it.
+- **Plain bodies:** a body with no joints, a hinged door and a jointed cart with no root are no articulation's links.
+- **The excluded joint:** a body held by a joint with `excludeFromArticulation` counts as a link, as the parser
+  counts it.
+- **The parser test compares the same set:** every rigid body on the fixture against the parser's articulated
+  bodies, the world's `""` dropped.
+- **The cost:** one walk of the stage per call, a few milliseconds on a stage with a G1, about 0.1 to 0.3 s on a
+  stage of 100,000 prims; only while the timeline isn't stopped.
+- **The refusal order:** stopped, disabled, kinematic, not held by PhysX, then a link; all before any PhysX call.
+- **The error text:** it names the articulation's root and #58.
+- **`test_15_11`:** it fails on the code before the refusal, which answered success.
+- **Docs and contract:** the tool's description, TOOLS.md, CHANGELOG, the simulate skill and `scenarios.md` say
+  the same; only descriptions moved, and `tests/fixtures/mcp-tools.json` is unchanged.
+
+| Improvement | Answer |
+|---|---|
+| Say "an articulation's link" rather than "a robot's link": Isaac Sim's articulated cabinets are refused too | taken in `f38c8e9`: the error, the tool's description, TOOLS.md, CHANGELOG, the simulate skill and `scenarios.md` |
+| Call `UsdPhysics.LoadUsdPhysicsFromRange` instead of mirroring it | left: it would parse every collider on each call, and its TF warnings would reach Kit's log; the unit test holds the walk to it instead |
+| A live canary that fails once PhysX's push reaches a link | later: #58, in its own work |
 
 ## Checks
 
 `uv run tools/gate.py full` passed on `8855653` (758 tests, 94.02%), on the fixes before the last rebase (767
 tests, 94.16%), on `81f9da7` rebased onto `76b0f75` (944 tests, 95.29%), with the guard in `tests/test_logs.py`
-finding no Python hook on Kit's logging, and on `4646bf3` (958 tests, 95.38%).
+finding no Python hook on Kit's logging, on `4646bf3` (958 tests, 95.38%), and on `f38c8e9` (960 tests, 95.38%).
