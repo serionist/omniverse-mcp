@@ -7,6 +7,7 @@ Usage, with Kit running: OMNIVERSE_MCP_SIM=1 uv run pytest -m sim
 """
 
 import json
+import secrets
 import shutil
 import tempfile
 import textwrap
@@ -756,6 +757,92 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         ]:
             self.client.delete_prim(path)
         print("  Cleanup done")
+
+
+# Spheres of a few thousand vertices under ROOT, each vertex pushed in or out by a jitter drawn from the sphere's own
+# seed in SEEDS: meshes no cook cache holds, so every one is cooked, and no cache is cleared to get there. A static
+# collider with a convex hull, cooked when physics loads. A PhysicsScene under ROOT when the stage has none.
+_COLD_COOK_SCENE = """
+import math
+import random
+
+from pxr import Gf, UsdGeom, UsdPhysics
+
+RINGS, SEGMENTS = 48, 64
+stage = omni.usd.get_context().get_stage()
+UsdGeom.Xform.Define(stage, ROOT)
+if not any(prim.IsA(UsdPhysics.Scene) for prim in stage.Traverse()):
+    UsdPhysics.Scene.Define(stage, ROOT + "/PhysicsScene")
+for i, seed in enumerate(SEEDS):
+    rng = random.Random(seed)
+    points = []
+    for ring in range(RINGS + 1):
+        theta = math.pi * ring / RINGS
+        for segment in range(SEGMENTS):
+            phi = 2 * math.pi * segment / SEGMENTS
+            r = 1.0 + rng.uniform(-0.05, 0.05)
+            points.append(Gf.Vec3f(r * math.sin(theta) * math.cos(phi), r * math.sin(theta) * math.sin(phi),
+                                   r * math.cos(theta)))
+    indices = []
+    for ring in range(RINGS):
+        for segment in range(SEGMENTS):
+            a, b = ring * SEGMENTS + segment, ring * SEGMENTS + (segment + 1) % SEGMENTS
+            indices += [a, b, b + SEGMENTS, a + SEGMENTS]
+    mesh = UsdGeom.Mesh.Define(stage, f"{ROOT}/Sphere_{i}")
+    mesh.CreatePointsAttr(points)
+    mesh.CreateFaceVertexCountsAttr([4] * (RINGS * SEGMENTS))
+    mesh.CreateFaceVertexIndicesAttr(indices)
+    UsdGeom.XformCommonAPI(mesh).SetTranslate(Gf.Vec3d(3.0 * i, 0.0, 2.0))
+    UsdPhysics.CollisionAPI.Apply(mesh.GetPrim())
+    UsdPhysics.MeshCollisionAPI.Apply(mesh.GetPrim()).CreateApproximationAttr("convexHull")
+result = len(points)
+"""
+_SPHERES = 8
+
+
+class TestColdCook(unittest.TestCase):
+    """Last in the suite: a play that cooks collision meshes from scratch (#5). With a Python consumer on Kit's log, a
+    cooking worker that logged waited for the GIL that Kit's main thread held while it waited for the worker, and Kit
+    stopped answering. If Kit hangs, the run stops here, before test_scenarios.py runs into it."""
+
+    @classmethod
+    def setUpClass(cls):
+        host, port = live_bridge()
+        cls.client = BridgeClient(host=host, port=port, timeout=60.0)  # a cold cook takes about a second
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.client.close()
+
+    def test_a_play_that_cooks_new_collision_meshes_returns(self):
+        root = f"/World/IntTestCook_{secrets.token_hex(4)}"  # this run's own, so older cooking lines don't count
+        seeds = [secrets.randbits(32) for _ in range(_SPHERES)]
+        made = self.client.execute(f"ROOT = {root!r}\nSEEDS = {seeds!r}\n{_COLD_COOK_SCENE}")
+        self.assertEqual(made["status"], "success", made.get("error"))
+        self.assertGreater(made["result"]["return_value"], 2000)
+
+        try:
+            played = self.client.sim_control("play")
+        except TimeoutError:
+            pytest.exit(
+                f"Kit didn't answer sim_control('play') within {self.client.timeout:g} s while physics cooked new "
+                "collision meshes: the hang of #5 (https://github.com/serionist/omniverse-mcp/issues/5). Kit is "
+                "hung: kill it before running anything else against it.",
+                returncode=1,
+            )
+        try:
+            self.assertEqual(played["status"], "success", played.get("error"))
+            # A cache hit starts no cooking task, so each sphere a cooking line names was cooked in this play.
+            cooked = self.client.get_logs(count=2000, channel="omni.physx.cooking", search="ConvexMeshCookingTask")
+            self.assertEqual(cooked["status"], "success", cooked.get("error"))
+            named = {
+                i for i in range(_SPHERES) for e in cooked["result"]["entries"] if f"{root}/Sphere_{i}" in e["msg"]
+            }
+            self.assertEqual(named, set(range(_SPHERES)), "every sphere is named in a ConvexMeshCookingTask line")
+            print(f"  play answered; {len(named)} spheres cooked")
+        finally:
+            self.client.sim_control("stop")
+            self.client.delete_prim(root)
 
 
 if __name__ == "__main__":

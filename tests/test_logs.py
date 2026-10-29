@@ -1,9 +1,13 @@
-"""The bridge's log ring and its /logs query: what get_logs returns."""
+"""The bridge's log ring and its /logs query: what get_logs returns; and the guard that keeps Python callbacks
+off Kit's logging (#5)."""
 
 import sys
 import threading
+from pathlib import Path
 
 from ovmcp.core.logs import LogRing
+
+EXTENSION = Path(__file__).resolve().parents[1] / "extension" / "ovmcp.bridge"
 
 
 class _Level:
@@ -24,6 +28,29 @@ def _ring(*messages: tuple[str, int, str], max_entries: int = 2000) -> LogRing:
     for channel, level, msg in messages:
         ring.add(channel, level, "mod", "file.py", "func", 7, msg, 1.5)
     return ring
+
+
+# ----- The guard -----
+
+# Each hands Kit's logging a Python callback that Kit then runs on whichever thread logs: omni.log's consumers and
+# loggers, carb's log event stream, and omni.kit.app's error_log events, by constant or by event name. A physics worker
+# that logged while Kit's main thread held the GIL waited on one of ours forever, and so did Kit (#5).
+LOG_HOOKS = ("add_message_consumer", "add_channel_update_consumer", "add_logger", "get_log_event_stream", "error_log")
+
+
+def test_the_bridge_hands_kits_logging_no_python_callback():
+    files = [p for p in sorted(EXTENSION.rglob("*")) if p.is_file() and "__pycache__" not in p.parts]
+    assert EXTENSION / "ovmcp" / "bridge" / "handlers" / "logging.py" in files  # the scan sees the bridge's code
+    found = [
+        f"{path.relative_to(EXTENSION).as_posix()}: {hook}"
+        for path in files
+        for hook in LOG_HOOKS
+        if hook.encode() in path.read_bytes()
+    ]
+    assert not found, (
+        "A Python hook on Kit's logging deadlocks Kit when a worker logs while the main thread holds the GIL (#5, "
+        f"AGENTS.md Traps); get_logs reads Kit's log file instead: {found}"
+    )
 
 
 def test_an_entry_says_where_it_came_from():
