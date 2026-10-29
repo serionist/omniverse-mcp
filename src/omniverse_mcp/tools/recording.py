@@ -64,8 +64,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         camera_path, width and height are ignored for now (#25); the answer warns when given a camera_path, or a size
         other than 640x480.
 
-        Captures a screenshot every 1/fps seconds while the simulation is playing.
-        Frames are saved as PNGs in mcp_output/recordings/. Use stop_recording when done,
+        Captures a frame every few app updates, about 1/fps seconds, whether or not the simulation plays: play it to
+        record motion. Frames are saved as PNGs in mcp_output/recordings/. Use stop_recording when done,
         then get_recording_frame to review any frame.
 
         Optionally tracks prim state (transforms, properties) alongside video frames.
