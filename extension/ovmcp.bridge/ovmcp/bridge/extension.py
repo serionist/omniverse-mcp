@@ -169,13 +169,6 @@ class Extension(omni.ext.IExt):
 
         stop_drawing()
 
-        try:
-            from .handlers.robot import _clear_articulation_cache
-
-            _clear_articulation_cache()
-        except Exception:
-            pass
-
         if self._server is not None:
             self._server.close()
             carb.log_info("[MCP Bridge] Server shut down")

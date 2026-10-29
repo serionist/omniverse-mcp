@@ -21,6 +21,9 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   robot's collision meshes, a worker that logged waited for Python's lock, held by Kit's main thread, which waited
   for the worker. Seen on Isaac Sim 6.2 with the G1. The bridge now hands Kit's logging no callback at all, and
   `get_logs` reads Kit's log file.
+- **`get_joint_states` reads joint states on Isaac Sim 5.1 and 6.x** (#50), where it always failed: it used an
+  articulation class neither has. It reads through `isaacsim.core.experimental.prims.Articulation` while physics
+  plays or is paused, in radians and metres, and says to play first while the simulation is stopped.
 - **The server makes `mcp_output/` with the first file written there,** not when it starts, so a client that only
   starts it, such as a health check, leaves no empty folder behind (#43).
 - **A file outside the server's working folder is given by its absolute path,** not by a `../` path that only a

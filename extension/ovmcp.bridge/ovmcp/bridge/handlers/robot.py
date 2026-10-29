@@ -5,11 +5,10 @@ Handles robot creation, info, joint states, and joint target setting.
 """
 
 import os
-from typing import Any
 
 from pxr import Sdf, Tf, Usd, UsdPhysics
 
-from ovmcp.core.robot import LIBRARY_PREFIX, is_usd_file, robot_prim_path, robot_usd_url
+from ovmcp.core.robot import LIBRARY_PREFIX, articulation_root, is_usd_file, robot_prim_path, robot_usd_url
 
 from ._utils import _apply_xform, _get_stage, _next_update
 
@@ -29,15 +28,6 @@ ROBOT_ASSETS = {
     "spot": "/Isaac/Robots/BostonDynamics/spot/spot.usd",
     "anymal": "/Isaac/Robots/ANYbotics/anymal_c/anymal_c.usd",
 }
-
-
-# Articulation cache for joint state queries
-_articulation_cache: dict[str, Any] = {}
-
-
-def _clear_articulation_cache():
-    """Clear the articulation cache. Called on scene changes."""
-    _articulation_cache.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -104,8 +94,6 @@ async def handle_create_robot(body: dict) -> dict:
     prim.GetReferences().AddReference(full_usd_path)
     if not prim.IsValid():
         return {"status": "error", "error": f"Failed to create robot at {prim_path}"}
-
-    _articulation_cache.pop(prim_path, None)
 
     _apply_xform(prim, position, body.get("rotation"))
 
@@ -209,58 +197,73 @@ async def handle_get_robot_info(body: dict) -> dict:
 
 
 async def handle_get_joint_states(body: dict) -> dict:
-    """Get current joint positions/velocities. Requires sim to have been played."""
+    """Joint positions and velocities while physics plays or is paused, through Isaac Sim's
+    isaacsim.core.experimental.prims.Articulation (5.1 and 6.x): radians or metres, and the same per second.
+
+    A new Articulation per call, a few milliseconds while physics runs: one kept would outlive a stop.
+    """
     prim_path = body.get("prim_path", "")
     if not prim_path:
         return {"status": "error", "error": "No prim_path provided"}
+
+    await _next_update()
 
     stage = _get_stage()
     prim = stage.GetPrimAtPath(prim_path)
     if not prim.IsValid():
         return {"status": "error", "error": f"Prim not found: {prim_path}"}
-
-    await _next_update()
-
-    # Try isaacsim.core Articulation API
-    try:
-        art = _articulation_cache.get(prim_path)
-        if art is None:
-            try:
-                from isaacsim.core.api.articulations import Articulation
-            except ImportError:
-                from omni.isaac.core.articulations import Articulation
-            art = Articulation(prim_path=prim_path)
-            art.initialize()
-            _articulation_cache[prim_path] = art
-
-        positions = art.get_joint_positions()
-        velocities = art.get_joint_velocities()
-
-        pos_list = positions.tolist() if hasattr(positions, "tolist") else list(positions)
-        vel_list = velocities.tolist() if hasattr(velocities, "tolist") else list(velocities)
-
-        names = []
-        try:
-            names = list(art.dof_names) if hasattr(art, "dof_names") and art.dof_names else []
-        except Exception:
-            pass
-
-        return {
-            "status": "success",
-            "result": {
-                "prim_path": prim_path,
-                "dof_count": len(pos_list),
-                "names": names,
-                "positions": pos_list,
-                "velocities": vel_list,
-            },
-        }
-    except Exception as e:
-        _articulation_cache.pop(prim_path, None)
+    root = articulation_root(prim)
+    if root is None:
         return {
             "status": "error",
-            "error": f"Failed to read joint states: {e}. Sim must be playing or have been played at least once.",
+            "error": f"No articulation at or under {prim_path}: no prim there has UsdPhysics.ArticulationRootAPI",
         }
+
+    try:
+        from isaacsim.core.experimental.prims import Articulation
+    except ImportError as e:
+        return {
+            "status": "error",
+            "error": f"get_joint_states needs Isaac Sim 5.1 or later, with isaacsim.core.experimental.prims: {e}",
+        }
+
+    # The call under way, so an error names the one Isaac Sim's experimental API changed.
+    call = "Articulation()"
+    try:
+        articulation = Articulation(root)
+        call = "is_physics_tensor_entity_valid()"
+        if not articulation.is_physics_tensor_entity_valid():
+            # Never load physics from here: that blocks Kit's main thread as a play does.
+            return {
+                "status": "error",
+                "error": f"No physics view of {root}: play or step the simulation first; joint states are read "
+                "while it plays or is paused. If it already plays, get_logs(min_level='warn') says why Isaac Sim "
+                "made none.",
+            }
+        call = "dof_names"
+        names = list(articulation.dof_names)
+        # (N, D) arrays, a row per articulation the path matched: one here.
+        call = "get_dof_positions()"
+        positions = articulation.get_dof_positions().numpy()[0].tolist()
+        call = "get_dof_velocities()"
+        velocities = articulation.get_dof_velocities().numpy()[0].tolist()
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": f"Reading {root}'s joints failed at isaacsim.core.experimental.prims.Articulation's {call}: "
+            f"{type(e).__name__}: {e}",
+        }
+
+    return {
+        "status": "success",
+        "result": {
+            "prim_path": prim_path,
+            "dof_count": len(positions),
+            "names": names,
+            "positions": positions,
+            "velocities": velocities,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

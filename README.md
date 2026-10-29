@@ -247,8 +247,8 @@ PATH the client starts with? Restart the client after installing uv.
 mode="Default")` lights the view, or `mode="camera"` for a light that follows the camera; Kit apps have no default
 light.
 
-**A tool returns an error**: `get_logs(min_level="warn")` shows what Kit reported. `get_joint_states` and `raycast`
-need physics to have played once; the robot tools need Isaac Sim.
+**A tool returns an error**: `get_logs(min_level="warn")` shows what Kit reported. `get_joint_states` needs physics
+playing or paused, and `raycast` needs it to have played once; the robot tools need Isaac Sim.
 
 More in [SETUP.md](docs/SETUP.md#troubleshooting).
 

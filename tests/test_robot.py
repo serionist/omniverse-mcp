@@ -1,8 +1,10 @@
-"""Where create_robot loads a robot's USD file from, and the prim it names for it (#40), without Kit."""
+"""Where create_robot loads a robot's USD file from, and the prim it names for it (#40); where get_joint_states finds
+a robot's articulation (#50). Without Kit."""
 
 import pytest
+from pxr import Usd, UsdGeom, UsdPhysics
 
-from ovmcp.core.robot import is_usd_file, robot_prim_path, robot_usd_url
+from ovmcp.core.robot import articulation_root, is_usd_file, robot_prim_path, robot_usd_url
 
 ROOT = "https://assets.example.invalid/Assets/Isaac/6.2"
 
@@ -73,3 +75,39 @@ def test_a_usd_file_is_told_from_a_robot_s_name():
     assert is_usd_file("/home/me/Bot.USDA")
     assert is_usd_file("scene.usdz")
     assert not is_usd_file("franka")
+
+
+# ----- The articulation root -----
+
+
+@pytest.fixture
+def robots() -> Usd.Stage:
+    """/World/Arm has its root on itself; /World/Biped on /World/Biped/pelvis, after a link without one; /World/Copy is
+    an instance of /Prototypes/Biped, whose root is only an instance proxy on the stage; /World/Table has none."""
+    stage = Usd.Stage.CreateInMemory()
+    UsdPhysics.ArticulationRootAPI.Apply(UsdGeom.Xform.Define(stage, "/World/Arm").GetPrim())
+    for biped in ("/World/Biped", "/Prototypes/Biped"):
+        UsdGeom.Xform.Define(stage, biped)
+        UsdGeom.Xform.Define(stage, f"{biped}/base")
+        UsdPhysics.ArticulationRootAPI.Apply(UsdGeom.Xform.Define(stage, f"{biped}/pelvis").GetPrim())
+        UsdPhysics.ArticulationRootAPI.Apply(UsdGeom.Xform.Define(stage, f"{biped}/pelvis/hand").GetPrim())
+    copy = UsdGeom.Xform.Define(stage, "/World/Copy").GetPrim()
+    copy.GetReferences().AddInternalReference("/Prototypes/Biped")
+    copy.SetInstanceable(True)
+    assert stage.GetPrimAtPath("/World/Copy/pelvis").IsInstanceProxy()
+    UsdGeom.Cube.Define(stage, "/World/Table")
+    return stage
+
+
+@pytest.mark.parametrize(
+    ("prim", "root"),
+    [
+        ("/World/Arm", "/World/Arm"),
+        ("/World/Biped", "/World/Biped/pelvis"),
+        ("/World/Biped/pelvis/hand", "/World/Biped/pelvis/hand"),
+        ("/World/Copy", "/World/Copy/pelvis"),
+        ("/World/Table", None),
+    ],
+)
+def test_the_articulation_root_at_or_under_a_prim(robots: Usd.Stage, prim: str, root: str | None):
+    assert articulation_root(robots.GetPrimAtPath(prim)) == root

@@ -907,21 +907,28 @@ class TestScenarios(unittest.TestCase):
         self._pass()
 
     def test_14_04_get_joint_states(self):
-        """Phase 14.4: Get Joint States (requires sim played)"""
-        self.c.sim_control("play")
-        time.sleep(0.5)
-        self.c.sim_control("pause")
+        """Phase 14.4: Get Joint States while paused, and the error once stopped (#50). The G1's first play: before
+        #5, Kit stopped answering here."""
+        try:
+            r = self.c.sim_control("play")
+            self.assertEqual(r["status"], "success", f"Play failed: {r.get('error', '')}")
+            time.sleep(0.5)
+            self.assertEqual(self.c.sim_control("pause")["status"], "success")
 
+            r = self.c.get_joint_states("/World/G1")
+            self.assertEqual(r["status"], "success", f"Joint states failed: {r.get('error', '')}")
+            result = r["result"]
+            self.assertGreater(result["dof_count"], 0)
+            for key in ("names", "positions", "velocities"):
+                self.assertEqual(len(result[key]), result["dof_count"], key)
+            print(f"  {result['dof_count']} DOF, positions: {result['positions'][:5]}...")
+        finally:
+            self.c.sim_control("stop")
+
+        # Stopped, there's no physics to read, and the handler loads none: the error says to play first.
         r = self.c.get_joint_states("/World/G1")
-        if r["status"] == "error":
-            print(f"  Joint states not available (expected if articulation not initialized): {r['error']}")
-            self._record("SKIP")
-            return
-        result = r["result"]
-        self.assertIn("positions", result)
-        self.assertIn("dof_count", result)
-        print(f"  {result['dof_count']} DOF, positions: {result['positions'][:5]}...")
-        self.c.sim_control("stop")
+        self.assertEqual(r["status"], "error")
+        self.assertIn("play or step the simulation first", r["error"])
         self._pass()
 
     # ===== Phase 15: Physics Properties & Forces =====

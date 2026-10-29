@@ -111,7 +111,7 @@ extension come from one release. `omniverse-mcp extension install` (`src/omniver
 | File | Purpose |
 |------|---------|
 | `ovmcp/bridge/extension.py` | Kit lifecycle: makes the token, starts the core's HTTP server with the routes |
-| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `capture.py` (the capture path's waits, each bounded by time, and a call's bookkeeping), `png.py` (the PNG writer), `logs.py` (Kit's log file read into the log ring, and its query), `framing.py`, `isolation.py`, `lighting.py`, `material.py` (set_material's OmniPBR, named by its MDL source), `robot.py` (where create_robot loads a USD file from, and its prim's name), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `serial.py`, `usd.py` (typed forms of pxr calls the stubs get wrong) |
+| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `capture.py` (the capture path's waits, each bounded by time, and a call's bookkeeping), `png.py` (the PNG writer), `logs.py` (Kit's log file read into the log ring, and its query), `framing.py`, `isolation.py`, `lighting.py`, `material.py` (set_material's OmniPBR, named by its MDL source), `robot.py` (where create_robot loads a USD file from, and its prim's name; the articulation root get_joint_states reads), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `serial.py`, `usd.py` (typed forms of pxr calls the stubs get wrong) |
 | `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, simulation, recording, robot, debug_draw, misc, usd_advanced, logging) with shared utilities in `_utils.py` (among them `enable_extension`) and `_mcp_bridge.py` |
 | `config/extension.toml` | Extension metadata and default settings |
 
@@ -345,7 +345,9 @@ The robot tools use a hybrid approach:
 - **`create_robot`** loads a named robot from Isaac Sim's asset library, or a USD file, as a USD reference
   (`core/robot.py` says from where)
 - **`get_robot_info`** traverses the USD hierarchy to find joints, reading types and limits from USD properties
-- **`get_joint_states`** uses Isaac Sim's Articulation API (requires sim to have played once)
+- **`get_joint_states`** finds the articulation root as `get_robot_info` does (`core/robot.py`), then reads it
+  through Isaac Sim's `isaacsim.core.experimental.prims.Articulation`, a new one per call, while physics plays or is
+  paused; it never loads physics itself
 - **`set_joint_targets`** sets USD drive target attributes directly, which works without articulation initialisation
 
 ## Viewport Capture

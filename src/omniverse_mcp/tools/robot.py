@@ -72,7 +72,11 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
     @mcp.tool(annotations=READS)
     def get_joint_states(prim_path: RobotRoot) -> str:
-        """Get current joint positions and velocities. Requires sim to have been played at least once."""
+        """Get joint positions and velocities while the simulation plays or is paused; an error while it is stopped.
+
+        Radians for revolute joints and metres for prismatic ones, velocities per second (set_joint_targets takes
+        degrees). Needs Isaac Sim 5.1 or 6.x.
+        """
         resp = bridge_call(client.get_joint_states, prim_path)
         r = resp["result"]
         lines = [f"Joint states for {r['prim_path']} ({r['dof_count']} DOF):"]

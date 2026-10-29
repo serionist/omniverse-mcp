@@ -426,7 +426,15 @@ Get current joint positions and velocities.
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Root prim of the robot |
 
-**Note:** Requires the simulation to have played at least once to populate joint state data.
+**Returns:** each degree of freedom's name, position and velocity: radians and radians per second for revolute
+joints, metres and metres per second for prismatic ones. `set_joint_targets` takes degrees for revolute joints.
+
+- **Physics playing or paused:** joint states come from physics, so a stopped simulation is an error that says to
+  play or step it first. The tool never starts physics itself.
+- **The robot:** `prim_path` itself, or the first prim under it with `UsdPhysics.ArticulationRootAPI`, as
+  `get_robot_info` finds it.
+- **Isaac Sim 5.1 and 6.x:** it reads through `isaacsim.core.experimental.prims.Articulation`; a Kit app without it,
+  such as USD Composer, gets an error naming it.
 
 ---
 
