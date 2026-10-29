@@ -481,6 +481,15 @@ Each step waits for its drawings to expire before the next.
 - `draw_debug("line", ..., duration=30)`, then `new_scene()`, then `draw_debug("sphere", ..., duration=1)`
 - Verify: the line count is the sphere's 3 alone, and back where it started once the sphere expires: the old
   stage's line never comes back
+### 17.4 Segmentation on the New Stage
+- `execute_script` with `result = int(omni.syntheticdata.sensors.get_instance_segmentation(get_active_viewport()).size)`
+  (import `omni.syntheticdata` and `get_active_viewport` from `omni.kit.viewport.utility`)
+- Verify: 0. `omni.syntheticdata` drops its sensors on every stage open, so the new stage has no segmentation yet
+- `create_prim("/World/SegmentationCube", "Cube", position=[0, 0.5, 0], size=0.5)`
+- `inspect_prim("/World/SegmentationCube", angles=["front"], include_segmentation=True)`
+- Verify: the angle has a segmentation file with the cube in its legend, and no `seg: ERROR`: the bridge enabled the
+  sensor again and waited for its first data
+- Clean up: `delete_prim("/World/SegmentationCube")`
 
 ---
 

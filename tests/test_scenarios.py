@@ -83,6 +83,7 @@ class TestScenarios(unittest.TestCase):
         for path in [
             "/World/Ground",
             "/World/InspectTarget",
+            "/World/SegmentationCube",
             "/World/RedCube",
             "/World/BlueSphere",
             "/World/Light",
@@ -1156,6 +1157,33 @@ class TestScenarios(unittest.TestCase):
         time.sleep(0.5)
         self.assertEqual(self._line_count(), start, "the old stage's line came back")
         print("  The old stage's line stayed gone")
+
+    SEGMENTATION_TARGET = "/World/SegmentationCube"
+
+    def test_17_04_segmentation_after_a_new_stage(self):
+        """Phase 17.4: Segmentation on the new stage. omni.syntheticdata drops its sensors on every stage open, so the
+        bridge enables instance segmentation again and waits for its first data (#27): the suite's first segmentation
+        on a new stage, and on a cold start the one whose timing Kit's log records."""
+        empty = self.c.execute(
+            "import omni.syntheticdata as syn\n"
+            "from omni.kit.viewport.utility import get_active_viewport\n"
+            "result = int(syn.sensors.get_instance_segmentation(get_active_viewport()).size)"
+        )
+        self.assertEqual(empty["status"], "success", empty)
+        self.assertEqual(empty["result"]["return_value"], 0, "17.3's new stage still had segmentation data")
+
+        cube = self.SEGMENTATION_TARGET
+        self.addCleanup(self.c.delete_prim, cube)
+        r = self.c.create_prim(cube, "Cube", position=_along_up(self._up_axis(), 0.5), size=0.5)
+        self.assertEqual(r["status"], "success", r)
+        r = self.c.camera_inspect(cube, angles=["front"], include_segmentation=True)
+        self.assertEqual(r["status"], "success", r)
+        (cap,) = r["result"]["captures"]
+        self.assertIn("image_base64", cap)
+        self.assertIn("segmentation_base64", cap, cap.get("segmentation_error"))
+        legend = cap.get("segmentation_legend", {})
+        self.assertTrue(any(path == cube or path.startswith(cube + "/") for path in legend), legend)
+        print(f"  Segmentation on the new stage: {len(legend)} prims in the legend")
         self._pass()
 
     # ===== Phase 24: Logging =====
