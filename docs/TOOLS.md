@@ -489,7 +489,9 @@ Orbit-capture: take screenshots from 14 systematic angles around a prim using a 
 
 *Cube corners (8):* `top_front_right`, `top_front_left`, `top_back_right`, `top_back_left`, `bottom_front_right`, `bottom_front_left`, `bottom_back_right`, `bottom_back_left`
 
-Each angle is saved as a separate PNG file. When `include_segmentation` is true, each angle also saves a segmentation image + legend. Default captures all 14 angles for full coverage.
+Each angle is saved as a separate PNG file. When `include_segmentation` is true, each angle also saves a segmentation image + legend; an angle without one says why (`seg: ERROR`), such as no data within 5 s of the sensor being enabled. Default captures all 14 angles for full coverage.
+
+A call takes about 90 s at most, under the server's 120 s timeout: 80 s for the angles, then up to 10 s to restore `isolate`. An angle that fails says why on its line; once the viewport renders no frame (30 s with none) or the 80 s run out, the angles left say `Not captured`, so the angles already captured come back.
 
 `angles` also takes `[azimuth, elevation]` pairs in degrees. An unknown angle name, a non-numeric `width`, `height` or `zoom_offset`, or an orthographic viewport camera (such as `/OmniverseKit_Top`; switch to `/OmniverseKit_Persp`) is refused with an error.
 
@@ -527,7 +529,7 @@ world_center = [0.0, 0.5, 0.0]
 world_dimensions = [1.0, 1.0, 1.0]
 ```
 
-> **Note:** Instance segmentation requires `omni.syntheticdata` (included in Isaac Sim). If unavailable, the viewport image and bounding boxes are still returned.
+> **Note:** Instance segmentation requires `omni.syntheticdata` (included in Isaac Sim). Without it, or when it gives no data, the viewport image and bounding boxes are still returned, and `Segmentation: ERROR` says why. After a stage opens, the bridge enables the sensor again and waits up to 5 s for its first data; when none comes, later captures on that stage don't wait again until one gets data.
 
 > **Black image detection:** If the captured image is all-black, the response includes a `WARNING` with the lighting mode and whether scene lights exist. Use the `viewport_light` tool to check the lighting mode and change it if needed, then recapture. No automatic light changes are made.
 

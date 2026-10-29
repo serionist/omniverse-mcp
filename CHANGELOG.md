@@ -26,6 +26,14 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   `prim_path`, the prim is named after the file. A file that can't be opened is an error, where it used to leave an
   empty prim reported as created, and so is a prim already at `prim_path`, where a second robot used to compose
   into it. Before, the path was lowercased and put under the asset root, so it never loaded (#40).
+- **Captures fail in time, and say why.** A capture whose frame named nothing captured fails at once, where it
+  waited ten seconds for a file that could not come; a viewport that renders nothing fails after 30 s, where
+  `inspect_prim`, `capture_viewport`, `set_camera`, `look_at_prim` and `viewport_light` hung. `inspect_prim` and
+  `capture_viewport` answer within about 90 s, under the server's 120 s: `inspect_prim` returns the angles it
+  captured, and `Not captured` for the rest once the viewport gave no frame or the time ran out (#35).
+- **Instance segmentation that comes late is waited for,** up to 5 s after the bridge enables its sensor, which Kit
+  drops on every stage open; it was dropped without a word after 10 app updates. A capture without segmentation now
+  says why: `inspect_prim` on the angle's line (`seg: ERROR`), `capture_viewport` as `Segmentation: ERROR` (#27).
 
 ### Changed
 

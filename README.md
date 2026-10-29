@@ -263,10 +263,6 @@ On Isaac Sim 6.2, the only Kit app tested so far:
 - **Some parameters are ignored:** `apply_force`'s point when left out, and `start_recording`'s camera and size: it
   records the active viewport at its own size, and warns when it is given them
   ([#25](https://github.com/serionist/omniverse-mcp/issues/25)).
-- **The first `inspect_prim` with segmentation after Kit starts can fail;** call it again
-  ([#27](https://github.com/serionist/omniverse-mcp/issues/27)).
-- **A capture that produces nothing waits ten seconds,** so `inspect_prim` over many angles can time out
-  ([#35](https://github.com/serionist/omniverse-mcp/issues/35)).
 
 ## Security
 

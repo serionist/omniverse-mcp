@@ -9,12 +9,15 @@ Usage, with Kit running: OMNIVERSE_MCP_SIM=1 uv run pytest -m sim
 import json
 import shutil
 import tempfile
+import textwrap
+import time
 import unittest
 from pathlib import Path
 
 import pytest
 
 from omniverse_mcp.client import BridgeClient
+from ovmcp.core import capture
 
 from .conftest import live_bridge
 
@@ -33,6 +36,128 @@ def Xform "Bot"
     {
     }
 }
+"""
+
+# The live tests of the bounded capture waits (#27, #35) change Kit through execute_script, which is not behind the
+# viewport lock, and undo it in their cleanup. Each change also undoes itself on Kit's loop after 60 s, in case the
+# test process dies first, and only while it is still that test's own, so a late undo never removes a later test's.
+
+# Puts `wrapper` in place of `target.<name>`. A wrapper an earlier run left behind is unwrapped first, so the
+# original is always Kit's own function.
+_WRAP = """
+import asyncio
+{target}
+original = target.{name}
+while hasattr(original, "_ovmcp_test_original"):
+    original = original._ovmcp_test_original
+{wrapper}
+wrapper._ovmcp_test_original = original
+
+
+def undo():
+    if target.{name} is wrapper:
+        target.{name} = original
+
+
+wrapper._ovmcp_test_undo = undo
+target.{name} = wrapper
+asyncio.get_running_loop().call_later(60, undo)
+result = "wrapped"
+"""
+
+_UNWRAP = """
+{target}
+undo = getattr(target.{name}, "_ovmcp_test_undo", None)
+if undo is not None:
+    undo()
+result = "unwrapped"
+"""
+
+_SENSORS = "import omni.syntheticdata as syn\ntarget = syn.sensors"
+_VIEWPORT_UTILITY = "import omni.kit.viewport.utility as target"
+
+# Kit's capture delegate, done at once with the result it names, and no file written.
+_FINISHED_CAPTURE = """
+class _Finished:
+    async def wait_for_result(self, completion_frames=2):
+        return {result!r}
+
+
+def wrapper(viewport_api, file_path=None, *args, **kwargs):
+    return _Finished()
+"""
+
+# Sets one of ovmcp.core.capture's limits; an extension from before the bounded waits has none to set. The token says
+# whose change it is: by value alone, an earlier run's late undo would put back a later run's limit mid-test.
+_SHORTEN = """
+import asyncio
+try:
+    from ovmcp.core import capture
+except ImportError:
+    capture = None
+if capture is not None:
+    token = object()
+    capture._ovmcp_test_{name} = token
+    capture.{name} = {seconds!r}
+
+    def undo():
+        if getattr(capture, "_ovmcp_test_{name}", None) is token:
+            capture.{name} = {default!r}
+            capture._ovmcp_test_{name} = None
+
+    asyncio.get_running_loop().call_later(60, undo)
+result = capture is not None
+"""
+
+_RESTORE = """
+from ovmcp.core import capture
+capture.{name} = {default!r}
+capture._ovmcp_test_{name} = None
+result = capture.{name}
+"""
+
+# Turns the active viewport's updates off, then waits up to 3 s for a frame through Kit's own frame wait.
+_UPDATES_OFF = """
+import asyncio
+import omni.kit.viewport.utility as utility
+
+viewport = utility.get_active_viewport()
+token = object()
+utility._ovmcp_test_updates_off = token
+viewport.updates_enabled = False
+
+
+def undo():
+    if getattr(utility, "_ovmcp_test_updates_off", None) is token:
+        viewport.updates_enabled = True
+        utility._ovmcp_test_updates_off = None
+
+
+asyncio.get_running_loop().call_later(60, undo)
+try:
+    await asyncio.wait_for(utility.next_viewport_frame_async(viewport, 1), 3)
+    result = "a frame"
+except asyncio.TimeoutError:
+    result = "no frame"
+"""
+
+# Each prim under /World, and whether it renders: what isolate hides, and must give back.
+_VISIBILITY = """
+from pxr import UsdGeom
+stage = omni.usd.get_context().get_stage()
+result = {
+    str(prim.GetPath()): str(UsdGeom.Imageable(prim).ComputeVisibility())
+    for prim in stage.GetPrimAtPath("/World").GetChildren()
+    if prim.IsA(UsdGeom.Imageable)
+}
+"""
+
+_UPDATES_ON = """
+import omni.kit.viewport.utility as utility
+viewport = utility.get_active_viewport()
+viewport.updates_enabled = True
+utility._ovmcp_test_updates_off = None
+result = viewport.updates_enabled
 """
 
 
@@ -276,6 +401,158 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertGreater(bottom_blue, bottom_red + 5)
         self.assertGreater(again_red, again_blue + 5)
         print(f"  top red-blue {top_red - top_blue:.0f}, bottom blue-red {bottom_blue - bottom_red:.0f}")
+
+    # ===== Bounded capture waits (#27, #35) =====
+
+    def _kit(self, code: str):
+        """Run code inside Kit through execute_script; the `result` it sets."""
+        done = self.client.execute(code)
+        self.assertEqual(done["status"], "success", done)
+        return done["result"]["return_value"]
+
+    def _wrap(self, target: str, name: str, wrapper: str) -> None:
+        """Put the function `wrapper` defines, which may call `original`, in place of `target.<name>` in Kit, until
+        the test ends."""
+        self._kit(_WRAP.format(target=target, name=name, wrapper=textwrap.dedent(wrapper)))
+        self.addCleanup(self._kit, _UNWRAP.format(target=target, name=name))
+
+    def _shorten(self, name: str, seconds: float) -> bool:
+        """Set one of ovmcp.core.capture's limits in Kit until the test ends; False for an extension without them."""
+        values = {"name": name, "seconds": seconds, "default": getattr(capture, name)}
+        shortened = self._kit(_SHORTEN.format(**values))
+        if shortened:
+            self.addCleanup(self._kit, _RESTORE.format(**values))
+        return shortened
+
+    def test_15c_segmentation_that_comes_late_is_waited_for(self):
+        """Segmentation empty for its first 15 reads, then Kit's own: waited for by time, where the bridge used to read
+        it four times and drop it (#27)."""
+        self._wrap(
+            _SENSORS,
+            "get_instance_segmentation",
+            """
+            import numpy as np
+
+            reads = []
+
+
+            def wrapper(viewport, *args, **kwargs):
+                reads.append(1)
+                if len(reads) <= 15:
+                    return np.zeros((0, 0), dtype=np.uint32)
+                return original(viewport, *args, **kwargs)
+
+
+            wrapper.reads = reads
+            """,
+        )
+        result = self.client.camera_inspect("/World/IntTestCube", angles=["front"], include_segmentation=True)
+        reads = self._kit(f"{_SENSORS}\nresult = len(target.get_instance_segmentation.reads)")
+        self.assertEqual(result["status"], "success", result)
+        (cap,) = result["result"]["captures"]
+        self.assertIn("image_base64", cap)
+        self.assertNotIn("segmentation_error", cap)
+        self.assertIn("segmentation_base64", cap)
+        self.assertGreaterEqual(reads, 16)  # the 15 empty ones, then Kit's
+        print(f"  segmentation after {reads} reads")
+
+    def test_15d_inspect_says_why_segmentation_is_missing(self):
+        """Segmentation that never comes: each angle's answer says why, the first after one wait, the second without
+        waiting again on the same stage (#27)."""
+        self._wrap(
+            _SENSORS,
+            "get_instance_segmentation",
+            """
+            import numpy as np
+
+
+            def wrapper(viewport, *args, **kwargs):
+                return np.zeros((0, 0), dtype=np.uint32)
+            """,
+        )
+        started = time.monotonic()
+        result = self.client.camera_inspect("/World/IntTestCube", angles=["front", "right"], include_segmentation=True)
+        took = time.monotonic() - started
+        self.assertEqual(result["status"], "success", result)
+        first, second = result["result"]["captures"]
+        for cap in (first, second):
+            self.assertIn("image_base64", cap)
+            self.assertNotIn("segmentation_base64", cap)
+        self.assertIn(f"within {capture.SEGMENTATION_SECONDS:g} s of enabling it", first.get("segmentation_error", ""))
+        self.assertIn("as before, so this capture did not wait", second.get("segmentation_error", ""))
+        self.assertLess(took, 15)  # a guard against a hang; the messages tell one wait from two
+        print(f"  2 angles, each saying why, in {took:.1f} s")
+
+    def test_15e_an_empty_capture_fails_at_once(self):
+        """A capture whose wait_for_result names nothing captured fails at once, where it waited 10 s for a file that
+        could not come (#35). One that names LdrColor but writes no file, as Kit 110 does without a valid resource,
+        fails after the file wait."""
+        self._wrap(_VIEWPORT_UTILITY, "capture_viewport_to_file", _FINISHED_CAPTURE.format(result=[]))
+        started = time.monotonic()
+        result = self.client.camera_inspect("/World/IntTestCube", angles=["front", "right", "top", "back"])
+        took = time.monotonic() - started
+        self.assertEqual(result["status"], "success", result)
+        captures = result["result"]["captures"]
+        self.assertEqual(len(captures), 4)
+        for cap in captures:
+            self.assertIn("wait_for_result gave []", cap.get("error", ""), cap)
+        self.assertLess(took, 15)
+
+        self._shorten("FILE_SECONDS", 2)
+        self._wrap(_VIEWPORT_UTILITY, "capture_viewport_to_file", _FINISHED_CAPTURE.format(result=["LdrColor"]))
+        started = time.monotonic()
+        result = self.client.camera_inspect("/World/IntTestCube", angles=["front", "right", "top"])
+        no_file = time.monotonic() - started
+        self.assertEqual(result["status"], "success", result)
+        captures = result["result"]["captures"]
+        self.assertEqual(len(captures), 3)
+        for cap in captures:
+            self.assertIn("no whole image in 2 s", cap.get("error", ""), cap)
+        self.assertLess(no_file, 15)
+        print(f"  4 empty captures in {took:.1f} s, 3 without a file in {no_file:.1f} s")
+
+    def test_15f_a_viewport_that_renders_nothing_fails_in_time(self):
+        """With the viewport's updates off no frame comes: set_camera answers after one frame wait, and inspect_prim
+        stops after its first angle, naming the angles it did not capture; both hung before (#35)."""
+        frame_seconds = 3 if self._shorten("FRAME_SECONDS", 3) else capture.FRAME_SECONDS
+        try:
+            self.assertEqual(
+                self._kit(_UPDATES_OFF), "no frame", "updates_enabled = False did not stop this Kit app's frames"
+            )
+            started = time.monotonic()
+            moved = self.client.camera_set([5, 3, 5], [0, 0, 0])
+            moved_in = time.monotonic() - started
+            self.assertEqual(moved["status"], "success", moved)
+            self.assertLess(moved_in, frame_seconds + 5)
+
+            started = time.monotonic()
+            result = self.client.camera_inspect("/World/IntTestCube", angles=["front", "right", "top"])
+            inspected_in = time.monotonic() - started
+            self.assertEqual(result["status"], "success", result)
+            first, *rest = result["result"]["captures"]
+            self.assertIn("no frame", first.get("error", ""), first)
+            for cap in rest:
+                self.assertTrue(cap.get("error", "").startswith("Not captured"), cap)
+            self.assertLess(inspected_in, 15)
+
+            # Isolated: no frame after hiding, so no angle is tried, and the prims come back without a wait for frames.
+            shown = self._kit(_VISIBILITY)
+            self.assertGreater(len(shown), 1, "nothing beside the cube for isolate to hide")
+            started = time.monotonic()
+            result = self.client.camera_inspect("/World/IntTestCube", angles=["front", "right"], isolate=True)
+            isolated_in = time.monotonic() - started
+            self.assertEqual(result["status"], "success", result)
+            for cap in result["result"]["captures"]:
+                self.assertTrue(cap.get("error", "").startswith("Not captured"), cap)
+            self.assertLess(isolated_in, frame_seconds + 5)
+            self.assertEqual(self._kit(_VISIBILITY), shown)
+        finally:
+            self.assertTrue(self._kit(_UPDATES_ON))
+        self.assertEqual(self.client.capture_viewport(320, 240)["status"], "success")
+        print(
+            f"  set_camera in {moved_in:.1f} s, inspect_prim in {inspected_in:.1f} s, isolated in {isolated_in:.1f} s, "
+            "then a capture"
+        )
 
     # ===== Viewport lighting =====
 

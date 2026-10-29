@@ -80,7 +80,8 @@ This keeps the MCP context window clean - the AI reads files on demand rather th
   with the command that installs this server's: `uvx omniverse-mcp==X.Y.Z extension install`, or from a checkout
   `uv run --project <checkout> omniverse-mcp extension install`
 - Automatic reconnection on failure (1 retry, 2 total attempts)
-- A 120-second timeout on each request
+- A 120-second timeout on each request; the bridge's capture calls answer within about 90 s, under it
+  ([Viewport Capture](#viewport-capture))
 - Proper Content-Length framing with chunked body reading (avoids O(n²) buffer concatenation)
 - JSON request/response encoding
 - Structured logging via Python `logging` module
@@ -110,7 +111,7 @@ extension come from one release. `omniverse-mcp extension install` (`src/omniver
 | File | Purpose |
 |------|---------|
 | `ovmcp/bridge/extension.py` | Kit lifecycle: makes the token, starts the core's HTTP server with the routes |
-| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `png.py` (the PNG writer), `logs.py` (the log ring and its query), `framing.py`, `isolation.py`, `lighting.py`, `material.py` (set_material's OmniPBR, named by its MDL source), `robot.py` (where create_robot loads a USD file from, and its prim's name), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `serial.py`, `usd.py` (typed forms of pxr calls the stubs get wrong) |
+| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `capture.py` (the capture path's waits, each bounded by time, and a call's bookkeeping), `png.py` (the PNG writer), `logs.py` (the log ring and its query), `framing.py`, `isolation.py`, `lighting.py`, `material.py` (set_material's OmniPBR, named by its MDL source), `robot.py` (where create_robot loads a USD file from, and its prim's name), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `serial.py`, `usd.py` (typed forms of pxr calls the stubs get wrong) |
 | `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, simulation, recording, robot, debug_draw, misc, usd_advanced, logging) with shared utilities in `_utils.py` (among them `enable_extension`) and `_mcp_bridge.py` |
 | `config/extension.toml` | Extension metadata and default settings |
 
@@ -260,7 +261,7 @@ The format is implemented in `ovmcp/core/formatter.py` with functions for:
 1. The HTTP server runs on the Omniverse application's asyncio event loop
 2. Handlers use `await omni.kit.app.get_app().next_update_async()` to sync with the main thread before accessing USD/PhysX state
 3. Script execution (`execute_script`) runs `exec()` directly on the main thread with stdout/stderr captured via `io.StringIO`. It must run on the main thread because USD/Omniverse APIs are not thread-safe. If the code contains `await` expressions, it is automatically wrapped in an async function and awaited, allowing scripts to call async `mcp.*` methods while still running on the main thread's event loop
-4. Viewport capture waits for render completion before reading back pixels
+4. Viewport capture waits for the viewport's frame, then for its file, each wait bounded by time (`ovmcp/core/capture.py`): `asyncio.wait_for` and polls on the same loop, no thread, so a viewport that renders nothing fails the call rather than hanging it. A frame wait observes Kit's `NEW_FRAME` event through omni.usd's `next_frame_async`, as an immediate observer, which Kit 110's own code says fires on the renderer thread. Isaac Sim turns async rendering off (`asyncRendering = false` in its `.kit` files), and `omni.syntheticdata` does too when it loads, so there the event comes on the main thread; a Kit app with async rendering on and without `omni.syntheticdata`, such as USD Composer, is untested
 5. The log buffer's `_on_log` callback uses a `threading.Lock` since `omni.log` may fire from any thread
 
 This means all handler code runs on the main thread - there are no threading issues with USD access, but long-running handlers will block the simulation for the duration of their execution.
@@ -344,9 +345,46 @@ Viewport capture uses `omni.kit.viewport.utility.capture_viewport_to_file()`, th
 frame is reset and captured once more by itself (`_capture_frame` in `handlers/camera.py`); if it is still black,
 the answer says so, with the lighting mode.
 
+**Every wait has a time limit** (`ovmcp/core/capture.py`; each limit is read when its wait runs):
+
+| Wait | Limit |
+|---|---|
+| one frame of the viewport: each of a settle's 20, a renderer reset's, and the capture's own `wait_for_result` | 30 s (`FRAME_SECONDS`) |
+| the file, after the frame | 10 s (`FILE_SECONDS`) |
+| instance segmentation's first data after the sensor is enabled, read after each app update | 5 s (`SEGMENTATION_SECONDS`) |
+| an `inspect_prim` or `capture_viewport` call | 80 s (`CALL_SECONDS`), then 10 s (`CLEANUP_SECONDS`) for the settle after `isolate` |
+
+- **Fails at once:** a capture whose `wait_for_result` names nothing captured (`[]` or `None`), and a viewport with
+  no render texture yet: no file will come for either.
+- **Frame by frame:** a settle waits through `next_viewport_frame_async`, one frame at a time, not
+  `ViewportAPI.wait_for_rendered_frames`, which counts its subscribe call as a frame and leaves a cancelled wait's
+  callback in the viewport.
+- **A call stops:** in `inspect_prim`, a frame that never comes (`NoFrameError`) or the call's time running out
+  (`OutOfTimeError`) stops the call, and the angles left are `Not captured`; after `NoFrameError`, the restore after
+  `isolate` doesn't wait for frames. Any other error is its angle's alone.
+- **Under the server's timeout:** 80 s plus 10 s leaves 30 s of the client's 120 s for encoding the images and
+  sending them; `tests/test_capture.py` holds the sum under the client's timeout.
+- **Outside a call:** `set_camera`, `look_at_prim` and `viewport_light` give a settle or reset 30 s for all its
+  frames, and answer as before, with a warning in Kit's log, when the frames don't come. A recording frame gets 30 s,
+  then 10 s for its file, and is the empty marker when they run out.
+- **Kit versions:** run live on Isaac Sim 6.2 (Kit 110) only. Kit 107's capture, frame wait and `omni.syntheticdata`
+  sources were read and match Kit 110's where this relies on them, but Isaac Sim 5.x is untested live: 5.1 crashed
+  in its own start on the test machine, before any extension loaded.
+- **Timers on Kit's loop:** they fire only while the loop runs, so a main thread blocked by a shader compile delays
+  them.
+- **In Kit's log:** a failed capture's step and seconds (a warning); a capture over 2 s, how long its frame and file
+  took; each segmentation wait's updates and seconds. `get_logs(search="capture")` and `search="segmentation"`
+  find the bridge's lines; `channel="syntheticdata"` finds what `omni.syntheticdata` itself reported, whose lines
+  rarely name it.
+
+**Segmentation:** `omni.syntheticdata` drops its sensors on every stage open (`new_scene`, an opened file). A capture
+that reads the instance segmentation sensor empty enables it again and reads it after each app update for up to 5 s.
+An answer without segmentation says why in `segmentation_error`. A wait that got nothing is not repeated on that stage
+and render product until a read gets data, so `capture_viewport` doesn't pay it on every call.
+
 ## Extension Lifecycle
 
-- **on_startup**: Creates the HTTP server, binds to configured host:port, registers all routes. Pre-initialises the `omni.syntheticdata` segmentation sensor (with retry) so the first `capture_viewport` call returns segmentation data without needing warmup frames
+- **on_startup**: Creates the HTTP server, binds to configured host:port, registers all routes. Enables the `omni.syntheticdata` instance segmentation sensor once the viewport exists, so the first capture after the app starts has segmentation; Kit drops it on every stage open, and a capture that finds it empty enables it again ([Viewport Capture](#viewport-capture))
 - **on_shutdown**: Stops any active recording, drops the debug drawing subscription and its book (clearing nothing:
   the stage may be tearing down), clears caches, closes the HTTP server
 
