@@ -5,6 +5,11 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Fixed
+
+- **The README's in-page links work on PyPI's page,** where 0.2.1's pointed nowhere: the build gave them the
+  `user-content-` prefix that PyPI adds itself (#62).
+
 ## 0.2.1 (2026-10-29)
 
 Fixes from the first week on PyPI. A robot's first play no longer hangs Kit, captures can't wait past the

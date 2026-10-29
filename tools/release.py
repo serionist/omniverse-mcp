@@ -3,7 +3,7 @@
 Usage: python tools/release.py check <tag>      the tag is vX.Y.Z, every version the repo names is X.Y.Z, and
                                                 CHANGELOG.md has a dated section for it
        python tools/release.py wheel <wheel>    the wheel carries the extension of its own version, and the README
-                                                PyPI shows has no relative path left
+                                                PyPI shows has no relative path left, nor a link PyPI prefixes twice
        python tools/release.py notes <version>  print CHANGELOG.md's section for the version, each paragraph on one
                                                 line: the release's notes
        python tools/release.py pr               when CHANGELOG.md has a section for pyproject.toml's version (a
@@ -37,6 +37,8 @@ _RELATIVE = re.compile(
     r"|!\[[^\]]*\]\(https://github\.com/[^)\s]*/blob/[^)\s]*",
     re.MULTILINE,
 )
+# PyPI prefixes an in-page link with `user-content-` itself, so one that already has it points nowhere there (#62).
+_PREFIXED = re.compile(r'\]\(#user-content-[^)\s]*\)|href="#user-content-[^"]*"')
 
 
 def section(changelog: str, version: str) -> tuple[str | None, str]:
@@ -124,6 +126,9 @@ def wheel_problems(path: Path) -> list[str]:
     relative = [m.group(0) for m in _RELATIVE.finditer(description)]
     if relative:
         problems.append(f"{path.name}'s README has relative paths PyPI can't resolve (#36): {', '.join(relative[:5])}")
+    prefixed = [m.group(0) for m in _PREFIXED.finditer(description)]
+    if prefixed:
+        problems.append(f"{path.name}'s README has links PyPI prefixes twice (#62): {', '.join(prefixed[:5])}")
     return problems
 
 

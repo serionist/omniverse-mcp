@@ -117,6 +117,8 @@ def test_a_wheel_with_its_extension_and_absolute_paths_passes(tmp_path):
         ("1.2.0", "See [the tools].\n\n[the tools]: docs/TOOLS.md", "[the tools]: docs/TOOLS.md"),
         ("1.2.0", "![A](https://github.com/x/y/blob/main/a.png)", "![A](https://github.com/x/y/blob/main/a.png"),
         ("1.2.0", '<img src="https://github.com/x/y/blob/main/a.png">', 'src="https://github.com/x/y/blob/main/a.png"'),
+        ("1.2.0", "[Help](#user-content-help)", "](#user-content-help)"),
+        ("1.2.0", '<a href="#user-content-help">', 'href="#user-content-help"'),
     ],
     ids=[
         "no extension",
@@ -128,6 +130,8 @@ def test_a_wheel_with_its_extension_and_absolute_paths_passes(tmp_path):
         "reference",
         "image on a page",
         "img on a page",
+        "prefixed link",
+        "prefixed href",
     ],
 )
 def test_a_wheel_that_is_wrong_says_how(extension, description, expected, tmp_path):
