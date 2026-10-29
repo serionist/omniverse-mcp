@@ -1,7 +1,7 @@
 """
 Miscellaneous handlers.
 
-Handles health, execute, debug draw, and extension management.
+Handles health, execute, and extension management.
 """
 
 import io
@@ -140,94 +140,6 @@ async def handle_execute(body: dict) -> dict:
             "return_value": script_result,
         },
     }
-
-
-# ---------------------------------------------------------------------------
-# /debug/draw
-# ---------------------------------------------------------------------------
-
-
-async def handle_draw_debug(body: dict) -> dict:
-    """Draw debug primitives (lines, spheres, points) in the viewport."""
-    draw_type = body.get("type", "line")
-    color = body.get("color", [1, 0, 0])
-    duration = body.get("duration", 5.0)
-
-    r, g, b = [float(c) for c in color[:3]]
-    color_uint = (255 << 24) | (int(r * 255) << 16) | (int(g * 255) << 8) | int(b * 255)
-
-    try:
-        from omni.debugdraw import _debugDraw
-
-        draw = _debugDraw.acquire_debug_draw_interface()
-    except ImportError:
-        return {"status": "error", "error": "omni.debugdraw not available. Enable the extension."}
-
-    drawn = []
-
-    if draw_type == "line":
-        start = body.get("start")
-        end = body.get("end")
-        if not start or not end:
-            return {"status": "error", "error": "start and end required for line"}
-        draw.draw_line(carb.Float3(*start), color_uint, carb.Float3(*end), color_uint)
-        drawn.append({"type": "line", "start": start, "end": end})
-
-    elif draw_type == "sphere":
-        center = body.get("center")
-        radius = body.get("radius", 0.1)
-        if not center:
-            return {"status": "error", "error": "center required for sphere"}
-        # Approximate sphere with crossing lines
-        for axis in range(3):
-            s = list(center)
-            e = list(center)
-            s[axis] -= radius
-            e[axis] += radius
-            draw.draw_line(carb.Float3(*s), color_uint, carb.Float3(*e), color_uint)
-        drawn.append({"type": "sphere", "center": center, "radius": radius})
-
-    elif draw_type == "point":
-        position = body.get("position")
-        size = body.get("size", 0.05)
-        if not position:
-            return {"status": "error", "error": "position required for point"}
-        for axis in range(3):
-            s = list(position)
-            e = list(position)
-            s[axis] -= size
-            e[axis] += size
-            draw.draw_line(carb.Float3(*s), color_uint, carb.Float3(*e), color_uint)
-        drawn.append({"type": "point", "position": position})
-
-    elif draw_type == "points":
-        points = body.get("points", [])
-        pt_size = body.get("size", 0.05)
-        if not points:
-            return {"status": "error", "error": "points list required for points"}
-        for pt in points:
-            for axis in range(3):
-                s = list(pt)
-                e = list(pt)
-                s[axis] -= pt_size
-                e[axis] += pt_size
-                draw.draw_line(carb.Float3(*s), color_uint, carb.Float3(*e), color_uint)
-            drawn.append({"type": "point", "position": pt})
-
-    elif draw_type == "lines":
-        points = body.get("points", [])
-        if len(points) < 2:
-            return {"status": "error", "error": "At least 2 points needed for lines"}
-        for i in range(len(points) - 1):
-            draw.draw_line(
-                carb.Float3(*points[i]),
-                color_uint,
-                carb.Float3(*points[i + 1]),
-                color_uint,
-            )
-        drawn.append({"type": "lines", "segments": len(points) - 1})
-
-    return {"status": "success", "result": {"drawn": drawn}}
 
 
 # ---------------------------------------------------------------------------

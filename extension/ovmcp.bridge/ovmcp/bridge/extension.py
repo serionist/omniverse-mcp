@@ -165,6 +165,11 @@ class Extension(omni.ext.IExt):
         except Exception:
             pass
 
+        # Only drops the drawing subscription and the book: a clear now could meet a stage tearing down.
+        from .handlers.debug_draw import stop_drawing
+
+        stop_drawing()
+
         try:
             from .handlers.robot import _clear_articulation_cache
 

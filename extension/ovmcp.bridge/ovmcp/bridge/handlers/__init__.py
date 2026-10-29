@@ -14,12 +14,14 @@ from .camera import (
     handle_viewport_light,
 )
 
+# --- Debug drawing ---
+from .debug_draw import handle_draw_debug
+
 # --- Logging ---
 from .logging import handle_get_logs
 
-# --- Misc (health, execute, debug, extensions) ---
+# --- Misc (health, execute, extensions) ---
 from .misc import (
-    handle_draw_debug,
     handle_execute,
     handle_extensions_list,
     handle_extensions_manage,
@@ -85,10 +87,11 @@ __all__ = [
     "handle_camera_set",
     "handle_capture",
     "handle_viewport_light",
+    # Debug drawing
+    "handle_draw_debug",
     # Logging
     "handle_get_logs",
     # Misc
-    "handle_draw_debug",
     "handle_execute",
     "handle_extensions_list",
     "handle_extensions_manage",
