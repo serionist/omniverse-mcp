@@ -128,6 +128,7 @@ What this repo's history already paid for:
 | Kit 105.1+ has no default light, so captures came back black | README | `is_black` check, `viewport_light` |
 | The log buffer's dict changed during a filtered query: `KeyError` | `8d684d6` | Copy before filtering |
 | USD called off the main thread crashes Kit | `misc.py` | Never `run_in_executor` for USD work |
+| A Python `omni.log` consumer of ours deadlocked Kit: a cooking worker logged while the main thread held the GIL | #5 | No Python log hook in the bridge, enforced by `tests/test_logs.py`'s guard; `get_logs` reads Kit's log file |
 | Every capture read one temp path, which Kit 110 writes after it says the capture is done: each image was the previous capture's | #32 | A file per capture, read once the PNG is whole (`capture_viewport_png`) |
 | Render waits counted updates (too few on a cold start) or had no bound (a stalled viewport hung the call) | #27, #35 | Waits by time, each bounded, a call limit under the server's 120 s (`ovmcp.core.capture`) |
 

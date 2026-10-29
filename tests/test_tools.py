@@ -574,6 +574,22 @@ def test_draw_debug_says_how_long_each_drawing_shows(bridge: MockIsaacServer, tm
     )
 
 
+def test_get_logs_passes_on_the_bridges_note(bridge: MockIsaacServer, tmp_path: Path):
+    # Kit wrote lines and none started an entry: the note says so, where an empty answer alone reads as a quiet Kit.
+    _check(
+        Case(
+            "get_logs",
+            {},
+            "/logs",
+            {"entries": [], "count": 0, "total_captured": 0, "buffer_size": 2000, "note": "an invented note"},
+            {"count": 50},
+            ("No log entries found (buffer has 0 total entries)\nan invented note",),
+        ),
+        bridge,
+        tmp_path,
+    )
+
+
 def test_get_sim_state_says_nothing_more_when_the_extension_is_this_release(bridge: MockIsaacServer, tmp_path: Path):
     # The extension this checkout carries, which is what a server started from it installs.
     release = kit_extension.carried_version()

@@ -24,8 +24,8 @@ before play, so pause to look at a moment in the middle.
    the ground.
 3. **Robots.** `create_robot` spawns one of franka, ur10, carter, jetbot, g1, go1, go2, h1, spot or anymal from
    Isaac Sim's asset library (Isaac Sim only), or a robot's own USD file, a path or a URL, in any Kit app.
-   `get_robot_info` lists its joints; `get_joint_states` reads them and `set_joint_targets` drives them, once the
-   simulation has played.
+   `get_robot_info` lists its joints; `get_joint_states` reads them while the simulation plays or is paused, and
+   `set_joint_targets` drives them.
 4. **Run.** `sim_control("play")`, `"pause"`, `"step"` or `"stop"`. `apply_force` pushes a rigid body, at the
    world origin unless a `position` is given; `raycast` needs the simulation to have played.
 5. **Record what happens.** `start_recording` with `track_prims`, play, then `stop_recording`: each frame's image and
@@ -38,7 +38,7 @@ before play, so pause to look at a moment in the middle.
 
 | Trap | What to do |
 |---|---|
-| `get_joint_states` empty | play the simulation once first |
+| `get_joint_states` errors | play or pause, not stop: it reads physics, which a stop drops |
 | `raycast` finds nothing | play first: it uses PhysX |
 | A stopped run loses the state you wanted | `pause`, not `stop`, to look at it |
 | Gravity along the wrong axis | the up axis from `get_sim_state`: a Y-up stage falls along -Y |

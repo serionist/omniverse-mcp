@@ -1,50 +1,28 @@
+"""get_logs: Kit's log file, read into ovmcp.core.logs' ring from where it ended when the extension started.
+
+The bridge hands Kit's logging no Python callback, in any form: Kit runs one on the thread that logs, and one
+deadlocked Kit when a physics worker logged while the main thread held the GIL (#5). tests/test_logs.py fails on one.
+This module keeps only the Kit calls: the setting, carb.tokens, and the token.
 """
-Log buffer — captures Omniverse log messages in a ring buffer for querying.
 
-Uses omni.log.add_message_consumer() to subscribe to all log messages
-(carb.log_*, Python logging, etc.); the ring and its query are ovmcp.core.logs.
-"""
+import carb.settings
+import carb.tokens
 
-from ovmcp.core.logs import LogRing
+from ovmcp.core.logs import KitLog
 
-
-class LogBuffer(LogRing):
-    """The log ring, fed by Kit's log stream between start() and stop()."""
-
-    def __init__(self, max_entries: int = 2000):
-        super().__init__(max_entries)
-        self._consumer = None
-
-    def start(self):
-        """Subscribe to omni.log message stream."""
-        try:
-            import omni.log
-
-            log = omni.log.get_log()
-            self._consumer = log.add_message_consumer(self._on_log)
-        except Exception:
-            # omni.log may not be available in all Kit builds
-            pass
-
-    def stop(self):
-        """Unsubscribe from log messages."""
-        if self._consumer is not None:
-            try:
-                import omni.log
-
-                log = omni.log.get_log()
-                log.remove_message_consumer(self._consumer)
-            except Exception:
-                pass
-            self._consumer = None
-
-    def _on_log(self, channel, level, module, filename, func, line_no, msg, pid, tid, timestamp):
-        # Do NOT log from within this callback (undefined behavior per omni.log docs)
-        self.add(channel, level, module, filename, func, line_no, msg, timestamp)
+# Started from extension.py's on_startup; /logs reads through it.
+kit_log = KitLog()
 
 
-# Singleton instance — created on import, started from extension.py
-log_buffer = LogBuffer()
+def start(token: str) -> None:
+    """Find Kit's log file and note where it ends now: /logs reads what Kit writes after, with token redacted."""
+    tokens = carb.tokens.get_tokens_interface()
+
+    def resolve(text: str) -> object:
+        # A token carb can't resolve stays as it is, so the core can tell it from a path.
+        return tokens.resolve(text, carb.tokens.RESOLVE_FLAG_LEAVE_TOKEN_IF_NOT_FOUND)
+
+    kit_log.start(carb.settings.get_settings().get("/log/file"), resolve, token)
 
 
 # ---------------------------------------------------------------------------
@@ -53,12 +31,5 @@ log_buffer = LogBuffer()
 
 
 async def handle_get_logs(body: dict) -> dict:
-    """Return recent log entries from the ring buffer."""
-    result = log_buffer.get_entries(
-        count=body.get("count", 50),
-        min_level=body.get("min_level"),
-        channel=body.get("channel"),
-        since_index=body.get("since_index"),
-        search=body.get("search"),
-    )
-    return {"status": "success", "result": result}
+    """The newest entries of Kit's log that pass the request's filters, read from Kit's log file on the main thread."""
+    return kit_log.query(body)

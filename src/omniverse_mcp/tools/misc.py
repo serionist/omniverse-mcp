@@ -102,15 +102,18 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         channel: Annotated[str, Field(description='Only channels containing this, e.g. "omni.physx"')] = "",
         search: Annotated[str, Field(description="Only messages containing this, in any case")] = "",
     ) -> str:
-        """Get recent Omniverse log entries from the ring buffer.
+        """Get recent entries of the Kit app's log, read from its log file since the bridge extension started.
 
-        Use this to investigate errors: when any tool fails, call get_logs()
-        to see what Omniverse reported internally.
+        Use this to investigate errors: when any tool fails, call get_logs() to see what the Kit app reported. Kit's
+        file holds Info and above by default; verbose lines need Kit started with both --/log/level=verbose and
+        --/log/fileLogLevel=verbose.
         """
         resp = bridge_call(client.get_logs, count, min_level, channel, None, search)
         r = resp["result"]
         if not r["entries"]:
-            return f"No log entries found (buffer has {r['total_captured']} total entries)"
+            text = f"No log entries found (buffer has {r['total_captured']} total entries)"
+            # The bridge's note: Kit wrote lines, in a format get_logs doesn't read.
+            return f"{text}\n{r['note']}" if r.get("note") else text
         lines = [f"Log entries ({r['count']}/{r['total_captured']} total, buffer={r['buffer_size']}):"]
         for e in r["entries"]:
             level = e["level"].upper().ljust(5)

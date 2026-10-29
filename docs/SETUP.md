@@ -190,4 +190,4 @@ The server and the bridge come from one release; update both, then restart Kit a
 | The server starts, then fails importing a package | A `PYTHONPATH` from Isaac Sim's environment reached it: set it empty in the client's config. |
 | `get_sim_state` has a `note` | Kit runs another release's bridge: install the server's, as the note says, and restart Kit. |
 | A black capture | Kit apps have no default light. `viewport_light(action="set", mode="Default")`, or `mode="camera"`. |
-| Kit stops answering while a robot plays | [#5](https://github.com/serionist/omniverse-mcp/issues/5). |
+| Kit stops answering the first time physics plays with a robot | 0.2.0's bridge hung Kit while Isaac Sim cooked the robot's collision meshes; the next release fixes it ([#5](https://github.com/serionist/omniverse-mcp/issues/5)). |

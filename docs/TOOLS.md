@@ -426,7 +426,16 @@ Get current joint positions and velocities.
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Root prim of the robot |
 
-**Note:** Requires the simulation to have played at least once to populate joint state data.
+**Returns:** each degree of freedom's name, position and velocity: radians and radians per second for revolute
+joints, metres and metres per second for prismatic ones. `set_joint_targets` takes degrees for revolute joints.
+
+- **Physics playing or paused:** joint states come from physics, so a stopped simulation is an error that says to
+  play or step it first. The tool never starts physics itself.
+- **The robot:** `prim_path` itself, or the first prim under it with `UsdPhysics.ArticulationRootAPI`, as
+  `get_robot_info` finds it.
+- **Isaac Sim:** it reads through `isaacsim.core.experimental.prims.Articulation`, which Isaac Sim 5.1 and 6.x
+  ship; it is tested live on 6.2, not yet on 5.x. A Kit app without it, such as USD Composer, gets an error
+  naming it.
 
 ---
 
@@ -568,6 +577,11 @@ Control the simulation.
 - **pause** - Pause simulation (state preserved)
 - **stop** - Stop simulation and reset to initial state
 - **step** - Advance one physics step
+
+**A robot's first play** cooks its collision meshes, and the Kit app answers nothing until that ends: the G1 cooked
+from scratch in 0.6 s on Isaac Sim 6.2 with an RTX 5090. Kit keeps what it cooked, so the same meshes cook again
+only when they change. Before the fix for [#5](https://github.com/serionist/omniverse-mcp/issues/5), the bridge's
+log hook made that first play hang Kit.
 
 ---
 
@@ -746,7 +760,7 @@ List, enable, or disable Omniverse extensions.
 
 ### `get_logs`
 
-Get recent Omniverse log entries from the ring buffer.
+Get recent entries of the Kit app's log.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -757,7 +771,24 @@ Get recent Omniverse log entries from the ring buffer.
 
 **When to use:** After any tool returns an error, call `get_logs(min_level="warn")` to see what Omniverse reported internally. PhysX errors, USD composition failures, missing extensions, and other diagnostics are captured here.
 
-**How it works:** The extension subscribes to `omni.log` on startup and stores all log messages in a ring buffer (2000 entries). This captures `carb.log_*()`, Python `logging`, and internal Kit/PhysX/USD messages.
+**How it works:** each call reads what Kit added to its log file since the last, from where the file ended when the
+extension started, into a ring of the latest 2000 entries.
+
+- **What Kit's file holds:** Info and above by default, from `carb.log_*()`, Python `logging` and Kit's own
+  extensions. Verbose lines need Kit started with both `--/log/level=verbose` and `--/log/fileLogLevel=verbose`.
+  A Kit app whose `/log/file` setting is empty gets an error naming `--/log/file=<path>`.
+- **Kit's default line format:** `<time> [<elapsed>] [<Level>] [<channel>] <message>`. A `/log/include*` or
+  `/log/detail` setting can change it; when Kit has written lines and none reads as an entry, the answer says
+  so instead of coming back empty.
+- **An entry:** `index`, `level`, `channel`, `msg`, `timestamp`, and `module`, `source` and `func`, which Kit's
+  file doesn't carry, so they are empty. `timestamp` is the line's own text, its time and elapsed milliseconds, such
+  as `2026-01-01T00:00:00Z [1,234ms]`. A message's further lines, such as a traceback, are part of its `msg`.
+- **`total_captured`** counts the entries read since the extension started. A call reads at most the newest 1 MB,
+  so a burst larger than that between two calls leaves its oldest lines uncounted.
+- **The bridge token** is replaced by `<redacted>` wherever a message holds it.
+- **No hook on Kit's logging:** the bridge used to subscribe Python to Kit's log, which hung Kit when a physics
+  worker logged while the main thread held Python's lock
+  ([#5](https://github.com/serionist/omniverse-mcp/issues/5)).
 
 ---
 

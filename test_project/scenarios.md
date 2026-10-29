@@ -374,9 +374,11 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 - Verify: targets_set > 0
 
 ### 14.4 Get Joint States
-- Play sim briefly, then pause
+- Play sim briefly, then pause: the play answers (#5)
 - `get_joint_states("/World/G1")`
-- Verify: returns positions and dof_count > 0
+- Verify: returns names, positions and velocities, dof_count > 0 of each
+- Stop, then `get_joint_states("/World/G1")` again
+- Verify: an error that says to play or step the simulation first
 
 ---
 
