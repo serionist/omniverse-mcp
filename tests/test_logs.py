@@ -58,7 +58,7 @@ LOG_HOOKS = ("add_message_consumer", "add_channel_update_consumer", "add_logger"
 def _log_hooks(data: bytes) -> list[str]:
     """The LOG_HOOKS that data holds, in any case."""
     lowered = data.lower()
-    return [hook for hook in LOG_HOOKS if hook.encode() in lowered]
+    return [hook for hook in LOG_HOOKS if hook.lower().encode() in lowered]
 
 
 @pytest.mark.parametrize(

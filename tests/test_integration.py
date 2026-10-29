@@ -761,9 +761,9 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
 
 # Spheres of a few thousand vertices under ROOT, each vertex pushed in or out by a jitter drawn from the sphere's own
 # seed in SEEDS: meshes no cook cache holds, so every one is cooked, and no cache is cleared to get there. Each is a
-# rigid body with a convex hull: PhysX cooks a dynamic body's shape while physics loads, with Kit's main thread waiting
-# on the cooking workers. Static colliders cook without that wait, and 8 of them played on main's bridge without a
-# hang; 32 rigid bodies hung it (2026-10-29). A PhysicsScene under ROOT when the stage has none.
+# rigid body with a convex hull. On main's bridge, 8 static colliders played without a hang and 32 rigid bodies hung
+# it (2026-10-29); the count and the body type changed together, so keep both. A PhysicsScene under ROOT when the
+# stage has none.
 _COLD_COOK_SCENE = """
 import math
 import random
@@ -824,6 +824,7 @@ class TestColdCook(unittest.TestCase):
         self.assertEqual(made["status"], "success", made.get("error"))
         self.assertGreater(made["result"]["return_value"], 2000)
 
+        started = time.perf_counter()
         try:
             played = self.client.sim_control("play")
         except TimeoutError:
@@ -833,6 +834,7 @@ class TestColdCook(unittest.TestCase):
                 "hung: kill it before running anything else against it.",
                 returncode=1,
             )
+        played_in = time.perf_counter() - started
         try:
             self.assertEqual(played["status"], "success", played.get("error"))
             # A cache hit starts no cooking task, so each sphere a cooking line names was cooked in this play.
@@ -842,7 +844,7 @@ class TestColdCook(unittest.TestCase):
                 i for i in range(_SPHERES) for e in cooked["result"]["entries"] if f"{root}/Sphere_{i:02d}" in e["msg"]
             }
             self.assertEqual(named, set(range(_SPHERES)), "every sphere is named in a ConvexMeshCookingTask line")
-            print(f"  play answered; {len(named)} spheres cooked")
+            print(f"  play answered in {played_in:.2f} s; {len(named)} spheres cooked")
         finally:
             self.client.sim_control("stop")
             self.client.delete_prim(root)

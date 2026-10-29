@@ -12,7 +12,8 @@ On Isaac Sim 6.2, Kit stops answering when physics first plays with the G1 on th
 showed why. Kit's main thread holds Python's GIL while it waits for a collision-cooking worker. That worker waits for
 the GIL inside our bridge's Python `omni.log` subscription. With the subscription stopped, the same `play` answered in
 0.6 s. This plan removes the subscription: `get_logs` reads Kit's log file instead. Separately, it makes
-`get_joint_states` work on Isaac Sim 5.1 and 6.x.
+`get_joint_states` read through the articulation API Isaac Sim 5.1 and 6.x ship: tested live on 6.2, and untested
+live on 5.x, which can't run on this machine (Findings).
 
 ## Goal
 
@@ -151,7 +152,7 @@ own `omni.log` consumer.
 | E2, a fresh Kit, cold cache, `log_buffer.stop()` through `execute_script` first | `play` answered in 0.6 s; `/health` answered at once and 11 s later, with physics running |
 
 E8 and E6 ran on 2026-10-29 on the same Kit after E2 (6.2.0, the consumer still stopped), through `execute_script`;
-both still have to run on 5.1 before the PR. The lines below are invented to show the shapes, not copied.
+neither could run on 5.1 (below). The lines below are invented to show the shapes, not copied.
 
 | Run | What it found on 6.2 |
 |---|---|
@@ -175,13 +176,18 @@ Step 2 and the fix's live runs, 2026-10-29, on 6.2.0 headless on port 8212, each
 | Run | What happened |
 |---|---|
 | 2a, `main`'s bridge, the consumer stopped, 8 static convex-hull spheres | `play` in 0.09 s; Kit's log file named all 8 spheres in `ConvexMeshCookingTask` lines |
-| 2b, `main`'s bridge, the consumer on, the same 8 static spheres | `play` answered in 0.4 s: no hang. A static collider is cooked without Kit's main thread waiting on the cooking workers, so the test as first written could pass on unfixed code |
+| 2b, `main`'s bridge, the consumer on, the same 8 static spheres | `play` answered in 0.4 s: no hang, so the test as first written could pass on unfixed code. The next row changed the count and the body type together, so which of them makes the hang wasn't isolated |
 | 2b, `main`'s bridge, the consumer on, 32 rigid-body spheres | No answer to `play` after 30 s: the hang. The test now uses 32 rigid bodies (`c785fbb`), and as written it stopped the run on `main`'s bridge after 60 s with its #5 message; that Kit was killed |
 | The fix (`930e9b6` plus `c785fbb`), three fresh Kits, both live suites with nothing excluded | 126 passed in each; the only failures were #7's three `draw_debug` scenarios (fixed by its own PR). Each run played the G1 (phase 10, `test_14_04`'s joint reads among the passes) and the 32-sphere cold cook (`play answered; 32 spheres cooked`) |
 
+**Isaac Sim 5.1 can't run on this machine.** Isaac Sim 5.1 (Kit 107.3.3, `D:\isaacsim5.1`, standalone, run
+through `python.bat`) crashes in its own `SimulationApp` start, in the material library's `_preload_base_material`,
+on the RTX 5090 with driver 617.42, before any bridge loads; three older crash dumps on that install show the same.
+No 5.1 run is possible here, so the docs say `get_joint_states` is tested live on 6.2 and untested live on 5.x.
+
 **Still to run:**
 
-- E8 and E6, on 6.2 and 5.1, before the code they gate;
+- on Isaac Sim 5.1, open while it can't start here: E6, E8, step 5's G1 suites and step 7's `get_joint_states`;
 - E7 before the cook-time docs;
 - E3 for the upstream report;
 - E4, E5 and E9 alongside the build.
@@ -273,7 +279,8 @@ errors on 5.1 and 6.2.
   `ArticulationRootAPI`, through instance proxies, as `handle_get_robot_info` already does. No version-specific
   lookup: 6.2 and 5.1 find roots differently (fact 13).
 - **The read:** `isaacsim.core.experimental.prims.Articulation(<root>)`. Its source is in `v5.0.0`, `v5.1.0` and
-  `v6.2.0`, but the live runs cover 5.1 and 6.2 only, so the docs claim 5.1 and 6.x. The handler checks
+  `v6.2.0`, but the live runs cover 6.2 only, since 5.1 can't run on this machine (Findings), so the docs say it
+  is tested live on 6.2 and untested live on 5.x. The handler checks
   `is_physics_tensor_entity_valid()` first. It then reads `dof_names`, and row 0 of `get_dof_positions()` and
   `get_dof_velocities()`, which are `(N, D)`.
 - **A new object per call,** unless E6 shows the cost matters. The cache goes: an object outlives a `stop`.
@@ -316,8 +323,8 @@ No one-way door moves.
 - **What users notice:**
   - Kit no longer hangs when physics cooks collision meshes;
   - `get_logs` needs `--/log/fileLogLevel=verbose` as well as `--/log/level=verbose` for verbose lines;
-  - `get_joint_states` works on Isaac Sim 5.1 and 6.x, where it always errored, and errors while the timeline is
-    stopped, saying to play first.
+  - `get_joint_states` reads joints, where it always errored on Isaac Sim 5.1 and 6.x: tested live on 6.2,
+    untested live on 5.x. It errors while the timeline is stopped, saying to play first.
 - **Settings:** the extension adds none. A2 would set Kit's `/log/async`, a Kit setting, not ours.
 - **Kit apps:** Kit 107+ as before. `get_joint_states` needs Isaac Sim, as before. `get_logs` needs Kit's log file,
   which Kit apps write by default (fact 11).
@@ -333,7 +340,7 @@ bridge.
    - the guard in `tests/test_logs.py`, which fails on `main` (it finds `add_message_consumer`);
    - the cold-cook test in `tests/test_integration.py`, in two runs on 6.2, each on a fresh Kit:
      - (a) its body through `play`, after `log_buffer.stop()`, then Kit's log file read directly. Its
-       `ConvexMeshCookingTask` lines must name all 8 spheres. If they don't, the meshes change until they do: a cook
+       `ConvexMeshCookingTask` lines must name every sphere. If they don't, the meshes change until they do: a cook
        that logs nothing can't deadlock, and the test would prove nothing.
      - (b) the test as written, against `main`'s bridge. It should hang. The session kills that Kit and records the
        hang in Findings. This hang is the only evidence that a worker logged (fact 6). 5.1 stays open until E5.
@@ -344,17 +351,18 @@ bridge.
    - the guard passing;
    - the cold-cook test passing three times, each on a fresh Kit;
    - `test_24_*` and `test_integration.py`'s `set_material` log check passing.
-5. **The G1 live:** `test_10_*` and `test_14_*` run again, on 6.2 headless and on 5.1.
+5. **The G1 live:** `test_10_*` and `test_14_*` run again, on 6.2 headless and on 5.1 (5.1 open: Findings).
 6. **A3, if E4 found a flag and the fix isn't released soon:** a Known issues line in its own docs-only PR (Q4).
 7. **D,** after E6 and E7: `get_joint_states` as in D. `test_14_04` asserts success instead of recording a skip, and
-   its `play` gets more than the suite's 10 s only if E7 says so. Proved live on 6.2 and 5.1.
+   its `play` gets more than the suite's 10 s only if E7 says so. Proved live on 6.2; 5.1 open (Findings).
 8. **Docs,** after E7 for the cook time: as in Docs, with the AGENTS.md trap row. The maintainer runs E9's second half
    on the GUI.
 9. **Close with finish-work:**
    - `uv run tools/gate.py full`;
    - `review-code` until clean;
-   - a draft PR that closes #5 and D's issue, and states the live runs: which suites, on Isaac Sim 6.2 and 5.1
-     headless, the GUI by the maintainer, and what they couldn't show.
+   - a draft PR that closes #5 and D's issue, and states the live runs: which suites, on Isaac Sim 6.2 headless,
+     the GUI by the maintainer, and what they couldn't show. It names the departure from this plan: no run on
+     Isaac Sim 5.1, which crashes in its own start on this machine (Findings).
 
 ## Tests
 
@@ -362,15 +370,16 @@ bridge.
 |---|---|
 | Unit, CI: the guard (`tests/test_logs.py`) | Fails if any file under `extension/ovmcp.bridge` contains `add_message_consumer`, `add_channel_update_consumer`, `add_logger`, `get_log_event_stream` or `error_log`. `error_log` catches both event constants and both event strings, `'omni.kit.app:error_log'` and `'omni.kit.app:error_log:immediate'` (fact 18). It fails on `main` today. AGENTS.md's trap row names it |
 | Unit, CI: the reader (`tests/test_logs.py`) | Invented lines in the shapes E8 finds, never copied lines: real ones carry this machine's user folder and build ids. Cases: both first-line shapes (Kit 107's without a timestamp, Kit 110's with a timestamp and no elapsed time); the elapsed field with a comma, a dot or no separator; every level; the channel; a multi-line `carb.log_error`; a logged traceback; continuation lines split across two reads, amending the ring's last entry; a cut landing on a traceback's continuation lines, which resumes at the next header and leaves the previous entry as it was; `\r\n`; invalid UTF-8 replaced, not raised; byte offsets after non-ASCII text; a partial last line kept for the next read; a shorter file starting over; a read over 1 MB cut to its last 1 MB; the token redacted wherever it appears; an empty or unresolved `/log/file` giving the error text. The existing ring and query tests stay. The coverage floor holds |
-| Live, new: the cold-cook test (`tests/test_integration.py`, last in the suite) | Through `execute_script`, on a stage with a PhysicsScene: 8 dense mesh spheres, a few thousand vertices each, each jittered by its own seed drawn for this run. So every sphere is new to every cache, and no cache is cleared (fact 12). Each gets `CollisionAPI` and the `convexHull` approximation. Several meshes make it likely that some tasks start on workers (fact 5). Then `sim_control("play")` with a 60 s timeout. Without an answer, the test calls `pytest.exit(...)`, naming #5 and saying Kit is hung and must be killed, so `test_scenarios.py` doesn't run into it. Assertions: `play` answers; `get_logs(count=2000, channel="omni.physx.cooking", search="ConvexMeshCookingTask")` names at least 8 distinct test prims. A cache hit spawns no task, so each name is a cook. That a worker logged is shown only by step 2's hang on `main`. Cleanup: stop, delete the spheres |
+| Live, new: the cold-cook test (`tests/test_integration.py`, last in the suite) | Through `execute_script`, on a stage with a PhysicsScene: 32 dense mesh spheres, `Sphere_00` to `Sphere_31`, a few thousand vertices each, each jittered by its own seed drawn for this run. So every sphere is new to every cache, and no cache is cleared (fact 12). Each is a rigid body with `CollisionAPI` and the `convexHull` approximation: in step 2, 8 static colliders played on `main`'s bridge without a hang, and 32 rigid bodies hung it. Then `sim_control("play")` with a 60 s timeout, its time printed. Without an answer, the test calls `pytest.exit(...)`, naming #5 and saying Kit is hung and must be killed, so `test_scenarios.py` doesn't run into it. Assertions: `play` answers; `get_logs(count=2000, channel="omni.physx.cooking", search="ConvexMeshCookingTask")` names all 32 test prims. A cache hit spawns no task, so each name is a cook. That a worker logged is shown only by step 2's hang on `main`. Cleanup: stop, delete the spheres |
 | Live, changed | `test_14_04` asserts that `get_joint_states` succeeds (D, step 7); its `play` keeps the suite's 10 s unless E7 says otherwise; `test_10_*` and `test_14_*` run again |
-| Live, suites | `test_integration.py` and `test_scenarios.py` on Isaac Sim 6.2 headless and on 5.1; E9 on the GUI by the maintainer |
+| Live, suites | `test_integration.py` and `test_scenarios.py` on Isaac Sim 6.2 headless, and on 5.1 once it can run here (Findings); E9 on the GUI by the maintainer |
 
 **What neither shows:**
 
 - **The deadlock needs Kit:** the guard keeps the cause out, and only the live test shows the hang gone.
 - **USD Composer:** it has no Isaac Sim core, so `get_joint_states` errors there by design.
 - **Linux:** the live runs are on Windows.
+- **Isaac Sim 5.1:** it crashes in its own start on this machine, so nothing ran on it (Findings).
 - **The Franka:** E5 alone, unless it shows a different cause.
 
 ## Docs
@@ -379,7 +388,7 @@ bridge.
   - `get_logs`: it reads Kit's log file from the extension's start; it holds Info and above by default, and verbose
     needs both `--/log/level=verbose` and `--/log/fileLogLevel=verbose`; the token is redacted; `timestamp` is text and
     `total_captured` counts parsed entries;
-  - `get_joint_states`: works on 5.1 and 6.x, needs physics playing or paused, the units;
+  - `get_joint_states`: tested live on 6.2 and untested live on 5.x, needs physics playing or paused, the units;
   - `sim_control`: a robot's first play cooks its collision meshes, and Kit answers nothing until it ends, with E7's
     numbers.
 - **`docs/ARCHITECTURE.md`:**
@@ -396,7 +405,7 @@ bridge.
   first" becomes "play or pause, not stop").
 - **`CHANGELOG.md`,** Unreleased:
   - Fixed: Kit no longer stops answering when physics plays with a robot on the stage (#5);
-  - Fixed: `get_joint_states` reads joint states on Isaac Sim 5.1 and 6.x (D's issue);
+  - Fixed: `get_joint_states` reads joint states (#50): tested live on Isaac Sim 6.2, 5.1 untested live;
   - Changed: `get_logs` reads Kit's log file. `timestamp` is text, `module`, `source` and `func` can be empty,
     `total_captured` counts parsed entries, and verbose lines need `--/log/fileLogLevel=verbose`.
   - The versions affected follow E5.
@@ -408,16 +417,16 @@ bridge.
 
 | Risk | Status |
 |---|---|
-| A warm cook cache makes the regression test pass on unfixed code | Resolved: each sphere has its own jitter, so every run's spheres are new to every cache; the test asserts 8 distinct spheres cooked |
+| A warm cook cache makes the regression test pass on unfixed code | Resolved: each sphere has its own jitter, so every run's spheres are new to every cache; the test asserts that all 32, `Sphere_00` to `Sphere_31`, are named in cooking lines |
 | The test, or an experiment, wipes the install's shared `DerivedDataCache` | Resolved: nothing calls `release_local_mesh_cache()` (fact 12) |
-| The test's cooking logs nothing, or runs every task on the waiting thread, so it can't deadlock | Resolved by step 2 on 6.2: the spheres must name all 8 in cooking lines, and the test must hang on `main`'s bridge. 5.1 stays open until E5 |
+| The test's cooking logs nothing, or runs every task on the waiting thread, so it can't deadlock | Resolved by step 2 on 6.2: every sphere is named in cooking lines, and the test hangs on `main`'s bridge with 32 rigid bodies, where 8 static colliders didn't (Findings). 5.1 stays open: it can't run here |
 | A regression hangs whichever Kit the suite runs against | Accepted: the test stops the run with `pytest.exit`, naming #5 and saying Kit must be killed, so the later suites don't pile timeouts on it |
 | `get_logs` exposes the bridge token from Kit's command line | Resolved: reading starts at the file's size when the extension starts, and the parser redacts the token; a unit test covers it |
 | A `/logs` read after a long session freezes the main thread | Resolved: every read is capped at 1 MB of the newest bytes |
 | A1 misses messages: a Kit without a log file, or a global level below the file's | Accepted. Kit apps write one at Info by default (fact 11); the error names the flag, and TOOLS.md says how to get verbose lines |
 | Another Python hook on Kit's threads comes back later | Resolved: the guard test fails in CI |
 | #729's livelock stalls a play on this RTX 5090 even after the fix | Accepted: a stall with H2's signs (one core busy, recovery) is recorded as #729, not ours |
-| The experimental Articulation API changes between releases | Accepted: D's error names the missing call, and the live suites on 5.1 and 6.2 catch it |
+| The experimental Articulation API changes between releases | Accepted: D's error names the missing call, and the live suites on 6.2 catch it; 5.x is untested live |
 | An experiment leaves a hung Kit | Resolved by the rules: the session kills only the process it started |
 
 ## Questions for the maintainer
