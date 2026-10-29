@@ -1,6 +1,6 @@
 ---
 subject: "S7c, test every tool against the mock bridge, and type the server strictly (PR #26)"
-base: main (560cfdd)
+base: main (cb71551)
 head: eefeff5
 date: 2026-10-28
 round: 1

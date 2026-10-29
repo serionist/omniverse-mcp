@@ -1,6 +1,6 @@
 ---
 subject: "S8b, the presentation: the README's hero, the logo, the plugin icon and the social preview (PR #34)"
-base: main (d2fdea5)
+base: main (c0c2957)
 head: 9d85a32
 date: 2026-10-29
 round: 1

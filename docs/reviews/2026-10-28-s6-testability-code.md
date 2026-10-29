@@ -1,6 +1,6 @@
 ---
 subject: "S6, strict tests, the Kit-free core, the import contracts and the coverage floor (PR #16)"
-base: main (488d8e3)
+base: main (a0799ab)
 head: d15963c
 date: 2026-10-28
 round: 1

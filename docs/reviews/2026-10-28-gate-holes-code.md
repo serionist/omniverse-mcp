@@ -1,6 +1,6 @@
 ---
 subject: "Close five ways attribution or secrets got past the gate, the hooks and the settings (PR #18)"
-base: main (13fba42)
+base: main (90bc49c)
 head: fa967c6
 date: 2026-10-28
 round: 1

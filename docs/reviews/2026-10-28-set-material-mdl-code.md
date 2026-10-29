@@ -1,6 +1,6 @@
 ---
 subject: "Name set_material's OmniPBR shader by its MDL source (PR #31, #30)"
-base: main (0e60f5e)
+base: main (1df5b71)
 head: 6445734
 date: 2026-10-28
 round: 1

@@ -1,6 +1,6 @@
 ---
 subject: "Name Kit's log levels as carb numbers them, and filter on them (PR #23)"
-base: main (f576ac3)
+base: main (7f49d0d)
 head: a694ec7
 date: 2026-10-28
 round: 1

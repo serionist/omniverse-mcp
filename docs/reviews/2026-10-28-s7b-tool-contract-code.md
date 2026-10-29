@@ -1,6 +1,6 @@
 ---
 subject: "S7b, pin the tool contract: hints, bounds, the golden file (PR #24)"
-base: main (4f67227)
+base: main (42610a5)
 head: a441986
 date: 2026-10-28
 round: 1

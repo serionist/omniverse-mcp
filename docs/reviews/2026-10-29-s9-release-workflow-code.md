@@ -1,6 +1,6 @@
 ---
 subject: "S9, the release workflow, the release runbook and PyPI's README (PR #37, #36)"
-base: main (017da47)
+base: main (44d55fa)
 head: e3bbaf5
 date: 2026-10-29
 round: 1
