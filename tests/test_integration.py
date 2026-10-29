@@ -760,8 +760,10 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
 
 
 # Spheres of a few thousand vertices under ROOT, each vertex pushed in or out by a jitter drawn from the sphere's own
-# seed in SEEDS: meshes no cook cache holds, so every one is cooked, and no cache is cleared to get there. A static
-# collider with a convex hull, cooked when physics loads. A PhysicsScene under ROOT when the stage has none.
+# seed in SEEDS: meshes no cook cache holds, so every one is cooked, and no cache is cleared to get there. Each is a
+# rigid body with a convex hull: PhysX cooks a dynamic body's shape while physics loads, with Kit's main thread waiting
+# on the cooking workers. Static colliders cook without that wait, and 8 of them played on main's bridge without a
+# hang; 32 rigid bodies hung it (2026-10-29). A PhysicsScene under ROOT when the stage has none.
 _COLD_COOK_SCENE = """
 import math
 import random
@@ -794,10 +796,11 @@ for i, seed in enumerate(SEEDS):
     mesh.CreateFaceVertexIndicesAttr(indices)
     UsdGeom.XformCommonAPI(mesh).SetTranslate(Gf.Vec3d(3.0 * i, 0.0, 2.0))
     UsdPhysics.CollisionAPI.Apply(mesh.GetPrim())
+    UsdPhysics.RigidBodyAPI.Apply(mesh.GetPrim())
     UsdPhysics.MeshCollisionAPI.Apply(mesh.GetPrim()).CreateApproximationAttr("convexHull")
 result = len(points)
 """
-_SPHERES = 8
+_SPHERES = 32
 
 
 class TestColdCook(unittest.TestCase):
