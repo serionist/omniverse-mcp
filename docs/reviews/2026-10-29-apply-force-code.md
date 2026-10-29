@@ -13,12 +13,13 @@ verdict: clean
 PR 2 of the plan for #7 and #25 (`docs/plans/2026-10-29-debug-draw-and-ignored-parameters.md`, on PR 1's branch).
 Read from the diff of `8855653` against `b818449`, the touched files in full, and the PhysX, USD and Kit stubs and
 tests installed with Isaac Sim 5.1 (Kit 107.3, `omni.physx` 107.3.26) and 6.2.0 (Kit 110.4, `omni.physx` 110.4.4).
-One minor, fixed; three improvements, all taken. The branch was then rebased onto `7afa9e4` (#52), whose README line
-for #25 it resolves to `start_recording`'s alone: `8855653` became `1948e73`, and the fixes are `84af853`.
+One minor, fixed; three improvements, all taken. The branch was then rebased onto `76b0f75` (#52, #53, #55, #56),
+README's line for #25 resolved to `start_recording`'s alone and the lists merged with main's: `8855653` became
+`f0623d7`, and the fixes are `81f9da7`.
 
 | # | Sev | Where | Finding | Status |
 |---|---|---|---|---|
-| F1 | minor | `tests/test_scenarios.py`, `test_15_11_apply_force_to_a_robot_link` | It can't tell a push PhysX took on a G1 link from one it ignored: `apply_force_at_pos` returns None either way, and the test checked only the answer. | Fixed in `84af853`: 100 N s along X on the pelvis, and the link's PhysX pose must move further along X in about 0.2 s than it does without the push (`drift_along_x`). |
+| F1 | minor | `tests/test_scenarios.py`, `test_15_11_apply_force_to_a_robot_link` | It can't tell a push PhysX took on a G1 link from one it ignored: `apply_force_at_pos` returns None either way, and the test checked only the answer. | Fixed in `81f9da7`: 100 N s along X on the pelvis, and the link's PhysX pose must move further along X in about 0.2 s than it does without the push (`drift_along_x`). |
 
 Refuted, or checked and found right, each from the code or the installed source:
 
@@ -52,9 +53,9 @@ Improvements:
 
 | Improvement | Answer |
 |---|---|
-| Name the way to hold a push over MCP, where one call can't last past a physics step | taken in `84af853`: "for a sustained push, give an impulse of force times seconds", in the tool, TOOLS.md, CHANGELOG and the simulate skill |
-| Import `get_physxunittests_interface` only for a push without a point, with an error that names it | taken in `84af853`: a push at a given point works without it |
-| Refuse a body whose `physics:rigidBodyEnabled` is false, beside a kinematic one | taken in `84af853`: PhysX holds such a body as a static rigid, as NVIDIA's `test_rigid_body_api_update` counts it (`numDynamicRigids` 0, `numStaticRigids` 1; 107.3.26 lines 498-501, 110.4.4 lines 530-533), and nothing moves one. `test_a_disabled_rigid_body_is_refused_before_a_kinematic_one` and live `test_15_12` |
+| Name the way to hold a push over MCP, where one call can't last past a physics step | taken in `81f9da7`: "for a sustained push, give an impulse of force times seconds", in the tool, TOOLS.md, CHANGELOG and the simulate skill |
+| Import `get_physxunittests_interface` only for a push without a point, with an error that names it | taken in `81f9da7`: a push at a given point works without it |
+| Refuse a body whose `physics:rigidBodyEnabled` is false, beside a kinematic one | taken in `81f9da7`: PhysX holds such a body as a static rigid, as NVIDIA's `test_rigid_body_api_update` counts it (`numDynamicRigids` 0, `numStaticRigids` 1; 107.3.26 lines 498-501, 110.4.4 lines 530-533), and nothing moves one. `test_a_disabled_rigid_body_is_refused_before_a_kinematic_one` and live `test_15_12` |
 
 Not covered: Isaac Sim 5.x live. Isaac Sim 5.1 crashes in its own start on this machine, so 5.x is checked against
 its installed source only; the docs this change touches claim nothing of 5.x, and the README already says it is
@@ -77,4 +78,6 @@ Sim 6.2.0 with the extension installed from this branch. They must show:
 
 ## Checks
 
-`uv run tools/gate.py full` passed on `8855653` (758 tests, 94.02%) and on `84af853` (767 tests, 94.16%).
+`uv run tools/gate.py full` passed on `8855653` (758 tests, 94.02%), on the fixes before the last rebase (767
+tests, 94.16%), and on `81f9da7` rebased onto `76b0f75` (944 tests, 95.29%), with the guard in `tests/test_logs.py`
+finding no Python hook on Kit's logging.
