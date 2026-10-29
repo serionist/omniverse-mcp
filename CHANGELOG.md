@@ -7,6 +7,9 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## 0.2.0 (2026-10-29)
 
+The first release on PyPI: `uvx omniverse-mcp`, or the Claude Code plugin. The breaking changes below concern a clone
+of this repo from before it.
+
 ### Security
 
 - **The bridge answers only the MCP server that holds its token.** Before this, any program on the machine, and any

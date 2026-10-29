@@ -1,6 +1,6 @@
 # Architecture
 
-Omniverse MCP uses a two-process architecture to bridge AI assistants with a running NVIDIA Omniverse application (Isaac Sim 5.1+, USD Composer, or any Kit-based app).
+Omniverse MCP uses a two-process architecture to bridge AI assistants with a running NVIDIA Omniverse application (Isaac Sim 5.x and up, USD Composer, or any Kit-based app).
 
 ## Overview
 

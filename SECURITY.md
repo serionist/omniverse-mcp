@@ -1,7 +1,7 @@
 # Security
 
 The Kit extension runs any Python the MCP server sends it, inside your Kit app and as your user. The bridge token is
-what stops anyone else from doing the same, so a way around it is serious even before the first release.
+what stops anyone else from doing the same, so a way around it is serious.
 
 ## Reporting
 
@@ -35,9 +35,7 @@ What does not count:
 
 | Version | Fixes |
 |---|---|
-| `main` | Every fix, until the first release |
-| The latest release | Every fix, from the first release |
+| The latest release | Every fix |
 | Older releases | None before `1.0`: update to the latest |
 
-omniverse-mcp is not released yet, so fixes land on `main` only. From the first release until `1.0`, only the latest
-release gets them.
+Until `1.0`, only the latest release gets fixes.

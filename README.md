@@ -25,7 +25,7 @@
   screen boxes that tell the assistant what it sees.</sub>
 </p>
 
-An [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server that gives AI assistants full control over NVIDIA Omniverse applications -- including **Isaac Sim 5.1+**, USD Composer, and any Omniverse Kit-based app. Inspect scenes, manipulate objects, control robots, run physics simulations, capture viewports, record sessions, and manage extensions.
+An [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server that gives AI assistants full control over NVIDIA Omniverse applications -- including **Isaac Sim 5.x and up**, USD Composer, and any Omniverse Kit-based app. Inspect scenes, manipulate objects, control robots, run physics simulations, capture viewports, record sessions, and manage extensions.
 
 ```
 AI Assistant  <--MCP/stdio-->  MCP Server  <--HTTP/REST-->  Omniverse Extension
@@ -48,13 +48,13 @@ The tools, by area:
 | **Simulation** | `sim_control`, `get_sim_state` | Play/pause/stop/step simulation, query state (time, FPS, up axis) |
 | **Recording** | `start_recording`, `stop_recording`, `get_recording_frame` | Capture simulation frames + prim state over time for analysis |
 | **Physics** | `set_physics_properties`, `apply_force`, `raycast` | Set mass/friction/restitution, apply forces, cast rays for spatial queries |
-| **Debug** | `draw_debug` | Draw lines, spheres, and points in the viewport for visualization |
+| **Debug** | `draw_debug` | Draw lines, spheres, and points in the viewport for visualisation |
 | **Logging** | `get_logs` | Query Omniverse log entries (errors, warnings) for diagnosing tool failures |
 | **Scripting** | `execute_script` | Run Python inside the sim with `mcp` bridge for async MCP handler access |
 | **Extensions** | `manage_extensions` | List, enable, and disable Omniverse extensions |
 
 **Key capabilities:**
-- **Scene understanding** -- `capture_viewport` outputs a screenshot, screen-space bounding boxes, and instance segmentation (unique color per prim) so the AI knows what it sees
+- **Scene understanding** -- `capture_viewport` outputs a screenshot, screen-space bounding boxes, and instance segmentation (a unique colour per prim) so the AI knows what it sees
 - **Simulation recording** -- capture frames + prim state during physics, review any frame after
 - **File-based output** -- large scene dumps in grep-friendly text format, images saved as PNGs
 - **Arbitrary scripting** -- run any Python code inside the sim via `execute_script`; also serves as a fallback if any tool fails
