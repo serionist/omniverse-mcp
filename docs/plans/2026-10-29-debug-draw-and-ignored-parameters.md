@@ -1,9 +1,9 @@
 ---
 title: Make draw_debug work headless, and act on the parameters three tools ignore
 issue: "#7, #25"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-10-29
 ---
 
 # Make draw_debug work headless, and act on the parameters three tools ignore
@@ -244,13 +244,20 @@ Owner calls, answered by the maintainer before approval.
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 | Keep `apply_force`'s velocity fallback? | Drop it: it ignores mass and point, and the PhysX call works on Kit 107.3 and 110.3 (F8). A failure becomes an error. | |
-| Q2 | Keep `omni.debugdraw` as the fallback for Kit apps without `isaacsim.util.debug_draw`, such as USD Composer? | Keep it: small, and unit-tested in its pure parts. It runs live on Isaac Sim through `choose_backend` if its lines reach a headless capture (`test_16_09`, R1). | |
-| Q3 | Without `omni.replicator.core`: record from the viewport with a warning, or refuse? | The viewport, with the warning: a refusal would break the default call on such an app. | |
-| Q4 | Refuse `apply_force` while the timeline is stopped? | Yes; paused is accepted. A kinematic body, or one PhysX doesn't hold, is refused too (Design). | |
-| Q5 | Take the centre of mass from PhysX's unit-tests interface (`get_mass_information`)? | Yes: synchronous and exact, and NVIDIA's own debug view uses it. The live suite catches it changing (R8). | |
-| Q6 | `capture_viewport` and `inspect_prim` also ignore `width` and `height`: the image comes at the viewport's size, while `screen_bbox` is scaled to the size asked for, so boxes and image disagree | A new issue, outside this plan; it can reuse PR 3's render product | |
-| Q7 | Three PRs from one plan, as above? | Yes: each tool lands when its live run passes; the plan keeps a progress log, as `docs/plans/README.md` asks of a plan that spans several PRs | |
+| Q1 | Keep `apply_force`'s velocity fallback? | Drop it: it ignores mass and point, and the PhysX call works on Kit 107.3 and 110.3 (F8). A failure becomes an error. | As recommended (the maintainer, 2026-10-29) |
+| Q2 | Keep `omni.debugdraw` as the fallback for Kit apps without `isaacsim.util.debug_draw`, such as USD Composer? | Keep it: small, and unit-tested in its pure parts. It runs live on Isaac Sim through `choose_backend` if its lines reach a headless capture (`test_16_09`, R1). | As recommended (the maintainer, 2026-10-29) |
+| Q3 | Without `omni.replicator.core`: record from the viewport with a warning, or refuse? | The viewport, with the warning: a refusal would break the default call on such an app. | As recommended (the maintainer, 2026-10-29) |
+| Q4 | Refuse `apply_force` while the timeline is stopped? | Yes; paused is accepted. A kinematic body, or one PhysX doesn't hold, is refused too (Design). | As recommended (the maintainer, 2026-10-29) |
+| Q5 | Take the centre of mass from PhysX's unit-tests interface (`get_mass_information`)? | Yes: synchronous and exact, and NVIDIA's own debug view uses it. The live suite catches it changing (R8). | As recommended (the maintainer, 2026-10-29) |
+| Q6 | `capture_viewport` and `inspect_prim` also ignore `width` and `height`: the image comes at the viewport's size, while `screen_bbox` is scaled to the size asked for, so boxes and image disagree | A new issue, outside this plan; it can reuse PR 3's render product | As recommended (the maintainer, 2026-10-29) |
+| Q7 | Three PRs from one plan, as above? | Yes: each tool lands when its live run passes; the plan keeps a progress log, as `docs/plans/README.md` asks of a plan that spans several PRs | As recommended (the maintainer, 2026-10-29) |
+
+The maintainer approved the plan on 2026-10-29, with one change of scope. Round 3 left two majors open in the
+recording's design (P16, a recording started while playing repeats its check frame; P17, a cancelled Replicator step
+leaves the timeline frozen), so the recording's camera and size move to a later release, with their own review
+round. For 0.2.1, PR 3 is only this: `start_recording` says it records the active viewport, at its own size, and
+warns when it is given a `camera_path`, `width` or `height`; #25 stays open for the rest. Q3 waits with it. PR 1
+(`draw_debug`) and PR 2 (`apply_force`) go as designed.
 
 ## Compatibility
 
