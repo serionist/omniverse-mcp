@@ -557,3 +557,64 @@ def test_get_sim_state_says_nothing_more_when_the_extension_is_this_release(brid
     text = "\n".join(getattr(c, "text", "") for c in result.content)
     assert f"extension_version = {release}\nserver_version = {version('omniverse-mcp')}" in text
     assert "note = " not in text
+
+
+# What the bridge answers a recording's start with: no extension yet records from a camera or at a size (#25).
+RECORDING = {"session_id": "rec_1", "fps": 5, "output_dir": "rec_1", "resolution": [640, 480]}
+
+
+def test_start_recording_warns_of_the_camera_and_size_the_extension_ignores(bridge: MockIsaacServer, tmp_path: Path):
+    _check(
+        Case(
+            "start_recording",
+            {"camera_path": "/World/RecCam", "width": 320, "height": 240},
+            "/recording/start",
+            RECORDING,
+            # Sent all the same: the extension that records from a camera at a size will take them as they are.
+            {"camera_path": "/World/RecCam", "width": 320, "height": 240},
+            (
+                "WARNING: frames come from the active viewport, from its camera at its own size: camera_path "
+                "/World/RecCam, width 320 and height 240 are ignored for now (#25).",
+                "Aim the viewport with set_camera or look_at_prim before playing.",
+            ),
+        ),
+        bridge,
+        tmp_path,
+    )
+
+
+@pytest.mark.parametrize(
+    ("args", "says"),
+    [
+        ({"camera_path": "/World/RecCam"}, "camera_path /World/RecCam is ignored for now (#25)"),
+        ({"width": 1920}, ": width 1920 is ignored for now (#25)"),
+        ({"width": 640, "height": 720}, ": height 720 is ignored for now (#25)"),
+        ({"camera_path": "/World/RecCam", "height": 240}, "camera_path /World/RecCam and height 240 are ignored"),
+    ],
+)
+def test_start_recording_names_each_ignored_parameter_it_was_given(
+    args: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    _check(Case("start_recording", args, "/recording/start", RECORDING, args, (says,)), bridge, tmp_path)
+
+
+@pytest.mark.parametrize("args", [{}, {"fps": 10}, {"width": 640, "height": 480, "camera_path": ""}])
+def test_start_recording_warns_of_nothing_without_a_camera_or_a_size(
+    args: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path
+):
+    # The defaults are what every call sends; a warning on each would be noise the model learns to skip.
+    bridge.set_response("/recording/start", {"status": "success", "result": RECORDING})
+    client = BridgeClient(port=bridge.port, token="invented-test-token")
+    try:
+
+        async def call():
+            async with Client(create_server("127.0.0.1", bridge.port, str(tmp_path), client=client)) as c:
+                return await c.call_tool("start_recording", args)
+
+        result = asyncio.run(call())
+    finally:
+        client.close()
+    text = "\n".join(getattr(c, "text", "") for c in result.content)
+    assert not result.is_error, text
+    assert text.startswith("Recording rec_1 at 5fps -> ")
+    assert "WARNING" not in text

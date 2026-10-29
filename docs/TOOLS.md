@@ -591,14 +591,19 @@ Get the current simulation state. No parameters.
 
 ### `start_recording`
 
-Start recording simulation frames to disk.
+Start recording simulation frames to disk. It records the active viewport, from its camera at its own size: aim it
+with `set_camera` or `look_at_prim` first. `camera_path`, `width` and `height` are ignored for now
+([#25](https://github.com/serionist/omniverse-mcp/issues/25)), and the answer carries a `WARNING` line when it is
+given a `camera_path`, or a size other than 640x480: the server can't tell 640x480 asked for from the default. The
+recording's `metadata.json` still lists the camera and size asked for, not the ones used. Frames are taken every few
+app updates, whether or not the simulation plays: play it to record motion.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `fps` | int | `5` | Capture rate (frames per second), at least 1 |
-| `width` | int | `640` | Frame width, at least 1; frames keep the viewport's size for now ([#25](https://github.com/serionist/omniverse-mcp/issues/25)) |
-| `height` | int | `480` | Frame height, at least 1; as `width` |
-| `camera_path` | string | `""` | Camera to record from; frames come from the active viewport for now ([#25](https://github.com/serionist/omniverse-mcp/issues/25)) |
+| `width` | int | `640` | At least 1; ignored for now: frames come at the active viewport's size |
+| `height` | int | `480` | At least 1; as `width` |
+| `camera_path` | string | `""` | Ignored for now: frames come from the active viewport's camera |
 | `track_prims` | list[string] | `null` | Prim paths to track state for (includes descendants) |
 | `property_filter` | list[string] | `null` | Only record properties containing these substrings |
 

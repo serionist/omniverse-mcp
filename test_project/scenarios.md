@@ -166,6 +166,7 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 ### 6.1 Record a Falling Cube
 - Reset cube: `set_prim_transform("/World/RedCube", position=[0,3,0])`
 - `start_recording(fps=5, width=320, height=240)`
+- Verify: the answer has a `WARNING` line that width 320 and height 240 are ignored for now (#25)
 - `sim_control("play")`
 - Wait ~2 seconds
 - `sim_control("stop")`
