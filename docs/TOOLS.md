@@ -2,6 +2,35 @@
 
 Reference for every tool the MCP server provides.
 
+- **Where answers go:** a text answer over 1,000 characters is written to `mcp_output/responses/` and the tool
+  returns its path; images go to `mcp_output/captures/`, scene dumps and recordings to their own folders. Paths are
+  relative to the server's working folder. Open them with your client's file tool.
+- **Prim blocks:** text about prims comes as a `[/prim/path]` header, then `key = value` lines, so you can grep for a
+  path or a property.
+- **Known issues** on Isaac Sim 6.2 are in the [README](../README.md#known-issues).
+
+## Find a tool
+
+| To | Use |
+|---|---|
+| see what is in the scene | `get_scene_tree`, or `dump_scene` for a large one |
+| see how it looks | `capture_viewport`; `inspect_prim` for one object from several sides |
+| read a prim's properties, size or place | `get_prim_properties`, `get_prim_bounds` |
+| create, move, copy, hide or delete prims | `create_prim`, `set_prim_transform`, `clone_prim`, `set_visibility`, `delete_prim` |
+| colour an object | `set_material` |
+| point the camera | `set_camera`, `look_at_prim` |
+| fix a black capture | `viewport_light` |
+| play, pause, stop or step physics | `sim_control`; `get_sim_state` for where it stands |
+| add a robot and move its joints | `create_robot`, `get_robot_info`, `get_joint_states`, `set_joint_targets` |
+| record a run and look back at it | `start_recording`, `stop_recording`, `get_recording_frame` |
+| set mass or friction, push, or probe | `set_physics_properties`, `apply_force`, `raycast` |
+| count faces, or compare two prims or variants | `get_mesh_stats`, `get_prim_face_count_tree`, `compare_prims` |
+| make or switch variants | `create_variant_structure`, `set_variant_selection` |
+| write USD files | `save_scene`, `flatten_usd`, `export_prim_as_file`; `update_material_paths` after files move |
+| start an empty scene | `new_scene` |
+| find out why something failed | `get_logs` |
+| do anything else in Kit's Python | `execute_script`; `manage_extensions` for Kit's extensions |
+
 Each tool tells the client what it does to the Kit app, as MCP tool annotations. A client may use them to ask before
 it runs one; they are hints, never security (the bridge's token is what keeps others out).
 
@@ -16,11 +45,11 @@ A value out of a parameter's range, or not one of its choices, is refused before
 
 ## Table of Contents
 
-- [Scene Tools](#scene-tools) (12 tools)
+- [Scene Tools](#scene-tools) (11 tools)
 - [Geometry & Mesh Tools](#geometry--mesh-tools) (3 tools)
 - [USD Operations](#usd-operations) (2 tools)
 - [Variant Tools](#variant-tools) (2 tools)
-- [Material Tools](#material-tools) (1 tool)
+- [Material Tools](#material-tools) (2 tools)
 - [Robot Tools](#robot-tools) (4 tools)
 - [Camera Tools](#camera-tools) (5 tools)
 - [Simulation Tools](#simulation-tools) (2 tools)
@@ -65,7 +94,7 @@ Dump the full scene graph to a text file with all properties, bounding boxes, an
 
 **Returns:** File path to the dump. Use your file reading tool to examine specific parts.
 
-**When to use:** Large scenes where you need full property data. The output is in prim-block format -- grep for prim paths or property names.
+**When to use:** Large scenes where you need full property data. The output is in prim-block format - grep for prim paths or property names.
 
 ---
 
@@ -89,7 +118,7 @@ Get the axis-aligned bounding box of a prim.
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Full USD path |
 
-**Returns:** Center, dimensions, min/max corners, and diagonal length. Essential for spatial reasoning -- computing placement positions, checking overlaps, measuring distances.
+**Returns:** Centre, dimensions, min/max corners, and diagonal length. Essential for spatial reasoning - computing placement positions, checking overlaps, measuring distances.
 
 ---
 
@@ -100,7 +129,7 @@ Set position, rotation, and/or scale of a prim.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Full USD path |
-| `position` | list[float] | `null` | `[x, y, z]` in meters |
+| `position` | list[float] | `null` | `[x, y, z]` in metres |
 | `rotation` | list[float] | `null` | Euler `[rx, ry, rz]` in degrees, or quaternion `[w, x, y, z]` |
 | `scale` | float or list[float] | `null` | Uniform (single float) or per-axis `[sx, sy, sz]` |
 
@@ -135,21 +164,6 @@ Delete a prim and all its children from the scene.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Full USD path to delete |
-
----
-
-### `set_material`
-
-Apply a PBR material (OmniPBR) to a prim with color and surface properties.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `prim_path` | string | required | Target prim |
-| `color` | list[float] | required | `[r, g, b]` diffuse color. 0-1 floats or 0-255 ints (auto-detected) |
-| `opacity` | float | `1.0` | 0.0 (transparent) to 1.0 (opaque); nothing outside that |
-| `roughness` | float | `0.5` | 0.0 (glossy) to 1.0 (matte); nothing outside that |
-| `metallic` | float | `0.0` | 0.0 (plastic) to 1.0 (metal); nothing outside that |
-| `material_path` | string | `""` | Custom material prim path (auto-generated under `/World/Looks/` if omitted) |
 
 ---
 
@@ -195,7 +209,9 @@ Save the current scene to a USD file.
 
 ### `new_scene`
 
-Create a fresh empty scene with a `/World` root prim and Y-up axis.
+Discard the open scene, unsaved changes too, and start an empty one with a `/World` prim. The new stage is
+Y-up, while Isaac Sim's robots and stages are Z-up: for robot work, open a Z-up stage or set the axis with
+`execute_script` (`UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.z)`) before adding anything.
 
 No parameters.
 
@@ -209,11 +225,11 @@ Get face/vertex/triangle counts for a mesh prim or subtree.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `prim_path` | string | required | Prim to analyze (includes all descendant meshes) |
+| `prim_path` | string | required | Prim to analyse (includes all descendant meshes) |
 
 **Returns:** Per-mesh breakdown and totals (faces, vertices, triangles, mesh count). Written to file if many meshes.
 
-**When to use:** Measuring geometry budget, computing shell reduction ratios, verifying mesh simplification results.
+**When to use:** Checking a geometry budget, or what a simplification saved.
 
 ---
 
@@ -247,7 +263,8 @@ Compare two prims or two variants: mesh counts, bounds, materials.
 
 **Returns:** Side-by-side stats (faces, vertices, triangles, meshes, bounds, materials) with deltas and percentage change.
 
-**When to use:** Validating shell creation (comparing focused vs. shell geometry), verifying simplification results. Properly clears BBoxCache between variant switches.
+**When to use:** Checking what a simplified copy or another variant changed. Bounds are measured afresh after each
+variant switch.
 
 ---
 
@@ -297,7 +314,8 @@ Switch variant selection on a prim with proper viewport refresh.
 
 **Returns:** Old and new selection, available variants.
 
-**Important:** This tool includes the Hydra rprim refresh workaround (activation toggle + 30-frame pump) needed due to FSD/Hydra bugs (OMPE-54434, OMPE-70769, OMPE-71336). Using `execute_script` to switch variants leaves stale viewport geometry: use this tool instead.
+**Important:** switch variants with this tool, not `execute_script`: a variant switched in a script can leave the
+old geometry in the viewport, and this tool refreshes it.
 
 ---
 
@@ -317,6 +335,21 @@ Create variant set boilerplate on a prim.
 ---
 
 ## Material Tools
+
+### `set_material`
+
+Apply a PBR material (OmniPBR) to a prim with colour and surface properties.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `prim_path` | string | required | Target prim |
+| `color` | list[float] | required | `[r, g, b]` diffuse colour. 0-1 floats or 0-255 ints (auto-detected) |
+| `opacity` | float | `1.0` | 0.0 (transparent) to 1.0 (opaque); nothing outside that |
+| `roughness` | float | `0.5` | 0.0 (glossy) to 1.0 (matte); nothing outside that |
+| `metallic` | float | `0.0` | 0.0 (plastic) to 1.0 (metal); nothing outside that |
+| `material_path` | string | `""` | Custom material prim path (auto-generated under `/World/Looks/` if omitted) |
+
+---
 
 ### `update_material_paths`
 
@@ -364,7 +397,8 @@ Spawn a robot from the asset library (Isaac Sim only).
 | `spot` | Quadruped | Boston Dynamics Spot |
 | `anymal` | Quadruped | ANYbotics ANYmal |
 
-You can also pass a full USD file path as `robot_type` to load any custom robot asset.
+To load another robot from its USD file, use `create_prim(prim_path, usd_path=...)`: a file path as `robot_type`
+doesn't load yet ([#40](https://github.com/serionist/omniverse-mcp/issues/40)).
 
 ---
 
@@ -399,9 +433,9 @@ Set joint drive position targets.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Root prim of the robot |
-| `targets` | dict or list | `null` | `{joint_name: value}` dict or `[v0, v1, ...]` list. Values in degrees (revolute) or meters (prismatic). |
+| `targets` | dict or list | `null` | `{joint_name: value}` dict or `[v0, v1, ...]` list. Values in degrees (revolute) or metres (prismatic). |
 
-Works by setting USD drive target attributes directly -- does not require articulation initialization.
+Works by setting USD drive target attributes directly - does not require articulation initialisation.
 
 ---
 
@@ -433,7 +467,7 @@ Point the viewport camera at a prim from a given angle. Auto-computes distance f
 
 ### `inspect_prim`
 
-Orbit-capture: take screenshots from 14 systematic angles around a prim using a cube-based approach (6 face centers + 8 cube corners). The camera distance is fitted so the prim's bounding sphere fills the captured frame with a 10px margin. Optionally includes instance segmentation at each angle.
+Orbit-capture: take screenshots from 14 systematic angles around a prim using a cube-based approach (6 face centres + 8 cube corners). The camera distance is fitted so the prim's bounding sphere fills the captured frame with a 10px margin. Optionally includes instance segmentation at each angle.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -447,11 +481,9 @@ Orbit-capture: take screenshots from 14 systematic angles around a prim using a 
 
 **Available angles (14 total):**
 
-*Face centers (6):* `front`, `back`, `right`, `left`, `top`, `bottom`
+*Face centres (6):* `front`, `back`, `right`, `left`, `top`, `bottom`
 
 *Cube corners (8):* `top_front_right`, `top_front_left`, `top_back_right`, `top_back_left`, `bottom_front_right`, `bottom_front_left`, `bottom_back_right`, `bottom_back_left`
-
-Corner angles use elevation = ±35.26° (atan(1/√2)), which is the exact angle from the horizontal to a cube corner.
 
 Each angle is saved as a separate PNG file. When `include_segmentation` is true, each angle also saves a segmentation image + legend. Default captures all 14 angles for full coverage.
 
@@ -463,9 +495,9 @@ Each angle is saved as a separate PNG file. When `include_segmentation` is true,
 
 Capture the viewport and save **3 files** for full scene understanding:
 
-1. **Viewport image** (PNG) -- what the camera sees
-2. **Bounding boxes** (TXT) -- screen-space pixel coordinates for each visible prim, plus world-space center and dimensions
-3. **Instance segmentation** (PNG + legend TXT) -- each prim rendered as a unique color, with a legend mapping colors to prim paths
+1. **Viewport image** (PNG) - what the camera sees
+2. **Bounding boxes** (TXT) - screen-space pixel coordinates for each visible prim, plus world-space centre and dimensions
+3. **Instance segmentation** (PNG + legend TXT) - each prim rendered as a unique colour, with a legend mapping colours to prim paths
 
 Use files 2 and 3 to understand which object is where in the viewport image.
 
@@ -477,10 +509,10 @@ Use files 2 and 3 to understand which object is where in the viewport image.
 | `include_image` | bool | `false` | Return the viewport image inline as `ImageContent` so AI can see it directly. Files are always saved regardless. |
 
 **Output files:**
-- `mcp_output/captures/viewport_NNNN.png` -- viewport screenshot
-- `mcp_output/captures/viewport_NNNN_bboxes.txt` -- screen bounding boxes in prim-block format
-- `mcp_output/captures/viewport_NNNN_segmentation_NNNN.png` -- instance segmentation image
-- `mcp_output/captures/viewport_NNNN_segmentation_NNNN_legend.txt` -- color-to-prim mapping
+- `mcp_output/captures/viewport_NNNN.png` - viewport screenshot
+- `mcp_output/captures/viewport_NNNN_bboxes.txt` - screen bounding boxes in prim-block format
+- `mcp_output/captures/viewport_NNNN_segmentation_NNNN.png` - instance segmentation image
+- `mcp_output/captures/viewport_NNNN_segmentation_NNNN_legend.txt` - colour-to-prim mapping
 
 **Bounding box format:**
 ```
@@ -508,9 +540,9 @@ Query or set the viewport's lighting mode. Non-destructive: it changes how the v
 | `enabled` | bool | `true` | For `set_camera_light`: `true` is mode `"camera"`, `false` is `"stage"` |
 
 **Actions:**
-- **get** -- Returns the current lighting mode, the available modes, whether the scene has lights, and a list of all scene light prims (path, type, intensity)
-- **set** -- Switches the lighting mode. Light rigs need the viewport's lighting menu (`omni.kit.viewport.menubar.lighting`); without it, `"camera"` and `"stage"` still work, and anything else returns an error rather than a false success
-- **set_camera_light** -- Legacy alias for `set` with `"camera"` or `"stage"`
+- **get** - Returns the current lighting mode, the available modes, whether the scene has lights, and a list of all scene light prims (path, type, intensity)
+- **set** - Switches the lighting mode. Light rigs need the viewport's lighting menu (`omni.kit.viewport.menubar.lighting`); without it, `"camera"` and `"stage"` still work, and anything else returns an error rather than a false success
+- **set_camera_light** - Legacy alias for `set` with `"camera"` or `"stage"`
 
 **When to use:** When `capture_viewport` reports a black image, use `viewport_light("get")` to diagnose, then `viewport_light(action="set", mode="Default")` (a light rig) or `mode="camera"` (a light that follows the camera) and recapture.
 
@@ -526,10 +558,10 @@ Control the simulation.
 |-----------|------|---------|-------------|
 | `action` | string | required | `"play"`, `"pause"`, `"stop"`, or `"step"` |
 
-- **play** -- Start or resume physics simulation
-- **pause** -- Pause simulation (state preserved)
-- **stop** -- Stop simulation and reset to initial state
-- **step** -- Advance one physics step
+- **play** - Start or resume physics simulation
+- **pause** - Pause simulation (state preserved)
+- **stop** - Stop simulation and reset to initial state
+- **step** - Advance one physics step
 
 ---
 
@@ -538,16 +570,14 @@ Control the simulation.
 Get the current simulation state. No parameters.
 
 **Returns:**
-- `state` -- `playing`, `paused`, or `stopped`
-- `up_axis` -- `Y` or `Z`
-- `time` -- Elapsed simulation time in seconds
-- `fps` -- Current frames per second
-- `prim_count` -- Total number of prims in the scene
-- `meters_per_unit` -- Stage scale factor
-- `extension_version`, `server_version` -- the Kit extension's release, from the bridge's handshake, and this server's
-- `note` -- only when the Kit extension differs from the one this server carries (in a clone, its `extension/`):
-  the command that installs the server's. The server refuses another bridge protocol, not another release, so an
-  update that keeps the protocol shows here
+- `state` - `playing`, `paused`, or `stopped`
+- `up_axis` - `Y` or `Z`
+- `time` - Elapsed simulation time in seconds
+- `fps` - Current frames per second
+- `prim_count` - Total number of prims in the scene
+- `meters_per_unit` - Stage scale factor
+- `extension_version`, `server_version` - the Kit extension's release, from the bridge's handshake, and this server's
+- `note` - only when the bridge's release differs from the server's: the command that installs the matching one
 
 **When to use:** Always call this first to understand the environment (especially up axis and whether physics is running).
 
@@ -636,7 +666,7 @@ Cast a ray into the scene and return what it hits.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `origin` | list[float] | required | `[x, y, z]` start point |
-| `direction` | list[float] | required | `[dx, dy, dz]` direction (normalized automatically) |
+| `direction` | list[float] | required | `[dx, dy, dz]` direction (normalised automatically) |
 | `max_distance` | float | `1000.0` | Maximum ray length, above 0 |
 
 **Returns:** Hit prim path, hit position, surface normal, and distance. Returns "No hit" if ray doesn't intersect anything.
@@ -723,7 +753,7 @@ Execute arbitrary Python code inside the running Omniverse application.
 | `Gf` | `pxr.Gf` | Math: vectors, matrices, quaternions |
 | `mcp` | `MCPBridge` | Async access to MCP handlers (see below) |
 
-Set `result = <value>` to return JSON-serializable data to the AI assistant.
+Set `result = <value>` to return JSON-serialisable data to the AI assistant.
 
 **Example (sync):**
 ```python
@@ -760,9 +790,9 @@ result = {"center": bounds["result"]["center"], "sim": state["result"]["state"]}
 | `mcp.sim_state()` | Get simulation state |
 | `mcp.get_logs(count, min_level, channel, search)` | Get recent log entries |
 
-Each method returns the full handler response dict with `"status"` and `"result"` keys. Calls are in-process (no HTTP round-trip).
+Each method returns the full handler response dict with `"status"` and `"result"` keys. They run inside Kit.
 
-**When to use:** Complex operations not covered by other tools -- custom physics queries, batch operations, accessing APIs that don't have dedicated tools. Use async `mcp.*` methods when you need to chain multiple MCP operations in a single script (e.g., capture viewport, analyze, reposition, recapture).
+**When to use:** Complex operations not covered by other tools - custom physics queries, batch operations, accessing APIs that don't have dedicated tools. Use async `mcp.*` methods when you need to chain multiple MCP operations in a single script (e.g., capture viewport, analyse, reposition, recapture).
 
 **Fallback strategy:** Every MCP tool in this server can be replicated via `execute_script` using the Omniverse Python API directly. If any tool returns an error, you can fall back to writing the equivalent Python code. Use Context7 (`isaac-sim/isaacsim`) or the [NVIDIA Omniverse docs](https://docs.omniverse.nvidia.com/) to look up the correct API rather than guessing.
 
@@ -770,9 +800,9 @@ Each method returns the full handler response dict with `"status"` and `"result"
 
 ## MCP Resources
 
-Two MCP resources are available for clients that support resource subscriptions:
+Two MCP resources, read when the client asks for them:
 
 | URI | Description |
 |-----|-------------|
-| `omniverse://scene/tree` | Current scene hierarchy (auto-updated) |
+| `omniverse://scene/tree` | Current scene hierarchy |
 | `omniverse://sim/state` | Current simulation state |

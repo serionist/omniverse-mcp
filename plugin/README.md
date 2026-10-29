@@ -1,7 +1,7 @@
 # The Omniverse MCP plugin for Claude Code
 
-The plugin connects Claude Code to a running NVIDIA Omniverse Kit app (Isaac Sim, USD Composer) through the
-`omniverse-mcp` MCP server and its Kit extension `ovmcp.bridge`: Claude can look at the stage, edit it, run physics,
+The plugin connects Claude Code to a running NVIDIA Kit app (Isaac Sim, USD Composer) through the `omniverse-mcp`
+MCP server and the bridge, its Kit extension `ovmcp.bridge`: Claude can look at the scene, edit it, run physics,
 drive robots and record what happens. Not affiliated with NVIDIA.
 
 ## Install
@@ -14,8 +14,8 @@ Kit 107 or later (Isaac Sim 5.x and up). In Claude Code:
 /plugin install omniverse-mcp@omniverse-mcp
 ```
 
-Then `/omniverse-mcp:setup` installs the Kit extension of the same release, walks you through turning it on in Kit,
-and checks the connection.
+Then `/omniverse-mcp:setup` installs the bridge of the same release, tells you what to click in Kit, and checks the
+connection. The [README](https://github.com/serionist/omniverse-mcp#install) has the same steps by hand.
 
 ## What it brings
 
@@ -28,9 +28,9 @@ and checks the connection.
 | `/omniverse-mcp:simulate` | physics, robots, forces, recording a run |
 | `/omniverse-mcp:script` | `execute_script`, with the API looked up first |
 
-Claude uses the skills on its own when a request fits them. Each pre-approves only tools that read (the
-`readOnlyHint` ones), which write nothing but their own output under `mcp_output/`: every tool that edits the stage,
-saves or exports a file, or runs code still asks you.
+Claude picks a skill when your request fits it. Inside a skill, tools that only read run without asking (they
+write nothing but their own output under `mcp_output/`); a tool that changes the scene, writes a file or runs code
+still asks you first.
 
 ## Settings
 
@@ -42,4 +42,9 @@ the environment Claude Code starts in, and `OMNIVERSE_MCP_TOKEN` for a Kit app o
 
 `claude plugin marketplace update omniverse-mcp` fetches the marketplace, and
 `claude plugin update omniverse-mcp@omniverse-mcp` moves the plugin to its newest release; restart Claude Code. Then
-run `/omniverse-mcp:setup` again, so the Kit extension matches the server, and restart Kit.
+run `/omniverse-mcp:setup` again, so the bridge matches the server, and restart Kit.
+
+## Uninstalling
+
+[Uninstalling](https://github.com/serionist/omniverse-mcp/blob/main/docs/SETUP.md#uninstalling) removes the
+plugin, the bridge and what they leave behind.

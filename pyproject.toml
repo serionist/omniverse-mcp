@@ -88,6 +88,11 @@ replacement = '![\1](https://raw.githubusercontent.com/serionist/omniverse-mcp/m
 pattern = '\]\((?!https?://|#|mailto:)([^)\s]+)\)'
 replacement = '](https://github.com/serionist/omniverse-mcp/blob/main/\1)'
 
+# PyPI gives a heading the id `user-content-<slug>`, and nothing there maps `#<slug>` onto it, as GitHub's page does.
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\]\(#([^)\s]+)\)'
+replacement = '](#user-content-\1)'
+
 # check-wheel-contents, which release.yml and ci.yml's package job run. W004 (a module at a path Python can't import):
 # the wheel carries the Kit extension under omniverse_mcp/_extension/ovmcp.bridge/ as data for `extension install`,
 # and its folder's name holds a dot, as Kit's extension ids do; nothing imports it from the wheel.
