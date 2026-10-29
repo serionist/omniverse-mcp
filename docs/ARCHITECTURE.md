@@ -261,7 +261,7 @@ The format is implemented in `ovmcp/core/formatter.py` with functions for:
 1. The HTTP server runs on the Omniverse application's asyncio event loop
 2. Handlers use `await omni.kit.app.get_app().next_update_async()` to sync with the main thread before accessing USD/PhysX state
 3. Script execution (`execute_script`) runs `exec()` directly on the main thread with stdout/stderr captured via `io.StringIO`. It must run on the main thread because USD/Omniverse APIs are not thread-safe. If the code contains `await` expressions, it is automatically wrapped in an async function and awaited, allowing scripts to call async `mcp.*` methods while still running on the main thread's event loop
-4. Viewport capture waits for the viewport's frame, then for its file, each wait bounded by time (`ovmcp/core/capture.py`): `asyncio.wait_for` and polls on the same loop, no thread, so a viewport that renders nothing fails the call rather than hanging it
+4. Viewport capture waits for the viewport's frame, then for its file, each wait bounded by time (`ovmcp/core/capture.py`): `asyncio.wait_for` and polls on the same loop, no thread, so a viewport that renders nothing fails the call rather than hanging it. A frame wait observes Kit's `NEW_FRAME` event through omni.usd's `next_frame_async`, as an immediate observer, which Kit 110's own code says fires on the renderer thread. Isaac Sim turns async rendering off (`asyncRendering = false` in its `.kit` files), and `omni.syntheticdata` does too when it loads, so there the event comes on the main thread; a Kit app with async rendering on and without `omni.syntheticdata`, such as USD Composer, is untested
 5. The log buffer's `_on_log` callback uses a `threading.Lock` since `omni.log` may fire from any thread
 
 This means all handler code runs on the main thread - there are no threading issues with USD access, but long-running handlers will block the simulation for the duration of their execution.
@@ -367,10 +367,15 @@ the answer says so, with the lighting mode.
 - **Outside a call:** `set_camera`, `look_at_prim` and `viewport_light` give a settle or reset 30 s for all its
   frames, and answer as before, with a warning in Kit's log, when the frames don't come. A recording frame gets 30 s,
   then 10 s for its file, and is the empty marker when they run out.
+- **Kit versions:** run live on Isaac Sim 6.2 (Kit 110) only. Kit 107's capture, frame wait and `omni.syntheticdata`
+  sources were read and match Kit 110's where this relies on them, but Isaac Sim 5.x is untested live: 5.1 crashed
+  in its own start on the test machine, before any extension loaded.
 - **Timers on Kit's loop:** they fire only while the loop runs, so a main thread blocked by a shader compile delays
   them.
 - **In Kit's log:** a failed capture's step and seconds (a warning); a capture over 2 s, how long its frame and file
-  took; each segmentation wait's updates and seconds.
+  took; each segmentation wait's updates and seconds. `get_logs(search="capture")` and `search="segmentation"`
+  find the bridge's lines; `channel="syntheticdata"` finds what `omni.syntheticdata` itself reported, whose lines
+  rarely name it.
 
 **Segmentation:** `omni.syntheticdata` drops its sensors on every stage open (`new_scene`, an opened file). A capture
 that reads the instance segmentation sensor empty enables it again and reads it after each app update for up to 5 s.

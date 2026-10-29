@@ -87,7 +87,8 @@ def wrapper(viewport_api, file_path=None, *args, **kwargs):
     return _Finished()
 """
 
-# Sets one of ovmcp.core.capture's limits; an extension from before the bounded waits has none to set.
+# Sets one of ovmcp.core.capture's limits; an extension from before the bounded waits has none to set. The token says
+# whose change it is: by value alone, an earlier run's late undo would put back a later run's limit mid-test.
 _SHORTEN = """
 import asyncio
 try:
@@ -95,11 +96,14 @@ try:
 except ImportError:
     capture = None
 if capture is not None:
+    token = object()
+    capture._ovmcp_test_{name} = token
     capture.{name} = {seconds!r}
 
     def undo():
-        if capture.{name} == {seconds!r}:
+        if getattr(capture, "_ovmcp_test_{name}", None) is token:
             capture.{name} = {default!r}
+            capture._ovmcp_test_{name} = None
 
     asyncio.get_running_loop().call_later(60, undo)
 result = capture is not None
@@ -107,8 +111,8 @@ result = capture is not None
 
 _RESTORE = """
 from ovmcp.core import capture
-if capture.{name} == {seconds!r}:
-    capture.{name} = {default!r}
+capture.{name} = {default!r}
+capture._ovmcp_test_{name} = None
 result = capture.{name}
 """
 
@@ -135,6 +139,17 @@ try:
     result = "a frame"
 except asyncio.TimeoutError:
     result = "no frame"
+"""
+
+# Each prim under /World, and whether it renders: what isolate hides, and must give back.
+_VISIBILITY = """
+from pxr import UsdGeom
+stage = omni.usd.get_context().get_stage()
+result = {
+    str(prim.GetPath()): str(UsdGeom.Imageable(prim).ComputeVisibility())
+    for prim in stage.GetPrimAtPath("/World").GetChildren()
+    if prim.IsA(UsdGeom.Imageable)
+}
 """
 
 _UPDATES_ON = """
@@ -519,10 +534,25 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
             for cap in rest:
                 self.assertTrue(cap.get("error", "").startswith("Not captured"), cap)
             self.assertLess(inspected_in, 15)
+
+            # Isolated: no frame after hiding, so no angle is tried, and the prims come back without a wait for frames.
+            shown = self._kit(_VISIBILITY)
+            self.assertGreater(len(shown), 1, "nothing beside the cube for isolate to hide")
+            started = time.monotonic()
+            result = self.client.camera_inspect("/World/IntTestCube", angles=["front", "right"], isolate=True)
+            isolated_in = time.monotonic() - started
+            self.assertEqual(result["status"], "success", result)
+            for cap in result["result"]["captures"]:
+                self.assertTrue(cap.get("error", "").startswith("Not captured"), cap)
+            self.assertLess(isolated_in, frame_seconds + 5)
+            self.assertEqual(self._kit(_VISIBILITY), shown)
         finally:
             self.assertTrue(self._kit(_UPDATES_ON))
         self.assertEqual(self.client.capture_viewport(320, 240)["status"], "success")
-        print(f"  set_camera in {moved_in:.1f} s, inspect_prim in {inspected_in:.1f} s, then a capture")
+        print(
+            f"  set_camera in {moved_in:.1f} s, inspect_prim in {inspected_in:.1f} s, isolated in {isolated_in:.1f} s, "
+            "then a capture"
+        )
 
     # ===== Viewport lighting =====
 

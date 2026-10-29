@@ -83,15 +83,20 @@ async def bounded(awaitable: Awaitable[T], seconds: float, budget: Budget | None
     )
 
 
-async def frames(next_frame: Callable[[], Awaitable[object]], count: int, budget: Budget | None = None) -> None:
+async def frames(
+    next_frame: Callable[[], Awaitable[object]],
+    count: int,
+    budget: Budget | None = None,
+    clock: Clock = time.monotonic,
+) -> None:
     """`count` frames from `next_frame`, each within FRAME_SECONDS and what is left of `budget`.
 
-    Without a budget they share one of FRAME_SECONDS, and the first frame is bounded by FRAME_SECONDS alone: the
-    shared budget, made a moment before, would cut that wait short by the moment, and a viewport that renders nothing
-    would be OutOfTimeError, not NoFrameError.
+    Without a budget they share one of FRAME_SECONDS, on `clock`, and the first frame is bounded by FRAME_SECONDS
+    alone: the shared budget, made a moment before, would cut that wait short by the moment, and a viewport that
+    renders nothing would be OutOfTimeError, not NoFrameError.
     """
     own = budget is None
-    shared = Budget(FRAME_SECONDS) if budget is None else budget
+    shared = Budget(FRAME_SECONDS, clock) if budget is None else budget
     for i in range(count):
         await bounded(next_frame(), FRAME_SECONDS, None if own and i == 0 else shared)
 

@@ -326,6 +326,8 @@ one frame after the first.
 | A segmentation that failed once on a stage is not waited for again there, so one slow start costs later captures their wait | Accepted: the sensor stays on, so a later read gets the data as soon as it flows, and a read with data clears the record |
 | The live tests patch Kit modules and constants | Resolved: each undoes it in `finally` through `/execute`, and schedules its own undo after 60 s; constants are read when called, pinned by a unit test; on `main`, where `ovmcp.core.capture` doesn't exist, the tests patch no constant |
 | The silent `except Exception: pass` in `inspect`'s segmentation hid #27's cause | Resolved: the error goes into the answer and the log |
+| A frame wait's callback on Kit's renderer thread: omni.usd's `_next_frame_async` observes `NEW_FRAME` as an immediate observer (`omni/usd/_impl/__init__.py`), and Kit 110's `rtx_settings_window.py` says `NEW_FRAME` fires on the renderer thread. Every settle now waits this way, where only `_reset_renderer` (`viewport_light`, a black frame) did | Accepted, recorded by review-code round 1: Isaac Sim sets `asyncRendering = false` (`isaacsim.exp.base.kit`), and `omni.syntheticdata` switches async rendering off when it loads (`SyntheticData.disable_async_rendering`), so on Isaac Sim the event comes on the main thread. A Kit app with async rendering on and without `omni.syntheticdata` (USD Composer) is not shown by the live runs; ARCHITECTURE.md's Threading Model says so |
+| Q6's run on Isaac Sim 5.1 | Not run: 5.1 crashed in its own start on this machine, before any extension loaded. Kit 107's sources were read (Design, the API table); Isaac Sim 5.x is untested live, as ARCHITECTURE.md's Viewport Capture says |
 
 ## Plan review
 

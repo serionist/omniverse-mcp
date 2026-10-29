@@ -393,14 +393,15 @@ def _has_data(seg_array) -> bool:
 
 
 # Why an answer has no segmentation. Neither points at a new stage, which would throw the user's scene away: every
-# call reads the sensor first, so data that starts flowing is picked up on the same stage.
+# call reads the sensor first, so data that starts flowing is picked up on the same stage. get_logs' search matches
+# only a message, and omni.syntheticdata's own lines rarely name it, so they are found by their channel.
 _SEGMENTATION_NONE = (
     "Instance segmentation gave no data within {seconds:g} s of enabling it: capture again, and if it stays empty, "
-    'get_logs(search="syntheticdata") shows why'
+    'get_logs(channel="syntheticdata") shows what omni.syntheticdata reported'
 )
 _SEGMENTATION_AS_BEFORE = (
     "Instance segmentation gave no data on this stage, as before, so this capture did not wait: capture again in a "
-    'few seconds; get_logs(search="syntheticdata") shows why'
+    'few seconds; get_logs(channel="syntheticdata") shows what omni.syntheticdata reported'
 )
 
 

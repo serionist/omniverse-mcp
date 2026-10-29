@@ -55,7 +55,7 @@ to the stage with `create_prim` (`DistantLight`, `DomeLight`). Nothing relights 
 |---|---|
 | The up axis guessed | `get_sim_state` before placing anything |
 | A capture right after a camera move shows the old view | `inspect_prim` waits for the frames itself; after `set_camera` in a script, wait 20 frames |
-| Segmentation missing | the answer says why, as `Segmentation: ERROR` or an angle's `seg: ERROR`: without `omni.syntheticdata` (Isaac Sim has it), `manage_extensions` enables it; with no data yet, capture again, and if it stays empty `get_logs(search="syntheticdata")` shows why |
+| Segmentation missing | the answer says why, as `Segmentation: ERROR` or an angle's `seg: ERROR`: without `omni.syntheticdata` (Isaac Sim has it), `manage_extensions` enables it; with no data yet, capture again; if it stays empty, `get_logs(channel="syntheticdata")` shows what omni.syntheticdata reported, and `get_logs(search="segmentation")` how long the bridge waited |
 | Materials look grey at first | MDL compiles on first use: capture again before deciding a material is broken |
 | `UsdGeom.Cube` and the like have no faces | implicit shapes, not meshes: `get_mesh_stats` counts only `UsdGeom.Mesh` |
 | A new stage has no file | `save_scene` to a path before anything relies on one |

@@ -231,17 +231,22 @@ def test_frames_bounds_each_frame(monkeypatch):
 
 def test_frames_without_a_budget_share_one_of_frame_seconds(monkeypatch):
     monkeypatch.setattr(capture, "FRAME_SECONDS", 0.5)
+    clock = _Clock()
     count = 0
 
     async def slow_frame():
+        # 0.2 s on the fake clock each, at once in real time, so a busy machine can't tip the result.
         nonlocal count
         count += 1
-        await asyncio.sleep(0.2)
+        if count == 3:
+            await asyncio.get_running_loop().create_future()  # longer than the 0.1 s left of the shared 0.5 s
+        clock.now += 0.2
 
     # Each frame is well inside 0.5 s, but three of them are not.
     with pytest.raises(OutOfTimeError):
-        _run(frames(slow_frame, 20))
+        _run(frames(slow_frame, 20, clock=clock))
     assert count == 3
+    assert clock.now == pytest.approx(0.4)
 
 
 def test_poll_returns_the_first_ready_value_or_none():

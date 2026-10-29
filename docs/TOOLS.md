@@ -491,7 +491,7 @@ Orbit-capture: take screenshots from 14 systematic angles around a prim using a 
 
 Each angle is saved as a separate PNG file. When `include_segmentation` is true, each angle also saves a segmentation image + legend; an angle without one says why (`seg: ERROR`), such as no data within 5 s of the sensor being enabled. Default captures all 14 angles for full coverage.
 
-A call takes at most 80 s, under the server's 120 s timeout. An angle that fails says why on its line; once the viewport renders no frame (30 s with none) or the 80 s run out, the angles left say `Not captured`, so the angles already captured come back.
+A call takes about 90 s at most, under the server's 120 s timeout: 80 s for the angles, then up to 10 s to restore `isolate`. An angle that fails says why on its line; once the viewport renders no frame (30 s with none) or the 80 s run out, the angles left say `Not captured`, so the angles already captured come back.
 
 `angles` also takes `[azimuth, elevation]` pairs in degrees. An unknown angle name, a non-numeric `width`, `height` or `zoom_offset`, or an orthographic viewport camera (such as `/OmniverseKit_Top`; switch to `/OmniverseKit_Persp`) is refused with an error.
 
