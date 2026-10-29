@@ -1,6 +1,6 @@
 ---
 title: Keep Kit answering when physics plays with a robot on the stage
-issue: "#5"
+issue: "#5, #50"
 status: draft
 approved_by:
 approved_at:
@@ -240,7 +240,7 @@ The maintainer reports E3's repro on isaac-sim/isaacsim: the play callback holds
 
 ### D: `get_joint_states` through the articulation API Isaac Sim keeps
 
-D has its own issue, #<D's issue> here until the main session opens it and puts its number in. It lands on this
+D has its own issue, #50 here until the main session opens it and puts its number in. It lands on this
 branch, and the PR closes both. #5 doesn't need it to pass: `test_14_04` records SKIP on error (fact 2). Today's path
 errors on 5.1 and 6.2.
 
@@ -459,4 +459,4 @@ major, and round 1's P1 to P9 confirmed fixed. Seven minors, all fixed in this r
 | Emit each entry at once and amend the ring's last entry when a continuation comes later | taken: A1's "Entries appear at once" |
 | E6 checks growth over 1,000 `get_joint_states` calls | taken: E6 |
 | "5.1 and 6.x" unless 5.0 is checked | taken: Goal, D, Compatibility, Docs |
-| D's issue number goes in once opened | taken: D names `#<D's issue>` until then |
+| D's issue number goes in once opened | taken: D names `#50` until then |
