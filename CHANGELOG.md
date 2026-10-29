@@ -5,6 +5,13 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+## 0.2.1 (2026-10-29)
+
+Fixes from the first week on PyPI. A robot's first play no longer hangs Kit, captures can't wait past the
+client's timeout, and `draw_debug`, `apply_force`, `get_joint_states` and `create_robot` do what they say. The
+fixes are in the Kit extension too: after updating, run `uvx omniverse-mcp==0.2.1 extension install` (the plugin's
+`/omniverse-mcp:setup` does it) and restart Kit.
+
 ### Fixed
 
 - **`start_recording` warns when it is given a `camera_path`, or a size other than 640x480,** which it ignores: it
