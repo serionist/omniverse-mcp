@@ -65,7 +65,8 @@ dev = [
 
 # The README as PyPI shows it, with no repo to resolve relative paths against (#36): images from
 # raw.githubusercontent.com and links to GitHub, at main, since a pattern can't name the release's tag. An in-page
-# link stays as it is: PyPI prefixes `user-content-` to the link as well as to the heading's id, as GitHub does (#62).
+# link stays as it is: PyPI prefixes `user-content-` to the link as well as to the heading's id, so `#x` lands on its
+# heading there as it does on GitHub (#62).
 [tool.hatch.metadata.hooks.fancy-pypi-readme]
 content-type = "text/markdown"
 

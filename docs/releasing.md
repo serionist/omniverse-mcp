@@ -35,8 +35,9 @@ maintainer approves, and makes the GitHub release. The plan's S9 and D7 say why 
    (plan R10): keep that window short.
 4. **Approve the deployment.** The run waits at `Publish to PyPI` for the `pypi` environment's reviewer, after its
    checks and a green `ci.yml` run on the tagged commit.
-5. **Check it:** `uvx omniverse-mcp==X.Y.Z --help` runs, PyPI's page shows the README's images, and the GitHub
-   release has the wheel, the sdist and `ovmcp.bridge-X.Y.Z.zip`, with the changelog section as its notes.
+5. **Check it:** `uvx omniverse-mcp==X.Y.Z --help` runs, PyPI's page shows the README's images and its in-page links
+   land on their headings, and the GitHub release has the wheel, the sdist and `ovmcp.bridge-X.Y.Z.zip`, with the
+   changelog section as its notes.
 
 ## When it fails
 
