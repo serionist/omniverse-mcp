@@ -265,8 +265,6 @@ On Isaac Sim 6.2, the only Kit app tested so far:
   ([#25](https://github.com/serionist/omniverse-mcp/issues/25)).
 - **The first `inspect_prim` with segmentation after Kit starts can fail;** call it again
   ([#27](https://github.com/serionist/omniverse-mcp/issues/27)).
-- **A capture that produces nothing waits ten seconds,** so `inspect_prim` over many angles can time out
-  ([#35](https://github.com/serionist/omniverse-mcp/issues/35)).
 
 ## Security
 
