@@ -714,7 +714,8 @@ small cross per point. Every line is 2 pixels wide.
 
 - **Drawings belong to their stage:** `new_scene` or opening another stage drops them, and no drawing is made while a
   stage opens or closes.
-- **Captures:** drawings show in `capture_viewport`'s image, headless too.
+- **Captures:** on Isaac Sim 6.x, drawings show in `capture_viewport`'s image, headless too, with either extension
+  (checked live on 6.2). On Isaac Sim 5.x this is untested live.
 - **A wrong shape is an error:** an unknown `shape`, a vector that isn't three finite numbers, or a missing part, such
   as `start` for a line.
 - **The fix is in the Kit extension:** a bridge from 0.2.0 or before draws for one frame, and fails headless.
