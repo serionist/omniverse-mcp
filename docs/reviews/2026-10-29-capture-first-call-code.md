@@ -74,7 +74,7 @@ Isaac Sim 6.2.0 (pip, headless, Windows, RTX 5090) on port 8212, started for the
 8211 was not touched. `-k "not test_10_ and not test_14_"`: this branch doesn't carry #5's fix.
 
 - **Three cold starts on `c96fb3f`, each a fresh Kit, the live suites first:** 121 passed in each; the only failures
-  were #7's three `draw_debug` scenarios, which #53 fixed on `main` since. `test_13`, `test_17_03` and `test_22_01`
+  were #7's three `draw_debug` scenarios, which #53 fixed on `main` since. `test_13`, `test_17_03` (now `test_17_04`, renumbered after #53 added a `test_17_03` of its own) and `test_22_01`
   passed every time; `test_15c` waited for segmentation through 16 reads.
 - **Kit's log, each run:** segmentation's first data came 14 updates (0.08 to 0.11 s) after it was enabled at
   startup, and 2 updates (0.03 s) after `test_17_02`'s new stage, so the reset after a stage opens was real but short
