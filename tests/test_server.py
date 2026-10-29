@@ -181,6 +181,74 @@ def test_importing_the_server_does_nothing(tmp_path):
     assert not (tmp_path / "mcp_output").exists()
 
 
+def test_starting_the_server_makes_no_output_folder(tmp_path, monkeypatch):
+    # A client's health check starts the server and calls no tool; it used to leave an empty mcp_output behind (#43).
+    # The real server is made, its tools and Helpers too; only serving stdio is left out.
+    from mcp.server.mcpserver import MCPServer
+
+    import omniverse_mcp.server as server_module
+
+    monkeypatch.delenv("OMNIVERSE_MCP_OUTPUT_DIR", raising=False)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(MCPServer, "run", lambda self, *args, **kwargs: None)
+    server_module.main([])
+    assert not (tmp_path / "mcp_output").exists()
+
+
+def test_a_relative_output_folder_is_made_whole_at_start(tmp_path, monkeypatch):
+    # Kit writes dump_scene and recordings into it itself, and would read a relative folder against its own.
+    import omniverse_mcp.server as server_module
+
+    started: list[str] = []
+
+    class _Server:
+        def run(self) -> None:
+            pass
+
+    def _create_server(host: str, port: int, output_dir: str) -> _Server:
+        started.append(output_dir)
+        return _Server()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(server_module, "create_server", _create_server)
+    server_module.main(["--output-dir", "out"])
+    assert started == [str(Path.cwd() / "out")]
+
+
+_IMAGE = base64.b64encode(b"\x89PNG\r\n\x1a\ninvented").decode()
+
+
+def test_a_file_under_the_working_folder_is_given_by_its_short_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert Helpers(str(tmp_path / "mcp_output")).save_png(_IMAGE, "t") == "mcp_output/captures/t_0001.png"
+
+
+def test_a_file_outside_the_working_folder_is_given_by_its_absolute_path(tmp_path, monkeypatch):
+    # A relative ../ path is right only for a reader in the server's working folder (#41).
+    (tmp_path / "project").mkdir()
+    monkeypatch.chdir(tmp_path / "project")
+    given = Helpers(str(tmp_path / "elsewhere")).save_png(_IMAGE, "t")
+    assert given == str((tmp_path / "elsewhere" / "captures" / "t_0001.png").resolve())
+    assert Path(given).is_file()
+
+
+def test_a_working_folder_at_a_drive_s_root_gives_absolute_paths(tmp_path, monkeypatch):
+    # Some clients start servers in /: every file is under it, but a short path would still need a reader there.
+    monkeypatch.chdir(tmp_path.anchor)
+    given = Helpers(str(tmp_path / "out")).save_png(_IMAGE, "t")
+    assert given == str((tmp_path / "out" / "captures" / "t_0001.png").resolve())
+
+
+def test_a_path_that_cant_be_resolved_is_given_whole(tmp_path, monkeypatch):
+    # An unreachable share or a symlink loop makes resolve raise; write's own error message calls rel, so rel can't.
+    def _fail(self: Path, strict: bool = False) -> Path:
+        raise OSError(1231, "The network location cannot be reached")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Path, "resolve", _fail)
+    assert Helpers(str(tmp_path)).rel("out/x.png") == str(tmp_path / "out" / "x.png")
+
+
 class _SlowCounter(Helpers):
     """A capture counter that takes a moment between being read and being set, so two threads that both read it
     before either sets it would get the same number."""

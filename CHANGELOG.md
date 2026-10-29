@@ -5,6 +5,14 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Fixed
+
+- **The server makes `mcp_output/` with the first file written there,** not when it starts, so a client that only
+  starts it, such as a health check, leaves no empty folder behind (#43).
+- **A file outside the server's working folder is given by its absolute path,** not by a `../` path that only a
+  reader in that folder could open, as with an `--output-dir` elsewhere (#41). A relative `--output-dir` is now read
+  against the server's working folder for Kit's files too: `dump_scene` and recordings went to Kit's.
+
 ### Changed
 
 - **The README is reworked for a first setup:** requirements, then install by client, a check that it works,
