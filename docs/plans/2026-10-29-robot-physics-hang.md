@@ -169,6 +169,15 @@ both still have to run on 5.1 before the PR. The lines below are invented to sho
 The next G1 `play` on this machine cooks nothing and passes on unfixed code. Any evidence after E2 needs a cold cook
 (Tests).
 
+Step 2 and the fix's live runs, 2026-10-29, on 6.2.0 headless on port 8212, each on a fresh Kit:
+
+| Run | What happened |
+|---|---|
+| 2a, `main`'s bridge, the consumer stopped, 8 static convex-hull spheres | `play` in 0.09 s; Kit's log file named all 8 spheres in `ConvexMeshCookingTask` lines |
+| 2b, `main`'s bridge, the consumer on, the same 8 static spheres | `play` answered in 0.4 s: no hang. A static collider is cooked without Kit's main thread waiting on the cooking workers, so the test as first written could pass on unfixed code |
+| 2b, `main`'s bridge, the consumer on, 32 rigid-body spheres | No answer to `play` after 30 s: the hang. The test now uses 32 rigid bodies (`c785fbb`), and as written it stopped the run on `main`'s bridge after 60 s with its #5 message; that Kit was killed |
+| The fix (`930e9b6` plus `c785fbb`), three fresh Kits, both live suites with nothing excluded | 126 passed in each; the only failures were #7's three `draw_debug` scenarios (fixed by its own PR). Each run played the G1 (phase 10, `test_14_04`'s joint reads among the passes) and the 32-sphere cold cook (`play answered; 32 spheres cooked`) |
+
 **Still to run:**
 
 - E8 and E6, on 6.2 and 5.1, before the code they gate;
