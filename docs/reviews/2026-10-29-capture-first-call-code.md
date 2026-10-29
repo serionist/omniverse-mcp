@@ -85,6 +85,11 @@ Isaac Sim 6.2.0 (pip, headless, Windows, RTX 5090) on port 8212, started for the
 - **The new tests against `main`'s extension** (`dde08e4`): `test_15c`, `test_15d`, `test_15e` and `test_15f` each
   failed (`test_15f` past the client's 30 s); `test_17_03` failed too, though run alone it lacked `test_17_02`'s new
   stage, so that failure isn't its bug.
+- **Rebased on `main` with #53 (`2ebfef0`), with nothing excluded but the robot phases:** two full runs on one fresh
+  Kit, with the drawing tests twice between them: 129 passed in each, none failed. An earlier session on the same
+  build had one `test_16_09` miss (no zigzag in the capture) and then hung at `test_16_02` in its second full run, inside
+  RTX's settings lock, not in the bridge; the same sequence ran clean afterwards on `main`'s bridge and on this one, so
+  it is recorded as #54.
 - **Not shown:** Isaac Sim 5.x (5.1 crashes in its own start on this machine, before any bridge loads); a Kit app with
   async rendering on and without `omni.syntheticdata`, such as USD Composer; the 14-angle `inspect_prim` timing on
   `main` against the branch.
