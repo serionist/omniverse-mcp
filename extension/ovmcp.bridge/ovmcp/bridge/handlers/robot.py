@@ -4,9 +4,12 @@ Robot handlers.
 Handles robot creation, info, joint states, and joint target setting.
 """
 
+import os
 from typing import Any
 
 from pxr import Usd, UsdPhysics
+
+from ovmcp.core.robot import LIBRARY_PREFIX, is_usd_file, robot_prim_path, robot_usd_url
 
 from ._utils import _apply_xform, _get_stage, _next_update
 
@@ -42,33 +45,44 @@ def _clear_articulation_cache():
 # ---------------------------------------------------------------------------
 
 
+def _assets_root() -> str | None:
+    """Isaac Sim's asset library root, a URL; None outside Isaac Sim."""
+    try:
+        from isaacsim.storage.native import get_assets_root_path
+    except ImportError:
+        return None
+    return get_assets_root_path()
+
+
 async def handle_create_robot(body: dict) -> dict:
-    robot_type = body.get("robot_type", "").lower()
+    given = body.get("robot_type", "")
     prim_path = body.get("prim_path", "")
     position = body.get("position", [0, 0, 0])
 
-    if not robot_type:
+    if not given:
         return {"status": "error", "error": f"No robot_type. Available: {list(ROBOT_ASSETS.keys())}"}
 
+    robot_type = given.lower()
     if robot_type in ROBOT_ASSETS:
         usd_path = ROBOT_ASSETS[robot_type]
-    elif robot_type.endswith((".usd", ".usda", ".usdc")):
-        usd_path = robot_type
+    elif is_usd_file(given):
+        # A file keeps its case: Linux's file systems and omniverse:// URLs tell MyBot.usd from mybot.usd.
+        robot_type = usd_path = given
     else:
-        return {"status": "error", "error": f"Unknown robot_type: {robot_type}. Available: {list(ROBOT_ASSETS.keys())}"}
+        return {"status": "error", "error": f"Unknown robot_type: {given}. Available: {list(ROBOT_ASSETS.keys())}"}
 
     if not prim_path:
-        prim_path = f"/World/{robot_type.capitalize()}"
+        prim_path = robot_prim_path(robot_type)
 
     await _next_update()
 
-    try:
-        from isaacsim.storage.native import get_assets_root_path
-
-        assets_root = get_assets_root_path()
-        full_usd_path = (assets_root + usd_path) if assets_root else usd_path
-    except ImportError:
-        full_usd_path = usd_path
+    full_usd_path = robot_usd_url(usd_path, _assets_root, os.path.isfile)
+    if full_usd_path is None:
+        return {
+            "status": "error",
+            "error": f"No USD file at {usd_path} on the Kit app's machine. A URL loads as given, and a path in "
+            f"Isaac Sim's asset library starts {LIBRARY_PREFIX}",
+        }
 
     stage = _get_stage()
     prim = stage.DefinePrim(prim_path)

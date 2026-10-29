@@ -267,8 +267,6 @@ On Isaac Sim 6.2, the only Kit app tested so far:
   ([#27](https://github.com/serionist/omniverse-mcp/issues/27)).
 - **A capture that produces nothing waits ten seconds,** so `inspect_prim` over many angles can time out
   ([#35](https://github.com/serionist/omniverse-mcp/issues/35)).
-- **`create_robot` can't load a USD file path;** use `create_prim` with `usd_path`
-  ([#40](https://github.com/serionist/omniverse-mcp/issues/40)).
 
 ## Security
 

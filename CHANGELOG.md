@@ -12,6 +12,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 - **A file outside the server's working folder is given by its absolute path,** not by a `../` path that only a
   reader in that folder could open, as with an `--output-dir` elsewhere (#41). A relative `--output-dir` is now read
   against the server's working folder for Kit's files too: `dump_scene` and recordings went to Kit's.
+- **`create_robot` loads a robot from its USD file,** given as `robot_type`: a path on the Kit app's machine or a
+  URL as given, with its case, and a path in Isaac Sim's asset library under the library's root. Without
+  `prim_path`, the prim is named after the file, and a path found nowhere is an error. Before, the path was
+  lowercased and put under the asset root, so it never loaded (#40).
 
 ### Changed
 

@@ -379,7 +379,7 @@ Spawn a robot from the asset library (Isaac Sim only).
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `robot_type` | string | required | A robot name from the table below |
+| `robot_type` | string | required | A robot name from the table below, or a USD file |
 | `prim_path` | string | `""` | Scene path (auto-generated if empty) |
 | `position` | list[float] | `null` | `[x, y, z]` spawn position |
 | `rotation` | list[float] | `null` | Euler or quaternion |
@@ -399,8 +399,10 @@ Spawn a robot from the asset library (Isaac Sim only).
 | `spot` | Quadruped | Boston Dynamics Spot |
 | `anymal` | Quadruped | ANYbotics ANYmal |
 
-To load another robot from its USD file, use `create_prim(prim_path, usd_path=...)`: a file path as `robot_type`
-doesn't load yet ([#40](https://github.com/serionist/omniverse-mcp/issues/40)).
+A USD file as `robot_type` loads from a path on the Kit app's machine, a URL (`omniverse://`, `https://`), or a
+path in Isaac Sim's asset library (`/Isaac/...`), which goes under the library's root; its case is kept. Without
+`prim_path`, the prim is named after the file: `/World/MyBot` for `.../MyBot.usd`. A path found nowhere is an
+error.
 
 ---
 
