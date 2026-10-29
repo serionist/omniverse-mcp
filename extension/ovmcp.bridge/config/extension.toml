@@ -1,6 +1,6 @@
 [package]
 # Equal to pyproject.toml's version; tests/test_bridge_token.py keeps them equal.
-version = "0.2.1"
+version = "0.2.2"
 category = "Simulation"
 title = "Omniverse MCP Bridge"
 description = "HTTP bridge enabling AI assistants to control Omniverse applications via the Model Context Protocol"

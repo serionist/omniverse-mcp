@@ -5,6 +5,13 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+## 0.2.2 (2026-10-29)
+
+The server joins the official MCP registry, and PyPI's page gets working in-page links. The tools and the Kit
+extension work as in 0.2.1, but the extension's version moves with the server's: run
+`uvx omniverse-mcp==0.2.2 extension install` (the plugin's `/omniverse-mcp:setup` does it) and restart Kit, so
+`get_sim_state` reports the two in step.
+
 ### Added
 
 - **The official MCP registry lists the server,** as `io.github.serionist/omniverse-mcp`, from this release on, for
