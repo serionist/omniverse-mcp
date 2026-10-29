@@ -117,8 +117,8 @@ With the Kit app running, ask your assistant to *"call get_sim_state"*. It answe
 state = stopped
 up_axis = Z
 ...
-extension_version = 0.2.1
-server_version = 0.2.1
+extension_version = 0.2.2
+server_version = 0.2.2
 ```
 
 Something else? See [Troubleshooting](#troubleshooting).

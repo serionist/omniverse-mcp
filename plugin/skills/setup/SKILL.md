@@ -21,7 +21,7 @@ two can talk. Kit's settings are the user's: say what to click, never edit Kit's
      reports, and stop.
    - It answers with a `note`: Kit runs another release's extension, after an update of the plugin or from an older
      copy (a clone of the repo). Go on with step 2.
-   - It fails, refused or timed out: run `uvx omniverse-mcp==0.2.1 extension path`, which changes nothing. When it
+   - It fails, refused or timed out: run `uvx omniverse-mcp==0.2.2 extension path`, which changes nothing. When it
      says "is not installed there yet", this is a first setup: go on with step 2. Without that line the extension is
      installed: have the user start Kit if it isn't running, then check again; still refused, go on with step 3.
    - It fails otherwise: its message says why; step 4 lists each message and what to do.
@@ -31,7 +31,7 @@ two can talk. Kit's settings are the user's: say what to click, never edit Kit's
 2. **Install the extension** of this plugin's release, with the user's yes:
 
    ```
-   uvx omniverse-mcp==0.2.1 extension install
+   uvx omniverse-mcp==0.2.2 extension install
    ```
 
    It copies `ovmcp.bridge` into the user's data folder, in place of an older one, and prints the folder Kit needs.
@@ -50,7 +50,7 @@ two can talk. Kit's settings are the user's: say what to click, never edit Kit's
    A user who had the extension from a clone of the repo (`isaacsim.mcp.bridge` or the clone's `extension/` folder)
    turns that one off and removes its search path, so Kit loads one copy.
 4. **Check again** with `get_sim_state`: it answers without a `note`. The Kit console shows
-   `[ext: ovmcp.bridge-0.2.1] startup` once the extension runs. Every failure starts "Kit app connection failed";
+   `[ext: ovmcp.bridge-0.2.2] startup` once the extension runs. Every failure starts "Kit app connection failed";
    what follows says which:
    - "Missing or wrong bridge token": Kit runs as another user or on another machine;
      [Kit on another machine](https://github.com/serionist/omniverse-mcp/blob/main/docs/SETUP.md#kit-on-another-machine)
