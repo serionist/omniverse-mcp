@@ -5,6 +5,17 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Changed
+
+- **The README is reworked for a first setup:** requirements, then install by client, a check that it works,
+  examples that work today, configuration, troubleshooting and the known issues, with PyPI's and uv's badges. Client
+  configs keep `PYTHONPATH` empty, as the plugin does, so Isaac Sim's environment stays out of the server's Python.
+- **`docs/SETUP.md`** is new: each MCP client's config, headless Kit, ports, Kit on another machine, and
+  uninstalling. Working on a clone moved to `CONTRIBUTING.md`.
+- **Corrected in the docs:** the bridge's settings go on Kit's command line, since `extension install` replaces an
+  edited `extension.toml`; `create_robot` doesn't load a USD file path yet (#40); the MCP resources are read on
+  demand; an inline capture costs about as much context as opening its file.
+
 ## 0.2.0 (2026-10-29)
 
 The first release on PyPI: `uvx omniverse-mcp`, or the Claude Code plugin. The breaking changes below concern a clone

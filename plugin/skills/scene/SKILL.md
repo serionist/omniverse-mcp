@@ -27,7 +27,8 @@ while physics plays. Never edit blind: look, change, look again.
 3. **Look.** `capture_viewport` writes three files to `mcp_output/captures/`: the image, the bounding boxes (each
    visible prim's screen box, world centre and size) and the instance segmentation (a colour per prim, with a legend).
    Read the boxes file for where things are; open the image when you need to see. `include_image=True` returns the
-   image inline as well, at about 50K tokens: only when looking matters more than context.
+   image inline as well, which costs about what opening the file does (some 400 tokens at the default 640x480) and
+   saves a step.
    - A prim from every side: `inspect_prim`, which frames it, with `isolate=True` to hide everything else.
    - Another view: `set_camera` or `look_at_prim`, then capture.
    - Inside or behind something: `set_visibility(path, false)`, capture, then show it again.

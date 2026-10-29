@@ -5,7 +5,7 @@ The README's images, and how each was made.
 | File | What | How |
 |---|---|---|
 | `hero-viewport.jpg`, `hero-segmentation.png` | the README's hero | One `capture_viewport(width=1280, height=720)` in Isaac Sim 6.2.0, through the MCP tools: its frame and its instance segmentation, the same square crop of each, 640 pixels |
-| `inspect-orbit.jpg` | "What can it do?" | One `inspect_prim(prim_path="/World/Workcell", angles=["top_front_right", "top_back_right", "top_back_left", "top_front_left"], width=800, height=600, isolate=True)`, each frame cropped square |
+| `inspect-orbit.jpg` | the README's "The tools" | One `inspect_prim(prim_path="/World/Workcell", angles=["top_front_right", "top_back_right", "top_back_left", "top_front_left"], width=800, height=600, isolate=True)`, each frame cropped square |
 | `logo.svg` | the README's logo | Drawn: an isometric cube whose faces are three segmentation colours |
 | `social-preview.png` | GitHub's social preview, 1280 by 640 | Drawn with the logo and the two hero captures. GitHub takes it only in the repo's settings (Settings, General, Social preview), by the maintainer |
 

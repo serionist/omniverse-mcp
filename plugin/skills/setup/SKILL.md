@@ -21,7 +21,10 @@ two can talk. Kit's settings are the user's: say what to click, never edit Kit's
      reports, and stop.
    - It answers with a `note`: Kit runs another release's extension, after an update of the plugin or from an older
      copy (a clone of the repo). Go on with step 2.
-   - It fails: its message says why; go on with the step it points at (step 4 lists them).
+   - It fails, refused or timed out: run `uvx omniverse-mcp==0.2.0 extension path`, which changes nothing. When it
+     says "is not installed there yet", this is a first setup: go on with step 2. Without that line the extension is
+     installed: have the user start Kit if it isn't running, then check again; still refused, go on with step 3.
+   - It fails otherwise: its message says why; step 4 lists each message and what to do.
    - There is no such tool: the plugin's server didn't start. `/mcp` shows its error. Without `uv` the user installs
      it (https://docs.astral.sh/uv/getting-started/installation/) and restarts Claude Code; a version not found means
      this release isn't on PyPI yet.
@@ -37,9 +40,11 @@ two can talk. Kit's settings are the user's: say what to click, never edit Kit's
    skip step 3, and have the user restart Kit. Otherwise do step 3.
 3. **Point Kit at the folder, once,** by the user's hand, in the Kit app:
    - **Window > Extensions**, the menu (☰) at the top right, **Settings**;
-   - under **Extension Search Paths**, the green **+**, then the folder the command printed;
+   - under **Extension Search Paths**, unless it is listed already, the green **+**, then the folder the command
+     printed;
    - search for `ovmcp`, under **THIRD PARTY**: turn **Omniverse MCP Bridge** on, and **Autoload**;
-   - quit Kit with **File > Exit**, which is when Kit saves these settings, and start it again.
+   - the extension starts at once: go on with step 4. Kit saves the search path and Autoload when it exits, so the
+     user quits it once with **File > Exit** before the next session.
 
    A headless or scripted Kit takes `--ext-folder <the folder> --enable ovmcp.bridge` on its command line instead.
    A user who had the extension from a clone of the repo (`isaacsim.mcp.bridge` or the clone's `extension/` folder)
@@ -47,8 +52,9 @@ two can talk. Kit's settings are the user's: say what to click, never edit Kit's
 4. **Check again** with `get_sim_state`: it answers without a `note`. The Kit console shows
    `[ext: ovmcp.bridge-0.2.0] startup` once the extension runs. Every failure starts "Kit app connection failed";
    what follows says which:
-   - "Missing or wrong bridge token": Kit runs as another user or on another machine; the README's [bridge
-     token](https://github.com/serionist/omniverse-mcp#the-bridge-token) section says how to set one by hand.
+   - "Missing or wrong bridge token": Kit runs as another user or on another machine;
+     [Kit on another machine](https://github.com/serionist/omniverse-mcp/blob/main/docs/SETUP.md#kit-on-another-machine)
+     says how to set one by hand.
    - "older than this MCP server" or "speaks bridge protocol": Kit loads another release's extension. Did step 2
      run? Then Kit loads another copy: do step 3, its last paragraph too.
    - It answers, with a `note` still: Kit loads another copy too; do step 3, its last paragraph too.

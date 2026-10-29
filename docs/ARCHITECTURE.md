@@ -1,19 +1,24 @@
 # Architecture
 
-Omniverse MCP uses a two-process architecture to bridge AI assistants with a running NVIDIA Omniverse application (Isaac Sim 5.x and up, USD Composer, or any Kit-based app).
+Omniverse MCP is two processes: the MCP server, which an AI client starts, and the bridge, the Kit extension
+`ovmcp.bridge` inside a running Kit app (Kit 107 and up: Isaac Sim 5.x and up, USD Composer). This page is for
+contributors; setting it up is in the [README](../README.md) and [SETUP.md](SETUP.md).
 
 ## Overview
 
 ```
-                    stdio                     HTTP/REST
-  AI Assistant  <----------->  MCP Server  <----------->  Omniverse Extension
-  (any MCP client)            (Python)                    (runs inside Kit app)
-                              port: n/a                   port: 8211
+                    stdio                      HTTP, with a token
+  AI client     <----------->  omniverse-mcp  <----------------->  ovmcp.bridge
+  (any MCP client)            (the MCP server)                    (inside the Kit app)
+                                                                  port: 8211
 ```
 
 **Why two processes?**
 
-Omniverse Kit-based applications (Isaac Sim, USD Composer, etc.) run as self-contained processes with their own Python runtime, event loop, and GPU context. External processes cannot directly call into them. The MCP protocol requires stdio transport, which is incompatible with running inside Kit's process.
+Kit apps (Isaac Sim, USD Composer) run as processes of their own, with their own Python, event loop and GPU
+context, and other processes can't call into them. An MCP client starts a local server as its child process and
+talks to it over stdio; Kit can't be that child process, so the server is a process of its own that reaches Kit
+over HTTP.
 
 The solution: an HTTP bridge.
 
@@ -22,9 +27,9 @@ The solution: an HTTP bridge.
 The MCP server is a standalone Python process that:
 
 1. **Communicates with AI clients** via MCP stdio transport (stdin/stdout JSON-RPC)
-2. **Defines the tool surface** -- the MCP tools that AI assistants can call (`docs/TOOLS.md`)
-3. **Forwards requests** to the Isaac Sim extension via HTTP
-4. **Manages file output** -- saves images as PNGs, writes large text to files, returns paths
+2. **Defines the tool surface** - the MCP tools that AI assistants can call (`docs/TOOLS.md`)
+3. **Forwards requests** to the Kit extension over HTTP
+4. **Manages file output** - saves images as PNGs, writes large text to files, returns paths
 
 ### Key files
 
@@ -32,7 +37,7 @@ The MCP server is a standalone Python process that:
 |------|---------|
 | `server.py` | `create_server()`: the MCP server on SDK v2 (`MCPServer`), file output helpers (`Helpers`), MCP resources; `main()` reads the flags and runs it. Importing it does nothing |
 | `client.py` | HTTP/1.1 client with keep-alive connections to the extension; one request at a time, since the SDK runs tools on worker threads |
-| `tools/` | Tool modules — each registers its MCP tools via `register(mcp, client, helpers)` |
+| `tools/` | Tool modules: each registers its MCP tools via `register(mcp, client, helpers)` |
 | `__main__.py` | Entry point for `python -m omniverse_mcp`; the `omniverse-mcp` command runs `server.main` |
 
 ### Tool modules (`tools/`)
@@ -53,14 +58,15 @@ the last five lines of its traceback, or why the Kit app couldn't be reached.
 
 ### Output management
 
-The server manages a `mcp_output/` directory:
+The output folder is `mcp_output/` in the server's working directory, or `--output-dir`:
 
-- **Images** are saved as PNG files by default. `capture_viewport(include_image=True)` also returns the viewport image inline as `ImageContent` for AI assistants that can see images directly
-- **Large text responses** (>1000 characters) are written to files
-- **Scene dumps** are always written to files
-- **Recordings** get their own timestamped subdirectories
+- **Images:** the bridge sends each capture as base64 PNG, and the server writes it to `captures/`.
+  `capture_viewport(include_image=True)` also returns it inline as `ImageContent`.
+- **Long text:** an answer over 1,000 characters goes to `responses/`.
+- **Scene dumps and recordings:** Kit writes them itself, to the path the server passes, so with Kit on another
+  machine they land on that machine. Each recording gets a timestamped folder.
 
-This keeps the MCP context window clean -- the AI reads files on demand rather than receiving megabytes of scene data inline.
+This keeps the MCP context window clean - the AI reads files on demand rather than receiving megabytes of scene data inline.
 
 ### HTTP Client
 
@@ -72,14 +78,14 @@ This keeps the MCP context window clean -- the AI reads files on demand rather t
   with the command that installs this server's: `uvx omniverse-mcp==X.Y.Z extension install`, or from a checkout
   `uv run --project <checkout> omniverse-mcp extension install`
 - Automatic reconnection on failure (1 retry, 2 total attempts)
-- Configurable timeout (default 120s)
+- A 120-second timeout on each request
 - Proper Content-Length framing with chunked body reading (avoids O(n²) buffer concatenation)
 - JSON request/response encoding
 - Structured logging via Python `logging` module
 
-## Component 2: Omniverse Extension (`extension/ovmcp.bridge/`)
+## Component 2: the Kit extension (`extension/ovmcp.bridge/`)
 
-The extension is an Omniverse Kit extension that runs inside the application's process. It has full access to USD, PhysX, rendering, and all Omniverse/Isaac Sim APIs.
+The extension, the bridge, runs inside the Kit app's process. It has full access to USD, PhysX, rendering, and all Omniverse/Isaac Sim APIs.
 
 ### Delivery
 
@@ -103,12 +109,12 @@ extension come from one release. `omniverse-mcp extension install` (`src/omniver
 |------|---------|
 | `ovmcp/bridge/extension.py` | Kit lifecycle: makes the token, starts the core's HTTP server with the routes |
 | `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `png.py` (the PNG writer), `logs.py` (the log ring and its query), `framing.py`, `isolation.py`, `lighting.py`, `material.py` (set_material's OmniPBR, named by its MDL source), `serial.py`, `usd.py` (typed forms of pxr calls the stubs get wrong) |
-| `ovmcp/bridge/handlers/` | Handler package — split into focused modules (camera, scene, simulation, recording, robot, misc, usd_advanced, logging) with shared utilities in `_utils.py` and `_mcp_bridge.py` |
+| `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, simulation, recording, robot, misc, usd_advanced, logging) with shared utilities in `_utils.py` and `_mcp_bridge.py` |
 | `config/extension.toml` | Extension metadata and default settings |
 
 ### HTTP Server
 
-The extension runs an asyncio HTTP server on the application's event loop (same pattern as the built-in Jupyter extension). This is important -- it shares the event loop with Kit, so handlers can use `await omni.kit.app.get_app().next_update_async()` to synchronize with the main thread.
+The extension runs an asyncio HTTP server on the application's event loop (same pattern as the built-in Jupyter extension). This is important - it shares the event loop with Kit, so handlers can use `await omni.kit.app.get_app().next_update_async()` to synchronise with the main thread.
 
 ### The bridge token
 
@@ -145,8 +151,8 @@ over 10 seconds to send its headers too. Connections without the token never hol
 `GET /bridge` is answered by the HTTP server itself, whatever state Kit is in. The server refuses an extension whose
 `protocol` differs from its own, or that has no `/bridge`, and says which side to update. Another
 `extension_version` on the same protocol is not refused: the client keeps it, and `get_sim_state` reports it beside
-the server's, with the install command when it differs from the extension the server carries. `/health` reports `protocol` and `extension_version` as
-well, for people.
+the server's, with the install command when it differs from the extension the server carries. `/health` reports
+`protocol` and `extension_version` as well, for people.
 
 ### Request routing
 
@@ -242,10 +248,10 @@ JSON is hard to search with standard tools. With prim-block format:
 - Line-oriented format works naturally with file reading tools that support line ranges
 
 The format is implemented in `ovmcp/core/formatter.py` with functions for:
-- `format_value()` -- Convert USD values (Vec3f, Quatd, Matrix4d, etc.) to readable strings
-- `format_prim_block()` -- Format a single prim as a text block
-- `format_scene_dump()` -- Recursively format an entire scene tree
-- `format_frame_state()` -- Format a snapshot for recording
+- `format_value()` - Convert USD values (Vec3f, Quatd, Matrix4d, etc.) to readable strings
+- `format_prim_block()` - Format a single prim as a text block
+- `format_scene_dump()` - Recursively format an entire scene tree
+- `format_frame_state()` - Format a snapshot for recording
 
 ## Threading Model
 
@@ -255,7 +261,7 @@ The format is implemented in `ovmcp/core/formatter.py` with functions for:
 4. Viewport capture waits for render completion before reading back pixels
 5. The log buffer's `_on_log` callback uses a `threading.Lock` since `omni.log` may fire from any thread
 
-This means all handler code runs on the main thread -- there are no threading issues with USD access, but long-running handlers will block the simulation for the duration of their execution.
+This means all handler code runs on the main thread - there are no threading issues with USD access, but long-running handlers will block the simulation for the duration of their execution.
 
 ## Log Buffer
 
@@ -263,10 +269,10 @@ The extension captures Omniverse log messages in a ring buffer (`collections.deq
 
 - **Started** in `on_startup` before the HTTP server, so startup messages are captured
 - **Stopped** in `on_shutdown` to clean up the consumer
-- **Queried** via `GET/POST /logs` with filters for count, min_level, channel, search, since_index
+- **Queried** via `POST /logs` with filters for count, min_level, channel, search, since_index
 - Each entry has: index (monotonic), level, channel, module, source (file:line), func, msg, timestamp
 
-The log buffer is useful for diagnosing tool failures -- when an MCP tool returns an error, the AI can call `get_logs(min_level="warn")` to see what Omniverse reported internally (e.g., PhysX errors, USD composition failures, missing extensions).
+The log buffer is useful for diagnosing tool failures - when an MCP tool returns an error, the AI can call `get_logs(min_level="warn")` to see what Omniverse reported internally (e.g., PhysX errors, USD composition failures, missing extensions).
 
 ## MCPBridge (execute_script internal API)
 
@@ -311,22 +317,24 @@ The robot tools use a hybrid approach:
 - **`create_robot`** looks up USD asset paths from a built-in library and loads them as USD references
 - **`get_robot_info`** traverses the USD hierarchy to find joints, reading types and limits from USD properties
 - **`get_joint_states`** uses Isaac Sim's Articulation API (requires sim to have played once)
-- **`set_joint_targets`** sets USD drive target attributes directly, which works without articulation initialization
+- **`set_joint_targets`** sets USD drive target attributes directly, which works without articulation initialisation
 
 ## Viewport Capture
 
 Viewport capture uses `omni.kit.viewport.utility.capture_viewport_to_file()`, through `capture_viewport_png` in `handlers/_utils.py`: each capture writes a file of its own, read once the PNG is whole (`ovmcp.core.png.is_complete_png`), since on Kit 110 the capture reports done before the file is written. The image is base64-encoded and sent in the HTTP response to the MCP server, which decodes it and saves it as a PNG file.
 
-**Cold-start note:** The first capture after launching the application may return a black or incomplete image because the renderer hasn't fully initialized. A second capture typically works correctly.
+**Cold start:** the first capture after the app starts can come back black while the renderer warms up. A black
+frame is reset and captured once more by itself (`_capture_frame` in `handlers/camera.py`); if it is still black,
+the answer says so, with the lighting mode.
 
 ## Extension Lifecycle
 
-- **on_startup**: Creates the HTTP server, binds to configured host:port, registers all routes. Pre-initializes the `omni.syntheticdata` segmentation sensor (with retry) so the first `capture_viewport` call returns segmentation data without needing warmup frames
+- **on_startup**: Creates the HTTP server, binds to configured host:port, registers all routes. Pre-initialises the `omni.syntheticdata` segmentation sensor (with retry) so the first `capture_viewport` call returns segmentation data without needing warmup frames
 - **on_shutdown**: Stops any active recording, clears caches, closes the HTTP server
 
 The extension includes:
 - **Content-Length validation**: Rejects request bodies over 100 MB
-- **Connection limiting**: Maximum 20 concurrent connections via semaphore
+- **Connection limiting**: 20 handler slots, so at most 20 requests run at once
 - **Health endpoint**: `GET /health` returns server status with error wrapping
 
 The extension can be enabled/disabled from the application's extension manager (Window > Extensions). Disabling it stops the HTTP server; re-enabling restarts it.

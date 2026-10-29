@@ -5,15 +5,17 @@
 <h1 align="center">Omniverse MCP</h1>
 
 <p align="center">
-  Drive NVIDIA Omniverse Kit apps (Isaac Sim, USD Composer) from Claude Code and any MCP client:<br>
-  look at the stage, edit it, run physics, drive robots and record what happens.
+  Let an AI assistant work in NVIDIA Isaac Sim and other Omniverse Kit apps:<br>
+  look at the scene, edit it, run physics, drive robots and record what happens.
 </p>
 
 <p align="center">
+  <a href="https://pypi.org/project/omniverse-mcp/"><img alt="PyPI" src="https://img.shields.io/pypi/v/omniverse-mcp"></a>
+  <a href="https://pypi.org/project/omniverse-mcp/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/omniverse-mcp"></a>
+  <a href="https://github.com/astral-sh/uv"><img alt="uv" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json"></a>
   <a href="https://github.com/serionist/omniverse-mcp/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/serionist/omniverse-mcp/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/serionist/omniverse-mcp/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/serionist/omniverse-mcp/actions/workflows/codeql.yml/badge.svg?branch=main"></a>
-  <a href="LICENSE"><img alt="Licence: MIT" src="https://img.shields.io/badge/licence-MIT-blue"></a>
-  <a href="https://www.python.org/downloads/"><img alt="Python 3.11 | 3.12 | 3.13 | 3.14" src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue"></a>
+  <a href="LICENSE"><img alt="Licence: MIT" src="https://img.shields.io/github/license/serionist/omniverse-mcp?label=licence"></a>
 </p>
 
 <p align="center">
@@ -21,158 +23,164 @@
   <img src="docs/images/hero-segmentation.png" width="49%" alt="The same view's instance segmentation: each link of the arm, the table, each block and the ball in its own colour">
 </p>
 <p align="center">
-  <sub>One <code>capture_viewport</code> call in Isaac Sim 6.2: the frame, and every prim in its own colour, with the legend and the
-  screen boxes that tell the assistant what it sees.</sub>
+  <sub>One <code>capture_viewport</code> call in Isaac Sim 6.2: the frame, and every object in its own colour, with the
+  legend and the screen boxes that tell the assistant what it sees.</sub>
 </p>
 
-An [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server that gives AI assistants full control over NVIDIA Omniverse applications -- including **Isaac Sim 5.x and up**, USD Composer, and any Omniverse Kit-based app. Inspect scenes, manipulate objects, control robots, run physics simulations, capture viewports, record sessions, and manage extensions.
+Omniverse MCP connects an AI client, such as Claude Code, Cursor or VS Code, to a running Kit app. It comes in two
+parts, from one release:
+
+- **the server,** `omniverse-mcp`: the [MCP](https://modelcontextprotocol.io/) server your AI client starts, from
+  PyPI;
+- **the bridge,** `ovmcp.bridge`: the Kit extension inside the Kit app, listed in Kit as *Omniverse MCP Bridge*.
+
+Claude Code users get both from one plugin, with skills for each kind of work.
 
 ```
-AI Assistant  <--MCP/stdio-->  MCP Server  <--HTTP/REST-->  Omniverse Extension
-(any MCP client)               (Python)                     (runs inside Kit app)
+AI client  --MCP, stdio-->  omniverse-mcp  --HTTP, with a token-->  ovmcp.bridge
+                            (the server)                         (inside the Kit app, port 8211)
 ```
 
-## What Can It Do?
+## Requirements
 
-The tools, by area:
-
-| Category | Tools | Description |
-|----------|-------|-------------|
-| **Scene** | `get_scene_tree`, `dump_scene`, `get_prim_properties`, `get_prim_bounds`, `set_prim_transform`, `create_prim`, `delete_prim`, `clone_prim`, `set_visibility`, `save_scene`, `new_scene` | Full scene graph control -- create, query, transform, and manage USD prims |
-| **Geometry & Mesh** | `get_mesh_stats`, `get_prim_face_count_tree`, `compare_prims` | Face/vertex/triangle counts, hierarchical face count trees, compare two prims or variants |
-| **USD Operations** | `flatten_usd`, `export_prim_as_file` | Flatten references into a single file, export prim subtrees as self-contained USD |
-| **Variants** | `create_variant_structure`, `set_variant_selection` | Create variant sets, switch variants with automatic FSD/Hydra handling |
-| **Materials** | `set_material`, `update_material_paths` | Create and bind PBR materials, bulk-fix material binding paths |
-| **Robot** | `create_robot`, `get_robot_info`, `get_joint_states`, `set_joint_targets` | Spawn robots from the asset library (Franka, G1, Spot, etc.), query joints, drive positions |
-| **Camera** | `set_camera`, `look_at_prim`, `inspect_prim`, `capture_viewport`, `viewport_light` | Position cameras, orbit-capture from multiple angles, capture viewport with instance segmentation + screen-space bounding boxes, manage viewport lighting |
-| **Simulation** | `sim_control`, `get_sim_state` | Play/pause/stop/step simulation, query state (time, FPS, up axis) |
-| **Recording** | `start_recording`, `stop_recording`, `get_recording_frame` | Capture simulation frames + prim state over time for analysis |
-| **Physics** | `set_physics_properties`, `apply_force`, `raycast` | Set mass/friction/restitution, apply forces, cast rays for spatial queries |
-| **Debug** | `draw_debug` | Draw lines, spheres, and points in the viewport for visualisation |
-| **Logging** | `get_logs` | Query Omniverse log entries (errors, warnings) for diagnosing tool failures |
-| **Scripting** | `execute_script` | Run Python inside the sim with `mcp` bridge for async MCP handler access |
-| **Extensions** | `manage_extensions` | List, enable, and disable Omniverse extensions |
-
-**Key capabilities:**
-- **Scene understanding** -- `capture_viewport` outputs a screenshot, screen-space bounding boxes, and instance segmentation (a unique colour per prim) so the AI knows what it sees
-- **Simulation recording** -- capture frames + prim state during physics, review any frame after
-- **File-based output** -- large scene dumps in grep-friendly text format, images saved as PNGs
-- **Arbitrary scripting** -- run any Python code inside the sim via `execute_script`; also serves as a fallback if any tool fails
-- **10 built-in robots** -- franka, ur10, carter, jetbot, g1, go1, go2, h1, spot, anymal
-
-<p align="center">
-  <img src="docs/images/inspect-orbit.jpg" width="100%" alt="The workcell from four corners, as inspect_prim frames it with everything else hidden">
-</p>
-<p align="center">
-  <sub><code>inspect_prim(prim_path="/World/Workcell", angles=[the four top corners], isolate=True)</code>: one call, every side,
-  framed to fit, the rest of the stage hidden.</sub>
-</p>
+- **A Kit app of Kit 107 or later,** on Windows or Linux. Tested on Isaac Sim 6.2; Isaac Sim 5.x, USD Composer and
+  other Kit apps should work, but are untested.
+- **[uv](https://docs.astral.sh/uv/getting-started/installation/),** which runs the server. Install it, then open a
+  new terminal and restart your AI client, so both find `uvx`:
+  - macOS and Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+  - Windows: `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+- **An MCP client that can read files:** the tools write images and long answers to files and return their paths.
+- **Kit and the client on the same machine,** or see [Kit on another machine](docs/SETUP.md#kit-on-another-machine).
 
 ## Install
 
-You need a Kit app of Kit 107 or later (Isaac Sim 5.x and up, USD Composer) and [uv](https://docs.astral.sh/uv/getting-started/installation/),
-which runs the server. Two parts: the MCP server your AI client starts, and the Kit extension `ovmcp.bridge` inside
-the Kit app, both from the same release.
-
 ### Claude Code: the plugin
+
+In Claude Code:
 
 ```
 /plugin marketplace add serionist/omniverse-mcp
 /plugin install omniverse-mcp@omniverse-mcp
 ```
 
-Then run `/omniverse-mcp:setup`: it installs the Kit extension of the plugin's release, walks you through turning it on
-in Kit, and checks the connection. The plugin also brings skills for working on scenes, geometry, simulation and
-scripts, which Claude uses when a request fits ([the plugin](plugin/README.md)).
+If it asks you to, run `/reload-plugins`. From a terminal, the same is `claude plugin marketplace add
+serionist/omniverse-mcp`, then `claude plugin install omniverse-mcp@omniverse-mcp`, and the plugin loads when
+Claude Code next starts.
 
-### Other MCP clients: uvx
+Then run `/omniverse-mcp:setup`. It installs the bridge of the plugin's release, tells you what to click in Kit, and
+checks the connection. The plugin also brings skills for scenes, geometry, simulation and scripts, which Claude uses
+when a request fits ([the plugin](plugin/README.md)).
 
-Add the server to your client's MCP configuration, such as a project's `.mcp.json`:
+### Other MCP clients
 
-```json
-{
-  "mcpServers": {
-    "omniverse": { "command": "uvx", "args": ["omniverse-mcp"] }
-  }
-}
+1. **Install the bridge:**
+
+   ```
+   uvx omniverse-mcp extension install
+   ```
+
+   It copies `ovmcp.bridge` into your user data folder, then prints the folder Kit needs, under "Kit finds it once
+   its extension search paths hold this folder".
+2. **Turn it on in the Kit app,** once:
+   1. **Window > Extensions**, the menu (☰) at the top right, **Settings**.
+   2. Under **Extension Search Paths**, the green **+**, then paste the folder. The **+** adds an empty row: click it
+      to type.
+   3. Search for `ovmcp` under **THIRD PARTY**, and turn **Omniverse MCP Bridge** on, with **Autoload**.
+
+   The bridge starts at once, and Kit's console shows `[ext: ovmcp.bridge-<version>] startup`. Kit saves the search
+   path and Autoload when it exits, so quit it once with **File > Exit**. A headless Kit takes
+   `--ext-folder <that folder> --enable ovmcp.bridge` instead ([headless Kit](docs/SETUP.md#headless-kit)).
+3. **Add the server to your client's MCP config,** and restart the client. In most clients' JSON:
+
+   ```json
+   {
+     "mcpServers": {
+       "omniverse": { "command": "uvx", "args": ["omniverse-mcp"], "env": { "PYTHONPATH": "" } }
+     }
+   }
+   ```
+
+   Each client's file and form, VS Code's and Codex's included, are in [MCP clients](docs/SETUP.md#mcp-clients). The
+   empty `PYTHONPATH` keeps a Python path that Isaac Sim's environment sets out of the server's Python.
+
+Your client gets the server's short instructions with it. If it ignores them, see
+[docs/AI_GUIDE.md](docs/AI_GUIDE.md), which also points at the plugin's skills as plain Markdown files.
+
+### Check that it works
+
+With the Kit app running, ask your assistant to *"call get_sim_state"*. It answers with lines such as:
+
+```
+state = stopped
+up_axis = Z
+...
+extension_version = 0.2.0
+server_version = 0.2.0
 ```
 
-Install the extension of the same release and turn it on in Kit (below). `uvx` fetches the newest release the first
-time and keeps it until its cache is refreshed; `uvx omniverse-mcp@latest extension install` fetches the newest server
-and installs its extension. Copy [`docs/AI_GUIDE.md`](docs/AI_GUIDE.md) into
-your client's instruction file (`AGENTS.md`, `.cursorrules`): the context every session needs, with links to the
-skills that hold the workflows and traps; copy the ones your work needs too.
+Something else? See [Troubleshooting](#troubleshooting).
 
-### The Kit extension
-
-```bash
-uvx omniverse-mcp extension install
-```
-
-It copies `ovmcp.bridge` into your user data folder and prints that folder. Then, once, in the Kit app:
-
-1. **Window > Extensions**, the menu (☰) at the top right, **Settings**.
-2. Under **Extension Search Paths**, the green **+**, then paste the folder it printed. The **+** adds an empty row:
-   click it to type.
-3. Search for `ovmcp` under **THIRD PARTY**, and turn **Omniverse MCP Bridge** on, with **Autoload**.
-4. Quit with **File > Exit**, which is when Kit saves these settings, and start it again. The console shows
-   `[ext: ovmcp.bridge-<version>] startup`.
-
-A headless or scripted Kit takes `--ext-folder <that folder> --enable ovmcp.bridge` instead. `omniverse-mcp extension
-path` prints the folder again.
-
-> **Updating:** install the extension again after each server update, and restart Kit and your client. On Windows a
-> running Kit holds the folder: quit it first. With the plugin, `/omniverse-mcp:setup` does this.
-
-> **Used the extension before?** Before 0.2.0 it came from a clone of this repo, and before that it was
+> **Used the extension before 0.2.0?** It came from a clone of this repo, and before that it was
 > `isaacsim.mcp.bridge`. Turn the old one off and remove its search path, so Kit loads one copy. See the
 > [changelog](CHANGELOG.md).
 
-### From a clone
+## What you can ask
 
-For working on omniverse-mcp itself:
+> "What's in the scene? Capture the viewport and tell me where each object is."
 
-```bash
-git clone https://github.com/serionist/omniverse-mcp.git
-cd omniverse-mcp
-uv sync
-```
+> "Put a table at the origin with a red, a green and a blue cube on it, and light it so the capture isn't black."
 
-The client starts the server from the clone, and the Kit extension search path takes the clone's `extension/`
-folder, so a `git pull` updates both (restart Kit and the client after it):
+> "Show me /World/Table from its four top corners, with everything else hidden."
 
-```json
-{
-  "mcpServers": {
-    "omniverse": { "command": "uv", "args": ["run", "--no-sync", "--project", "<REPO_PATH>", "omniverse-mcp"] }
-  }
-}
-```
+> "How many faces does /World/Robot have, and which parts have the most?"
 
-`--no-sync` starts the server from the environment `uv sync` built, so a client never waits on a download at start,
-and the server still writes its files under your project's `mcp_output/`. [CONTRIBUTING](CONTRIBUTING.md) has the rest.
+> "Add a Franka arm on the table, and list its joints and their limits."
 
-### Go
+> "Drop a cube from one metre, record two seconds of it falling, and show me the last frame."
 
-With the Kit app running, open your AI client in the project and ask: *"What's in the scene right now?"*
+> "Export /World/Table as a self-contained USD file."
 
-## Context7 for scripts
+> "That failed. Show me Kit's warnings and errors."
 
-Models are not trained on Omniverse and Isaac Sim APIs, and guess their names. With [Context7](https://context7.com)
-as a second MCP server, the assistant looks the API up (library `isaac-sim/isaacsim`) before writing `execute_script`
-code; the server's instructions and the `script` skill ask it to.
+Driving a robot while physics plays hangs Isaac Sim 6.2 for now; see [Known issues](#known-issues).
 
-## Examples
+## The tools
 
-> "Create a table with a red cube on top of it, and point a spotlight at it."
+| Area | Tools | What they do |
+|---|---|---|
+| **Scene** | `get_scene_tree`, `dump_scene`, `get_prim_properties`, `get_prim_bounds`, `set_prim_transform`, `create_prim`, `delete_prim`, `clone_prim`, `set_visibility`, `save_scene`, `new_scene` | Read the scene's hierarchy and properties; create, move, copy, hide and delete objects; save, or start an empty scene |
+| **Camera** | `capture_viewport`, `inspect_prim`, `set_camera`, `look_at_prim`, `viewport_light` | Capture the viewport with each object's screen box and colour, see one object from several sides, aim the camera, light the view |
+| **Materials** | `set_material`, `update_material_paths` | Give an object a colour and surface; fix material paths after files move |
+| **Simulation** | `sim_control`, `get_sim_state` | Play, pause, stop and step physics; the state, the up axis and the versions |
+| **Physics** | `set_physics_properties`, `apply_force`, `raycast` | Mass, friction and bounce; push an object; cast a ray |
+| **Robots** | `create_robot`, `get_robot_info`, `get_joint_states`, `set_joint_targets` | Add a robot from Isaac Sim's library (Franka, UR10, G1, Spot and more), read its joints, set joint targets |
+| **Recording** | `start_recording`, `stop_recording`, `get_recording_frame` | Record frames and objects' state while physics plays, then look back at any frame |
+| **Geometry** | `get_mesh_stats`, `get_prim_face_count_tree`, `compare_prims` | Count faces and vertices, find the heaviest parts, compare two objects or variants |
+| **USD files and variants** | `flatten_usd`, `export_prim_as_file`, `create_variant_structure`, `set_variant_selection` | Write a stage as one file, export an object, make and switch variant sets |
+| **Kit** | `get_logs`, `manage_extensions`, `draw_debug` | Read Kit's log, turn Kit extensions on and off, draw lines and points in the viewport |
+| **Scripts** | `execute_script` | Run Python inside Kit for anything the other tools don't do |
 
-> "Spawn a Franka arm at the origin, then move its joints to a pick-ready pose."
+Every tool, with its parameters, is in the [tool reference](docs/TOOLS.md).
 
-> "Start recording, play the sim for 3 seconds, then show me what happened to the robot."
+<p align="center">
+  <img src="docs/images/inspect-orbit.jpg" width="100%" alt="The workcell from four corners, as inspect_prim frames it with everything else hidden">
+</p>
+<p align="center">
+  <sub><code>inspect_prim(prim_path="/World/Workcell", angles=["top_front_right", "top_back_right", "top_back_left",
+  "top_front_left"], isolate=True)</code>: one call, every side, framed to fit, the rest of the scene hidden.</sub>
+</p>
 
-> "Move the apple so it's sitting on top of the desk. Use bounding boxes to compute the correct position."
+## Updating
 
-> "Inspect the G1 robot from all angles so I can see its current pose."
+The server and the bridge come from one release, so update them together, then restart Kit and your client.
+
+- **The plugin:** `claude plugin marketplace update omniverse-mcp`, then
+  `claude plugin update omniverse-mcp@omniverse-mcp`, and restart Claude Code. Then run `/omniverse-mcp:setup`, which
+  installs the matching bridge.
+- **Other clients:** `uvx omniverse-mcp@latest extension install` fetches the newest server and installs its bridge.
+  On Windows a running Kit holds the bridge's folder: quit it first. Unpinned, uvx can also move to a new release
+  by itself; the server then names the command that installs the matching bridge. To stay on one release, pin it
+  ([Updating](docs/SETUP.md#updating)).
 
 ## Configuration
 
@@ -180,57 +188,105 @@ code; the server's instructions and the `script` skill ask it to.
 
 ```
 omniverse-mcp [--host HOST] [--port PORT] [--output-dir DIR]    the MCP server, over stdio
-omniverse-mcp extension install                                 install the Kit extension of this release
+omniverse-mcp extension install                                 install the bridge of this release
 omniverse-mcp extension path                                    print the folder Kit's search paths need
-
---host          Kit extension host (default: OMNIVERSE_MCP_HOST, else 127.0.0.1)
---port          Kit extension port (default: OMNIVERSE_MCP_PORT, else 8211)
---output-dir    Directory for file outputs (default: OMNIVERSE_MCP_OUTPUT_DIR, else ./mcp_output/)
 ```
 
-The plugin's server takes the same variables from the environment Claude Code starts in.
+| Variable | Flag | Default | What |
+|---|---|---|---|
+| `OMNIVERSE_MCP_HOST` | `--host` | `127.0.0.1` | where the bridge listens |
+| `OMNIVERSE_MCP_PORT` | `--port` | `8211` | the bridge's port |
+| `OMNIVERSE_MCP_OUTPUT_DIR` | `--output-dir` | `mcp_output` in the working folder | where images and long answers go |
+| `OMNIVERSE_MCP_TOKEN` | | the token file | the bridge token, for a Kit app on another machine |
+| `OMNIVERSE_MCP_STATE_DIR` | | per system | the token file's folder, set the same on both sides |
 
-### The extension's settings
+The plugin's server reads them from the environment Claude Code starts in. Add `mcp_output/` to your project's
+`.gitignore`.
 
-Kit settings, in the extension's `config/extension.toml` or on Kit's command line (`--/exts/ovmcp.bridge/port=8212`):
-```toml
-[settings]
-exts."ovmcp.bridge".host = "127.0.0.1"
-exts."ovmcp.bridge".port = 8211
-exts."ovmcp.bridge".token = ""
-```
+### The bridge
+
+| Setting | Default | What |
+|---|---|---|
+| `/exts/ovmcp.bridge/host` | `127.0.0.1` | the address it listens on |
+| `/exts/ovmcp.bridge/port` | `8211` | its port |
+| `/exts/ovmcp.bridge/token` | empty: a new token at every start | a fixed token, for a remote MCP server |
+
+Set them on Kit's command line, such as `--/exts/ovmcp.bridge/port=8212`, and give the server the same port in
+`OMNIVERSE_MCP_PORT`. Don't edit the installed extension's `extension.toml`: the next `extension install` replaces it.
 
 ### The bridge token
 
-The extension runs any Python the MCP server sends, so it answers only a server that holds its token. At every start
-it writes a new token to a file only your user can read, and the MCP server on the same machine picks it up: nothing
-to set up. Requests from web pages are refused. See [Architecture](docs/ARCHITECTURE.md#the-bridge-token) for where the
-file lives.
+The bridge runs any Python the server sends, so it answers only a server that holds its token. At every start it
+writes a new token to a file only your user can read, and the server on the same machine reads it: nothing to set up.
+Requests from web pages are refused. [Kit on another machine](docs/SETUP.md#kit-on-another-machine) says how to set a
+token by hand, and [Architecture](docs/ARCHITECTURE.md#the-bridge-token) where the file lives.
 
-For a remote setup, set the extension's `token` to a long random value and give the MCP server the same value in the
-`OMNIVERSE_MCP_TOKEN` environment variable. Anyone with the token can run code in your Kit app.
+### Context7 for scripts
+
+Models are not trained on Omniverse and Isaac Sim APIs, and guess their names. With [Context7](https://context7.com)
+as a second MCP server, the assistant looks the API up (library `isaac-sim/isaacsim`) before writing `execute_script`
+code; the server's instructions and the `script` skill ask it to.
 
 ## Troubleshooting
 
-**"Missing or wrong bridge token"** -- Is Kit running the extension on this machine, as your user? If Kit runs as another user, in a container or on another machine, use the `token` setting and `OMNIVERSE_MCP_TOKEN` (above).
+**"Missing or wrong bridge token"**: Kit runs as another user, in a container or on another machine. Set a token by
+hand ([Kit on another machine](docs/SETUP.md#kit-on-another-machine)).
 
-**"The Kit extension is older than this MCP server", or "speaks bridge protocol"** -- The server and the extension come from different releases. Run the command the message names (or `git pull` in a clone), then restart Kit so it loads the new extension.
+**"The Kit extension is older than this MCP server", or "speaks bridge protocol"**: the server and the bridge come
+from different releases. Run the command the message names, then restart Kit.
 
-**"Kit app connection failed", refused or timed out** -- Is the Kit app running, with the extension on? Its console shows `[ext: ovmcp.bridge-<version>] startup`. The server looks for it on port 8211 unless `OMNIVERSE_MCP_PORT` or `--port` says otherwise.
+**"Kit app connection failed", refused or timed out**: is the Kit app running, with the bridge on? Its console shows
+`[ext: ovmcp.bridge-<version>] startup`. The server looks on port 8211 unless `OMNIVERSE_MCP_PORT` says otherwise. On
+its first start Isaac Sim compiles shaders for several minutes, and answers slowly until then.
 
-**The plugin's server doesn't start** -- `/mcp` in Claude Code shows its error. Is `uv` on the PATH Claude Code starts with?
+**Kit logs `[MCP Bridge] Failed to start server`**: another program, or a second Kit app, holds port 8211. Give this
+Kit app another port, and the server the same one ([The bridge](#the-bridge)).
 
-**Viewport capture returns black** -- The response includes a WARNING with the lighting mode. Use `viewport_light("get")` to see the mode and whether the scene has lights, then `viewport_light(action="set", mode="Default")` for a light rig, or `mode="camera"` for a light that follows the camera, and recapture. Kit 105.1+ has no default stage light, so scenes without explicitly added lights will render black.
+**The server doesn't start**: Claude Code's `/mcp` shows its error; other clients have an MCP log. Is `uvx` on the
+PATH the client starts with? Restart the client after installing uv.
 
-**Tools return errors** -- Check the Omniverse console for tracebacks. Some tools need the sim to have played once (`get_joint_states`, `raycast`). Robot tools require Isaac Sim specifically.
+**A capture comes back black**: the answer says so, with the lighting mode. `viewport_light(action="set",
+mode="Default")` lights the view, or `mode="camera"` for a light that follows the camera; Kit apps have no default
+light.
+
+**A tool returns an error**: `get_logs(min_level="warn")` shows what Kit reported. `get_joint_states` and `raycast`
+need physics to have played once; the robot tools need Isaac Sim.
+
+More in [SETUP.md](docs/SETUP.md#troubleshooting).
+
+## Known issues
+
+On Isaac Sim 6.2, the only Kit app tested so far:
+
+- **Robot physics can hang Kit** while it plays: seen with the G1 and the Franka
+  ([#5](https://github.com/serionist/omniverse-mcp/issues/5)).
+- **`draw_debug` fails:** Isaac Sim 6.2 has no `omni.debugdraw` ([#7](https://github.com/serionist/omniverse-mcp/issues/7)).
+- **Some parameters are ignored:** `start_recording`'s camera and size, and `apply_force`'s point when left out
+  ([#25](https://github.com/serionist/omniverse-mcp/issues/25)).
+- **The first `inspect_prim` with segmentation after Kit starts can fail;** call it again
+  ([#27](https://github.com/serionist/omniverse-mcp/issues/27)).
+- **A capture that produces nothing waits ten seconds,** so `inspect_prim` over many angles can time out
+  ([#35](https://github.com/serionist/omniverse-mcp/issues/35)).
+- **`create_robot` can't load a USD file path;** use `create_prim` with `usd_path`
+  ([#40](https://github.com/serionist/omniverse-mcp/issues/40)).
+
+## Security
+
+The bridge runs any Python the server sends, by design: `execute_script` is a tool. The token keeps other programs
+and web pages out, but not your own AI client, so keep it asking before `execute_script` and `manage_extensions`.
+Report a vulnerability privately, as [SECURITY.md](SECURITY.md) says.
 
 ## Documentation
 
-- [Tool Reference](docs/TOOLS.md) -- Every tool, with its parameters, hints and examples
-- [Architecture](docs/ARCHITECTURE.md) -- How the two-process bridge works
-- [The plugin](plugin/README.md) -- What the Claude Code plugin brings, and its skills
-- [AI Assistant Guide](docs/AI_GUIDE.md) -- For other clients' instruction files
-- [Contributing](CONTRIBUTING.md) -- How to contribute
+- [Setup in depth](docs/SETUP.md): each client's config, headless Kit, ports, remote setups, uninstalling
+- [Tool reference](docs/TOOLS.md): every tool, its parameters and hints
+- [The plugin](plugin/README.md): what the Claude Code plugin brings, and its skills
+- [Without the plugin](docs/AI_GUIDE.md): the context and workflows for other clients
+- [Architecture](docs/ARCHITECTURE.md): how the server and the bridge work, for contributors
+- [Changelog](CHANGELOG.md), [Security](SECURITY.md), [Contributing](CONTRIBUTING.md)
+
+Until 1.0, a minor release can change the tools; the changelog lists it under Breaking. Questions, ideas and bugs:
+[open an issue](https://github.com/serionist/omniverse-mcp/issues/new/choose).
 
 ## Licence
 
