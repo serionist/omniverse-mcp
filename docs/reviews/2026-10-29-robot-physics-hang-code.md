@@ -69,6 +69,43 @@ shrink.
 Not covered: the reviewer ran nothing (the gate, the unit tests, the live suites); USD Composer, Linux, and Isaac Sim
 5.1 live.
 
+## Round 2
+
+**Where:** the branch at `55c0e94`, round 1's fixes (`3d5d675`, `515fae6`) and its record; one fresh reviewer on
+Claude Opus 5.5, read only. **Verdict:** clean: every round 1 fix confirmed with its test. One minor and three
+improvements, fixed in `ca97661`.
+
+| # | Sev | Where | Finding | Status |
+|---|---|---|---|---|
+| F5 | minor | `docs/plans/2026-10-29-robot-physics-hang.md` | The plan still promised runs on Isaac Sim 5.1 and described the old scene: its lead, D, Compatibility and Docs claimed 5.1 and 6.x, and its Tests and Risks rows 8 static spheres, at least 8 named | fixed: `ca97661`. Findings say why 5.1 can't run here: it crashes in its own `SimulationApp` start, in the material library's `_preload_base_material`, on the RTX 5090 with driver 617.42, before any bridge loads, as three older crash dumps on that install do. E6, E8 and steps 5 and 7 on 5.1 are open under Still to run; the lead, D, Compatibility and Docs say tested live on 6.2 and untested live on 5.x; Tests and Risks give 32 rigid-body spheres, `Sphere_00` to `Sphere_31`, all named; step 9's PR names the 5.1 departure |
+
+Refuted, each from the code:
+
+- **R15, the case-blind scan flags logging itself:** `carb.log_error` holds `log_error`, not `error_log`;
+  `test_the_guard_lets_logging_itself_pass` keeps `carb.log_error`, `carb.log_warn` and `logging.getLogger` clear.
+- **R16, joining once reorders lines:** `_take` gathers lines in the file's order and joins `[header.msg, *more]`;
+  `test_a_long_entry_is_joined_once_a_read` checks the order across two reads.
+- **R17, the note shows on a working Kit:** `KitLog.query` adds it only when `total_captured` is 0 and some line
+  joined no entry.
+- **R18, the note changes the wire contract:** it is an optional key in `/logs`' result; the tool reads it with
+  `r.get("note")`, and an older server ignores it.
+- **R19, the tool drops the note beside entries:** the tool prints it in its no-entries answer, and the bridge adds it
+  only when no entry was ever read, so it never comes with entries.
+- **R20, `mcp.get_logs` loses it:** it returns `handle_get_logs`' answer as it is (`_mcp_bridge.py`).
+- **R21, the falling spheres stay on the stage:** the 32 rigid bodies fall while physics plays, and the test's
+  `finally` stops the timeline and deletes their root.
+- **R22, the 60 s timeout is the wrong bound for the hang:** it is stricter than the client's own 120 s, so a hang
+  stops the run sooner than any other request would notice it.
+
+| Improvement | Answer |
+|---|---|
+| I5: `_log_hooks` lowercases the data but not the hook | taken (`ca97661`): `hook.lower()` |
+| I6: the cold-cook test prints the play's time | taken (`ca97661`): `play answered in <s> s; 32 spheres cooked` |
+| I7: the scene's comment states a cause the runs didn't isolate, "Static colliders cook without that wait", while the count (8 to 32) and the body type (static to rigid) changed together | taken (`ca97661`): the comment says what ran, and that both changed together, so neither is trimmed on its word; the plan's step 2 row says the same |
+
+The hashes in this record are the branch's before it was rebased onto `main` after round 2; each commit kept its
+subject.
+
 ## Live run
 
 Isaac Sim 6.2.0 (pip, headless, Windows, RTX 5090) on port 8212, a fresh Kit started for each run; the maintainer's
@@ -94,5 +131,5 @@ reader's joins and note; Isaac Sim 5.1, which crashes here before any bridge loa
 
 ## Checks
 
-`uv run tools/gate.py full` passed on `930e9b6` (773 tests, 94.04%) and on the round's fixes, `515fae6` (785 tests,
-94.08%).
+`uv run tools/gate.py full` passed on `930e9b6` (773 tests, 94.04%), on round 1's fixes, `515fae6` (785 tests,
+94.08%), and on round 2's, `ca97661` (785 tests, 94.04%).
