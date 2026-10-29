@@ -181,6 +181,45 @@ def test_importing_the_server_does_nothing(tmp_path):
     assert not (tmp_path / "mcp_output").exists()
 
 
+def test_starting_the_server_makes_no_output_folder(tmp_path, monkeypatch):
+    # A client's health check starts the server and calls no tool; it used to leave an empty mcp_output behind (#43).
+    import omniverse_mcp.server as server_module
+
+    started: list[str] = []
+
+    class _Server:
+        def run(self) -> None:
+            pass
+
+    def _create_server(host: str, port: int, output_dir: str) -> _Server:
+        started.append(output_dir)
+        return _Server()
+
+    monkeypatch.delenv("OMNIVERSE_MCP_OUTPUT_DIR", raising=False)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(server_module, "create_server", _create_server)
+    server_module.main([])
+    assert started == [str(tmp_path / "mcp_output")]
+    assert not (tmp_path / "mcp_output").exists()
+
+
+_IMAGE = base64.b64encode(b"\x89PNG\r\n\x1a\ninvented").decode()
+
+
+def test_a_file_under_the_working_folder_is_given_by_its_short_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert Helpers(str(tmp_path / "mcp_output")).save_png(_IMAGE, "t") == "mcp_output/captures/t_0001.png"
+
+
+def test_a_file_outside_the_working_folder_is_given_by_its_absolute_path(tmp_path, monkeypatch):
+    # A relative ../ path is right only for a reader in the server's working folder (#41).
+    (tmp_path / "project").mkdir()
+    monkeypatch.chdir(tmp_path / "project")
+    given = Helpers(str(tmp_path / "elsewhere")).save_png(_IMAGE, "t")
+    assert given == str((tmp_path / "elsewhere" / "captures" / "t_0001.png").resolve())
+    assert Path(given).is_file()
+
+
 class _SlowCounter(Helpers):
     """A capture counter that takes a moment between being read and being set, so two threads that both read it
     before either sets it would get the same number."""

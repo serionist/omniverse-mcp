@@ -58,7 +58,9 @@ the last five lines of its traceback, or why the Kit app couldn't be reached.
 
 ### Output management
 
-The output folder is `mcp_output/` in the server's working directory, or `--output-dir`:
+The output folder is `mcp_output/` in the server's working directory, or `--output-dir`, made by the first file
+written there, not at start. A file under the working directory is given by its relative path, any other by its
+absolute path (`Helpers.rel`).
 
 - **Images:** the bridge sends each capture as base64 PNG, and the server writes it to `captures/`.
   `capture_viewport(include_image=True)` also returns it inline as `ImageContent`.

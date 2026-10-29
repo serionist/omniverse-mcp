@@ -4,7 +4,8 @@ Reference for every tool the MCP server provides.
 
 - **Where answers go:** a text answer over 1,000 characters is written to `mcp_output/responses/` and the tool
   returns its path; images go to `mcp_output/captures/`, recordings to `mcp_output/recordings/`, and a scene dump to
-  `mcp_output/scene_dump.txt`, which the next dump replaces. Paths are relative to the server's working folder. Open them with your client's file tool.
+  `mcp_output/scene_dump.txt`, which the next dump replaces. A file under the server's working folder is given by
+  its relative path, any other by its absolute path. Open them with your client's file tool.
 - **Prim blocks:** text about prims comes as a `[/prim/path]` header, then `key = value` lines, so you can grep for a
   path or a property.
 - **Known issues** on Isaac Sim 6.2 are in the [README](../README.md#known-issues).

@@ -50,8 +50,9 @@ Drives an NVIDIA Omniverse Kit app (Isaac Sim, USD Composer, ...): its USD stage
 - Call get_sim_state first: the up axis (Y or Z), the stage's units, and whether physics is running.
 - Look before you act: get_scene_tree or dump_scene for what is there, capture_viewport or inspect_prim for how it
   looks, and again after a change.
-- Images and long text are written to files, and their paths (relative to the working directory) returned: open
-  them with your file tool. Only capture_viewport(include_image=True) returns an image inline, at a cost in context.
+- Images and long text are written to files, and their paths returned, relative to the working directory or absolute:
+  open them with your file tool. Only capture_viewport(include_image=True) returns an image inline, at a cost in
+  context.
 - Text comes as prim blocks: a [/prim/path] header, then key = value lines. Grep for a path or a property.
 - Before writing execute_script code, look the API up with Context7 (library isaac-sim/isaacsim): Kit's APIs change
   between releases.
@@ -72,11 +73,13 @@ class Helpers:
         self._lock = threading.Lock()
 
     def rel(self, path: str) -> str:
-        """Convert absolute path to project-relative using mcp_output/... shorthand."""
+        """The path the client is given: `mcp_output/...` relative to the working folder when the file is under it, else
+        absolute, so a client that reads files from another folder can still open it."""
+        absolute = Path(path).resolve()
         try:
-            return os.path.relpath(path, os.getcwd()).replace("\\", "/")
-        except ValueError:
-            return path
+            return absolute.relative_to(Path.cwd().resolve()).as_posix()
+        except ValueError:  # not under the working folder, another drive included
+            return str(absolute)
 
     def _next(self, counter: str) -> int:
         with self._lock:
@@ -154,10 +157,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     if args.command == "extension":
         sys.exit(kit_extension.main(args.action))
-    # Output dir defaults to ./mcp_output relative to CWD
+    # Output dir defaults to ./mcp_output relative to CWD. It is made by the first file written there, by the server or
+    # by Kit (dump_scene, recordings), not here: a client's health check starts the server and calls no tool.
     output_dir = args.output_dir or os.path.join(os.getcwd(), "mcp_output")
-    # The extension writes some files there itself (dump_scene), and doesn't make the folder.
-    os.makedirs(output_dir, exist_ok=True)
     create_server(args.host, args.port, output_dir).run()
 
 

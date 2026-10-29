@@ -142,13 +142,13 @@ which then holds `ovmcp.bridge/`, and add that folder to Kit's extension search 
 
 ## The output folder
 
-The server makes `mcp_output/` in the folder the client starts it in, as soon as it starts, and returns paths
-relative to that folder. Claude Code and VS Code start servers in the project, so the paths work as they are.
+The server writes to `mcp_output/` in the folder the client starts it in, made with the first file. It gives a file
+under that folder by its relative path, such as `mcp_output/captures/viewport_0001.png`, and any other by its
+absolute path. Claude Code and VS Code start servers in the project, so the short paths work as they are.
 
 - Add `mcp_output/` to `.gitignore`.
 - A client that starts servers elsewhere: give the server an absolute folder with `--output-dir` or
-  `OMNIVERSE_MCP_OUTPUT_DIR`. The paths it returns are then relative to its working folder
-  ([#41](https://github.com/serionist/omniverse-mcp/issues/41)).
+  `OMNIVERSE_MCP_OUTPUT_DIR`, and the tools give absolute paths into it.
 
 ## Updating
 
