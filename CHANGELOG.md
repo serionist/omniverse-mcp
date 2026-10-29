@@ -7,6 +7,9 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ### Fixed
 
+- **`start_recording` warns when it is given a `camera_path`, or a size other than 640x480,** which it ignores: it
+  records the active viewport, from its camera at its own size, and used to report the values back as if it had
+  used them. Its description says so too (#25).
 - **The server makes `mcp_output/` with the first file written there,** not when it starts, so a client that only
   starts it, such as a health check, leaves no empty folder behind (#43).
 - **A file outside the server's working folder is given by its absolute path,** not by a `../` path that only a
