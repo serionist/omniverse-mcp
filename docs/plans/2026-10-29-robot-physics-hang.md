@@ -1,9 +1,9 @@
 ---
 title: Keep Kit answering when physics plays with a robot on the stage
 issue: "#5, #50"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-10-29
 ---
 
 # Keep Kit answering when physics plays with a robot on the stage
@@ -399,10 +399,13 @@ bridge.
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 | A1 (read Kit's log file) or A2 (asynchronous logging)? | A1: it removes the cause instead of moving the wait to another thread | |
-| Q2 | Report E3's repro on isaac-sim/isaacsim, from your account? | Yes, with NVIDIA's own `carb_logs` option as the trigger | |
-| Q3 | Will you run E9 on Isaac Sim 6.2's GUI, before and after the fix? | Yes: agents don't drive your Isaac Sim | |
-| Q4 | If E4 finds a working flag: a docs-only PR with it now, or wait for the fix? | Now, if the fix is more than a few days away | |
+| Q1 | A1 (read Kit's log file) or A2 (asynchronous logging)? | A1: it removes the cause instead of moving the wait to another thread | As recommended (the maintainer, 2026-10-29) |
+| Q2 | Report E3's repro on isaac-sim/isaacsim, from your account? | Yes, with NVIDIA's own `carb_logs` option as the trigger | As recommended (the maintainer, 2026-10-29) |
+| Q3 | Will you run E9 on Isaac Sim 6.2's GUI, before and after the fix? | Yes: agents don't drive your Isaac Sim | As recommended (the maintainer, 2026-10-29) |
+| Q4 | If E4 finds a working flag: a docs-only PR with it now, or wait for the fix? | Now, if the fix is more than a few days away | As recommended (the maintainer, 2026-10-29) |
+
+The maintainer approved the plan on 2026-10-29. This fix lands first: the other plans' live runs that play physics
+with a robot wait for it.
 
 ## Plan review
 
