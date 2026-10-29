@@ -1178,6 +1178,8 @@ class TestScenarios(unittest.TestCase):
         self._pass()
 
     # ===== Phase 22: Enhanced Inspect Prim =====
+    # Phases 22 to 26 run after 17.2's new_scene, which makes the stage Y-up, so their heights are on Y; run alone on
+    # a Z-up stage they would place things sideways.
 
     INSPECT_TARGET = "/World/InspectTarget"
 
