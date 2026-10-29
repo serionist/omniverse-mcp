@@ -15,9 +15,22 @@ import omni.kit.app
 import omni.usd
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade
 
+from ovmcp.core.extensions import extension_step, is_listed
 from ovmcp.core.png import is_complete_png
 
 DEFAULT_CAMERA_PATH = "/OmniverseKit_Persp"
+
+
+def enable_extension(name: str) -> bool:
+    """Whether the extension `name` is on, turning it on first when this Kit app has it on disk. An app without it
+    gets False, with no registry fetch and nothing in Kit's log (core/extensions.py)."""
+    manager = omni.kit.app.get_app().get_extension_manager()
+    enabled = manager.is_extension_enabled(name)
+    step = extension_step(enabled, not enabled and is_listed(name, manager.get_extensions()))
+    if step == "enable":
+        # The same call as Isaac Sim's own enable_extension; it returns whether it worked.
+        return bool(manager.set_extension_enabled_immediate(name, True))
+    return step == "ready"
 
 
 def _get_active_camera_path() -> str:
