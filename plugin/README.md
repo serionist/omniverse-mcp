@@ -21,7 +21,7 @@ and checks the connection.
 
 | Part | What it does |
 |---|---|
-| the MCP server `omniverse` | `uvx omniverse-mcp==0.1.0`, the server of this plugin's release; its tools show as `mcp__plugin_omniverse-mcp_omniverse__<tool>` ([the tools](https://github.com/serionist/omniverse-mcp/blob/main/docs/TOOLS.md)). Images and long answers go to `mcp_output/` in your project |
+| the MCP server `omniverse` | `uvx omniverse-mcp==0.2.0`, the server of this plugin's release; its tools show as `mcp__plugin_omniverse-mcp_omniverse__<tool>` ([the tools](https://github.com/serionist/omniverse-mcp/blob/main/docs/TOOLS.md)). Images and long answers go to `mcp_output/` in your project |
 | `/omniverse-mcp:setup` | installs the extension, has you point Kit at it, checks with `get_sim_state` |
 | `/omniverse-mcp:scene` | look before acting: captures, bounds, placing and checking prims, lighting |
 | `/omniverse-mcp:geometry` | face counts, comparing prims and variants, variant sets, flattening and exports |

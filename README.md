@@ -74,8 +74,6 @@ You need a Kit app of Kit 107 or later (Isaac Sim 5.x and up, USD Composer) and 
 which runs the server. Two parts: the MCP server your AI client starts, and the Kit extension `ovmcp.bridge` inside
 the Kit app, both from the same release.
 
-> **Before 0.2.0 is on PyPI,** only the last way, from a clone, works: the plugin and `uvx` fetch the server from PyPI.
-
 ### Claude Code: the plugin
 
 ```
@@ -132,7 +130,7 @@ path` prints the folder again.
 
 ### From a clone
 
-For working on omniverse-mcp itself, or before 0.2.0 is on PyPI:
+For working on omniverse-mcp itself:
 
 ```bash
 git clone https://github.com/serionist/omniverse-mcp.git
@@ -220,7 +218,7 @@ For a remote setup, set the extension's `token` to a long random value and give 
 
 **"Kit app connection failed", refused or timed out** -- Is the Kit app running, with the extension on? Its console shows `[ext: ovmcp.bridge-<version>] startup`. The server looks for it on port 8211 unless `OMNIVERSE_MCP_PORT` or `--port` says otherwise.
 
-**The plugin's server doesn't start** -- `/mcp` in Claude Code shows its error. Is `uv` on the PATH Claude Code starts with? Before 0.2.0 is on PyPI, use a clone (Install, From a clone).
+**The plugin's server doesn't start** -- `/mcp` in Claude Code shows its error. Is `uv` on the PATH Claude Code starts with?
 
 **Viewport capture returns black** -- The response includes a WARNING with the lighting mode. Use `viewport_light("get")` to see the mode and whether the scene has lights, then `viewport_light(action="set", mode="Default")` for a light rig, or `mode="camera"` for a light that follows the camera, and recapture. Kit 105.1+ has no default stage light, so scenes without explicitly added lights will render black.
 
