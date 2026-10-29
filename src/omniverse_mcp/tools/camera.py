@@ -125,7 +125,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
                 )
                 lines.append(f"Segmentation -> {seg_path}")
                 lines.append(f"Color legend ({len(legend)} prims) -> {h.rel(abs_legend)}")
+        elif r.get("segmentation_error"):
+            lines.append(f"Segmentation: ERROR {r['segmentation_error']}")
         else:
+            # An extension from before segmentation_error gives no reason.
             lines.append("Segmentation: not available (omni.syntheticdata may not be loaded)")
 
         if include_image and r.get("image_base64"):
@@ -241,6 +244,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
                             _legend_beside(seg_path),
                             "".join(f"{pp} = [{c[0]}, {c[1]}, {c[2]}]\n" for pp, c in legend.items()),
                         )
+                elif cap.get("segmentation_error"):
+                    cap_line += f" | seg: ERROR {cap['segmentation_error']}"
                 if cap.get("is_black") and not warned:
                     advice = CAMERA_LIGHT_ON_ADVICE if r.get("lighting_mode") == "camera" else LIGHTING_ADVICE
                     warning = f"  WARNING: One or more captures are all-black. {advice}"

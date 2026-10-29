@@ -73,6 +73,18 @@ def test_inspect_prints_the_isolate_warnings(tmp_path):
     assert f"WARNING (isolate): {warning}" in out
 
 
+def test_inspect_prints_why_an_angle_has_no_segmentation(tmp_path):
+    reason = "Instance segmentation gave no data within 5 s of enabling it: capture again"
+    answer = _inspect_answer()
+    answer["result"]["captures"][0]["segmentation_error"] = reason
+    fns, _ = _tools(tmp_path, {"camera_inspect": answer})
+
+    out = fns["inspect_prim"]("/World/Lamp", include_segmentation=True)
+
+    (line,) = [line for line in out.splitlines() if line.startswith("  front:")]
+    assert line.endswith(f" | seg: ERROR {reason}")
+
+
 def _capture_answer(lighting_mode, has_scene_lights):
     return {
         "status": "success",
@@ -143,6 +155,27 @@ def test_a_black_inspect_with_the_camera_light_on_does_not_suggest_it_again(tmp_
     out = fns["inspect_prim"]("/World/Lamp")
     assert "mode='camera'" not in out
     assert "look_at_prim" in out
+
+
+def test_capture_prints_why_there_is_no_segmentation(tmp_path):
+    answer = _capture_answer("stage", True)
+    reason = "omni.syntheticdata is not loaded: enable it with manage_extensions"
+    answer["result"]["segmentation_error"] = reason
+    fns, _ = _tools(tmp_path, {"capture_viewport": answer})
+
+    out = fns["capture_viewport"]()
+
+    assert f"Segmentation: ERROR {reason}" in out.splitlines()
+    assert "not available" not in out
+
+
+def test_capture_from_an_older_extension_keeps_its_segmentation_line(tmp_path):
+    # An extension from before segmentation_error answers without one.
+    fns, _ = _tools(tmp_path, {"capture_viewport": _capture_answer("stage", True)})
+
+    out = fns["capture_viewport"]()
+
+    assert "Segmentation: not available (omni.syntheticdata may not be loaded)" in out.splitlines()
 
 
 class _Busy(Helpers):
