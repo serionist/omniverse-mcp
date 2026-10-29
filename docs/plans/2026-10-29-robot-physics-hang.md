@@ -150,6 +150,21 @@ own `omni.log` consumer.
 | E1, `py-spy dump --native` of the hung Kit | **Main thread:** `run_isaac_port.py` `update` > `simulation_manager.py:668` `_on_play` > `:733` `initialize_physics` > `_physics` binding > `omni.physx.plugin` > `omni.physx.cooking.plugin` > `carb.ujitsoagent` > `carb.tasking` wait. **Thread 70636, a `carb.tasking` worker:** `carb.ujitsoagent` > `omni.physx.cooking.plugin` > `carb.dll` (logging) > `log\_log.cp312-win_amd64.pyd` (omni.log's Python binding) > `PyEval_AcquireThread`, waiting for the GIL the main thread holds |
 | E2, a fresh Kit, cold cache, `log_buffer.stop()` through `execute_script` first | `play` answered in 0.6 s; `/health` answered at once and 11 s later, with physics running |
 
+E8 and E6 ran on 2026-10-29 on the same Kit after E2 (6.2.0, the consumer still stopped), through `execute_script`;
+both still have to run on 5.1 before the PR. The lines below are invented to show the shapes, not copied.
+
+| Run | What it found on 6.2 |
+|---|---|
+| E8, the settings | `/log/file` comes back resolved, with no `${...}` left, as an absolute path under the install's `kit/logs/Kit/<app>/<version>/kit_<date>_<time>.log`; `/log/level` and `/log/fileLogLevel` `Info`; `/log/fileFlushLevel` `verbose`, so every line is flushed; `/log/async` false; `/log/includeTimeStamp` true; `/log/setElapsedTimeUnits` `milliseconds`; `/log/fileAppend` false |
+| E8, a header line | `2026-01-01T00:00:00Z [1,234,567ms] [Warning] [some.channel] the message`: a UTC timestamp, the elapsed time with thousands separators, the level spelled `Info`, `Warning`, `Error`, and the channel, empty (`[]`) for `carb.log_*` called from a script. The file's first line has no elapsed field: `2026-01-01T00:00:00Z [Info] [carb] Logging to file: <path>` |
+| E8, multi-line entries | `carb.log_error("a\nb\nc")` writes `b` and `c` as lines of their own with no prefix, and `logging.error(..., exc_info=True)` writes the traceback the same way, its first line (`Traceback (most recent call last):`) unindented: any line that doesn't start with a header belongs to the entry before it |
+| E8, encoding and flushing | A probe line with `é` and `✓`, and the two entries after it, were in the file and decoded as UTF-8 when read with `open(path, "rb")` from the same `execute_script`, right after logging them (309 bytes for the three) |
+| E8, growth | 1.56 MB after 90 minutes of a Kit that ran both live suites twice: about 1 MB an hour at Info; a quiet Kit writes far less |
+| E8, the command line | Near the top: the crash reporter's `commandLine:` (user name scrubbed) about line 17, and `[omni.kit.app.plugin] Cmd: ...` about line 22, each with every `--/...` setting in full: a token passed as `--/exts/ovmcp.bridge/token=...` would be there in the clear. Reading from the file's size when the extension starts skips both |
+| E6, the root | The bridge's USD walk (`Usd.PrimRange(prim, Usd.TraverseInstanceProxies())`, the first prim with `UsdPhysics.ArticulationRootAPI`) finds the G1's root at `<robot>/pelvis` |
+| E6, stopped | `Articulation(root)` builds (43 `dof_names`), and `is_physics_tensor_entity_valid()` is false: 65 to 120 ms. D answers "play or step the simulation first" here |
+| E6, playing and paused | `is_physics_tensor_entity_valid()` true; `get_dof_positions()` and `get_dof_velocities()` give `(1, 43)` arrays; a new `Articulation` and both reads take 2 to 5 ms |
+
 **What E2 left behind:** Kit's cook cache, `kit/cache/DerivedDataCache`, was written during E2 and outlives the Kit.
 The next G1 `play` on this machine cooks nothing and passes on unfixed code. Any evidence after E2 needs a cold cook
 (Tests).
