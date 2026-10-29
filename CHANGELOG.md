@@ -14,8 +14,9 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   against the server's working folder for Kit's files too: `dump_scene` and recordings went to Kit's.
 - **`create_robot` loads a robot from its USD file,** given as `robot_type`: a path on the Kit app's machine or a
   URL as given, with its case, and a path in Isaac Sim's asset library under the library's root. Without
-  `prim_path`, the prim is named after the file, and a path found nowhere is an error. Before, the path was
-  lowercased and put under the asset root, so it never loaded (#40).
+  `prim_path`, the prim is named after the file. A file that can't be opened is an error, where it used to leave an
+  empty prim reported as created, and so is a prim already at `prim_path`, where a second robot used to compose
+  into it. Before, the path was lowercased and put under the asset root, so it never loaded (#40).
 
 ### Changed
 
@@ -25,8 +26,7 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 - **`docs/SETUP.md`** is new: each MCP client's config, headless Kit, ports, Kit on another machine, and
   uninstalling. Working on a clone moved to `CONTRIBUTING.md`.
 - **Corrected in the docs:** the bridge's settings go on Kit's command line, since `extension install` replaces an
-  edited `extension.toml`; `create_robot` doesn't load a USD file path yet (#40); the MCP resources are read on
-  demand; an inline capture costs about as much context as opening its file.
+  edited `extension.toml`; the MCP resources are read on demand; an inline capture costs about as much context as opening its file.
 
 ## 0.2.0 (2026-10-29)
 

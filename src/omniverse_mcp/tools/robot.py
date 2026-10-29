@@ -25,7 +25,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         position: Position = None,
         rotation: Rotation = None,
     ) -> str:
-        """Spawn a robot from Isaac Sim's asset library.
+        """Add a robot: one of Isaac Sim's asset library by name, or a robot's own USD file.
 
         Available: franka, ur10, carter, jetbot, g1, go1, go2, h1, spot, anymal. Or a USD file as robot_type: a path
         on the Kit app's machine, a URL, or a path in Isaac Sim's asset library (/Isaac/...). Without prim_path,

@@ -316,7 +316,8 @@ pos = 0.0000, 0.9500, 0.0000
 
 The robot tools use a hybrid approach:
 
-- **`create_robot`** looks up USD asset paths from a built-in library and loads them as USD references
+- **`create_robot`** loads a named robot from Isaac Sim's asset library, or a USD file, as a USD reference
+  (`core/robot.py` says from where)
 - **`get_robot_info`** traverses the USD hierarchy to find joints, reading types and limits from USD properties
 - **`get_joint_states`** uses Isaac Sim's Articulation API (requires sim to have played once)
 - **`set_joint_targets`** sets USD drive target attributes directly, which works without articulation initialisation

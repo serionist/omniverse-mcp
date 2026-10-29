@@ -29,12 +29,20 @@ def robot_prim_path(robot_type: str) -> str:
     return "/World/" + Tf.MakeValidIdentifier(name)
 
 
-def robot_usd_url(usd_path: str, assets_root: Callable[[], str | None], is_file: Callable[[str], bool]) -> str | None:
-    """Where to load usd_path from, as given but for a library path, which goes under the library's root; None for a
-    path that is neither a URL, a file on this machine, nor in the library. assets_root is asked only for a library
-    path: Isaac Sim may look on the network to find it."""
-    if _URL.match(usd_path) or is_file(usd_path):
+def robot_usd_url(
+    usd_path: str,
+    assets_root: Callable[[], str | None],
+    is_file: Callable[[str], bool],
+    whole: Callable[[str], str],
+) -> str | None:
+    """Where to load usd_path from: a URL as given, a file on this machine made whole, a library path under the
+    library's root; None for a path that is none of these. assets_root is asked only for a library path: Isaac Sim may
+    look on the network to find it."""
+    if _URL.match(usd_path):
         return usd_path
+    if is_file(usd_path):
+        # A reference reads a relative path against the stage's own folder, not the one Kit was started in.
+        return whole(usd_path)
     if usd_path.startswith(LIBRARY_PREFIX):
         root = assets_root()
         return root.rstrip("/") + usd_path if root else usd_path

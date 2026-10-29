@@ -70,7 +70,8 @@ OMNIVERSE_MCP_SIM=1 uv run pytest tests/test_integration.py tests/test_scenarios
 In PowerShell, `$env:OMNIVERSE_MCP_SIM = "1"`, then `uv run pytest ...`. Without the variable they skip, even with
 a Kit app running, so `uv run pytest` never touches your stage; with it, they run, and fail when no Kit answers.
 They find the bridge where the server does, at `OMNIVERSE_MCP_HOST` and `OMNIVERSE_MCP_PORT` (127.0.0.1:8211 by
-default), so a second Kit app can run them on another port beside your own. CI never runs them, so a PR that
+default), so a second Kit app can run them on another port beside your own. They expect that Kit app on this
+machine, as some write a file for Kit to read, or read one Kit wrote. CI never runs them, so a PR that
 changes the extension, the client or a tool says whether they ran and on which Kit app. Without a Kit app, say so
 in the PR.
 

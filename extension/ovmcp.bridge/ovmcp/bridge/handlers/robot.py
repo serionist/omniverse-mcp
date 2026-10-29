@@ -7,7 +7,7 @@ Handles robot creation, info, joint states, and joint target setting.
 import os
 from typing import Any
 
-from pxr import Usd, UsdPhysics
+from pxr import Sdf, Tf, Usd, UsdPhysics
 
 from ovmcp.core.robot import LIBRARY_PREFIX, is_usd_file, robot_prim_path, robot_usd_url
 
@@ -76,7 +76,7 @@ async def handle_create_robot(body: dict) -> dict:
 
     await _next_update()
 
-    full_usd_path = robot_usd_url(usd_path, _assets_root, os.path.isfile)
+    full_usd_path = robot_usd_url(usd_path, _assets_root, os.path.isfile, os.path.abspath)
     if full_usd_path is None:
         return {
             "status": "error",
@@ -85,6 +85,21 @@ async def handle_create_robot(body: dict) -> dict:
         }
 
     stage = _get_stage()
+    if stage.GetPrimAtPath(prim_path).IsValid():
+        # A second reference would compose two robots into one prim, or a robot into the scene's own prim.
+        return {
+            "status": "error",
+            "error": f"A prim already exists at {prim_path}: pass another prim_path, or delete it first",
+        }
+    # Opened first: a URL or a library path that doesn't answer would otherwise leave an empty prim, reported as
+    # created. The reference then reuses the layer this opened.
+    try:
+        layer = Sdf.Layer.FindOrOpen(full_usd_path)
+    except Tf.ErrorException as e:
+        return {"status": "error", "error": f"Could not open {full_usd_path}: {e}"}
+    if layer is None:
+        return {"status": "error", "error": f"Could not open {full_usd_path}"}
+
     prim = stage.DefinePrim(prim_path)
     prim.GetReferences().AddReference(full_usd_path)
     if not prim.IsValid():

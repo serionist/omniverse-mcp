@@ -375,7 +375,7 @@ Updates both relationship targets (material bindings) and asset path attributes 
 
 ### `create_robot`
 
-Spawn a robot from the asset library (Isaac Sim only).
+Add a robot: one of Isaac Sim's by name (Isaac Sim only), or any robot from its USD file, in any Kit app.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -401,8 +401,8 @@ Spawn a robot from the asset library (Isaac Sim only).
 
 A USD file as `robot_type` loads from a path on the Kit app's machine, a URL (`omniverse://`, `https://`), or a
 path in Isaac Sim's asset library (`/Isaac/...`), which goes under the library's root; its case is kept. Without
-`prim_path`, the prim is named after the file: `/World/MyBot` for `.../MyBot.usd`. A path found nowhere is an
-error.
+`prim_path`, the prim is named after the file: `/World/MyBot` for `.../MyBot.usd`. A file that can't be opened
+is an error, and so is a prim already at `prim_path`.
 
 ---
 
