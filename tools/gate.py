@@ -621,7 +621,7 @@ def check_skill_links(_scope: Scope) -> Result:
     return outcome("skill links", link_problems(entries, set(skill_folders())), f"{links} links")
 
 
-def _json(path: Path) -> dict[str, Any]:
+def json_object(path: Path) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError("it is not a JSON object")
@@ -664,10 +664,10 @@ def plugin_file_problems(root: Path) -> list[str]:
 
 def check_plugin(_scope: Scope, root: Path = ROOT) -> Result:
     try:
-        plugin = _json(root / PLUGIN_MANIFEST)
-        market = _json(root / MARKETPLACE)
-        servers = _json(root / PLUGIN_MCP).get("mcpServers") or {}
-        tools = _json(root / TOOL_CONTRACT).get("tools") or {}
+        plugin = json_object(root / PLUGIN_MANIFEST)
+        market = json_object(root / MARKETPLACE)
+        servers = json_object(root / PLUGIN_MCP).get("mcpServers") or {}
+        tools = json_object(root / TOOL_CONTRACT).get("tools") or {}
     except (OSError, ValueError) as exc:
         return Result("plugin", "FAIL", f"a plugin manifest or the tool contract can't be read: {exc}")
     problems = manifest_problems(plugin, market, servers)
