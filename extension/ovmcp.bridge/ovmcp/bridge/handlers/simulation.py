@@ -6,7 +6,10 @@ Handles sim control, sim state, physics properties, apply force, and raycast.
 
 import carb
 import omni.kit.app
-from pxr import Gf, Sdf, UsdGeom, UsdPhysics, UsdShade
+import omni.usd
+from pxr import UsdGeom, UsdPhysics, UsdShade
+
+from ovmcp.core.force import AT_CENTRE_OF_MASS, AT_GIVEN, centre_of_mass, force_args, refusal, world_point
 
 from ._utils import _get_stage, _next_update
 
@@ -170,74 +173,69 @@ async def handle_set_physics_properties(body: dict) -> dict:
 
 
 async def handle_apply_force(body: dict) -> dict:
-    """Apply a force or impulse to a rigid body. Requires sim playing."""
-    prim_path = body.get("prim_path", "")
-    force = body.get("force")
-    position = body.get("position")
-    is_impulse = body.get("impulse", False)
+    """Apply a force or impulse to a rigid body through PhysX, at a world point or at its centre of mass.
 
-    if not prim_path:
-        return {"status": "error", "error": "No prim_path provided"}
-    if not force or len(force) != 3:
-        return {"status": "error", "error": "force [fx, fy, fz] is required"}
+    Refused where PhysX would move nothing: the timeline stopped, a kinematic body, a prim PhysX holds no body for. A
+    PhysX failure is an error; nothing else moves the body in its place.
+    """
+    try:
+        args = force_args(body)
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
 
     stage = _get_stage()
-    prim = stage.GetPrimAtPath(prim_path)
+    prim = stage.GetPrimAtPath(args.prim_path)
     if not prim.IsValid():
-        return {"status": "error", "error": f"Prim not found: {prim_path}"}
+        return {"status": "error", "error": f"Prim not found: {args.prim_path}"}
     if not prim.HasAPI(UsdPhysics.RigidBodyAPI):
-        return {"status": "error", "error": f"Prim has no RigidBodyAPI: {prim_path}"}
+        return {"status": "error", "error": f"Prim has no RigidBodyAPI: {args.prim_path}"}
 
     await _next_update()
 
-    method = "physx"
+    # From here to the push nothing awaits, so the pose, the centre of mass and the push are all of one update.
     try:
-        from omni.physx import get_physx_interface
+        from omni.physx import get_physx_interface, get_physx_simulation_interface, get_physxunittests_interface
+        from pxr import PhysicsSchemaTools
+    except ImportError as e:
+        return {"status": "error", "error": f"PhysX (omni.physx) is not loaded in this Kit app: {e}"}
 
-        physx = get_physx_interface()
-        pos = carb.Float3(*(position if position and len(position) == 3 else [0, 0, 0]))
-        f = carb.Float3(*force)
-        # Try different PhysX force API signatures
-        try:
-            physx.apply_force_at_pos(prim_path, f, pos)
-        except (AttributeError, TypeError):
-            try:
-                # Isaac Sim 5.x may use different API
-                from omni.physx.scripts import utils as physx_utils
+    stopped = omni.timeline.get_timeline_interface().is_stopped()
+    kinematic = bool(UsdPhysics.RigidBodyAPI(prim).GetKinematicEnabledAttr().Get())
+    try:
+        pose = {} if stopped else get_physx_interface().get_rigidbody_transformation(args.prim_path)
+        refused = refusal(args.prim_path, stopped=stopped, kinematic=kinematic, held=bool(pose.get("ret_val")))
+        if refused:
+            return {"status": "error", "error": refused}
 
-                physx_utils.apply_force_at_pos(prim_path, f, pos)
-            except Exception:
-                raise
-    except Exception as e:
-        # Fallback: set velocity directly
-        method = "velocity"
-        try:
-            vel_attr = prim.GetAttribute("physics:velocity")
-            if not vel_attr or not vel_attr.IsValid():
-                vel_attr = prim.CreateAttribute("physics:velocity", Sdf.ValueTypeNames.Float3, False)
+        if args.position is not None:
+            point, at = args.position, AT_GIVEN
+        else:
+            # Synchronous, with no Python callback for Kit to call from another thread (#5), as query_prim would need.
+            info = get_physxunittests_interface().get_mass_information(args.prim_path)
+            point = world_point(pose["position"], pose["rotation"], centre_of_mass(info, args.prim_path))
+            at = AT_CENTRE_OF_MASS
 
-            old = vel_attr.Get()
-            if old is None:
-                old = Gf.Vec3f(0, 0, 0)
-            scale = 0.01 if not is_impulse else 1.0  # force-like: scale down
-            vel_attr.Set(
-                Gf.Vec3f(
-                    float(old[0]) + force[0] * scale,
-                    float(old[1]) + force[1] * scale,
-                    float(old[2]) + force[2] * scale,
-                )
-            )
-        except Exception as e2:
-            return {"status": "error", "error": f"PhysX force: {e}; velocity fallback: {e2}"}
+        get_physx_simulation_interface().apply_force_at_pos(
+            omni.usd.get_context().get_stage_id(),
+            PhysicsSchemaTools.sdfPathToInt(args.prim_path),
+            carb.Float3(*args.force),
+            carb.Float3(*point),
+            args.mode,
+        )
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
+    except (AttributeError, RuntimeError, TypeError, KeyError) as e:
+        return {"status": "error", "error": f"PhysX could not push {args.prim_path}: {e}"}
 
     return {
         "status": "success",
         "result": {
-            "prim_path": prim_path,
-            "force": force,
-            "position": position,
-            "impulse": is_impulse,
-            "method": method,
+            "prim_path": args.prim_path,
+            "force": list(args.force),
+            "position": list(point),
+            "at": at,
+            "impulse": args.impulse,
+            "method": "physx",
         },
     }
 

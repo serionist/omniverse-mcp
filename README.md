@@ -258,8 +258,8 @@ On Isaac Sim 6.2, the only Kit app tested so far:
 
 - **0.2.0's bridge can hang Kit** the first time physics plays with a robot on the stage, while Isaac Sim cooks its
   collision meshes; the next release fixes it ([#5](https://github.com/serionist/omniverse-mcp/issues/5)).
-- **Some parameters are ignored:** `apply_force`'s point when left out, and `start_recording`'s camera and size: it
-  records the active viewport at its own size, and warns when it is given them
+- **Some parameters are ignored:** `start_recording`'s camera and size: it records the active viewport at its own
+  size, and warns when it is given them
   ([#25](https://github.com/serionist/omniverse-mcp/issues/25)).
 
 ## Security

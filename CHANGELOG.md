@@ -43,6 +43,12 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 - **Instance segmentation that comes late is waited for,** up to 5 s after the bridge enables its sensor, which Kit
   drops on every stage open; it was dropped without a word after 10 app updates. A capture without segmentation now
   says why: `inspect_prim` on the angle's line (`seg: ERROR`), `capture_viewport` as `Segmentation: ERROR` (#27).
+- **`apply_force` pushes through PhysX,** so mass counts, at `position` or, when it is left out, at the body's centre
+  of mass. Before, the PhysX call it made didn't exist, so every call added `force / 100` (all of it for an
+  impulse) to `physics:velocity`, ignoring mass and point. It is now refused while the simulation is stopped, for a
+  kinematic body and for a prim PhysX holds no body for, where it reported success; a PhysX failure is an error.
+  `impulse` says what PhysX does: a force lasts one physics step, so call it each step to hold a push (#25). The fix
+  is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit.
 
 ### Changed
 
