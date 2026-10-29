@@ -704,6 +704,9 @@ def test_a_plugin_server_without_its_pin_fails(tmp_path, monkeypatch):
             "server.json (package 1) has version '9.9.9'",
         ),
         (gate.SERVER_JSON, None, "[]", "server.json or the tool contract can't be read"),
+        (gate.SERVER_JSON, '"name": "io.github.serionist/', '"name": "io.github.someone/', "not 'io.github.serionist/"),
+        (gate.SERVER_JSON, '"identifier": "omniverse-mcp"', '"identifier": "other-mcp"', "must be 'omniverse-mcp'"),
+        (gate.SERVER_JSON, '"registryType": "pypi"', '"registryType": "npm"', "must be 'omniverse-mcp' on PyPI"),
     ],
     ids=[
         "extension pin",
@@ -719,6 +722,9 @@ def test_a_plugin_server_without_its_pin_fails(tmp_path, monkeypatch):
         "server.json",
         "server.json's package",
         "server.json unreadable",
+        "registry name",
+        "registry package",
+        "registry type",
     ],
 )
 def test_the_plugin_check_finds(rel, old, new, expected, tmp_path, monkeypatch):

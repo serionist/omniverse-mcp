@@ -67,8 +67,11 @@ PLUGIN_SKILLS_DIR = "plugin/skills"
 PLUGIN_SKILL_KEYS = ("name", "description", "allowed-tools")
 PLUGIN_SERVER = "omniverse"
 PLUGIN_NAME = "omniverse-mcp"  # the plugin's and the marketplace's name
-# The official MCP registry's entry (plan S10), at the release's version too; its name is a one-way door (AGENTS.md).
+# The official MCP registry's entry (plan S10), at the release's version too. Its name is a one-way door (AGENTS.md),
+# and so is the PyPI package it lists.
 SERVER_JSON = "server.json"
+SERVER_NAME = "io.github.serionist/omniverse-mcp"
+PYPI_NAME = "omniverse-mcp"
 # What plugin.json may hold. Each other key (mcpServers, hooks, commands, agents) gives the plugin a way to run
 # something the gate doesn't check, as would a file under plugin/ other than these.
 PLUGIN_KEYS = ("name", "version", "description", "author", "homepage", "repository", "license", "keywords")
@@ -650,6 +653,18 @@ def plugin_versions(root: Path, plugin: dict[str, Any]) -> dict[str, str | None]
     return versions
 
 
+def registry_problems(server: dict[str, Any]) -> list[str]:
+    """server.json names the server, and lists one package, this one on PyPI: both one-way doors."""
+    problems: list[str] = []
+    if server.get("name") != SERVER_NAME:
+        problems.append(f"{SERVER_JSON}: the name is {server.get('name')!r}, not {SERVER_NAME!r} (a one-way door)")
+    packages = server.get("packages") or []
+    package = packages[0] if len(packages) == 1 and isinstance(packages[0], dict) else {}
+    if package.get("registryType") != "pypi" or package.get("identifier") != PYPI_NAME:
+        problems.append(f"{SERVER_JSON}: its one package must be {PYPI_NAME!r} on PyPI (a one-way door)")
+    return problems
+
+
 def plugin_file_problems(root: Path) -> list[str]:
     """Only the files the gate checks are under plugin/, and no Markdown in it links to a relative path."""
     problems: list[str] = []
@@ -676,6 +691,7 @@ def check_plugin(_scope: Scope, root: Path = ROOT) -> Result:
         servers = json_object(root / PLUGIN_MCP).get("mcpServers") or {}
         tools = json_object(root / TOOL_CONTRACT).get("tools") or {}
         versions = plugin_versions(root, plugin)
+        registry = json_object(root / SERVER_JSON)
     except (OSError, ValueError) as exc:
         return Result("plugin", "FAIL", f"a plugin manifest, {SERVER_JSON} or the tool contract can't be read: {exc}")
     problems = manifest_problems(plugin, market, servers)
@@ -683,6 +699,7 @@ def check_plugin(_scope: Scope, root: Path = ROOT) -> Result:
         f"{PLUGIN_MANIFEST}: the key {key!r} isn't checked by the gate" for key in plugin if key not in PLUGIN_KEYS
     ]
     problems += plugin_file_problems(root)
+    problems += registry_problems(registry)
     # The server exactly as the release starts it: another argument (--from a URL) or variable is code the gate can't
     # vouch for. PYTHONPATH empty: one from the user's shell (Isaac Sim's conda setup sets one) would reach uvx's
     # Python.

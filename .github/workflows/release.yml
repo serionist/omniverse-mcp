@@ -6,7 +6,8 @@
 #
 # No API token exists anywhere: PyPI trusts this workflow, in the pypi environment, through a trusted publisher, and
 # pypa/gh-action-pypi-publish trades the job's OIDC token for a short-lived one and attests the files it uploads. The
-# MCP registry takes this repository's OIDC token for the io.github.serionist/ namespace in the same way.
+# MCP registry takes an OIDC token too, but from any workflow of any repository serionist owns, for the whole
+# io.github.serionist/ namespace: in this one, only the registry job asks for it.
 name: Release
 
 on:
@@ -38,9 +39,9 @@ jobs:
             exit 1
           fi
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
-      # The tag is vX.Y.Z, pyproject.toml, extension.toml, plugin.json and every omniverse-mcp== pin under plugin/ say
-      # X.Y.Z, and CHANGELOG.md has a dated section for it, the release's notes. Before the approval, so nothing is
-      # published without them.
+      # The tag is vX.Y.Z, pyproject.toml, extension.toml, plugin.json, server.json and every omniverse-mcp== pin under
+      # plugin/ say X.Y.Z, and CHANGELOG.md has a dated section for it, the release's notes. Before the approval, so
+      # nothing is published without them.
       - name: Check the repo against the tag
         run: uv run --no-project tools/release.py check "$GITHUB_REF_NAME"
       - name: Build

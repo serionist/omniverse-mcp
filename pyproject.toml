@@ -110,7 +110,7 @@ dev-mode-dirs = ["src", "extension/ovmcp.bridge"]
 # tools/ too: tests/test_gate.py and the hook tests import the gate, which reads the plugin.
 include = [
     "src/", "extension/", "plugin/", ".claude-plugin/", "tests/", "tools/", "docs/", "README.md", "CHANGELOG.md",
-    "LICENSE",
+    "LICENSE", "server.json",
 ]
 
 # Strict from the start (plan S6): an unknown marker or setting, an xfail that passes, a repeated parametrize id and

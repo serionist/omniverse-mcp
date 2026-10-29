@@ -12,7 +12,7 @@ plan's S9, S10 and D7 say why it works this way.
 | A trusted publisher: project `omniverse-mcp`, owner `serionist`, repository `omniverse-mcp`, workflow `release.yml`, environment `pypi` | PyPI, your account, Publishing (pending until the first upload) | 2026-10-29 |
 | The environment `pypi`, with the maintainer as required reviewer, deploying from `v*` tags only | GitHub, Settings, Environments | 2026-10-28 |
 | The ruleset "release tags": only admins create, move or delete a `v*` tag | GitHub, Settings, Rules | 2026-10-28 |
-| Nothing for the MCP registry: it trusts `release.yml`'s OIDC token for `io.github.serionist/*`, and PyPI's README for the package | none | |
+| Nothing for the MCP registry: it takes a GitHub Actions OIDC token from any repository `serionist` owns for `io.github.serionist/*`, and the README on PyPI for the package; here only `release.yml`'s `registry` job asks for one | none | |
 
 ## Each release
 

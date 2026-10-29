@@ -22,8 +22,7 @@
       "environmentVariables": [
         {
           "name": "PYTHONPATH",
-          "description": "Empty, so a Python path that Isaac Sim's environment sets stays out of the server's Python",
-          "value": ""
+          "description": "Set it empty, so a Python path that Isaac Sim's environment sets stays out of the server's Python"
         },
         {
           "name": "OMNIVERSE_MCP_HOST",
