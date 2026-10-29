@@ -45,8 +45,11 @@ touched.
   #6's two (first run) and #7's three failing, as on `main`. `test_27` loaded a file it wrote into
   `/World/IntTestRobot`, its child read back; `test_28` refused a missing file. `create_robot("Franka")` still loads
   from the library root at `/World/Franka`, with 11 joints.
-- **On the fixes,** with Kit restarted on them: see the PR.
+- **On `6e6dd0c`,** the fixes, with Kit restarted on them: 114 passed (the four new robot tests among them), with
+  #6's two and #7's three failing, as on `main`. `test_29` refused a `file:` URL that won't open, and left no prim;
+  `test_30` refused a taken prim. `create_robot("franka")` loads at `/World/Franka` with 11 joints, the library's
+  file opened first, and a second one on the same prim is refused.
 
 ## Checks
 
-`uv run tools/gate.py full` passed on `4a49c25`.
+`uv run tools/gate.py full` passed on `4a49c25` and on `6e6dd0c` (714 tests, 93.69%).
