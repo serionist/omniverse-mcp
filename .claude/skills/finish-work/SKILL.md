@@ -68,4 +68,4 @@ feels complete. `main` takes PRs only, and the maintainer squash-merges them (`A
 |---|---|---|
 | Live tests turned a refused token into a skip, so a run with every test skipped looked green | issue #2, plan review | `OMNIVERSE_MCP_SIM=1` makes them fail instead of skipping |
 | The first capture after Kit started went past the client's timeout | PRs #3 and #8, live runs | Rerun once on a warm Kit before calling it a regression |
-| Scenario failures on Isaac Sim 6.2 that `main` has too (#5, #6, #7) | PR #3, live run | Run `main`'s suite on the same Kit and compare |
+| Scenario failures on Isaac Sim 6.2 that `main` has too (#5, #6) | PR #3, live run | Run `main`'s suite on the same Kit and compare |

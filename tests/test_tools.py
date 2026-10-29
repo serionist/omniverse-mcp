@@ -414,9 +414,9 @@ CASES = [
         "draw_debug",
         {"shape": "lines", "points": [[0, 0, 0], [0, 0, 1]], "size": 0.1},
         "/debug/draw",
-        {"drawn": [{"type": "lines", "segments": 1}]},
-        {"type": "lines", "points": [[0, 0, 0], [0, 0, 1]], "size": 0.1},
-        ("Drew 1 debug element(s): lines",),
+        {"drawn": [{"type": "lines", "segments": 1}], "backend": "isaacsim.util.debug_draw", "duration": 5.0},
+        {"type": "lines", "points": [[0, 0, 0], [0, 0, 1]], "size": 0.1, "duration": 5.0},
+        ("Drew 1 debug element(s): lines, for 5.0 s (isaacsim.util.debug_draw)",),
     ),
     # Recording
     Case(
@@ -493,7 +493,8 @@ def test_every_tool_has_a_case():
     assert sorted(set(cases) - tools) == [], "these cases name no tool"
 
 
-def _check(case: Case, bridge: MockIsaacServer, tmp_path: Path) -> None:
+def _check(case: Case, bridge: MockIsaacServer, tmp_path: Path) -> str:
+    """Calls the case's tool, checks its request and its text, and returns the text."""
     bridge.set_response(case.route, {"status": "success", "result": case.answer})
     bridge.requests.clear()
     client = BridgeClient(port=bridge.port, token="invented-test-token")
@@ -516,6 +517,7 @@ def _check(case: Case, bridge: MockIsaacServer, tmp_path: Path) -> None:
     assert {k: body.get(k) for k in sent} == sent
     for part in case.says:
         assert part in text
+    return text
 
 
 @pytest.mark.parametrize("case", CASES, ids=str)
@@ -533,6 +535,39 @@ def test_manage_extensions_enables_one(bridge: MockIsaacServer, tmp_path: Path):
             {"extension_id": "omni.invented", "action": "enable", "enabled": True},
             {"extension_id": "omni.invented", "action": "enable"},
             ("Extension omni.invented: enabled (enabled=True)",),
+        ),
+        bridge,
+        tmp_path,
+    )
+
+
+def test_draw_debug_reads_a_0_2_0_bridges_answer(bridge: MockIsaacServer, tmp_path: Path):
+    # A 0.2.0 bridge answers neither backend nor duration; its drawing lasted a frame, so none is claimed.
+    text = _check(
+        Case(
+            "draw_debug",
+            {"shape": "line", "start": [0, 0, 0], "end": [1, 0, 0], "duration": 2.0},
+            "/debug/draw",
+            {"drawn": [{"type": "line", "start": [0, 0, 0], "end": [1, 0, 0]}]},
+            {"type": "line", "start": [0, 0, 0], "end": [1, 0, 0], "duration": 2.0},
+            ("Drew 1 debug element(s): line",),
+        ),
+        bridge,
+        tmp_path,
+    )
+    assert text == "Drew 1 debug element(s): line"
+
+
+def test_draw_debug_says_how_long_each_drawing_shows(bridge: MockIsaacServer, tmp_path: Path):
+    answer = {"drawn": [{"type": "point"}, {"type": "point"}], "backend": "omni.debugdraw", "duration": 0.25}
+    _check(
+        Case(
+            "draw_debug",
+            {"shape": "points", "points": [[0, 0, 0], [1, 1, 1]], "duration": 0.25},
+            "/debug/draw",
+            answer,
+            {"type": "points", "points": [[0, 0, 0], [1, 1, 1]], "duration": 0.25},
+            ("Drew 2 debug element(s): point, point, for 0.25 s (omni.debugdraw)",),
         ),
         bridge,
         tmp_path,

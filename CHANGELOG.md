@@ -10,6 +10,12 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 - **`start_recording` warns when it is given a `camera_path`, or a size other than 640x480,** which it ignores: it
   records the active viewport, from its camera at its own size, and used to report the values back as if it had
   used them. Its description says so too (#25).
+- **`draw_debug` works headless, on every Isaac Sim, and a drawing stays `duration` seconds,** where it lasted a
+  frame. It used `omni.debugdraw`, which only the GUI app turns on; it now draws with `isaacsim.util.debug_draw`,
+  turned on at the first call, and other Kit apps with `omni.debugdraw`. When a drawing expires, other lines drawn
+  with `isaacsim.util.debug_draw` go too, since its clear takes every line. An unknown shape or a vector that isn't
+  three numbers is an error, where it drew nothing and reported success. The fix is in the Kit extension:
+  `uvx omniverse-mcp extension install`, then restart Kit (#7, #25).
 - **The server makes `mcp_output/` with the first file written there,** not when it starts, so a client that only
   starts it, such as a health check, leaves no empty folder behind (#43).
 - **A file outside the server's working folder is given by its absolute path,** not by a `../` path that only a

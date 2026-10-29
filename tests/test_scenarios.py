@@ -38,6 +38,30 @@ def _along_up(up: int, value: float, x: float = 0.0) -> list[float]:
     return vector
 
 
+# draw_debug's backend on Isaac Sim, and the lines it holds, ours and any other code's: 0 while it is off.
+DRAW_BACKEND = "isaacsim.util.debug_draw"
+LINE_COUNT = (
+    "import omni.kit.app\n"
+    f"if omni.kit.app.get_app().get_extension_manager().is_extension_enabled('{DRAW_BACKEND}'):\n"
+    "    from isaacsim.util.debug_draw import _debug_draw\n"
+    "    result = _debug_draw.acquire_debug_draw_interface().get_num_lines()\n"
+    "else:\n"
+    "    result = 0\n"
+)
+# Strongly red pixels in a capture, red above green and blue by 80, counted in Kit with the numpy and Pillow Isaac Sim
+# ships. A drawing is the only red in a view aimed away from /World/RedCube.
+RED_PIXELS = (
+    "import base64, io\n"
+    "import numpy as np\n"
+    "from PIL import Image\n"
+    "cap = await mcp.capture_viewport(width=320, height=240)\n"
+    "png = base64.b64decode(cap['result']['image_base64'])\n"
+    "rgb = np.asarray(Image.open(io.BytesIO(png)).convert('RGB')).astype(np.int32)\n"
+    "red, green, blue = rgb[..., 0], rgb[..., 1], rgb[..., 2]\n"
+    "result = int(((red - green > 80) & (red - blue > 80)).sum())\n"
+)
+
+
 class TestScenarios(unittest.TestCase):
     """Full scenario tests matching test_project/scenarios.md."""
 
@@ -104,6 +128,53 @@ class TestScenarios(unittest.TestCase):
         up = r["result"]["up_axis"]
         self.assertIn(up, ("Y", "Z"))
         return 2 if up == "Z" else 1
+
+    def _line_count(self) -> int:
+        r = self.c.execute(LINE_COUNT)
+        self.assertEqual(r["status"], "success", r)
+        return r["result"]["return_value"]
+
+    def _wait_for_line_count(self, count: int, timeout: float = 10.0) -> None:
+        """Waits until isaacsim.util.debug_draw holds `count` lines; fails after `timeout` seconds."""
+        deadline = time.monotonic() + timeout
+        while (now := self._line_count()) != count:
+            if time.monotonic() > deadline:
+                self.fail(f"debug_draw holds {now} lines, not {count}, after {timeout} s")
+            time.sleep(0.1)
+
+    def _lines_go_after_the_test(self) -> int:
+        """The line count now, and a cleanup that waits for it again: a test's drawings expire before the next test
+        counts or captures."""
+        start = self._line_count()
+        self.addCleanup(self._wait_for_line_count, start)
+        return start
+
+    def _red_pixels(self) -> int:
+        r = self.c.execute(RED_PIXELS)
+        self.assertEqual(r["status"], "success", r)
+        return r["result"]["return_value"]
+
+    def _choose_backend(self, *names: str) -> str:
+        """The bridge's choose_backend, through execute: the first of `names` it can draw with, or the default."""
+        r = self.c.execute(
+            f"from ovmcp.bridge.handlers.debug_draw import choose_backend\nresult = choose_backend({names or ''})"
+        )
+        self.assertEqual(r["status"], "success", r)
+        return r["result"]["return_value"]
+
+    def _aim_away(self) -> list[list[float]]:
+        """Aims the camera along +X from x=20, away from all the suite puts near the origin (the red cube, the ground,
+        the robot), and returns a zigzag five units ahead that crosses the view."""
+        up = self._up_axis()
+        r = self.c.camera_set(_along_up(up, 1, x=20), _along_up(up, 1, x=30))
+        self.assertEqual(r["status"], "success", r)
+        side = 3 - up  # the axis that is neither X nor up
+        zigzag = []
+        for i, across in enumerate([-2, -1, 0, 1, 2]):
+            point = _along_up(up, 0.2 if i % 2 == 0 else 1.8, x=25)
+            point[side] = across
+            zigzag.append(point)
+        return zigzag
 
     # ===== Phase 1: Connectivity =====
 
@@ -938,25 +1009,106 @@ class TestScenarios(unittest.TestCase):
 
     def test_16_03_draw_debug_line(self):
         """Phase 16.3: Draw Debug Line"""
+        self._lines_go_after_the_test()
         r = self.c.draw_debug("line", start=[0, 0, 0], end=[5, 5, 0], color=[1, 0, 0], duration=3.0)
-        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["status"], "success", r)
+        self.assertEqual(r["result"]["backend"], DRAW_BACKEND)
         print("  Drew debug line")
         self._pass()
 
     def test_16_04_draw_debug_sphere(self):
         """Phase 16.4: Draw Debug Sphere"""
+        self._lines_go_after_the_test()
         r = self.c.draw_debug("sphere", center=[0, 2, 0], radius=0.5, color=[0, 1, 0], duration=3.0)
-        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["status"], "success", r)
+        self.assertEqual(r["result"]["backend"], DRAW_BACKEND)
         print("  Drew debug sphere")
         self._pass()
 
     def test_16_05_draw_debug_points(self):
         """Phase 16.5: Draw Debug Points"""
+        self._lines_go_after_the_test()
         r = self.c.draw_debug(
             "points", points=[[0, 0, 0], [1, 1, 0], [2, 0, 0]], color=[0, 0, 1], duration=3.0, size=10.0
         )
-        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["status"], "success", r)
+        self.assertEqual(r["result"]["backend"], DRAW_BACKEND)
         print("  Drew debug points")
+        self._pass()
+
+    def test_16_06_draw_debug_expires(self):
+        """Phase 16.6: A drawing shows for its duration, then goes"""
+        start = self._lines_go_after_the_test()
+        up = self._up_axis()
+        r = self.c.draw_debug("line", start=_along_up(up, 0), end=_along_up(up, 1), duration=1.0)
+        drawn_at = time.monotonic()
+        self.assertEqual(r["status"], "success", r)
+        self.assertEqual(r["result"]["duration"], 1.0)
+        self.assertEqual(self._line_count(), start + 1)
+        time.sleep(0.4)
+        self.assertEqual(self._line_count(), start + 1, "the line went before its second was up")
+        self._wait_for_line_count(start, timeout=5.0)
+        print(f"  The line went {time.monotonic() - drawn_at:.1f} s after it was drawn")
+        self._pass()
+
+    def test_16_07_draw_debug_twice(self):
+        """Phase 16.7: A drawing that expires leaves a longer one showing"""
+        start = self._lines_go_after_the_test()
+        up = self._up_axis()
+        r = self.c.draw_debug("line", start=_along_up(up, 0), end=_along_up(up, 1), duration=3.0)
+        self.assertEqual(r["status"], "success", r)
+        r = self.c.draw_debug("sphere", center=_along_up(up, 1), radius=0.5, duration=1.0)
+        self.assertEqual(r["status"], "success", r)
+        self.assertEqual(self._line_count(), start + 4)
+        # When the sphere goes, the clear takes all four lines and the line is drawn again in the same update: without
+        # the redraw the count would fall to the start.
+        self._wait_for_line_count(start + 1, timeout=5.0)
+        print("  The 1 s sphere went, the 3 s line stayed")
+        self._pass()
+
+    def test_16_08_draw_debug_reaches_a_capture(self):
+        """Phase 16.8: A drawing shows in a capture"""
+        self._lines_go_after_the_test()
+        zigzag = self._aim_away()
+        before = self._red_pixels()
+        r = self.c.draw_debug("lines", points=zigzag, color=[1, 0, 0], duration=5.0)
+        self.assertEqual(r["status"], "success", r)
+        drawn = self._red_pixels()
+        print(f"  Strongly red pixels: {before} before the zigzag, {drawn} with it")
+        self.assertLess(before, 20, "the view aimed away from the red cube holds red already")
+        self.assertGreater(drawn, 100, "the zigzag isn't in the capture")
+        self._pass()
+
+    def test_16_09_draw_debug_with_omni_debugdraw(self):
+        """Phase 16.9: omni.debugdraw, which forgets a line after a frame, shows a drawing for its duration"""
+        r = self.c.execute(
+            "import omni.kit.app\n"
+            "result = omni.kit.app.get_app().get_extension_manager().is_extension_enabled('omni.debugdraw')"
+        )
+        self.assertEqual(r["status"], "success", r)
+        if not r["result"]["return_value"]:
+            # Cleanups run last first: the default backend is back before omni.debugdraw goes off again.
+            self.addCleanup(
+                self.c.execute,
+                "import omni.kit.app\n"
+                "manager = omni.kit.app.get_app().get_extension_manager()\n"
+                "manager.set_extension_enabled_immediate('omni.debugdraw', False)",
+            )
+        self.addCleanup(self._choose_backend)
+        self.assertEqual(self._choose_backend("omni.debugdraw"), "omni.debugdraw")
+
+        zigzag = self._aim_away()
+        r = self.c.draw_debug("lines", points=zigzag, color=[1, 0, 0], duration=4.0)
+        drawn_at = time.monotonic()
+        self.assertEqual(r["status"], "success", r)
+        self.assertEqual(r["result"]["backend"], "omni.debugdraw")
+        during = self._red_pixels()
+        self.assertLess(time.monotonic() - drawn_at, 4.0, "the capture ended after the drawing's 4 s: Kit was slow")
+        time.sleep(max(0.0, drawn_at + 4.5 - time.monotonic()))
+        after = self._red_pixels()
+        print(f"  Strongly red pixels: {during} while it lasts, {after} after")
+        self.assertGreater(during, 100, "omni.debugdraw's zigzag isn't in the capture")
+        self.assertLess(after, 20, "omni.debugdraw's zigzag outlasted its duration")
         self._pass()
 
     # ===== Phase 17: Scene Lifecycle =====
@@ -985,6 +1137,25 @@ class TestScenarios(unittest.TestCase):
         tree = self.c.scene_tree("/World", 1)
         self.assertEqual(tree["status"], "success")
         print("  New scene created with /World")
+        self._pass()
+
+    def test_17_03_draw_debug_forgets_the_old_stage(self):
+        """Phase 17.3: A new stage doesn't get the old one's drawings back"""
+        start = self._lines_go_after_the_test()
+        r = self.c.draw_debug("line", start=[0, 0, 0], end=[1, 0, 0], duration=30.0)
+        self.assertEqual(r["status"], "success", r)
+        r = self.c.new_scene()
+        self.assertEqual(r["status"], "success", r)
+        time.sleep(0.5)
+        r = self.c.draw_debug("sphere", center=_along_up(self._up_axis(), 1), radius=0.5, duration=1.0)
+        self.assertEqual(r["status"], "success", r)
+        # The sphere's three lines alone: the 30 s line went with its stage.
+        self._wait_for_line_count(start + 3, timeout=2.0)
+        # When the sphere goes, what is left is drawn again: nothing, not the old stage's line.
+        self._wait_for_line_count(start, timeout=5.0)
+        time.sleep(0.5)
+        self.assertEqual(self._line_count(), start, "the old stage's line came back")
+        print("  The old stage's line stayed gone")
         self._pass()
 
     # ===== Phase 24: Logging =====

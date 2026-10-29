@@ -686,19 +686,40 @@ Cast a ray into the scene and return what it hits.
 
 ### `draw_debug`
 
-Draw debug visualisation in the viewport.
+Draw debug lines in the viewport for `duration` seconds: a line, a polyline, a sphere as three crossing lines, or a
+small cross per point. Every line is 2 pixels wide.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `shape` | string | required | `"line"`, `"lines"` (joins `points` in order), `"sphere"`, or `"points"` |
-| `color` | list[float] | `null` | `[r, g, b]` colour in 0-1 (red `[1,0,0]` when omitted) |
-| `duration` | float | `5.0` | Display duration in seconds, above 0; the bridge ignores it for now ([#25](https://github.com/serionist/omniverse-mcp/issues/25)) |
+| `color` | list[float] | `null` | `[r, g, b]` colour in 0-1, each value clamped to 0-1 (red `[1,0,0]` when omitted) |
+| `duration` | float | `5.0` | How long it shows, in seconds from the call, above 0: real time, whether the simulation plays or not |
 | `start` | list[float] | `null` | Line start `[x,y,z]` (for `shape="line"`) |
 | `end` | list[float] | `null` | Line end `[x,y,z]` (for `shape="line"`) |
 | `center` | list[float] | `null` | Sphere centre `[x,y,z]` (for `shape="sphere"`) |
 | `radius` | float | `0.1` | Sphere radius, above 0 (for `shape="sphere"`) |
 | `points` | list[list[float]] | `null` | List of `[x,y,z]` points (for `shape="points"` and `"lines"`) |
 | `size` | float | `0.05` | How far each point's cross reaches, in stage units, above 0 (for `shape="points"`) |
+
+**Returns:** what was drawn, how long it shows and the extension that drew it:
+`Drew 1 debug element(s): line, for 5.0 s (isaacsim.util.debug_draw)`.
+
+**How it draws:**
+
+| Kit app | Extension | What to know |
+|---|---|---|
+| Isaac Sim 5.x and 6.x | `isaacsim.util.debug_draw`, turned on at the first call if it is off | Its lines stay until cleared, and its clear takes every line drawn with it. So when one drawing expires, lines other code drew with this extension go too, and the bridge draws its own again. |
+| Other Kit apps that ship it | `omni.debugdraw` | It shows a line for one frame, so the bridge draws its lines again on every update. |
+| Neither | none | An error naming both. |
+
+- **Drawings belong to their stage:** `new_scene` or opening another stage drops them, and no drawing is made while a
+  stage opens or closes.
+- **Captures:** on Isaac Sim 6.x, drawings show in `capture_viewport`'s image, headless too, with either extension
+  (checked live on 6.2). On Isaac Sim 5.x this is untested live.
+- **A wrong shape is an error:** an unknown `shape`, a vector that isn't three finite numbers, or a missing part, such
+  as `start` for a line.
+- **The fix is in the Kit extension:** a bridge from 0.2.0 or before draws for one frame, and fails headless.
+  `uvx omniverse-mcp extension install`, then restart Kit.
 
 ---
 

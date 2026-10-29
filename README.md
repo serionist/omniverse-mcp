@@ -260,7 +260,6 @@ On Isaac Sim 6.2, the only Kit app tested so far:
 
 - **Robot physics can hang Kit** while it plays: seen with the G1 and the Franka
   ([#5](https://github.com/serionist/omniverse-mcp/issues/5)).
-- **`draw_debug` fails:** Isaac Sim 6.2 has no `omni.debugdraw` ([#7](https://github.com/serionist/omniverse-mcp/issues/7)).
 - **Some parameters are ignored:** `apply_force`'s point when left out, and `start_recording`'s camera and size: it
   records the active viewport at its own size, and warns when it is given them
   ([#25](https://github.com/serionist/omniverse-mcp/issues/25)).

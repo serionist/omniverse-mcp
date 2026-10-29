@@ -118,7 +118,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         ],
         color: Annotated[list[float] | None, Field(description="[r, g, b] colour in 0-1; red when omitted")] = None,
         duration: Annotated[
-            float, Field(gt=0, description="How long it shows, in seconds; the bridge ignores it for now (#25)")
+            float,
+            Field(gt=0, description="How long it shows, in seconds from the call, whether the simulation plays or not"),
         ] = 5.0,
         start: Annotated[list[float] | None, Field(description='For "line": its start [x, y, z]')] = None,
         end: Annotated[list[float] | None, Field(description='For "line": its end [x, y, z]')] = None,
@@ -131,7 +132,12 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             float, Field(gt=0, description='For "points": how far each point\'s cross reaches, in stage units')
         ] = 0.05,
     ) -> str:
-        """Draw debug visualisation in the viewport (lines, spheres, points)."""
+        """Draw debug lines in the viewport, 2 pixels wide, for `duration` seconds: a line, a polyline, a sphere as
+        three crossing lines, or a small cross per point.
+
+        Isaac Sim draws with isaacsim.util.debug_draw, turned on at the first call. Its clear takes every line drawn
+        with it, so when a drawing expires, lines other code drew with it go too. Other Kit apps draw with
+        omni.debugdraw when they have it. A new stage drops the old one's drawings."""
         kwargs: dict[str, Any] = {"duration": duration}
         if color is not None:
             kwargs["color"] = color
@@ -152,4 +158,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         r = resp["result"]
         drawn: list[dict[str, Any]] = r.get("drawn", [])
         labels = [str(d.get("type", d)) for d in drawn]
-        return f"Drew {len(drawn)} debug element(s): {', '.join(labels)}"
+        text = f"Drew {len(drawn)} debug element(s): {', '.join(labels)}"
+        # A 0.2.0 bridge answers neither: its drawing lasted a frame, so no duration is claimed for it.
+        if r.get("duration") is not None:
+            text += f", for {float(r['duration'])} s"
+        if r.get("backend"):
+            text += f" ({r['backend']})"
+        return text

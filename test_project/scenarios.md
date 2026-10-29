@@ -429,9 +429,13 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 - Verify: hit=false
 - `sim_control("stop")`
 
+The line count below is `isaacsim.util.debug_draw`'s, through `execute_script`:
+`from isaacsim.util.debug_draw import _debug_draw; result = _debug_draw.acquire_debug_draw_interface().get_num_lines()`.
+Each step waits for its drawings to expire before the next.
+
 ### 16.3 Draw Debug Line
 - `draw_debug("line", start=[0,0,0], end=[5,5,0], color=[1,0,0])`
-- Verify: success
+- Verify: success, drawn with `isaacsim.util.debug_draw` on Isaac Sim
 
 ### 16.4 Draw Debug Sphere
 - `draw_debug("sphere", center=[0,2,0], radius=0.5, color=[0,1,0])`
@@ -441,9 +445,24 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 - `draw_debug("points", points=[[0,0,0],[1,1,0],[2,0,0]], color=[0,0,1])`
 - Verify: success
 
-### 16.6 Debug Draw Visual Check
-- `capture_viewport()` after 16.3-16.5
-- Verify: debug shapes visible in viewport (or note if they aren't — some renderers don't show debug draws in captures)
+### 16.6 A Drawing Expires
+- `draw_debug("line", ..., duration=1)`
+- Verify: the line count rises by 1, and is back where it was after the second
+
+### 16.7 Two Drawings
+- A 3 s line, then a 1 s sphere
+- Verify: the count rises by 4; after the sphere's second it is up by 1 (the line, drawn again after the clear), then
+  back where it was
+
+### 16.8 Debug Draw Visual Check
+- Aim the camera away from the red cube, at empty space; `capture_viewport()` holds no red
+- `draw_debug("lines", ...)` a red zigzag across the view, then `capture_viewport()`
+- Verify: the zigzag shows in the capture
+
+### 16.9 The omni.debugdraw Backend
+- `execute_script`: `from ovmcp.bridge.handlers.debug_draw import choose_backend; result = choose_backend(("omni.debugdraw",))`
+- The zigzag of 16.8 for 4 s: the answer names `omni.debugdraw`, a capture holds it, a capture after 4 s doesn't
+- Put the default back: `choose_backend()`, and turn `omni.debugdraw` off if it was off
 
 ---
 
@@ -457,6 +476,11 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 - `new_scene()`
 - Verify: `get_scene_tree` shows minimal default prims (just /World or similar)
 - Note: this wipes all prims from Phases 2-16. Phases 18+ create their own.
+
+### 17.3 A New Stage Forgets the Old One's Drawings
+- `draw_debug("line", ..., duration=30)`, then `new_scene()`, then `draw_debug("sphere", ..., duration=1)`
+- Verify: the line count is the sphere's 3 alone, and back where it started once the sphere expires: the old
+  stage's line never comes back
 
 ---
 
