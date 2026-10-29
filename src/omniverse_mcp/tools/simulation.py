@@ -17,6 +17,11 @@ if TYPE_CHECKING:
     from omniverse_mcp.server import Helpers
 
 
+def _rounded(values: list[float]) -> list[float]:
+    """A vector as the model reads it: a centre of mass from PhysX carries float32 noise past the fourth place."""
+    return [round(v, 4) for v in values]
+
+
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @mcp.tool(annotations=EDITS)
     def sim_control(
@@ -76,20 +81,33 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @mcp.tool(annotations=EDITS)
     def apply_force(
         prim_path: Annotated[str, Field(description="The rigid body's prim path")],
-        force: Annotated[list[float], Field(description="[fx, fy, fz] in newtons, or N*s for an impulse")],
+        force: Annotated[
+            list[float],
+            Field(description="[fx, fy, fz]: an impulse in N s, or a force in N for one physics step"),
+        ],
         position: Annotated[
             list[float] | None,
-            Field(description="World-space point to apply it at; the world origin when omitted, for now (#25)"),
+            Field(description="World-space point to push at; the body's centre of mass when omitted"),
         ] = None,
         impulse: Annotated[
-            bool, Field(description="True for an instant impulse, False for a continuous force")
+            bool,
+            Field(
+                description="True for an impulse in N s, False for a force in N for one physics step. For a sustained "
+                "push, give an impulse of force times seconds"
+            ),
         ] = False,
     ) -> str:
-        """Apply a force or impulse to a rigid body. Sim must be playing."""
+        """Push a rigid body through PhysX, so its mass counts. The simulation must be playing or paused. Refused for a
+        disabled or kinematic body, and for an articulation's link, such as a robot's, which PhysX's push doesn't
+        reach yet (#58)."""
         resp = bridge_call(client.apply_force, prim_path, force, position, impulse)
         r = resp["result"]
         mode = "impulse" if r.get("impulse") else "force"
-        return f"Applied {mode} {r['force']} to {r['prim_path']} (method: {r['method']})"
+        text = f"Applied {mode} {_rounded(r['force'])} to {r['prim_path']}"
+        # A 0.2.0 extension answers no `at`, and its `method` says whether PhysX or a velocity nudge did it.
+        if r.get("at") and r.get("position") is not None:
+            return f"{text} at {_rounded(r['position'])} ({r['at']})"
+        return f"{text} (method: {r.get('method', 'unknown')})"
 
     @mcp.tool(annotations=READS)
     def raycast(

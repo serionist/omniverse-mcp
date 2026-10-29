@@ -401,20 +401,37 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 
 ### 15.5 Apply Force (Basic)
 - Play sim, apply force to RedCube: `apply_force("/World/RedCube", force=[100,0,0])`
-- Verify: success, returns method used
+- Verify: success, `method: physx`, pushed at the centre of mass
 
-### 15.6 Apply Force with Impulse
-- Play sim: `sim_control("play")`
-- `apply_force("/World/RedCube", force=[50,0,0], impulse=True)`
-- Verify: response shows "impulse" mode
+### 15.6 Impulse and Force by Mass
+- A 5 kg cube of its own, gravity off, away from the scene; play
+- `apply_force(cube, force=[10,0,0], impulse=True)`: its speed along X becomes about 2 (10 N s / 5 kg)
+- Stop, play, `apply_force(cube, force=[10,0,0])`: about `10 * dt / 5`, a force lasting one physics step
+  (`dt` 1/60 s by default)
 
 ### 15.7 Apply Force at Offset Position
-- Play sim: `sim_control("play")`
-- `apply_force("/World/RedCube", force=[0,100,0], position=[0.1,0,0])`
-- Verify: success (off-center force should cause torque)
-- `sim_control("stop")`
+- The same kind of cube; play
+- An impulse without `position` moves it without turning it
+- Stop, play; one at a point 0.2 above its centre along the up axis turns it
 
-### 15.8 Apply Force to Invalid Prim
+### 15.8 Centre of Mass Off the Origin
+- A cube whose `physics:centerOfMass` is off its origin, sideways
+- An impulse without `position` lands on the centre of mass and doesn't turn it; one at its origin does
+
+### 15.9 Apply Force While Stopped
+- `sim_control("stop")`, then `apply_force` on a rigid body → error: PhysX holds no bodies
+
+### 15.10 Apply Force to a Kinematic Body
+- A cube with `physics:kinematicEnabled` true; play; `apply_force` → error
+
+### 15.11 Apply Force to a Robot Link
+- Play; `apply_force(link, force=[100,0,0], impulse=True)` on the pelvis of `/World/G1`, then on another of its
+  links → error each time: PhysX's push doesn't reach an articulation's links yet (#58)
+
+### 15.12 Apply Force to a Disabled Body
+- A cube with `physics:rigidBodyEnabled` false; play; `apply_force` → error: PhysX holds it as a static body
+
+### 15.13 Apply Force to Invalid Prim
 - `apply_force("/World/Nonexistent", force=[1,0,0])` → error
 
 ---

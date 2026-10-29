@@ -6,6 +6,7 @@ Usage, with Kit running: OMNIVERSE_MCP_SIM=1 uv run pytest -m scenario
 """
 
 import json
+import math
 import os
 import time
 import unittest
@@ -60,6 +61,12 @@ RED_PIXELS = (
     "red, green, blue = rgb[..., 0], rgb[..., 1], rgb[..., 2]\n"
     "result = int(((red - green > 80) & (red - blue > 80)).sum())\n"
 )
+
+
+def _turn_degrees(q0: list[float], q1: list[float]) -> float:
+    """How far a body turned between two unit quaternions, in degrees, whatever their component order."""
+    dot = abs(sum(a * b for a, b in zip(q0, q1, strict=True)))
+    return math.degrees(2 * math.acos(min(1.0, dot)))
 
 
 class TestScenarios(unittest.TestCase):
@@ -159,6 +166,83 @@ class TestScenarios(unittest.TestCase):
         """The bridge's choose_backend, through execute: the first of `names` it can draw with, or the default."""
         r = self.c.execute(
             f"from ovmcp.bridge.handlers.debug_draw import choose_backend\nresult = choose_backend({names or ''})"
+        )
+        self.assertEqual(r["status"], "success", r)
+        return r["result"]["return_value"]
+
+    def _force_body(
+        self,
+        name: str,
+        *,
+        enabled: bool = True,
+        kinematic: bool = False,
+        centre_of_mass: list[float] | None = None,
+    ) -> str:
+        """A 5 kg cube of its own for a force test, with the simulation stopped. Gravity is off, so only the push
+        moves it, and it sits away from the scene, so it touches nothing. Deleted after, the simulation stopped
+        first."""
+        path = f"/World/{name}"
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+        self.addCleanup(self.c.delete_prim, path)
+        self.addCleanup(self.c.sim_control, "stop")
+        r = self.c.create_prim(path, "Cube", position=_along_up(self._up_axis(), 5, x=-30), scale=[0.3, 0.3, 0.3])
+        self.assertEqual(r["status"], "success", r)
+        com = "None" if centre_of_mass is None else "Gf.Vec3f({}, {}, {})".format(*centre_of_mass)
+        r = self.c.execute(
+            "from pxr import PhysxSchema\n"
+            f"prim = omni.usd.get_context().get_stage().GetPrimAtPath({path!r})\n"
+            "body = UsdPhysics.RigidBodyAPI.Apply(prim)\n"
+            f"body.CreateRigidBodyEnabledAttr().Set({enabled})\n"
+            f"body.CreateKinematicEnabledAttr().Set({kinematic})\n"
+            "UsdPhysics.CollisionAPI.Apply(prim)\n"
+            "mass = UsdPhysics.MassAPI.Apply(prim)\n"
+            "mass.CreateMassAttr().Set(5.0)\n"
+            f"com = {com}\n"
+            "if com is not None:\n"
+            "    mass.CreateCenterOfMassAttr().Set(com)\n"
+            "PhysxSchema.PhysxRigidBodyAPI.Apply(prim).CreateDisableGravityAttr().Set(True)\n"
+            "result = 'ok'"
+        )
+        self.assertEqual(r["status"], "success", r)
+        return path
+
+    def _physx_pose(self, path: str) -> dict:
+        """PhysX's pose of a rigid body now, and the simulation's time with it: `position`, `rotation` (x, y, z, w)
+        and `time` in seconds."""
+        r = self.c.execute(
+            "import omni.timeline\n"
+            "from omni.physx import get_physx_interface\n"
+            f"pose = get_physx_interface().get_rigidbody_transformation({path!r})\n"
+            "result = {'held': bool(pose['ret_val']), 'position': [float(v) for v in pose.get('position', (0, 0, 0))], "
+            "'rotation': [float(v) for v in pose.get('rotation', (0, 0, 0, 1))], "
+            "'time': omni.timeline.get_timeline_interface().get_current_time()}"
+        )
+        self.assertEqual(r["status"], "success", r)
+        pose = r["result"]["return_value"]
+        self.assertTrue(pose["held"], f"PhysX holds no rigid body at {path}")
+        return pose
+
+    def _speed_along_x(self, path: str) -> float:
+        """The body's speed along X from PhysX's pose over half a second of simulation, once a push has landed."""
+        time.sleep(0.2)
+        a = self._physx_pose(path)
+        time.sleep(0.5)
+        b = self._physx_pose(path)
+        self.assertGreater(b["time"], a["time"], "the simulation must play while the speed is measured")
+        return (b["position"][0] - a["position"][0]) / (b["time"] - a["time"])
+
+    def _physics_step(self) -> float:
+        """The physics scene's step in seconds: 1 / timeStepsPerSecond, 60 unless the scene says otherwise."""
+        r = self.c.execute(
+            "from pxr import PhysxSchema\n"
+            "steps = 60.0\n"
+            "for prim in omni.usd.get_context().get_stage().Traverse():\n"
+            "    if prim.IsA(UsdPhysics.Scene):\n"
+            "        if prim.HasAPI(PhysxSchema.PhysxSceneAPI):\n"
+            "            steps = float(PhysxSchema.PhysxSceneAPI(prim).GetTimeStepsPerSecondAttr().Get() or 60.0)\n"
+            "        break\n"
+            "result = 1.0 / steps"
         )
         self.assertEqual(r["status"], "success", r)
         return r["result"]["return_value"]
@@ -966,7 +1050,10 @@ class TestScenarios(unittest.TestCase):
 
         r = self.c.apply_force("/World/RedCube", force=[100, 0, 0])
         self.assertEqual(r["status"], "success", f"Apply force failed: {r.get('error', '')}")
-        print(f"  Force applied: method={r['result']['method']}")
+        # 0.2.0 fell back to nudging physics:velocity on every call, since the PhysX call it made doesn't exist (#25).
+        self.assertEqual(r["result"]["method"], "physx")
+        self.assertEqual(r["result"]["at"], "centre of mass")
+        print(f"  Force applied: method={r['result']['method']} at {r['result']['position']}")
 
         time.sleep(0.5)
         self.c.sim_control("stop")
@@ -976,6 +1063,157 @@ class TestScenarios(unittest.TestCase):
         """Phase 15.5: Apply Force to Invalid Prim"""
         r = self.c.apply_force("/World/Nonexistent", force=[1, 0, 0])
         self.assertEqual(r["status"], "error")
+        self._pass()
+
+    def test_15_06_impulse_and_force_by_mass(self):
+        """Phase 15.6: An impulse changes the speed by impulse / mass; a force acts for one physics step"""
+        body = self._force_body("ForceByMassCube")
+        dt = self._physics_step()
+
+        self.c.sim_control("play")
+        time.sleep(0.3)
+        r = self.c.apply_force(body, force=[10, 0, 0], impulse=True)
+        self.assertEqual(r["status"], "success", r)
+        speed = self._speed_along_x(body)
+        print(f"  10 N s on 5 kg: {speed:.3f} units/s along X (2 expected)")
+        self.assertAlmostEqual(speed, 2.0, delta=2.0 * 0.25)
+
+        # Stopping puts the body back at rest where it started.
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+        self.c.sim_control("play")
+        time.sleep(0.3)
+        r = self.c.apply_force(body, force=[10, 0, 0])
+        self.assertEqual(r["status"], "success", r)
+        speed = self._speed_along_x(body)
+        expected = 10 * dt / 5
+        # apply_force's description says a force lasts one physics step; a force PhysX held would keep speeding it up.
+        print(f"  10 N on 5 kg: {speed:.4f} units/s along X ({expected:.4f} expected for one step of {dt:.4f} s)")
+        self.assertAlmostEqual(speed, expected, delta=expected * 0.5)
+        self._pass()
+
+    def test_15_07_force_at_a_point_spins(self):
+        """Phase 15.7: A push at the centre of mass moves the body without turning it; one above it turns it"""
+        body = self._force_body("ForceSpinCube")
+        up = self._up_axis()
+
+        self.c.sim_control("play")
+        time.sleep(0.3)
+        before = self._physx_pose(body)
+        r = self.c.apply_force(body, force=[1, 0, 0], impulse=True)
+        self.assertEqual(r["status"], "success", r)
+        self.assertEqual(r["result"]["at"], "centre of mass")
+        time.sleep(0.5)
+        turned = _turn_degrees(before["rotation"], self._physx_pose(body)["rotation"])
+        print(f"  At the centre of mass: turned {turned:.2f} degrees")
+        self.assertLess(turned, 2.0)
+
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+        self.c.sim_control("play")
+        time.sleep(0.3)
+        before = self._physx_pose(body)
+        above = list(before["position"])
+        above[up] += 0.2
+        r = self.c.apply_force(body, force=[1, 0, 0], position=above, impulse=True)
+        self.assertEqual(r["status"], "success", r)
+        self.assertEqual(r["result"]["at"], "given")
+        time.sleep(0.5)
+        turned = _turn_degrees(before["rotation"], self._physx_pose(body)["rotation"])
+        print(f"  0.2 above the centre: turned {turned:.2f} degrees")
+        self.assertGreater(turned, 5.0)
+        self._pass()
+
+    def test_15_08_centre_of_mass_off_origin(self):
+        """Phase 15.8: Without a position, the push is at the centre of mass PhysX holds, not at the body's origin"""
+        up = self._up_axis()
+        side = 3 - up  # the axis neither X nor up: the centre of mass sits off the origin along it
+        offset = [0.0, 0.0, 0.0]
+        offset[side] = 0.5  # in the cube's own units, so 0.15 once its 0.3 scale applies
+        body = self._force_body("ForceOffCentreCube", centre_of_mass=offset)
+
+        self.c.sim_control("play")
+        time.sleep(0.3)
+        before = self._physx_pose(body)
+        r = self.c.apply_force(body, force=[2, 0, 0], impulse=True)
+        self.assertEqual(r["status"], "success", r)
+        self.assertEqual(r["result"]["at"], "centre of mass")
+        off = r["result"]["position"][side] - before["position"][side]
+        print(f"  The point pushed at is {off:.3f} off the origin along {'XYZ'[side]} (0.15 authored)")
+        self.assertAlmostEqual(off, 0.15, delta=0.02)
+        time.sleep(0.5)
+        turned = _turn_degrees(before["rotation"], self._physx_pose(body)["rotation"])
+        print(f"  At the centre of mass: turned {turned:.2f} degrees")
+        self.assertLess(turned, 2.0)
+
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+        self.c.sim_control("play")
+        time.sleep(0.3)
+        before = self._physx_pose(body)
+        r = self.c.apply_force(body, force=[2, 0, 0], position=before["position"], impulse=True)
+        self.assertEqual(r["status"], "success", r)
+        time.sleep(0.5)
+        turned = _turn_degrees(before["rotation"], self._physx_pose(body)["rotation"])
+        print(f"  At the origin: turned {turned:.2f} degrees")
+        self.assertGreater(turned, 5.0)
+        self._pass()
+
+    def test_15_09_apply_force_while_stopped(self):
+        """Phase 15.9: Stopped, PhysX holds no bodies, so a push is refused"""
+        body = self._force_body("ForceStoppedCube")
+        r = self.c.apply_force(body, force=[1, 0, 0])
+        self.assertEqual(r["status"], "error", r)
+        self.assertIn("stopped", r["error"])
+        self._pass()
+
+    def test_15_10_apply_force_to_a_kinematic_body(self):
+        """Phase 15.10: A kinematic body takes a force and doesn't move, so a push is refused"""
+        body = self._force_body("ForceKinematicCube", kinematic=True)
+        self.c.sim_control("play")
+        time.sleep(0.3)
+        r = self.c.apply_force(body, force=[1, 0, 0])
+        self.assertEqual(r["status"], "error", r)
+        self.assertIn("kinematic", r["error"])
+        self._pass()
+
+    def test_15_11_apply_force_to_a_robot_link(self):
+        """Phase 15.11: A push on a robot's link is refused: PhysX takes it and moves nothing (#58)"""
+        r = self.c.execute(
+            "root = omni.usd.get_context().get_stage().GetPrimAtPath('/World/G1')\n"
+            "links = [str(p.GetPath()) for p in Usd.PrimRange(root, Usd.TraverseInstanceProxies()) "
+            "if p.HasAPI(UsdPhysics.RigidBodyAPI)]\n"
+            "pelvis = next((p for p in links if p.endswith('/pelvis')), '')\n"
+            "result = [pelvis, next((p for p in links if p != pelvis), '')]"
+        )
+        self.assertEqual(r["status"], "success", r)
+        pelvis, other = r["result"]["return_value"]
+        self.assertTrue(pelvis and other, "No pelvis and other link under /World/G1: test_10_01 loads the G1")
+
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+        self.addCleanup(self.c.sim_control, "stop")
+        self.c.sim_control("play")
+        time.sleep(0.5)
+        # Measured on Isaac Sim 6.2 before the refusal: 100 N s on the pelvis succeeded and moved it no further along
+        # X than gravity alone did. The pelvis holds the G1's ArticulationRootAPI; the other link is its sibling.
+        for link in (pelvis, other):
+            r = self.c.apply_force(link, force=[100, 0, 0], impulse=True)
+            self.assertEqual(r["status"], "error", r)
+            self.assertIn(f"is a link of the articulation at {pelvis}", r["error"])
+            self.assertIn("#58", r["error"])
+            print(f"  Refused on {link}")
+        self._pass()
+
+    def test_15_12_apply_force_to_a_disabled_body(self):
+        """Phase 15.12: PhysX holds a disabled rigid body as a static one, which no force moves, so a push is
+        refused"""
+        body = self._force_body("ForceDisabledCube", enabled=False)
+        self.c.sim_control("play")
+        time.sleep(0.3)
+        r = self.c.apply_force(body, force=[1, 0, 0])
+        self.assertEqual(r["status"], "error", r)
+        self.assertIn("physics:rigidBodyEnabled is false", r["error"])
         self._pass()
 
     # ===== Phase 16: Raycasting & Debug Draw =====

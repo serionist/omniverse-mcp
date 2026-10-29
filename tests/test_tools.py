@@ -398,9 +398,17 @@ CASES = [
         "apply_force",
         {"prim_path": "/World/Cube", "force": [0, 0, 10], "impulse": True},
         "/physics/apply_force",
-        {"prim_path": "/World/Cube", "force": [0, 0, 10], "impulse": True, "method": "physx"},
+        {
+            "prim_path": "/World/Cube",
+            "force": [0.0, 0.0, 10.0],
+            # A centre of mass from PhysX carries float32 noise; the tool rounds it away.
+            "position": [0.0, 0.10000000149011612, 2.0],
+            "at": "centre of mass",
+            "impulse": True,
+            "method": "physx",
+        },
         {"prim_path": "/World/Cube", "force": [0, 0, 10], "impulse": True},
-        ("Applied impulse [0, 0, 10] to /World/Cube (method: physx)",),
+        ("Applied impulse [0.0, 0.0, 10.0] to /World/Cube at [0.0, 0.1, 2.0] (centre of mass)",),
     ),
     Case(
         "raycast",
@@ -574,6 +582,28 @@ def test_draw_debug_says_how_long_each_drawing_shows(bridge: MockIsaacServer, tm
     )
 
 
+def test_apply_force_at_a_given_point(bridge: MockIsaacServer, tmp_path: Path):
+    _check(
+        Case(
+            "apply_force",
+            {"prim_path": "/World/Cube", "force": [5, 0, 0], "position": [0, 0, 1.5]},
+            "/physics/apply_force",
+            {
+                "prim_path": "/World/Cube",
+                "force": [5.0, 0.0, 0.0],
+                "position": [0.0, 0.0, 1.5],
+                "at": "given",
+                "impulse": False,
+                "method": "physx",
+            },
+            {"prim_path": "/World/Cube", "force": [5, 0, 0], "position": [0, 0, 1.5], "impulse": False},
+            ("Applied force [5.0, 0.0, 0.0] to /World/Cube at [0.0, 0.0, 1.5] (given)",),
+        ),
+        bridge,
+        tmp_path,
+    )
+
+
 def test_get_logs_passes_on_the_bridges_note(bridge: MockIsaacServer, tmp_path: Path):
     # Kit wrote lines and none started an entry: the note says so, where an empty answer alone reads as a quiet Kit.
     _check(
@@ -584,6 +614,28 @@ def test_get_logs_passes_on_the_bridges_note(bridge: MockIsaacServer, tmp_path: 
             {"entries": [], "count": 0, "total_captured": 0, "buffer_size": 2000, "note": "an invented note"},
             {"count": 50},
             ("No log entries found (buffer has 0 total entries)\nan invented note",),
+        ),
+        bridge,
+        tmp_path,
+    )
+
+
+def test_apply_force_reads_a_0_2_0_extension_s_answer(bridge: MockIsaacServer, tmp_path: Path):
+    # 0.2.0's extension answers no `at`, echoes the position asked for (None when none was), and nudged the velocity.
+    _check(
+        Case(
+            "apply_force",
+            {"prim_path": "/World/Cube", "force": [100, 0, 0]},
+            "/physics/apply_force",
+            {
+                "prim_path": "/World/Cube",
+                "force": [100, 0, 0],
+                "position": None,
+                "impulse": False,
+                "method": "velocity",
+            },
+            {"prim_path": "/World/Cube", "force": [100, 0, 0], "impulse": False},
+            ("Applied force [100, 0, 0] to /World/Cube (method: velocity)",),
         ),
         bridge,
         tmp_path,

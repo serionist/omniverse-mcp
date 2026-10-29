@@ -673,14 +673,33 @@ Automatically applies the required USD physics APIs (`MassAPI`, `PhysicsMaterial
 
 ### `apply_force`
 
-Apply a force or impulse to a rigid body. Simulation must be playing.
+Push a rigid body through PhysX, so its mass counts: at `position`, or at its centre of mass when it is left out.
+The simulation must be playing or paused.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Rigid body prim |
-| `force` | list[float] | required | `[fx, fy, fz]` in Newtons (force) or N*s (impulse) |
-| `position` | list[float] | `null` | World-space application point; the world origin when omitted, for now ([#25](https://github.com/serionist/omniverse-mcp/issues/25)) |
-| `impulse` | bool | `false` | `true` for instantaneous impulse, `false` for continuous force |
+| `force` | list[float] | required | `[fx, fy, fz]`: an impulse in N s, or a force in N for one physics step |
+| `position` | list[float] | `null` | World-space point to push at; the body's centre of mass, as PhysX holds it, when omitted |
+| `impulse` | bool | `false` | `true` for an impulse in N s, which changes the velocity at once by `force / mass`; `false` for a force in N for one physics step, which changes it by `force * dt / mass`, `dt` being the physics step (1/60 s by default). One call can't hold a force over many steps: for a sustained push, give an impulse of force times seconds, the same change in velocity at once |
+
+**Refused,** before anything is applied:
+
+| When | Why |
+|---|---|
+| the simulation is stopped | PhysX holds no bodies then; paused works |
+| the body is disabled (`physics:rigidBodyEnabled` is false) | PhysX holds it as a static body, which no force moves |
+| the body is kinematic (`physics:kinematicEnabled` is true) | PhysX takes the force and moves it only by its transform |
+| PhysX holds no rigid body at `prim_path` | nothing to push; `get_logs(min_level="warn")` may say why |
+| the body is a link of an articulation, such as a robot's | PhysX takes the push and moves nothing, as measured on Isaac Sim 6.2 with the G1 ([#58](https://github.com/serionist/omniverse-mcp/issues/58)). A link is any body joined through joints to the body, joint or prim that carries `ArticulationRootAPI`, as UsdPhysics reads an articulation |
+| `position` is left out and PhysX gives the body no mass | no centre of mass to push at: give a `position` |
+
+**Returns:** `position`, the world point pushed at; `at`, `given` or `centre of mass`; `method`, `physx`. A point off
+the centre of mass turns the body as well as moving it. Newtons assume a stage in metres and kilograms: PhysX works
+in the stage's units (`meters_per_unit` in `get_sim_state`). The centre of mass comes from PhysX's
+unit-tests interface (`get_mass_information`), which NVIDIA may change between Kit releases; without it the call is
+an error, never a push at another point. All of this is the Kit extension's: one from 0.2.0 nudges
+`physics:velocity` instead, and its answer says `method: velocity`.
 
 ---
 
