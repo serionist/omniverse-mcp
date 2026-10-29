@@ -125,7 +125,18 @@ The results go into Findings, below, before the maintainer picks a fix.
 
 ## Findings
 
-None yet: the investigation hasn't run.
+E1 and E2 ran on 2026-10-29, on Isaac Sim 6.2.0 (pip, headless, Windows, RTX 5090) on port 8212, with `main`'s
+bridge (`2ea46d4`), through `create_robot("g1", ...)` then `sim_control("play")`. H1 holds: the hang is the bridge's
+own `omni.log` consumer.
+
+| Run | What happened |
+|---|---|
+| E1, bridge as it is, cold cook cache | `play` had no answer after 60 s; `/health` timed out for the next 8.5 minutes, when the run stopped; Kit's CPU time rose about 2.5 s per 15 s (about a sixth of one core), so waiting, not spinning |
+| E1, `py-spy dump --native` of the hung Kit | **Main thread:** `run_isaac_port.py` `update` > `simulation_manager.py:668` `_on_play` > `:733` `initialize_physics` > `_physics` binding > `omni.physx.plugin` > `omni.physx.cooking.plugin` > `carb.ujitsoagent` > `carb.tasking` wait. **Thread 70636, a `carb.tasking` worker:** `carb.ujitsoagent` > `omni.physx.cooking.plugin` > `carb.dll` (logging) > `log\_log.cp312-win_amd64.pyd` (omni.log's Python binding) > `PyEval_AcquireThread`, waiting for the GIL the main thread holds |
+| E2, a fresh Kit, cold cache, `log_buffer.stop()` through `execute_script` first | `play` answered in 0.6 s; `/health` answered at once and 11 s later, with physics running |
+
+E3 to E9 haven't run. E2 already answers the question that decides the fix (outcome A); E5 (the Franka) and E4 (flags)
+stay worth a run during the fix's live tests.
 
 ## Design
 
