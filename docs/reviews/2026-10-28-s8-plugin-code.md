@@ -1,6 +1,6 @@
 ---
 subject: "S8, the plugin: the Claude Code plugin, its skills and the README rewrite (PR #29)"
-base: main (803b9da)
+base: main (11a4667)
 head: cd49e97
 date: 2026-10-28
 round: 1

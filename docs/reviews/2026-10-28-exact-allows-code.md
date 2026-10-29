@@ -1,6 +1,6 @@
 ---
 subject: "Name each allowed command whole, and ask before what can read a file outside the repo (PR #20)"
-base: main (31ebffe)
+base: main (7398a7e)
 head: 8b9f015
 date: 2026-10-28
 round: 1

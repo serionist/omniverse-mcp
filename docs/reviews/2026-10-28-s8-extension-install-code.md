@@ -1,6 +1,6 @@
 ---
 subject: "S8, extension install: omniverse-mcp extension install and extension path (PR #28)"
-base: main (894d56c)
+base: main (6e62ddc)
 head: 8ccec6e
 date: 2026-10-28
 round: 1

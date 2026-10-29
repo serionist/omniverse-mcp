@@ -1,6 +1,6 @@
 ---
 subject: "Give each capture a file of its own, read once it is whole (PR #33, #32)"
-base: main (d2fdea5)
+base: main (c0c2957)
 head: 063f643
 date: 2026-10-29
 round: 1
