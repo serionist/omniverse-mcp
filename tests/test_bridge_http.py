@@ -237,11 +237,17 @@ def test_blank_lines_do_not_keep_a_connection_without_the_token_open(bridge):
     bridge.server.header_timeout = 1.0
     with socket.create_connection(("127.0.0.1", bridge.port), timeout=5) as sock:
         started = time.monotonic()
-        for _ in range(8):
-            sock.sendall(b"\r\n")
-            time.sleep(0.1)
+        try:
+            for _ in range(8):
+                sock.sendall(b"\r\n")
+                time.sleep(0.1)
+        except ConnectionError:
+            # A loaded runner's sleeps ran past the deadline, and the bridge closed it mid-send: at the deadline, not at
+            # once.
+            assert time.monotonic() - started >= 0.9
+        else:
+            assert _is_closed(sock)
         # Closed at the deadline set when it connected, not a full timeout after the last blank line (1.7 s).
-        assert _is_closed(sock)
         assert time.monotonic() - started < 1.5
 
 
