@@ -32,16 +32,16 @@ body:
     id: server-version
     attributes:
       label: Server version or commit
-      description: "The commit your clone is on: `git rev-parse --short HEAD` in it. Until the first release, every install is a clone."
-      placeholder: 1d471f1
+      description: "The `server_version` that `get_sim_state` reports, or `uvx omniverse-mcp==<version>` in your MCP client's config; from a clone, the commit it is on: `git rev-parse --short HEAD`."
+      placeholder: "X.Y.Z, or a commit"
     validations:
       required: true
   - type: input
     id: extension-version
     attributes:
       label: Extension version
-      description: "The `extension_version` that `/bridge` and `/health` report. Kit's console shows it at startup: `[ext: ovmcp.bridge-0.1.0] startup`."
-      placeholder: 0.1.0
+      description: "The `extension_version` that `get_sim_state` reports. Kit's console shows it at startup: `[ext: ovmcp.bridge-X.Y.Z] startup`."
+      placeholder: X.Y.Z
     validations:
       required: true
   - type: textarea

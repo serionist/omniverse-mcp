@@ -6,8 +6,8 @@ Usage: python tools/release.py check <tag>      the tag is vX.Y.Z, every version
                                                 PyPI shows has no relative path left
        python tools/release.py notes <version>  print CHANGELOG.md's section for the version, each paragraph on one
                                                 line: the release's notes
-       python tools/release.py pr               on a release PR (CHANGELOG.md has a section for pyproject.toml's
-                                                version), check as its tag will be; on any other change, pass
+       python tools/release.py pr               when CHANGELOG.md has a section for pyproject.toml's version (a
+                                                release PR, and every change after one), check as its tag would
 
 Standard library only, as the gate: CI runs it before anything is installed.
 """
@@ -98,8 +98,8 @@ def tag_problems(tag: str, root: Path = ROOT) -> list[str]:
 
 
 def pull_request_problems(root: Path = ROOT) -> list[str] | None:
-    """On a release PR, the problems its tag would meet: CHANGELOG.md has a section for pyproject.toml's version.
-    None on any other change, which carries the version of the last release."""
+    """The problems a tag for pyproject.toml's version would meet, once CHANGELOG.md has its section: on a release PR,
+    and on every change after it, which keeps that release's versions until the next one. None before the first."""
     with (root / "pyproject.toml").open("rb") as f:
         version = str(tomllib.load(f)["project"]["version"])
     heading, _ = section((root / "CHANGELOG.md").read_text(encoding="utf-8"), version)
@@ -132,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     if args == ["pr"]:
         problems = pull_request_problems()
         if problems is None:
-            print("release.py pr: not a release PR (CHANGELOG.md has no section for pyproject.toml's version)")
+            print("release.py pr: no release yet (CHANGELOG.md has no section for pyproject.toml's version)")
             return 0
         for problem in problems:
             print(f"release.py pr: {problem}", file=sys.stderr)

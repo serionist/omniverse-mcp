@@ -25,7 +25,7 @@
   screen boxes that tell the assistant what it sees.</sub>
 </p>
 
-An [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server that gives AI assistants full control over NVIDIA Omniverse applications -- including **Isaac Sim 5.1+**, USD Composer, and any Omniverse Kit-based app. Inspect scenes, manipulate objects, control robots, run physics simulations, capture viewports, record sessions, and manage extensions.
+An [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server that gives AI assistants full control over NVIDIA Omniverse applications -- including **Isaac Sim 5.x and up**, USD Composer, and any Omniverse Kit-based app. Inspect scenes, manipulate objects, control robots, run physics simulations, capture viewports, record sessions, and manage extensions.
 
 ```
 AI Assistant  <--MCP/stdio-->  MCP Server  <--HTTP/REST-->  Omniverse Extension
@@ -48,13 +48,13 @@ The tools, by area:
 | **Simulation** | `sim_control`, `get_sim_state` | Play/pause/stop/step simulation, query state (time, FPS, up axis) |
 | **Recording** | `start_recording`, `stop_recording`, `get_recording_frame` | Capture simulation frames + prim state over time for analysis |
 | **Physics** | `set_physics_properties`, `apply_force`, `raycast` | Set mass/friction/restitution, apply forces, cast rays for spatial queries |
-| **Debug** | `draw_debug` | Draw lines, spheres, and points in the viewport for visualization |
+| **Debug** | `draw_debug` | Draw lines, spheres, and points in the viewport for visualisation |
 | **Logging** | `get_logs` | Query Omniverse log entries (errors, warnings) for diagnosing tool failures |
 | **Scripting** | `execute_script` | Run Python inside the sim with `mcp` bridge for async MCP handler access |
 | **Extensions** | `manage_extensions` | List, enable, and disable Omniverse extensions |
 
 **Key capabilities:**
-- **Scene understanding** -- `capture_viewport` outputs a screenshot, screen-space bounding boxes, and instance segmentation (unique color per prim) so the AI knows what it sees
+- **Scene understanding** -- `capture_viewport` outputs a screenshot, screen-space bounding boxes, and instance segmentation (a unique colour per prim) so the AI knows what it sees
 - **Simulation recording** -- capture frames + prim state during physics, review any frame after
 - **File-based output** -- large scene dumps in grep-friendly text format, images saved as PNGs
 - **Arbitrary scripting** -- run any Python code inside the sim via `execute_script`; also serves as a fallback if any tool fails
@@ -73,8 +73,6 @@ The tools, by area:
 You need a Kit app of Kit 107 or later (Isaac Sim 5.x and up, USD Composer) and [uv](https://docs.astral.sh/uv/getting-started/installation/),
 which runs the server. Two parts: the MCP server your AI client starts, and the Kit extension `ovmcp.bridge` inside
 the Kit app, both from the same release.
-
-> **Before 0.2.0 is on PyPI,** only the last way, from a clone, works: the plugin and `uvx` fetch the server from PyPI.
 
 ### Claude Code: the plugin
 
@@ -132,7 +130,7 @@ path` prints the folder again.
 
 ### From a clone
 
-For working on omniverse-mcp itself, or before 0.2.0 is on PyPI:
+For working on omniverse-mcp itself:
 
 ```bash
 git clone https://github.com/serionist/omniverse-mcp.git
@@ -220,7 +218,7 @@ For a remote setup, set the extension's `token` to a long random value and give 
 
 **"Kit app connection failed", refused or timed out** -- Is the Kit app running, with the extension on? Its console shows `[ext: ovmcp.bridge-<version>] startup`. The server looks for it on port 8211 unless `OMNIVERSE_MCP_PORT` or `--port` says otherwise.
 
-**The plugin's server doesn't start** -- `/mcp` in Claude Code shows its error. Is `uv` on the PATH Claude Code starts with? Before 0.2.0 is on PyPI, use a clone (Install, From a clone).
+**The plugin's server doesn't start** -- `/mcp` in Claude Code shows its error. Is `uv` on the PATH Claude Code starts with?
 
 **Viewport capture returns black** -- The response includes a WARNING with the lighting mode. Use `viewport_light("get")` to see the mode and whether the scene has lights, then `viewport_light(action="set", mode="Default")` for a light rig, or `mode="camera"` for a light that follows the camera, and recapture. Kit 105.1+ has no default stage light, so scenes without explicitly added lights will render black.
 

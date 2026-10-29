@@ -5,6 +5,11 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+## 0.2.0 (2026-10-29)
+
+The first release on PyPI: `uvx omniverse-mcp`, or the Claude Code plugin. The breaking changes below concern a clone
+of this repo from before it.
+
 ### Security
 
 - **The bridge answers only the MCP server that holds its token.** Before this, any program on the machine, and any
@@ -85,7 +90,7 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   then `/plugin install omniverse-mcp@omniverse-mcp`. It starts the server of its release with `uvx`, and brings
   skills: `/omniverse-mcp:setup` installs the Kit extension and checks the connection; `scene`, `geometry`,
   `simulate` and `script` hold the workflows and traps `docs/AI_GUIDE.md` used to. A skill pre-approves read-only
-  tools only. It works once 0.2.0 is on PyPI.
+  tools only.
 - **`get_sim_state` reports the Kit extension's release beside the server's,** and when they differ, the command
   that installs the server's extension. A different release on the same bridge protocol works, so nothing else would
   show that Kit still runs the old extension after an update.
