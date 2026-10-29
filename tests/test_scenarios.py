@@ -30,6 +30,14 @@ def _check_bridge(host: str, port: int) -> None:
         raise ConnectionError(f"Health check failed at {host}:{port}: {r}")
 
 
+def _along_up(up: int, value: float, x: float = 0.0) -> list[float]:
+    """`value` along the up axis (index `up`), `x` along X, 0 on the third: a point at that height, or a turn about
+    the up axis."""
+    vector = [x, 0.0, 0.0]
+    vector[up] = value
+    return vector
+
+
 class TestScenarios(unittest.TestCase):
     """Full scenario tests matching test_project/scenarios.md."""
 
@@ -88,6 +96,15 @@ class TestScenarios(unittest.TestCase):
     def _pass(self):
         self._record("PASS")
 
+    def _up_axis(self) -> int:
+        """The stage's up axis as the bridge reads it now: 1 for Y, 2 for Z. Never assumed: Isaac Sim opens a Z-up
+        stage, and 17.2's new_scene leaves a Y-up one to the next run, so a first run and a later one differ (#6)."""
+        r = self.c.sim_state()
+        self.assertEqual(r["status"], "success", r)
+        up = r["result"]["up_axis"]
+        self.assertIn(up, ("Y", "Z"))
+        return 2 if up == "Z" else 1
+
     # ===== Phase 1: Connectivity =====
 
     def test_01_01_health_check(self):
@@ -112,11 +129,15 @@ class TestScenarios(unittest.TestCase):
 
     def test_02_01_create_primitives(self):
         """Phase 2.1: Create Primitives"""
-        r1 = self.c.create_prim("/World/Ground", "Cube", position=[0, -0.05, 0], scale=[10, 0.1, 10])
+        # Heights go along the stage's up axis, so the ground is a floor the cube falls onto (5.3, 7.1) on either.
+        up = self._up_axis()
+        flat = [10.0, 10.0, 10.0]
+        flat[up] = 0.1
+        r1 = self.c.create_prim("/World/Ground", "Cube", position=_along_up(up, -0.05), scale=flat)
         self.assertEqual(r1["status"], "success")
-        r2 = self.c.create_prim("/World/RedCube", "Cube", position=[0, 2, 0], scale=[0.3, 0.3, 0.3])
+        r2 = self.c.create_prim("/World/RedCube", "Cube", position=_along_up(up, 2), scale=[0.3, 0.3, 0.3])
         self.assertEqual(r2["status"], "success")
-        r3 = self.c.create_prim("/World/BlueSphere", "Sphere", position=[1, 0.5, 0], scale=[0.2, 0.2, 0.2])
+        r3 = self.c.create_prim("/World/BlueSphere", "Sphere", position=_along_up(up, 0.5, x=1), scale=[0.2, 0.2, 0.2])
         self.assertEqual(r3["status"], "success")
         r4 = self.c.create_prim("/World/Light", "DistantLight", rotation=[45, 0, 0])
         self.assertEqual(r4["status"], "success")
@@ -138,9 +159,10 @@ class TestScenarios(unittest.TestCase):
 
     def test_02_02_transform_operations(self):
         """Phase 2.2: Transform Operations"""
-        r = self.c.set_transform("/World/RedCube", position=[2, 2, 0])
+        up = self._up_axis()
+        r = self.c.set_transform("/World/RedCube", position=_along_up(up, 2, x=2))
         self.assertEqual(r["status"], "success")
-        r = self.c.set_transform("/World/RedCube", rotation=[0, 45, 0])
+        r = self.c.set_transform("/World/RedCube", rotation=_along_up(up, 45))
         self.assertEqual(r["status"], "success")
         r = self.c.set_transform("/World/RedCube", scale=[0.5, 0.5, 0.5])
         self.assertEqual(r["status"], "success")
@@ -175,20 +197,21 @@ class TestScenarios(unittest.TestCase):
 
     def test_02_05_spatial_reasoning(self):
         """Phase 2.5: Spatial Reasoning"""
+        up = self._up_axis()
         ground = self.c.prim_bounds("/World/Ground")["result"]
         cube = self.c.prim_bounds("/World/RedCube")["result"]
 
-        ground_top_y = ground["max"][1]
-        cube_half_h = cube["dimensions"][1] / 2.0
-        target_y = ground_top_y + cube_half_h
+        ground_top = ground["max"][up]
+        cube_half_h = cube["dimensions"][up] / 2.0
+        target = ground_top + cube_half_h
 
-        r = self.c.set_transform("/World/RedCube", position=[0, target_y, 0])
+        r = self.c.set_transform("/World/RedCube", position=_along_up(up, target))
         self.assertEqual(r["status"], "success")
 
         new_bounds = self.c.prim_bounds("/World/RedCube")["result"]
         # Cube center should be above ground top
-        self.assertGreater(new_bounds["center"][1], ground_top_y - 0.1)
-        print(f"  Placed cube at y={target_y:.3f}, ground_top={ground_top_y:.3f}")
+        self.assertGreater(new_bounds["center"][up], ground_top - 0.1)
+        print(f"  Placed cube at {'XYZ'[up]}={target:.3f}, ground_top={ground_top:.3f}")
         self._pass()
 
     # ===== Phase 3: Camera & Visual =====
@@ -327,13 +350,16 @@ class TestScenarios(unittest.TestCase):
 
     def test_05_03_gravity_test(self):
         """Phase 5.3: Gravity Test"""
+        # Gravity pulls along the stage's up axis: the physics scene of 4.5 gives no direction of its own.
+        up = self._up_axis()
+        axis = "XYZ"[up]
         self.c.sim_control("stop")
         time.sleep(0.3)
-        self.c.set_transform("/World/RedCube", position=[0, 3, 0])
+        self.c.set_transform("/World/RedCube", position=_along_up(up, 3))
         time.sleep(0.2)
 
         before = self.c.prim_bounds("/World/RedCube")["result"]
-        before_y = before["center"][1]
+        before_h = before["center"][up]
 
         self.c.sim_control("play")
         time.sleep(1.5)
@@ -342,10 +368,10 @@ class TestScenarios(unittest.TestCase):
         time.sleep(0.3)
 
         after = self.c.prim_bounds("/World/RedCube")["result"]
-        after_y = after["center"][1]
+        after_h = after["center"][up]
 
-        print(f"  Before Y={before_y:.2f}, After Y={after_y:.2f}")
-        self.assertLess(after_y, before_y, "Cube should have fallen due to gravity")
+        print(f"  Before {axis}={before_h:.2f}, After {axis}={after_h:.2f}")
+        self.assertLess(after_h, before_h, f"Cube should have fallen along {axis} due to gravity")
         self.c.sim_control("stop")
         self._pass()
 
@@ -355,7 +381,7 @@ class TestScenarios(unittest.TestCase):
         """Phase 6.1: Record a Falling Cube"""
         self.c.sim_control("stop")
         time.sleep(0.3)
-        self.c.set_transform("/World/RedCube", position=[0, 3, 0])
+        self.c.set_transform("/World/RedCube", position=_along_up(self._up_axis(), 3))
         time.sleep(0.2)
 
         output_dir = os.path.join(os.path.dirname(__file__), "..", "test_project", "results", "recordings")
@@ -395,7 +421,7 @@ class TestScenarios(unittest.TestCase):
         """Phase 7.1: Record with track_prims"""
         self.c.sim_control("stop")
         time.sleep(0.3)
-        self.c.set_transform("/World/RedCube", position=[0, 3, 0])
+        self.c.set_transform("/World/RedCube", position=_along_up(self._up_axis(), 3))
         time.sleep(0.2)
 
         output_dir = os.path.join(os.path.dirname(__file__), "..", "test_project", "results", "recordings_state")
@@ -430,27 +456,30 @@ class TestScenarios(unittest.TestCase):
         self.assertIn("[/World/RedCube]", content)
         self.assertIn("pos =", content)
 
-        # Check Y position decreases across frames
-        positions = []
+        # The cube's height in each frame, along the up axis 7.1 recorded on: nothing between the two changes it.
+        up = self._up_axis()
+        axis = "XYZ"[up]
+        heights = []
         for line in content.split("\n"):
             if line.startswith("pos ="):
                 parts = line.split("=")[1].strip().split(",")
-                y = float(parts[1].strip())
-                positions.append(y)
+                heights.append(float(parts[up].strip()))
 
-        self.assertGreater(len(positions), 0, "No position data found in state.txt")
-        if len(positions) >= 2:
-            max_y = max(positions)
-            min_y = min(positions)
-            self.assertGreater(max_y - min_y, 0.1, f"Y should vary due to gravity: max={max_y:.2f}, min={min_y:.2f}")
-            print(f"  Y positions: max={max_y:.2f}, min={min_y:.2f}, frames={len(positions)}")
+        self.assertGreater(len(heights), 1, "state.txt should hold the cube in more than one frame")
+        # Down from the first frame to the lowest, not the last: a frame still being captured when 7.1 stops the
+        # recording can be written after 7.1 stops the timeline, which puts the cube back at 3.
+        first, lowest = heights[0], min(heights)
+        self.assertGreater(
+            first - lowest, 0.1, f"{axis} should fall due to gravity: first={first:.2f}, lowest={lowest:.2f}"
+        )
+        print(f"  {axis} positions: first={first:.2f}, lowest={lowest:.2f}, frames={len(heights)}")
         self._pass()
 
     def test_07_03_record_with_property_filter(self):
         """Phase 7.3: Record with property_filter"""
         self.c.sim_control("stop")
         time.sleep(0.3)
-        self.c.set_transform("/World/RedCube", position=[0, 3, 0])
+        self.c.set_transform("/World/RedCube", position=_along_up(self._up_axis(), 3))
         time.sleep(0.2)
 
         output_dir = os.path.join(os.path.dirname(__file__), "..", "test_project", "results", "recordings_filtered")
@@ -560,7 +589,7 @@ class TestScenarios(unittest.TestCase):
 
     def test_10_01_spawn_g1(self):
         """Phase 10.1: Spawn G1 Robot"""
-        r = self.c.create_robot("g1", "/World/G1", position=[3, 0.74, 0])
+        r = self.c.create_robot("g1", "/World/G1", position=_along_up(self._up_axis(), 0.74, x=3))
         self.assertEqual(r["status"], "success", f"Failed: {r.get('error', '')}")
         self.assertIn("prim_path", r["result"])
         joints = r["result"].get("joints", [])
@@ -852,7 +881,7 @@ class TestScenarios(unittest.TestCase):
         """Phase 15.4: Apply Force"""
         self.c.sim_control("stop")
         time.sleep(0.3)
-        self.c.set_transform("/World/RedCube", position=[0, 2, 0])
+        self.c.set_transform("/World/RedCube", position=_along_up(self._up_axis(), 2))
         self.c.sim_control("play")
         time.sleep(0.3)
 
@@ -876,14 +905,15 @@ class TestScenarios(unittest.TestCase):
         """Phase 16.1: Raycast Hit"""
         self.c.sim_control("stop")
         time.sleep(0.3)
-        self.c.set_transform("/World/RedCube", position=[0, 1, 0])
+        up = self._up_axis()
+        self.c.set_transform("/World/RedCube", position=_along_up(up, 1))
         # Make sure physics scene exists for raycasting
         self.c.sim_control("play")
         time.sleep(0.3)
         self.c.sim_control("pause")
 
         # Cast a ray downward from above the ground
-        r = self.c.raycast(origin=[0, 10, 0], direction=[0, -1, 0], max_distance=100.0)
+        r = self.c.raycast(origin=_along_up(up, 10), direction=_along_up(up, -1), max_distance=100.0)
         self.assertEqual(r["status"], "success")
         result = r["result"]
         if result["hit"]:
