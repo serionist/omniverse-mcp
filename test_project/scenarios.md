@@ -7,6 +7,9 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 > Phases build on each other. If a phase creates prims, later phases may depend on them.
 > After Phase 17 (`new_scene`), the scene is wiped — Phases 18+ create their own prims.
 > Phases 24-26 test logging, async scripting, and camera settling (added after initial 23 phases).
+> Vectors below are written for a Y-up stage, which `new_scene` makes. On a Z-up stage (`get_sim_state`'s `up_axis`;
+> Isaac Sim's own new stage is Z-up), swap each vector's Y and Z, so heights stay along the up axis and the ground
+> stays a floor.
 
 ---
 
@@ -151,9 +154,9 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 
 ### 5.3 Gravity Test
 - Reset cube: `set_prim_transform("/World/RedCube", position=[0,3,0])`
-- `capture_viewport()` — cube should be at y=3
-- `sim_control("play")`, wait briefly, `sim_control("stop")`
-- `get_prim_bounds("/World/RedCube")` — center Y should be < 3 (fell due to gravity)
+- `capture_viewport()`: the cube's center should be 3 along the up axis
+- `sim_control("play")`, wait briefly, `sim_control("pause")` (a stop puts the cube back)
+- `get_prim_bounds("/World/RedCube")`: its center along the up axis should be < 3 (fell due to gravity)
 - `capture_viewport()` — verify visually
 
 ---
@@ -194,7 +197,7 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 - Verify frame markers: `=== FRAME t=X.XXX step=N ===`
 - Verify prim blocks: `[/World/RedCube]` with `type = Cube`
 - Verify position data: `pos = X.XXXX, Y.XXXX, Z.XXXX`
-- Verify Y position decreases across frames (gravity)
+- Verify the position along the up axis falls from the first frame (gravity)
 
 ### 7.3 Record with property_filter
 - Reset cube: `set_prim_transform("/World/RedCube", position=[0,3,0])`
