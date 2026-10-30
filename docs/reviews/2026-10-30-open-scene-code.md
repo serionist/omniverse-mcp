@@ -81,5 +81,9 @@ with `build-79-live.sh`: both live suites in full, 170 passed in 140.38 s, exit 
 | the rest of both suites | passed, phase 18's library robots among them |
 
 Not shown: Kit 107, the GUI, an open past its 80 s, a file that passes the checks and fails to load, Kit's busy
-refusal live, Nucleus `omniverse://`, an offline asset library, and the commits after `76e8bcc` (`0274222`,
-`838f021`), which wait for the re-run of `build-79-open.sh`.
+refusal live, Nucleus `omniverse://`, and an offline asset library.
+
+The fixes, on `dfe39a4`: a fresh Kit at 8212 with that commit's extension, run with `build-79-open.sh` (`test_27` to
+`test_36` and phase 17): 18 passed in 15.26 s, exit 0. `test_31` opened `IntTestOpen.usda` with the cube back, Z up;
+`test_36` opened `simple_room.usd` over HTTPS, 170 prims; `test_17_05` and `test_17_07` stopped after 7 and 8 frames
+with "the stage began to close".
