@@ -293,3 +293,25 @@ def test_inspect_from_an_older_extension_says_no_size(tmp_path):
     out = fns["inspect_prim"]("/World/Lamp")
 
     assert out.splitlines()[0] == "Inspect /World/Lamp (dist=5.0m)"
+
+
+def test_inspect_from_an_older_extension_at_another_size_is_flagged_with_the_fix(tmp_path):
+    answer = _inspect_answer()
+    answer["result"]["captures"][0]["image_base64"] = _png_base64(1280, 720)
+    fns, _ = _tools(tmp_path, {"camera_inspect": answer})
+
+    out = fns["inspect_prim"]("/World/Lamp", width=640, height=480)
+
+    (warning,) = [line for line in out.splitlines() if "WARNING" in line]
+    assert "The images are 1280x720, not the 640x480 asked for" in warning
+    assert "extension install" in warning
+
+
+def test_inspect_from_an_older_extension_at_the_size_asked_for_says_nothing_more(tmp_path):
+    answer = _inspect_answer()
+    answer["result"]["captures"][0]["image_base64"] = _png_base64(640, 480)
+    fns, _ = _tools(tmp_path, {"camera_inspect": answer})
+
+    out = fns["inspect_prim"]("/World/Lamp", width=640, height=480)
+
+    assert "WARNING" not in out

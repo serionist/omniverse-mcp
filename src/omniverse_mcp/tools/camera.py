@@ -61,6 +61,19 @@ def _sizes(r: dict[str, Any]) -> tuple[str, str | None]:
     )
 
 
+def _older_inspect_warning(r: dict[str, Any], width: int, height: int) -> list[str]:
+    """For an inspect_prim answer without its size, from an extension before #51: a warning when its images aren't the
+    size asked for, read from the first one's header, since that extension captured the viewport at its own size."""
+    first = next((cap["image_base64"] for cap in r.get("captures", []) if cap.get("image_base64")), "")
+    got = _png_size(first)
+    if got is None or got == (width, height):
+        return []
+    return [
+        f"  WARNING: The images are {got[0]}x{got[1]}, not the {width}x{height} asked for: the Kit extension is older "
+        f"than this server. Install this server's, {install_command()}, then restart Kit."
+    ]
+
+
 # What to do about a black capture. Camera mode needs no other extension; a rig needs the viewport's lighting menu.
 LIGHTING_ADVICE = (
     "Use viewport_light(action='set', mode='camera') for a light that follows the camera (always "
@@ -269,6 +282,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         # An extension from before #51 doesn't say the size, which was the viewport's whatever was asked.
         size_info = f", {r['width']}x{r['height']}" if r.get("width") and r.get("height") else ""
         lines = [f"Inspect {prim_path} (dist={r['distance']}m{size_info}{zoom_info}{isolate_info})"]
+        if not size_info:
+            lines.extend(_older_inspect_warning(r, width, height))
         for warning in r.get("isolate_warnings", []):
             lines.append(f"  WARNING (isolate): {warning}")
         warned = False
