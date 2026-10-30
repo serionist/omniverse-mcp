@@ -70,6 +70,10 @@ suites in full: 149 passed in 111.24 s.
 | `test_15_16` | passed: the Franka's `panda_link0` refused as held to the world, its `panda_hand` pushed |
 | `test_15_06` | 10 N s on 5 kg: 2.000 units/s; 10 N: 0.0333 for one step, as before |
 
+On `8042a0d`, with the fixes: the same Kit app, a fresh Kit with the fixed extension, both suites in full: 149 passed
+in 101.47 s, with the same measures: the pelvis 2.9260 against 2.9209, the pair 1.0000, the fixed base 0.00e+00 and
+its link 0.074, and 10 N s on 5 kg 2.000.
+
 ## Checks
 
 - **The probe for F1 and F2** (`e58/s12_dangling.py`, outside the repo), on Isaac Sim 6.2.0 headless at port 8212.
