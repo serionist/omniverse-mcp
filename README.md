@@ -263,8 +263,6 @@ On Isaac Sim 6.2, the only Kit app tested so far:
   ([#58](https://github.com/serionist/omniverse-mcp/issues/58)).
 - **`capture_viewport` and `inspect_prim` return the image at the viewport's size,** while their boxes use the size
   asked for ([#51](https://github.com/serionist/omniverse-mcp/issues/51)).
-- **`draw_debug`'s fallback for Kit apps without Isaac Sim's debug drawing** can miss a capture
-  ([#57](https://github.com/serionist/omniverse-mcp/issues/57)).
 - **Some parameters are ignored:** `start_recording`'s camera and size: it records the active viewport at its own
   size, and warns when it is given them
   ([#25](https://github.com/serionist/omniverse-mcp/issues/25)).

@@ -19,6 +19,11 @@ T = TypeVar("T")
 
 FRAME_SECONDS = 30.0  # one frame of the viewport: a settle's, a reset's, or the capture's own
 FILE_SECONDS = 10.0  # the captured file, which Kit 110 writes after it says the capture is done (#32)
+# Frames of the viewport a capture lets pass before it is scheduled. A capture takes the next frame the viewport
+# delivers, which the renderer made about 3 updates earlier, so without them a drawing or a change made just before
+# was missing from the image (#57). Measured on Isaac Sim 6.2, rendering synchronously and asynchronously: 2 frames
+# always enough, 3 for the longest trail seen; this is one more.
+FRESH_FRAMES = 4
 SEGMENTATION_SECONDS = 5.0  # instance segmentation's first data after the sensor is enabled
 CALL_SECONDS = 80.0  # one inspect_prim or capture_viewport call
 CLEANUP_SECONDS = 10.0  # the settle after isolate's prims are shown again
@@ -131,11 +136,12 @@ class KitCapture(Protocol):
 
 
 class Png(NamedTuple):
-    """A captured image, with how long its frame and its file took."""
+    """A captured image, with how long its frame and its file took, and the wait for fresh frames before them."""
 
     data: bytes
     frame_seconds: float
     file_seconds: float
+    fresh_seconds: float = 0.0
 
 
 async def capture_png(
@@ -144,13 +150,22 @@ async def capture_png(
     next_update: Callable[[], Awaitable[object]],
     budget: Budget | None = None,
     clock: Clock = time.monotonic,
+    *,
+    next_frame: Callable[[], Awaitable[object]] | None = None,
 ) -> Png:
     """Schedule a capture, wait for its frame, then for its file to be a whole PNG.
+
+    Given `next_frame`, FRESH_FRAMES frames of the viewport pass first (`frames`, so each is bounded and a viewport
+    that renders nothing is NoFrameError before anything is scheduled); without it the capture is scheduled at once.
 
     `schedule` starts Kit's capture into the file that `read_file` reads. A spent budget starts no capture. Kit
     gives None for a viewport without a render texture, and a result that names nothing captured when the frame had
     no colour output: no file will come for either, so each fails at once (#35) instead of after FILE_SECONDS.
     """
+    asked = clock()
+    if next_frame is not None:
+        await frames(next_frame, FRESH_FRAMES, budget, clock)
+    # After the frames, which may have spent the budget: a capture started now would write its file after the call.
     if budget is not None and budget.left() <= 0:
         raise budget.out_of_time()
     started = clock()
@@ -175,7 +190,7 @@ async def capture_png(
         if cut_short and budget is not None:
             raise budget.out_of_time()
         raise CaptureError(f"Kit wrote no whole image in {seconds:g} s after capturing {completed!r}")
-    return Png(data, framed - started, clock() - framed)
+    return Png(data, framed - started, clock() - framed, started - asked)
 
 
 class Call:

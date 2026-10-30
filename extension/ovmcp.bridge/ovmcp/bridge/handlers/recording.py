@@ -155,7 +155,10 @@ async def handle_recording_start(body: dict) -> dict:
                 f"frame_{frame_idx:05d}.png",
             )
             try:
-                data = await capture_viewport_png(viewport)
+                # No fresh frames: they would make each tick about twice as long, and ticks that overlap read the
+                # same frame_count, so they would write over each other's files (#69). Recording's own feed (#25)
+                # replaces this capture.
+                data = await capture_viewport_png(viewport, fresh=False)
             except RuntimeError:
                 # No whole frame in time: an empty file marks it, so the frames keep their numbers.
                 data = b""

@@ -5,6 +5,15 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Fixed
+
+- **`capture_viewport` and `inspect_prim` show what was done just before the call:** Kit captured a frame its
+  renderer had made about 3 updates earlier, so a drawing or another change made just before could be missing from
+  the image, `draw_debug`'s lines in Kit apps without `isaacsim.util.debug_draw` most often. A capture now lets 4
+  frames of the viewport pass first, which costs about 20 to 70 ms. Recording's frames don't wait, and still show the
+  scene a few updates before their simulation time. The fix is in the Kit extension: run
+  `uvx omniverse-mcp extension install` and restart Kit (#57).
+
 ## 0.2.2 (2026-10-29)
 
 The server joins the official MCP registry, and PyPI's page gets working in-page links. The tools and the Kit

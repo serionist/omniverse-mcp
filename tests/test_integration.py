@@ -20,7 +20,7 @@ import pytest
 from omniverse_mcp.client import BridgeClient
 from ovmcp.core import capture
 
-from .conftest import live_bridge
+from .conftest import RESTORE_LIMIT, SET_LIMIT, live_bridge
 
 pytestmark = pytest.mark.sim
 
@@ -86,35 +86,6 @@ class _Finished:
 
 def wrapper(viewport_api, file_path=None, *args, **kwargs):
     return _Finished()
-"""
-
-# Sets one of ovmcp.core.capture's limits; an extension from before the bounded waits has none to set. The token says
-# whose change it is: by value alone, an earlier run's late undo would put back a later run's limit mid-test.
-_SHORTEN = """
-import asyncio
-try:
-    from ovmcp.core import capture
-except ImportError:
-    capture = None
-if capture is not None:
-    token = object()
-    capture._ovmcp_test_{name} = token
-    capture.{name} = {seconds!r}
-
-    def undo():
-        if getattr(capture, "_ovmcp_test_{name}", None) is token:
-            capture.{name} = {default!r}
-            capture._ovmcp_test_{name} = None
-
-    asyncio.get_running_loop().call_later(60, undo)
-result = capture is not None
-"""
-
-_RESTORE = """
-from ovmcp.core import capture
-capture.{name} = {default!r}
-capture._ovmcp_test_{name} = None
-result = capture.{name}
 """
 
 # Turns the active viewport's updates off, then waits up to 3 s for a frame through Kit's own frame wait.
@@ -419,10 +390,10 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
 
     def _shorten(self, name: str, seconds: float) -> bool:
         """Set one of ovmcp.core.capture's limits in Kit until the test ends; False for an extension without them."""
-        values = {"name": name, "seconds": seconds, "default": getattr(capture, name)}
-        shortened = self._kit(_SHORTEN.format(**values))
+        values = {"name": name, "value": seconds, "default": getattr(capture, name)}
+        shortened = self._kit(SET_LIMIT.format(**values))
         if shortened:
-            self.addCleanup(self._kit, _RESTORE.format(**values))
+            self.addCleanup(self._kit, RESTORE_LIMIT.format(**values))
         return shortened
 
     def test_15c_segmentation_that_comes_late_is_waited_for(self):
