@@ -219,6 +219,8 @@ class TestIsaacSimIntegration(unittest.TestCase):
         # It runs only with OMNIVERSE_MCP_SIM=1 (conftest.py), so a bridge that doesn't answer is a failure.
         host, port = live_bridge()
         cls.client = BridgeClient(host=host, port=port, timeout=30.0)
+        # open_scene's calls get the server's own 120 s: an open over the network takes seconds (#79).
+        cls.slow = BridgeClient(host=host, port=port, timeout=120.0)
         result = cls.client.health()
         if result.get("status") != "success":
             raise ConnectionError(f"Health check failed at {host}:{port}: {result}")
@@ -236,12 +238,14 @@ class TestIsaacSimIntegration(unittest.TestCase):
             "/World/IntTestClone",
             "/World/IntTestRobot",
             "/World/IntTestPair",
+            "/World/IntTestOpen",
         ]:
             try:
                 cls.client.delete_prim(path)
             except Exception:
                 pass
         cls.client.close()
+        cls.slow.close()
 
     # ===== Basic connectivity =====
 
@@ -930,6 +934,100 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(result["status"], "error")
         self.assertIn("already exists", result["error"])
 
+    # ===== Opening a scene (#79) =====
+    # test_31 saves the stage the suite found and opens that copy again, so its content stays; the stage stays tied to
+    # the copy, which the cleanup deletes.
+
+    OPENED_CUBE = "/World/IntTestOpen"
+    MISSING = "ovmcp-no-such-scene/Missing.usda"
+
+    def _saved_copy(self, name: str) -> Path:
+        """The open stage saved to a .usda of the test's own (one Windows doesn't hold locked), deleted after it."""
+        folder = Path(tempfile.mkdtemp(prefix="ovmcp-open-"))
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = folder / name
+        r = self.client.save_scene(str(path))
+        self.assertEqual(r["status"], "success", r)
+        return path
+
+    def _open(self, file_path: str) -> dict:
+        return self.slow.open_scene(file_path)
+
+    def _reopen(self, path: Path) -> None:
+        r = self._open(str(path))
+        self.assertEqual(r["status"], "success", r)
+
+    def _cube_is_there(self) -> None:
+        r = self.client.prim_properties(self.OPENED_CUBE)
+        self.assertEqual(r["status"], "success", "the open stage went with a refused open")
+
+    def test_31_open_scene_opens_a_saved_scene_again(self):
+        r = self.client.create_prim(self.OPENED_CUBE, "Cube")
+        self.assertEqual(r["status"], "success", r)
+        before = self.client.sim_state()["result"]
+        path = self._saved_copy("IntTestOpen.usda")
+        self.assertEqual(self.client.new_scene()["status"], "success")
+        self.assertEqual(self.client.prim_properties(self.OPENED_CUBE)["status"], "error")
+        self.assertEqual(self.client.sim_control("play")["status"], "success")
+        r = self._open(str(path))
+        self.assertEqual(r["status"], "success", r)
+        result = r["result"]
+        self.assertEqual(Path(result["file_path"]), path)
+        self.assertEqual(result["replaced"], "an unsaved stage")
+        self.assertEqual((result["up_axis"], result["meters_per_unit"]), (before["up_axis"], before["meters_per_unit"]))
+        # Stopped before the open, as Kit's File > Open does.
+        self.assertTrue(result["stopped"])
+        self.assertEqual(self.client.sim_state()["result"]["state"], "stopped")
+        self._cube_is_there()
+        print(f"  {path.name}: {result['prim_count']} prims, {result['up_axis']} up, the cube back")
+
+    def test_32_open_scene_refuses_a_missing_file_before_kit_closes_the_stage(self):
+        # Kit closes the open stage before it reads the file (#79's E7): the path rule refuses first.
+        missing = Path(tempfile.gettempdir()) / self.MISSING
+        r = self._open(str(missing))
+        self.assertEqual(r["status"], "error", r)
+        self.assertIn(str(missing), r["error"])
+        self._cube_is_there()
+
+    def test_33_open_scene_refuses_a_file_usd_cant_open(self):
+        folder = Path(tempfile.mkdtemp(prefix="ovmcp-open-"))
+        self.addCleanup(shutil.rmtree, folder, True)
+        notes = folder / "notes.txt"
+        notes.write_text("plain text\n", encoding="utf-8")
+        r = self._open(str(notes))
+        self.assertEqual(r["status"], "error", r)
+        self.assertIn("USD can't open", r["error"])
+        self._cube_is_there()
+
+    def test_34_open_scene_refuses_a_url_with_no_file(self):
+        # A URL isn't looked for on disk: omni.client's stat refuses it.
+        url = (Path(tempfile.gettempdir()) / self.MISSING).as_uri()
+        r = self._open(url)
+        self.assertEqual(r["status"], "error", r)
+        self.assertIn(f"No file at {url}", r["error"])
+        self._cube_is_there()
+
+    def test_35_open_scene_reads_a_relative_path_from_kit_s_folder(self):
+        r = self.client.execute(f"import os\nresult = os.path.join(os.getcwd(), *{self.MISSING.split('/')!r})")
+        self.assertEqual(r["status"], "success", r)
+        whole = r["result"]["return_value"]
+        r = self._open(self.MISSING)
+        self.assertEqual(r["status"], "error", r)
+        self.assertIn(f"No USD file at {whole}", r["error"])
+        self._cube_is_there()
+
+    def test_36_open_scene_opens_a_scene_of_isaac_sim_s_asset_library(self):
+        # Over the network, as the scenarios' robots load; the suite's stage comes back from its own copy after.
+        copy = self._saved_copy("IntTestBack.usda")
+        self.addCleanup(self._reopen, copy)
+        r = self._open("/Isaac/Environments/Simple_Room/simple_room.usd")
+        self.assertEqual(r["status"], "success", r)
+        result = r["result"]
+        self.assertTrue(result["file_path"].endswith("/Isaac/Environments/Simple_Room/simple_room.usd"), result)
+        self.assertEqual((result["default_prim"], result["up_axis"], result["meters_per_unit"]), ("/Root", "Z", 1.0))
+        self.assertFalse(result["writable"])
+        print(f"  {result['file_path']}: {result['prim_count']} prims")
+
     # ===== Cleanup =====
 
     def test_99_cleanup(self):
@@ -940,6 +1038,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
             "/World/IntTestClone",
             "/World/IntTestRobot",
             "/World/IntTestPair",
+            "/World/IntTestOpen",
             "/World/Looks",
         ]:
             self.client.delete_prim(path)

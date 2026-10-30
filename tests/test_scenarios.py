@@ -10,6 +10,8 @@ import itertools
 import json
 import math
 import os
+import shutil
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -2033,6 +2035,48 @@ class TestScenarios(unittest.TestCase):
         logged = self.c.get_logs(count=50, since_index=since, search="Py_Graph")["result"]["entries"]
         self.assertEqual(logged, [], "omni.syntheticdata tripped on a capture's graph")
         print("  2 captures, a new stage, a third: segmentation each time, nothing in Kit's log")
+        self._pass()
+
+    def _open_scene(self, file_path: str) -> dict:
+        """open_scene through a client with the server's 120 s: the scenario client's 10 s is short for an open."""
+        host, port = live_bridge()
+        client = BridgeClient(host=host, port=port, timeout=120.0)
+        try:
+            return client.open_scene(file_path)
+        finally:
+            client.close()
+
+    def test_17_07_an_opened_file_stops_a_recording_and_drops_the_drawings(self):
+        """Phase 17.7: open_scene stops a recording's frames and drops the drawings, as a new stage does, and the
+        opened stage captures with its segmentation (#79's E11). The stage saved first is the one opened, so the
+        phases after find its content; it stays tied to the copy, which the cleanup deletes."""
+        self._stop_recording_after()
+        self.addCleanup(self.c.delete_prim, self.SEGMENTED_CUBE)
+        folder = Path(tempfile.mkdtemp(prefix="ovmcp-open-"))
+        self.addCleanup(shutil.rmtree, folder, True)
+        scene = folder / "Phase17_7.usda"
+        self.assertEqual(self.c.save_scene(str(scene))["status"], "success")
+        start = self._lines_go_after_the_test()
+        r = self.c.recording_start(self._recordings("recordings_opened_file"), fps=10, width=320, height=240)
+        self.assertEqual(r["status"], "success", r)
+        product = r["result"]["render_product"]
+        drawn = self.c.draw_debug("line", start=[0, 0, 0], end=[1, 0, 0], duration=30.0)
+        self.assertEqual(drawn["status"], "success", drawn)
+        time.sleep(0.3)
+        opened = self._open_scene(str(scene))
+        self.assertEqual(opened["status"], "success", opened)
+        time.sleep(0.5)
+        taken = len(self._frames(r["result"]["output_dir"]))
+        time.sleep(0.5)
+        self.assertEqual(len(self._frames(r["result"]["output_dir"])), taken, "frames went on on the opened stage")
+        stop = self.c.recording_stop()
+        self.assertEqual(stop["status"], "success", stop)
+        self.assertIn("stage", stop["result"].get("note", ""))
+        self.assertEqual(self._run_in_kit(RENDER_PRODUCT, PATH=product), [False, [], False])
+        # The 30 s line went with its stage.
+        self._wait_for_line_count(start, timeout=5.0)
+        self._segmented_capture()
+        print(f"  {stop['result']['frame_count']} frames, then: {stop['result']['note']}; the line gone")
         self._pass()
 
     # ===== Phase 24: Logging =====
