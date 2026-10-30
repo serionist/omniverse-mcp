@@ -143,6 +143,27 @@ CASES = [
         {"file_path": "scene.usd"},
         ("Scene saved (save_as) -> scene.usd",),
     ),
+    Case(
+        "open_scene",
+        {"file_path": "C:/Scenes/room.usda"},
+        "/scene/open",
+        {
+            "file_path": "C:/Scenes/room.usda",
+            "replaced": None,
+            "up_axis": "Z",
+            "up_axis_authored": True,
+            "meters_per_unit": 1.0,
+            "meters_per_unit_authored": True,
+            "default_prim": "/World",
+            "prim_count": 14,
+            "package": False,
+            "writable": True,
+            "stopped": False,
+            "recording_note": None,
+        },
+        {"file_path": "C:/Scenes/room.usda"},
+        ("Opened C:/Scenes/room.usda\nup_axis = Z\nmeters_per_unit = 1.0\ndefault_prim = /World\nprim_count = 14",),
+    ),
     Case("new_scene", {}, "/scene/new", {}, {}, ("New scene created",)),
     # Geometry and USD
     Case(
@@ -668,6 +689,61 @@ def test_get_sim_state_says_nothing_more_when_the_extension_is_this_release(brid
     text = "\n".join(getattr(c, "text", "") for c in result.content)
     assert f"extension_version = {release}\nserver_version = {version('omniverse-mcp')}" in text
     assert "note = " not in text
+
+
+# What the bridge answers open_scene for a stage the model should be told more about (#79): a .usdz from a URL that
+# sets no axis or units, opened while the simulation and a recording ran.
+OPENED_WITH_NOTES = {
+    "file_path": "https://example.invalid/Scenes/room.usdz",
+    "replaced": "C:/Scenes/before.usda",
+    "up_axis": "Y",
+    "up_axis_authored": False,
+    "meters_per_unit": 0.01,
+    "meters_per_unit_authored": False,
+    "default_prim": None,
+    "prim_count": 3,
+    "package": True,
+    "writable": False,
+    "stopped": True,
+    "recording_note": "frames stopped after 28, at 0.00 s of simulation: the stage began to close",
+}
+
+
+def _open_scene(answer: dict[str, Any], says: tuple[str, ...]) -> Case:
+    file_path = str(answer["file_path"])
+    return Case("open_scene", {"file_path": file_path}, "/scene/open", answer, {"file_path": file_path}, says)
+
+
+def test_open_scene_says_what_the_model_should_know_of_the_stage(bridge: MockIsaacServer, tmp_path: Path):
+    says = (
+        "Opened https://example.invalid/Scenes/room.usdz\nreplaced = C:/Scenes/before.usda\n",
+        "default_prim = none",
+        "note = the file sets no upAxis: USD reads it as Y",
+        "note = the file sets no metersPerUnit: USD reads it as 0.01 (centimetres)",
+        "note = a .usdz package can't be saved back: flatten_usd, or save_scene with a file_path ending .usd or .usda",
+        "note = the simulation was running: it is stopped now",
+        "recording_note = frames stopped after 28, at 0.00 s of simulation: the stage began to close",
+    )
+    text = _check(_open_scene(OPENED_WITH_NOTES, says), bridge, tmp_path)
+    # A package can't be saved back at all; the read-only note would say less.
+    assert "read-only" not in text
+
+
+def test_open_scene_notes_a_read_only_stage_alone(bridge: MockIsaacServer, tmp_path: Path):
+    answer = {
+        **OPENED_WITH_NOTES,
+        "up_axis_authored": True,
+        "meters_per_unit_authored": True,
+        "package": False,
+        "stopped": False,
+        "recording_note": None,
+    }
+    text = _check(
+        _open_scene(answer, ("note = the stage is read-only here: save_scene needs a file_path to keep changes",)),
+        bridge,
+        tmp_path,
+    )
+    assert text.count("note = ") == 1
 
 
 # What an extension of 0.2.2 or older answers a recording's start with: it records the viewport, and names no render

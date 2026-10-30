@@ -116,6 +116,9 @@ class TestBridgeClient(unittest.TestCase):
         )
         cls.mock.set_response("/scene/new", {"status": "success", "result": {"message": "New scene created"}})
         cls.mock.set_response(
+            "/scene/open", {"status": "success", "result": {"file_path": "C:/Scenes/room.usda", "up_axis": "Z"}}
+        )
+        cls.mock.set_response(
             "/robot/create",
             {
                 "status": "success",
@@ -624,6 +627,13 @@ class TestBridgeClient(unittest.TestCase):
     def test_new_scene(self):
         r = self.client.new_scene()
         self.assertEqual(r["status"], "success")
+
+    def test_open_scene(self):
+        r = self.client.open_scene("C:/Scenes/room.usda")
+        self.assertEqual(r["status"], "success")
+        _, path, body = self.mock.requests[-1]
+        self.assertEqual(path, "/scene/open")
+        self.assertEqual(body, {"file_path": "C:/Scenes/room.usda"})
 
     def test_get_robot_info(self):
         r = self.client.get_robot_info("/World/G1")

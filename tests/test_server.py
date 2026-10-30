@@ -14,6 +14,7 @@ import pytest
 from mcp import Client, MCPError
 
 from omniverse_mcp.client import BridgeClient
+from omniverse_mcp.kit_extension import install_command
 from omniverse_mcp.server import Helpers, create_server
 
 from .mock_bridge import MockIsaacServer
@@ -75,6 +76,19 @@ def test_the_bridges_error_is_an_error_result_with_the_end_of_its_traceback(brid
     assert "line 7" in text
     assert "line 3" in text
     assert "line 2" not in text  # the last five lines only
+
+
+def test_a_route_an_older_extension_lacks_names_the_command_that_installs_this_server_s(bridge, client, tmp_path):
+    # An extension of 0.2.2 has no /scene/open (#79): the server's update went ahead of the extension's.
+    bridge.set_response("/scene/open", {"status": "error", "error": "Unknown endpoint: /scene/open"}, status=404)
+    server = create_server("127.0.0.1", bridge.port, str(tmp_path), client=client)
+
+    result = _run(server, lambda c: c.call_tool("open_scene", {"file_path": "C:/Scenes/room.usda"}))
+
+    assert result.is_error
+    text = result.content[0].text
+    assert "Unknown endpoint: /scene/open. The Kit extension is older than this server" in text
+    assert f"{install_command()}, then restart Kit" in text
 
 
 def test_a_value_out_of_range_is_refused_before_the_bridge(bridge, client, tmp_path):
