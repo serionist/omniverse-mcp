@@ -100,9 +100,9 @@ taken as the viewport takes them (F3, F4), through `execute_script`.
 | E14 | E11's warning isn't ours | Logged after a play and a stop with no texture made; not logged after a texture is made, used and dropped |
 | E15 | The tick below, one frame in flight, numbered at its tick, `fps=30` for 2 s playing | 161 updates, 40 frames, 40 numbers, in order, all whole 320x240 PNGs, none empty; 40 ticks skipped while a frame was in flight (each took 0.031-0.047 s, about four updates); the cube's centre from row 47 to 166 as it fell and landed |
 
-Plan review round 1 asked for more (P4, P5 and rendering on demand); the main session ran `e25_round1.py` (E16-E21)
-and `e25_residue.py` (E22) on fresh Kits the same day. The image's height was matched to PhysX's pose through a table
-of the cube's image row at six heights, taken stopped.
+Plan review round 1 asked for more (P4, P5 and rendering on demand); the main session ran `e25_round1.py` (E16-E21),
+`e25_residue.py` (E22) and `e25_quality.py` (E23) on fresh Kits the same day. The image's height was matched to
+PhysX's pose through a table of the cube's image row at six heights, taken stopped.
 
 | # | What it shows | Numbers |
 |---|---|---|
@@ -113,6 +113,7 @@ of the cube's image row at six heights, taken stopped.
 | E20 | The cost, headless: app updates a second, medians of five interleaved rounds of 120 updates | None 213; a feed rendering every update: 145 at 640x480 (32 % fewer), 124 at 1920x1080 (42 %), 52 at 4096x4096 (75 %); a feed on demand, idle: 202 (within the rounds' spread: none ranged 179-214). One 4096x4096 frame: a whole 6.5 MB PNG in 1.14 s |
 | E21 | From a scene opened from a file: the root layer reads as changed straight after the open, before any feed (Kit writes the viewport's render product into it); a feed adds its `def`; deleting the render product from every layer leaves no spec at its path, but the root layer's text still names the feed | `root_dirty_after_open: true`; the feed's specs `root` `def`, `session` `over`, then none; `feed_in_root_export_after_removal: true` (E22) |
 | E22 | What else names the feed (`e25_residue.py`, a fresh Kit): Kit also adds the render product to `/Render/OmniverseGlobalRenderSettings`'s `products` in the root layer. Deleting the prim from every layer leaves that target, so a scene saved after a recording would list a render product that isn't there | While the texture lives: the session `over` (`viewportHandle`, `viewPickingId`, `deviceIds`), the root `def` (`resolution`, `camera`, `orderedVars` to `/Render/Vars/LdrColor`, 31 `omni:rtx:*` settings) and the `products` target; after the deletion, the `products` target alone |
+| E23 | R12's check (`e25_quality.py`, a fresh Kit, real-time path tracing, async rendering off, a still scene, 640x480): a frame rendered on demand is about four times as far from a settled always-on frame as two settled frames are from each other, and doesn't settle at `fps=5` | Mean absolute difference per channel, as a share of 255: two always-on frames after 100 and 130 updates, 0.0020 (0.0024 against a third); on demand, its first frame 0.0094, one after 60 updates off 0.0088, ten at a frame every 12 updates 0.0088 to 0.0098 |
 
 ### Candidates
 
@@ -134,12 +135,12 @@ of the cube's image row at six heights, taken stopped.
   makes one (F5), named `ovmcp_recording_<uuid hex>`: a session's id is its start second, so a forced restart within
   that second would reuse a name. `None` or an exception is an error. No edit target is set around it: Kit writes
   the render product into the root layer whatever the target (E12).
-- **Rendering on demand:** the texture's updates are off (F5) except from a frame's request to its delivery, so a
-  recording renders only for its frames: a feed rendering every update cost a third of the app's updates at 640x480
-  headless, an idle one on demand nothing measurable (E20), and the first frame after updates come back on is fresh
-  (E19). A frame is delivered 0 to 2 updates after its request, and a request made before the last render arrived
-  would share it (E18), so the frame clock asks for no frame while one awaits its render. Whether an on-demand frame
-  is as clean as an always-on one under Isaac Sim's default real-time path tracing is still to measure (R12).
+- **Rendering while the recording runs:** the texture renders every update from start to stop, so each frame is as
+  settled as the viewport's own. Rendering on demand (updates off, F5, except from a frame's request to its
+  delivery) costs nothing measurable between frames (E20) and its frames show the scene as it is (E19), but under
+  Isaac Sim's default real-time path tracing each is a first render, about four times as far from a settled frame as
+  two settled frames are from each other, and it doesn't settle at `fps=5` (E23). Rendering every update costs a
+  third of the app's updates at 640x480 headless (E20). Which to ship is an owner call (Q9).
 - **One drawable-changed subscription,** in F2's Kit 110 form when `omni.hydratexture` has
   `GLOBAL_EVENT_DRAWABLE_CHANGED`, else the Kit 107 one. The handler counts frames and hands any queued capture
   delegate the frame's outputs exactly as the viewport does (F3). Nothing else runs in it: no USD, no logging (#5's
@@ -169,10 +170,12 @@ own, `capture.capture_png`, the unlink. `capture_viewport_png(viewport, budget)`
   `None`; usd-core runs it in the tests.
 - **`FrameClock(steps_per_frame)`:** `tick()` is the number of the frame to take on this update, or `None`: every
   `steps_per_frame`-th update, while no frame awaits its render and fewer than `MAX_IN_FLIGHT = 4` frames are in
-  flight; `rendered()` and `done()` free them. Numbers start at 0 and never repeat. A frame takes about four app
-  updates (E15), most of them after its render (E17): with one in flight, `fps=30` gave 15 frames a second; four
-  leave room for more while their files are written, and the one awaiting its render holds a feed that renders
-  nothing to one wait at a time. A tick skipped shows as a gap in the frames' `sim_time` (Q5).
+  flight; `rendered()` and `done()` free them. Rendering every update, a frame arrives on its request's update (E17),
+  so the first rule costs nothing; it keeps two frames from sharing a render, as they did on demand (E18). Numbers
+  start at 0 and never repeat. A frame takes about four app updates (E15), most of them after its render (E17): with
+  one in flight, `fps=30` gave 15 frames a second; four leave room for more while their files are written, and the
+  one awaiting its render holds a feed that renders nothing to one wait at a time. A tick skipped shows as a gap in
+  the frames' `sim_time` (Q5).
 
 ### The recording handler (`handlers/recording.py`)
 
@@ -242,13 +245,14 @@ Two plans planned alongside this one touch the same code. Each lands on its own;
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
 | Q1 | Keep the tool's schema as it is (defaults 640, 480, `""`; minimum 1), so a default call now records 640x480 from the active camera, where it recorded the viewport's size? | Yes: 640x480 is what the contract has always said; "0 means the viewport's size" would be a schema change for a case `capture_viewport` covers | |
-| Q2 | Cap a side at 4096, as #51 does, refused by the extension, not in the schema? | Yes: 4096x4096 works, a 6.5 MB frame in 1.14 s, and on demand it renders only for its frames (E20); a schema `maximum` is a contract change for no gain | |
+| Q2 | Cap a side at 4096, as #51 does, refused by the extension, not in the schema? | Yes: 4096x4096 works, a 6.5 MB frame in 1.14 s, though rendering it every update leaves a quarter of the app's updates headless (E20), which TOOLS.md says; a schema `maximum` is a contract change for no gain. #51's round-1 plan (`00469be`) names 3840x2160 a frame besides; this plan measured 4096x4096 and keeps 4096 a side alone, for the shared check (Q8) | |
 | Q3 | Keep #52's warning for an extension of 0.2.2 or older, told apart by `render_product` missing from its answer? | Yes, with the install line: a new server on an old extension would otherwise say nothing again | |
 | Q4 | When the stage changes or the camera goes mid-recording, stop taking frames and say so at stop, rather than record near-black or white frames (E8, E9)? | Yes | |
 | Q5 | Up to four frames in flight, each numbered at its tick, where today's unbounded ticks overwrite each other (E10) and one in flight halves `fps=30` (E15)? | Four: close to the `fps` asked, and bounded | |
 | Q6 | #51's direction (resize the viewport for a capture, or capture through this plan's feed), and the merge order of #51, #57 and #25 | #51's own call; whichever order, the second to land takes the first's size check, and #51's recording skip goes (Overlap) | |
 | Q7 | Frames overwriting each other (E10) gets an issue of its own, closed by this PR, with its own CHANGELOG line? | Yes: a bug users hit at any `fps` whose ticks outrun a capture, apart from #25's camera and size | |
 | Q8 | One size check in `ovmcp/core` for `capture_viewport`, `inspect_prim` and `start_recording`? | Yes: one cap, one message, one test | |
+| Q9 | The feed renders every update while the recording runs (settled frames; a third of the app's updates at 640x480 headless, three quarters at 4096x4096, E20), or only for each frame (nothing measurable between frames; frames about four times the settled noise under real-time path tracing, E23)? | Every update: recorded frames match what the viewport shows, and the cost lasts only while recording. Headless, where each update advances the simulation a fixed step (E15: 161 updates, 2.63 s simulated), it slows the run's wall time, not its results. A warm-up of a few updates before each frame is a middle way no run here has measured | |
 
 ## Compatibility
 
@@ -269,8 +273,8 @@ What users notice:
 | Several frames could share a number, each overwriting the last (E10) | Each frame its own number; a tick while four frames are still being written takes none, which `sim_time` shows |
 | The tracked prims' state was read when a frame's capture ended, frames after its `sim_time` | It is read at the frame's tick, at its `sim_time` |
 | A new stage or a deleted camera went on recording the viewport | Frames stop, and `stop_recording` and `get_sim_state` say why (Q4) |
-| | One more render for each frame, at its size: nothing measurable between frames, and close to always on at a high `fps`, which at 640x480 headless costs a third of the app's updates (E20) |
-| | A frame shows the simulation within one update of its `sim_time` (E18) |
+| | One more render every update while recording, at the frame's size: a third of the app's updates at 640x480 headless, three quarters at 4096x4096 (E20; Q9) |
+| | A frame shows the simulation one update before its `sim_time` (E17) |
 
 - **Mixed releases:** the fix is in the extension: `uvx omniverse-mcp extension install`, then restart Kit, as
   `get_sim_state`'s `note` says. A new server on an older extension keeps #52's warning (Q3); an older server on the
@@ -284,7 +288,7 @@ Each step builds and passes `uv run tools/gate.py quick`; the PR ends with `fini
 
 | Step | What | Proven by |
 |---|---|---|
-| 0 | The live runs before any code: E1-E22 done, and the Design follows them (the edit target and the removal from E12, E13 and E22, the warning from E14, frames in flight from E15, rendering on demand from E18 to E20). Still to run: an on-demand frame against an always-on one, same still scene, under real-time path tracing (R12). Q7's issue opened by the maintainer's session | What the live runs showed; R12's run |
+| 0 | The live runs before any code: E1-E23 done, and the Design follows them (the edit target and the removal from E12, E13 and E22, the warning from E14, frames in flight from E15, rendering every update from E18 to E20 and E23, pending Q9). Q7's issue opened by the maintainer's session | What the live runs showed |
 | 1 | This plan, the branch's first commit | `review-plan`, then the maintainer |
 | 2 | `core/recording.py` | `tests/test_recording.py` |
 | 3 | `handlers/camera_feed.py`; `capture_file_png` in `_utils.py`, `capture_viewport_png` and `capture_feed_png` on it | `tests/test_camera_feed.py`; the capture tests unchanged and passing; live: the capture and inspect tests, `test_integration.py`'s `test_10` to `test_15e` and the scenario phases 3, 22 and 26 |
@@ -300,7 +304,7 @@ Each step builds and passes `uv run tools/gate.py quick`; the PR ends with `fini
 | File | What it checks |
 |---|---|
 | `tests/test_recording.py` (new) | `recording_args` takes and refuses what it should: 4096 a side taken, 4097 refused, 0 and `True` refused, a missing `output_dir` (the size check itself is tested where it lives, Q8); `steps_per_frame`; `camera_error` on a usd-core stage: nothing there, an Xform, a Camera; `FrameClock`: a frame every `steps_per_frame` updates, none while one awaits its render or four are in flight, one again once freed, numbers from 0 in order and never repeated |
-| `tests/test_camera_feed.py` (new) | Against a fake Kit, as `tests/test_debug_draw_handler.py` loads its handler: the Kit 110 event form when the module has it, the 107 form otherwise; updates off until a delegate is queued, on until its frame is delivered, then off; a queued delegate gets the next frame's outputs keyed by name, once; a withdrawn one gets none; `drop` twice is safe; `remove_render_product` deletes the prim in each layer holding a spec and the `products` target in each layer listing it, and nothing while the stage isn't `OPENED` |
+| `tests/test_camera_feed.py` (new) | Against a fake Kit, as `tests/test_debug_draw_handler.py` loads its handler: the Kit 110 event form when the module has it, the 107 form otherwise; updates on from creation to `drop` (or, if Q9 picks on demand, off until a delegate is queued, on until its frame is delivered, then off); a queued delegate gets the next frame's outputs keyed by name, once; a withdrawn one gets none; `drop` twice is safe; `remove_render_product` deletes the prim in each layer holding a spec and the `products` target in each layer listing it, and nothing while the stage isn't `OPENED` |
 | `tests/test_recording_handler.py` (new) | Against a fake Kit: start makes one feed with the camera and size asked; a missing camera, a non-camera and a bad size make none; a second start while the first awaits its first frame is refused; a feed with no first frame, or a stage change during that wait, is an error that drops the feed and removes its render product; a tick while a frame awaits its render, or with four in flight, takes none; the tracked state is written at the tick, in number order, whatever order the captures end in; stop awaits every frame in flight and lists them in number order; a removal that raises still lets stop write `metadata.json`, end the recording and name the failure in `note`; a stage that isn't `OPENED`, a new stage and a deleted camera stop the frames, cancel those in flight (empty markers), drop the feed and give stop and `get_sim_state` their note, and the render product is deleted from the new stage once it is `OPENED`; a forced restart drops the old feed; `on_shutdown` cancels the frame tasks and drops the feed without removing the prim |
 | `tests/test_tools.py` | The answer with `render_product` reads `Recording rec_1 at 5fps, 320x240 from /World/RecCam` and has no `WARNING`, given a camera and a size or not; the answer without it (an older extension) keeps the warning, with the install line, for each parameter as today's three tests; `stop_recording` shows a `note`, `get_sim_state` a `recording_note` |
 | `tests/test_contract.py` | Unchanged and passing: the golden file doesn't move |
@@ -329,9 +333,9 @@ runs' 0.17 s (the live suites run warm, after earlier phases).
 ## Docs
 
 - `docs/TOOLS.md`, `start_recording`: what it records and at what size, the cap, frames every few updates whether or
-  not the simulation plays, a frame showing the simulation within one update of its `sim_time` (E18), the extra
-  render for each frame (E20), frames stopping at a stage change or a deleted camera; `metadata.json` now lists what
-  the frames are; the parameter table. `stop_recording`'s `note`; `get_sim_state`'s `recording_note`.
+  not the simulation plays, a frame showing the simulation one update before its `sim_time` (E17), the extra render
+  while recording and its cost (E20), frames stopping at a stage change or a deleted camera; `metadata.json` now
+  lists what the frames are; the parameter table. `stop_recording`'s `note`; `get_sim_state`'s `recording_note`.
 - `docs/ARCHITECTURE.md`: Recording System (the feed, the frame clock, stop's cleanup); the handlers list gains
   `camera_feed`; the core list gains `recording.py`; Extension Lifecycle's shutdown drops the feed.
 - `README.md`, Known issues: the #25 line goes.
@@ -352,7 +356,7 @@ runs' 0.17 s (the live suites run warm, after earlier phases).
 | # | Risk | Status |
 |---|---|---|
 | R1 | The drawable-changed handler runs where Kit dispatches it: a Python callback on a worker thread can deadlock on the GIL (#5) | Resolved on Kit 110: main thread only, in every timeline state (E16). Accepted on Kit 107, whose push subscription's thread no run here measured: the handler only queues, with no USD and no logging, whatever thread calls it |
-| R2 | One more RTX render for each frame, at the frame's size: GPU time and VRAM | Accepted: on demand, an idle feed costs nothing measurable, but at a high `fps` it renders nearly every update, a third of the app's updates at 640x480 and three quarters at 4096x4096, headless (E20); TOOLS.md says so; the feed exists only while recording |
+| R2 | One more RTX render every update while recording, at the frame's size: GPU time and VRAM | Accepted, pending Q9: a third of the app's updates at 640x480 and three quarters at 4096x4096, headless (E20); TOOLS.md says so; the feed exists only while recording. On demand would cost nothing measurable between frames, at E23's grain |
 | R3 | Kit writes the render product into the root layer, whatever the edit target, adds it to `/Render/OmniverseGlobalRenderSettings`'s `products` there, and the prim outlives the texture (E5, E12, E22): a scene saved mid-recording carries it, as it carries the viewport's own | Accepted for a save mid-recording, as Kit does it for the viewport; otherwise resolved: the prim and the `products` target deleted from every layer at stop, on a failed start and at a stage change (E12, E13, E22); `test_06_06` checks the root layer's text. The root layer reads as changed after any open (E21), so a recording doesn't change what the user is told about unsaved changes |
 | R4 | A new stage or a deleted camera gives near-black or white frames (E8, E9), from the new stage's default camera (E13) | Resolved: frames stop, the render product is deleted from the new stage, and stop says why (Q4) |
 | R5 | E11's "already released" warning in Kit's log | Resolved: not ours (E14) |
@@ -362,7 +366,7 @@ runs' 0.17 s (the live suites run warm, after earlier phases).
 | R9 | Two frames could get the same render: a request made before the last render arrived shares it (E18) | Resolved: the frame clock asks for no frame while one awaits its render; `test_06_08` prints how many neighbouring frames are the same byte for byte |
 | R10 | `on_shutdown` leaves the render product on the stage: at Kit's exit the stage goes with Kit, but when the extension is turned off or hot-reloaded during a recording, the stage stays, with the prim and its `products` target in the root layer | Accepted: deleting prims while Kit shuts down is the crash `draw_debug`'s plan avoided, and `on_shutdown` can't tell an exit from a turn-off; a recording live across a turn-off is rare, and a new stage or the user deleting the prim clears it. `on_shutdown` cancels the frame tasks, so none writes after |
 | R11 | The texture leaves a target in the root layer's `/Render/OmniverseGlobalRenderSettings.products` after its prim is deleted (E21, E22) | Resolved: `remove_render_product` deletes the target too; `test_06_06` checks the root layer's text no longer names the feed |
-| R12 | An on-demand frame may be less clean than an always-on one under real-time path tracing, Isaac Sim 6.2's default: #51's run found a feed's first frame further from its 100th (0.24 by that run's measure) than its 100th from its 130th (0.07), and none of E18 to E20 compares image quality | Open, run in Step 0 before code: an on-demand frame and an always-on frame of the same still scene, each against a second always-on frame. On demand stays if the difference is within the always-on frames' own; otherwise rendering every update while the recording runs, at E20's cost, goes to the maintainer as an owner call |
+| R12 | An on-demand frame may be less clean than an always-on one under real-time path tracing, Isaac Sim 6.2's default: #51's run found a feed's first frame further from its 100th (0.24 by that run's measure) than its 100th from its 130th (0.07), and none of E18 to E20 compares image quality | Resolved by E23: on-demand frames were 0.0088 to 0.0098 from a settled frame, against 0.0020 to 0.0024 between settled frames, so on demand failed its rule. The feed renders every update while recording, at E20's cost, and Q9 asks the maintainer to confirm or pick on demand |
 
 ## Plan review
 
@@ -372,7 +376,8 @@ runs' 0.17 s (the live suites run warm, after earlier phases).
 the live runs' numbers against their outputs: E1-E3, E5, E6, E8-E11, E13 and E15 matched, and E14 held (other Kit
 logs with no feed of ours show the warning too). **Verdict:** `needs-answers`: six minors, no blocker or major; the
 owner calls wait for the maintainer. **Now:** all six fixed in the commit after `39c1e8b`, with round 1's runs
-(E16-E22) in; R12's run is Step 0's last, before code.
+(E16-E23) in. E23 settled R12 against rendering on demand, so the feed renders every update while recording,
+pending the new owner call Q9.
 
 | # | Sev | Finding | Status |
 |---|---|---|---|
@@ -385,11 +390,12 @@ owner calls wait for the maintainer. **Now:** all six fixed in the commit after 
 
 **Refuted:** none recorded by this round.
 
-**Owner calls:** Q1-Q8, in Design, Decisions for the maintainer; Q6-Q8 are this round's. Unanswered.
+**Owner calls:** Q1-Q9, in Design, Decisions for the maintainer; Q6-Q8 are this round's, Q9 its follow-up run's.
+Unanswered.
 
 | Improvement | Answer |
 |---|---|
-| Render only while a frame is pending (`set_updates_enabled` between captures) | taken: the first frame after updates come back on is fresh (E19); E18 added the rule that no frame is asked for while one awaits its render; R12 still compares image quality before code |
+| Render only while a frame is pending (`set_updates_enabled` between captures) | left, for Q9: the first frame after updates come back on shows the scene as it is (E19), but under real-time path tracing it is a first render, about four times the settled noise, and stays so at `fps=5` (E23); the rule that no frame is asked for while one awaits its render (E18) stays |
 | Stop taking frames as soon as `get_stage_state()` isn't `OPENED` | taken |
 | A texture name of its own (a uuid), not the session's second | taken |
 | `omni.kit.hydra_texture` and `omni.kit.widget.viewport` as optional dependencies in `extension.toml` | taken |
