@@ -26,7 +26,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         Use it to find prim paths before acting on them: it is the lightest look at a scene. A branch cut at max_depth
         shows how many children it holds, and the prims inside an instanceable prim are not listed
         (get_prim_face_count_tree looks inside). For properties, use get_prim_properties on one prim, or dump_scene for
-        many at once, written to a file to grep. A long answer is written to a file and its path returned.
+        many at once, written to a file to grep.
         """
         resp = bridge_call(client.scene_tree, root, max_depth, fmt="text")
         r = resp["result"]
@@ -73,7 +73,6 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Use it to read one prim; get_prim_bounds when only its size and place matter, dump_scene for many prims at
         once, get_scene_tree to find paths. Relationships, such as a material binding, are named without their targets.
-        A long answer is written to a file and its path returned.
         """
         resp = bridge_call(client.prim_properties, prim_path, fmt="text")
         text = resp["result"]["text"]

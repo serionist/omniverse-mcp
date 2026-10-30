@@ -188,9 +188,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Use it to mark points, rays or paths, such as a raycast's hit, for a capture or the user to see: on Isaac Sim
         6.x the lines show in capture_viewport's image. Nothing is added to the stage. Isaac Sim draws with
-        isaacsim.util.debug_draw, turned on at the first call. Its clear takes every line drawn
-        with it, so when a drawing expires, lines other code drew with it go too. Other Kit apps draw with
-        omni.debugdraw when they have it. A new stage drops the old one's drawings."""
+        isaacsim.util.debug_draw, turned on at the first call. Its clear takes every line drawn with it, so when a
+        drawing expires, lines other code drew with it go too. Other Kit apps draw with omni.debugdraw when they have
+        it. A new stage drops the old one's drawings."""
         kwargs: dict[str, Any] = {"duration": duration}
         if color is not None:
             kwargs["color"] = color

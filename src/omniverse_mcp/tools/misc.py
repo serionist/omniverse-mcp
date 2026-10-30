@@ -29,31 +29,19 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         comes back as its str); stdout and stderr come back too, and an exception as an error with the traceback's last
         lines. A script that blocks freezes Kit: the call gives up after 120 s, and the script runs on.
 
-        The `mcp` object provides async access to MCP handlers from within scripts.
-        Use `await` to call its methods (the script automatically runs as async):
+        `mcp` calls the tools' handlers from the script, each returning a dict with "status" and "result". Await them,
+        which makes the script async:
 
-            viewport = await mcp.capture_viewport(width=1280, height=720)
-            tree = await mcp.scene_tree()
-            await mcp.set_camera([5, 3, 5], target=[0, 0, 0])
-            result = {"tree": tree["result"]}
+            bounds = await mcp.prim_bounds("/World/Cube")
+            await mcp.set_camera([5, 3, 5], target=bounds["result"]["center"])
+            result = bounds["result"]
 
-        Available mcp methods:
-            mcp.capture_viewport(width, height, camera_path)
-            mcp.set_camera(position, target)
-            mcp.look_at(prim_path, distance, azimuth, elevation)
-            mcp.inspect(prim_path, angles, width, height, zoom_offset=0.0, isolate=False)
-            mcp.scene_tree(root, max_depth)
-            mcp.prim_properties(prim_path)
-            mcp.prim_bounds(prim_path)
-            mcp.set_transform(prim_path, position, rotation, scale)
-            mcp.create_prim(prim_path, prim_type, **kwargs)
-            mcp.delete_prim(prim_path)
-            mcp.set_material(prim_path, color, opacity, roughness, metallic)
-            mcp.sim_control(action)  -- play/pause/stop/step
-            mcp.sim_state()
-            mcp.get_logs(count, min_level, channel, search)
-
-        Each returns the full handler response dict with "status" and "result" keys.
+        Its methods: capture_viewport(width, height, camera_path), set_camera(position, target), look_at(prim_path,
+        distance, azimuth, elevation), inspect(prim_path, angles, width, height, zoom_offset=0.0, isolate=False),
+        scene_tree(root, max_depth), prim_properties(prim_path), prim_bounds(prim_path), set_transform(prim_path,
+        position, rotation, scale), create_prim(prim_path, prim_type, **kwargs), delete_prim(prim_path),
+        set_material(prim_path, color, opacity, roughness, metallic), sim_control(action), sim_state(),
+        get_logs(count, min_level, channel, search).
         """
         resp = bridge_call(client.execute, code)
 
@@ -122,7 +110,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Use this to investigate errors: when any tool fails, call get_logs(min_level="warn") to see what the Kit app
         reported. Kit's file holds Info and above by default; verbose lines need Kit started with both
-        --/log/level=verbose and --/log/fileLogLevel=verbose. A long answer is written to a file and its path returned.
+        --/log/level=verbose and --/log/fileLogLevel=verbose.
         """
         resp = bridge_call(client.get_logs, count, min_level, channel, None, search)
         r = resp["result"]

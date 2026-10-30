@@ -53,7 +53,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Use it to find the heavy subtrees, then get_mesh_stats for one subtree's totals or compare_prims for two.
         Unlike get_scene_tree, it looks inside instanceable prims. Prims below max_depth are left out of the list but
-        still count in their ancestors' subtree_faces. A long answer is written to a file and its path returned.
+        still count in their ancestors' subtree_faces.
         """
         resp = bridge_call(client.face_count_tree, root, max_depth)
         r = resp["result"]
