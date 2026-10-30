@@ -29,10 +29,11 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"pixels" + b"\x00\x00\x00\x00IEND\xaeB`\x82"
 class FakeTexture:
     """What the feed reads of a hydra texture."""
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, log: list[Any] | None = None) -> None:
         self.name = name
         self.updates: list[bool] = []
         self.stream_subscriptions: list[tuple[Any, ...]] = []
+        self._log = log if log is not None else []
 
     def get_render_product_path(self) -> str:
         return PRODUCT_PREFIX + self.name
@@ -56,6 +57,20 @@ class FakeTexture:
 
     def set_updates_enabled(self, enabled: bool) -> None:
         self.updates.append(enabled)
+        self._log.append(("updates", enabled))
+
+
+class FakeRegistry:
+    """omni.syntheticdata's registry of graphs, as a feed's release reads it: graphs by path, and their reset."""
+
+    def __init__(self, kit: "FakeKit") -> None:
+        self._kit = kit
+        self._nodeGraphs: dict[str, str] = {}
+
+    def _reset_node_graph(self, graph: str) -> None:
+        stage = self._kit.stage
+        on_session = stage.GetEditTarget().GetLayer() == stage.GetSessionLayer()
+        self._kit.log.append(("reset", graph, "session layer" if on_session else "another layer"))
 
 
 class FakeDelegate:
@@ -91,13 +106,25 @@ class FakeKit:
         self.stage_state = OPENED
         self.stage = Usd.Stage.CreateInMemory()
         self.on_update: Any = None
+        # What happened, in order, across the texture, omni.syntheticdata and the app's updates.
+        self.log: list[Any] = []
+        self.registry: Any = FakeRegistry(self)
+        self.sensor_error: Exception | None = None
 
     def create_hydra_texture(self, name: str, *args: Any, **kwargs: Any) -> FakeTexture | None:
         self.created.append((name, *args, kwargs))
         if self.give_none:
             return None
-        self.textures.append(FakeTexture(name))
+        self.textures.append(FakeTexture(name, self.log))
         return self.textures[-1]
+
+    def enable_sensors(self, view: Any, sensor_types: list[str]) -> None:
+        self.log.append(("enable", view.render_product_path, sensor_types))
+
+    def disable_sensors(self, view: Any, sensor_types: list[str]) -> None:
+        if self.sensor_error is not None:
+            raise self.sensor_error
+        self.log.append(("disable", view.render_product_path, sensor_types))
 
     def observe_event(self, **kwargs: Any) -> tuple[str, str]:
         self.observers.append(kwargs)
@@ -135,6 +162,7 @@ def _load(name: str, path: Path) -> Any:
 def _fake_kit(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> None:
     async def next_update_async() -> None:
         await asyncio.sleep(0)
+        kit.log.append("update")
         if kit.on_update is not None:
             kit.on_update(None)
 
@@ -153,6 +181,12 @@ def _fake_kit(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> None:
     )
     usd = _module("omni.usd", get_context=lambda: context, StageState=SimpleNamespace(OPENED=OPENED, CLOSING=CLOSING))
     omni_kit = _module("omni.kit", app=kit_app, hydra_texture=texture_module)
+    syntheticdata = _module(
+        "omni.syntheticdata",
+        sensors=SimpleNamespace(enable_sensors=kit.enable_sensors, disable_sensors=kit.disable_sensors),
+        _syntheticdata=SimpleNamespace(SensorType=SimpleNamespace(InstanceSegmentation="InstanceSegmentation")),
+        SyntheticData=SimpleNamespace(Get=lambda: kit.registry),
+    )
     fakes = {
         "carb": _module("carb", log_info=lambda _m: None, log_warn=lambda _m: None, eventdispatcher=dispatcher),
         "carb.eventdispatcher": dispatcher,
@@ -164,6 +198,7 @@ def _fake_kit(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> None:
         "omni.kit.widget.viewport": _module("omni.kit.widget.viewport"),
         "omni.kit.widget.viewport.capture": viewport_capture,
         "omni.hydratexture": hydratexture,
+        "omni.syntheticdata": syntheticdata,
         "omni.usd": usd,
     }
     for name, module in fakes.items():
@@ -313,6 +348,103 @@ def test_forget_deletes_nothing_and_stops_looking(feeds, kit):
     feeds.forget()
     assert feeds._leftovers.feeds == []
     assert feeds._leftovers.subscription is None
+
+
+def test_a_feed_reads_as_a_viewport_does_to_omni_syntheticdata(feeds, kit):
+    feed = feeds.CameraFeed("/World/Cam", 320, 240, prefix="ovmcp_capture")
+    # What get_view_params, world_to_image and the sensors read of a viewport (#51's A9).
+    assert (feed.camera_path, feed.resolution) == ("/World/Cam", (320, 240))
+    assert feed.render_product_path == PRODUCT_PREFIX + kit.created[-1][0]
+    assert kit.created[-1][0].startswith("ovmcp_capture_")
+
+
+def test_a_feed_s_frames_are_waited_for_and_their_absence_names_the_camera(feeds, kit, monkeypatch):
+    feed = feeds.CameraFeed("/World/Cam", 320, 240)
+    kit.on_update = lambda _event: kit.frame(feed.frames + 1)  # a frame on every update
+    asyncio.run(feed.wait_frames(3))
+    assert feed.frames == 3
+
+    kit.on_update = None
+    monkeypatch.setattr(capture, "FRAME_SECONDS", 0.05)
+    with pytest.raises(capture.NoFrameError, match=r"^The camera /World/Cam rendered no frame in 0\.05 s$"):
+        asyncio.run(feed.wait_frames(1))
+
+
+def test_segmentation_is_turned_on_only_where_its_graphs_can_be_freed(feeds, kit, monkeypatch):
+    feed = feeds.CameraFeed("/World/Cam", 320, 240)
+    assert feeds.enable_segmentation(feed) is None
+    assert feed.segmented
+    assert kit.log[-1] == ("enable", feed.render_product_path, ["InstanceSegmentation"])
+
+    for registry in (SimpleNamespace(_nodeGraphs={}), SimpleNamespace(_reset_node_graph=print), None):
+        kit.registry = registry
+        other = feeds.CameraFeed("/World/Cam", 320, 240)
+        assert "can't free a capture's segmentation graphs" in feeds.enable_segmentation(other)
+        assert not other.segmented
+    assert sum(entry[0] == "enable" for entry in kit.log if isinstance(entry, tuple)) == 1
+
+    monkeypatch.setitem(sys.modules, "omni.syntheticdata", None)  # an app without it: the import fails
+    assert "not loaded" in feeds.enable_segmentation(feeds.CameraFeed("/World/Cam", 8, 8))
+
+
+def _segmented(feeds: Any, kit: FakeKit) -> Any:
+    """A feed with segmentation on, its graph in the registry beside another render product's, its prim on the stage."""
+    feed = feeds.CameraFeed("/World/Cam", 320, 240, prefix="ovmcp_capture")
+    feeds.enable_segmentation(feed)
+    kit.registry._nodeGraphs = {
+        feed.render_product_path + "/PostRender/SDGPipeline": "this feed's graph",
+        PRODUCT_PREFIX + "another/PostRender/SDGPipeline": "another product's graph",
+    }
+    _with_product(kit, feed.render_product_path)
+    kit.log.clear()
+    return feed
+
+
+def test_a_segmented_feed_is_released_in_the_order_measured(feeds, kit):
+    feed = _segmented(feeds, kit)
+    asyncio.run(feeds.release(feed))
+    # Segmentation off, the texture dropped, the graph freed under the session layer, two updates, then the prim gone
+    # (#51's E16): in any other order Kit logged errors on every update until the next stage.
+    assert kit.log == [
+        ("disable", feed.render_product_path, ["InstanceSegmentation"]),
+        ("updates", False),
+        ("reset", "this feed's graph", "session layer"),
+        "update",
+        "update",
+    ]
+    assert list(kit.registry._nodeGraphs.values()) == ["another product's graph"]
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+
+
+def test_a_release_step_that_fails_leaves_the_rest_to_run(feeds, kit):
+    feed = _segmented(feeds, kit)
+    kit.sensor_error = RuntimeError("the sensor's node is gone")
+    asyncio.run(feeds.release(feed))
+    assert kit.log == [("updates", False), ("reset", "this feed's graph", "session layer"), "update", "update"]
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+
+
+def test_a_feed_without_segmentation_is_released_without_touching_omni_syntheticdata(feeds, kit):
+    feed = feeds.CameraFeed("/World/Cam", 320, 240)
+    kit.registry._nodeGraphs = {feed.render_product_path + "/PostRender/SDGPipeline": "not ours to free"}
+    _with_product(kit, feed.render_product_path)
+    asyncio.run(feeds.release(feed))
+    assert kit.log == [("updates", False), "update", "update"]
+    assert kit.registry._nodeGraphs  # untouched
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+
+
+def test_a_feed_released_while_the_stage_changes_goes_from_the_next_open_stage(feeds, kit):
+    feed = _segmented(feeds, kit)
+    kit.stage_state = CLOSING
+    asyncio.run(feeds.release(feed))
+    assert kit.stage.GetPrimAtPath(feed.render_product_path)  # not edited while the stage closes
+    # The new stage carries the render product over (#25's E13); it goes once that stage is open.
+    kit.stage = Usd.Stage.CreateInMemory()
+    _with_product(kit, feed.render_product_path)
+    kit.stage_state = OPENED
+    kit.on_update(None)
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
 
 
 @pytest.fixture
