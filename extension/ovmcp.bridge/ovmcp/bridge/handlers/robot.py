@@ -8,7 +8,8 @@ import os
 
 from pxr import Sdf, Tf, Usd, UsdPhysics
 
-from ovmcp.core.robot import LIBRARY_PREFIX, articulation_root, is_usd_file, robot_prim_path, robot_usd_url
+from ovmcp.core.robot import articulation_root, is_usd_file, robot_prim_path
+from ovmcp.core.usd_files import LIBRARY_PREFIX, usd_file_url
 
 from ._utils import _apply_xform, _get_stage, _next_update
 
@@ -66,7 +67,7 @@ async def handle_create_robot(body: dict) -> dict:
 
     await _next_update()
 
-    full_usd_path = robot_usd_url(usd_path, _assets_root, os.path.isfile, os.path.abspath)
+    full_usd_path = usd_file_url(usd_path, _assets_root, os.path.isfile, os.path.abspath)
     if full_usd_path is None:
         return {
             "status": "error",
