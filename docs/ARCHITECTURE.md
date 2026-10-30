@@ -377,7 +377,9 @@ the answer says so, with the lighting mode.
 | an `inspect_prim` or `capture_viewport` call | 80 s (`CALL_SECONDS`), then 10 s (`CLEANUP_SECONDS`) for the settle after `isolate` |
 
 - **Fails at once:** a capture whose `wait_for_result` names nothing captured (`[]` or `None`), and a viewport with
-  no render texture yet: no file will come for either.
+  no render texture yet: no file will come for either. `capture_viewport` and `inspect_prim` reach the render texture
+  check only after their fresh frames, which such a viewport doesn't deliver, so there they fail after
+  `FRAME_SECONDS`, as a viewport that rendered no frame; recording, without fresh frames, still fails at once.
 - **Frame by frame:** a settle and a capture's fresh frames wait through `next_viewport_frame_async`, one frame at a
   time (`_next_frame` in `handlers/_utils.py`), not `ViewportAPI.wait_for_rendered_frames`, which counts its
   subscribe call as a frame and leaves a cancelled wait's callback in the viewport. A Kit without the frame event
