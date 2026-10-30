@@ -401,7 +401,8 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
             r = result["result"]
             self.assertEqual((r["width"], r["height"]), (width, height))
             self.assertEqual(_png_size(r["image_base64"]), (width, height))
-            self.assertEqual(_png_size(r["segmentation_base64"]), (width, height), r.get("segmentation_error"))
+            self.assertIsNotNone(r["segmentation_base64"], r.get("segmentation_error"))
+            self.assertEqual(_png_size(r["segmentation_base64"]), (width, height))
             box, pixels = self._cube_box_and_pixels(r)
             self._assert_box_on_pixels(box, pixels)
             print(f"  {width}x{height}: box {box}, pixels {pixels}")
@@ -503,8 +504,10 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(result["status"], "success", result)
         self.assertEqual((result["result"]["width"], result["result"]["height"]), (320, 240))
         for cap in result["result"]["captures"]:
-            self.assertEqual(_png_size(cap["image_base64"]), (320, 240), cap.get("error"))
-            self.assertEqual(_png_size(cap["segmentation_base64"]), (320, 240), cap.get("segmentation_error"))
+            self.assertIn("image_base64", cap, cap.get("error"))
+            self.assertEqual(_png_size(cap["image_base64"]), (320, 240))
+            self.assertIn("segmentation_base64", cap, cap.get("segmentation_error"))
+            self.assertEqual(_png_size(cap["segmentation_base64"]), (320, 240))
         self._assert_nothing_left(before, since)
         print("  2 angles at 320x240, with segmentation")
 

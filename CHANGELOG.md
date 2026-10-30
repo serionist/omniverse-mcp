@@ -18,8 +18,9 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   for, so the two disagreed. The image, its segmentation and its boxes now come from one frame of the camera at that
   size, in a render of its own; the viewport the user sees keeps its camera and size. With a `camera_path`, the boxes
   are that camera's, and the viewport no longer switches to it (#70). `inspect_prim` frames each angle for the size
-  asked for. A side over 4096 is refused. While a capture runs, the extra render takes some of the app's updates.
-  With an older extension, `capture_viewport` warns that its boxes don't match the image and names
+  asked for. A side over 4096 is refused. While a capture runs, the extra render takes some of the app's updates,
+  and its render product in the stage leaves Kit's unsaved-edits flag set, where only a capture with a `camera_path`
+  did before. With an older extension, `capture_viewport` warns that its boxes don't match the image and names
   `uvx omniverse-mcp extension install`: run it, then restart Kit (#51).
 - **`start_recording` records from `camera_path` at `width` x `height`,** where it recorded the active viewport at its
   own size and warned that it ignored them. It renders the camera in a texture of its own, so the viewport, its
@@ -43,6 +44,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 - **`capture_viewport` refuses a `camera_path` that isn't a camera,** or names no prim, where it captured the viewport
   anyway: name a `Camera` prim, or leave it empty for the viewport's camera (#51).
+- **A capture's size is checked as a recording's is:** through `execute_script`'s `mcp.capture_viewport` and
+  `mcp.inspect`, or the extension's HTTP routes, a `width` or `height` that isn't a whole number from 1 to 4096, such
+  as `"1280"` or `720.0`, or a request with one of the two alone, is refused, where it was converted or defaulted. The
+  tools always send both as whole numbers (#51).
 
 ## 0.2.2 (2026-10-29)
 

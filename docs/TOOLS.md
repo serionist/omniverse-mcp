@@ -482,7 +482,7 @@ Point the viewport camera at a prim from a given angle. Auto-computes distance f
 
 Orbit-capture: take screenshots from 14 systematic angles around a prim using a cube-based approach (6 face centres + 8 cube corners). The camera distance is fitted so the prim's bounding sphere fills the captured frame with a 10px margin, at `width` x `height`. Optionally includes instance segmentation at each angle.
 
-The orbit moves the viewport's camera, as the user sees, and each angle is rendered from that camera at `width` x `height` in a render of the call's own, as `capture_viewport`'s is.
+The orbit moves the viewport's camera, as the user sees, and each angle is rendered from that camera at `width` x `height` in a render of the call's own, as `capture_viewport`'s is. The first line gives that size; with an extension of 0.2.2 or older, whose images are the viewport's size, a `WARNING` says so when it isn't the size asked for, with the command that installs this release's extension.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -545,6 +545,8 @@ world_dimensions = [1.0, 1.0, 1.0]
 > **Note:** Instance segmentation requires `omni.syntheticdata` (included in Isaac Sim). Without it, or when it gives no data, the viewport image and bounding boxes are still returned, and `Segmentation: ERROR` says why. Each capture turns the sensor on for its own render and waits up to 5 s for its first data; when none comes, later captures of that camera at that size on that stage wait 1 s, until one gets data.
 
 > **Black image detection:** If the captured image is all-black, the response includes a `WARNING` with the lighting mode and whether scene lights exist. Use the `viewport_light` tool to check the lighting mode and change it if needed, then recapture. No automatic light changes are made.
+
+> **An extension of 0.2.2 or older** captures the viewport at its own size and scales the boxes to the size asked for, so the two disagree. The `Viewport:` line gives the image's own size, read from its header, and a `WARNING` line says the boxes are for another size, with the command that installs this release's extension; `inspect_prim` says the same of its images.
 
 > **What was done just before shows:** a capture's render is made for the call, and its first frame comes some 15
 > updates later, so a drawing or any change made just before the call is in the image. Path Tracing gets the frames
