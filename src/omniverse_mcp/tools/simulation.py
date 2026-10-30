@@ -80,7 +80,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
     @mcp.tool(annotations=EDITS)
     def apply_force(
-        prim_path: Annotated[str, Field(description="The rigid body's prim path")],
+        prim_path: Annotated[str, Field(description="The rigid body's prim path, a robot's link among them")],
         force: Annotated[
             list[float],
             Field(description="[fx, fy, fz]: an impulse in N s, or a force in N for one physics step"),
@@ -97,9 +97,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             ),
         ] = False,
     ) -> str:
-        """Push a rigid body through PhysX, so its mass counts. The simulation must be playing or paused. Refused for a
-        disabled or kinematic body, and for an articulation's link, such as a robot's, which PhysX's push doesn't
-        reach yet (#58)."""
+        """Push a rigid body through PhysX, so its mass counts. The simulation must be playing or paused. A push on an
+        articulation's link, such as a robot's, moves the whole robot: its speed changes by the impulse over the
+        robot's mass. Refused for a disabled or kinematic body, for one a fixed joint holds to the world (a fixed
+        robot's base), and under PhysX's Direct GPU API (#68)."""
         resp = bridge_call(client.apply_force, prim_path, force, position, impulse)
         r = resp["result"]
         mode = "impulse" if r.get("impulse") else "force"
