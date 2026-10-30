@@ -9,11 +9,15 @@ execute_script.
 """
 
 import asyncio
+import math
 import time
-from collections.abc import Awaitable, Callable, Coroutine, Hashable
-from typing import NamedTuple, Protocol, TypeVar
+from collections.abc import Awaitable, Callable, Coroutine, Hashable, Mapping
+from typing import TYPE_CHECKING, Any, NamedTuple, Protocol, TypeVar
 
 from .png import is_complete_png
+
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
 
 T = TypeVar("T")
 
@@ -25,15 +29,22 @@ FILE_SECONDS = 10.0  # the captured file, which Kit 110 writes after it says the
 # always enough, 3 for the longest trail seen; this is one more.
 FRESH_FRAMES = 4
 SEGMENTATION_SECONDS = 5.0  # instance segmentation's first data after the sensor is enabled
+# A wait for segmentation after one that got nothing on the same stage, camera and size. Not none: each capture's feed
+# is new, and its sensor's first data comes a frame or two after it is enabled (#51's E12: 2 updates).
+SEGMENTATION_RETRY_SECONDS = 1.0
 CALL_SECONDS = 80.0  # one inspect_prim or capture_viewport call
 CLEANUP_SECONDS = 10.0  # the settle after isolate's prims are shown again
 # The server's client gives up after 120 s. A call's 80 s and its cleanup's 10 s leave 30 s for encoding the images
 # and sending them; a unit test holds the sum under the client's timeout.
 
-# A side of any frame the bridge renders at a size it is asked for: start_recording's, and capture_viewport's and
-# inspect_prim's once #51 lands. A texture of 4096x4096 rendered and wrote a whole PNG in about a second on Isaac Sim
-# 6.2 (#25), and the GPU's memory, not the schema, is what a larger one would run into.
+# A side of any frame the bridge renders at a size it is asked for: start_recording's, capture_viewport's and
+# inspect_prim's. A texture of 4096x4096 rendered and wrote a whole PNG in about a second on Isaac Sim 6.2 (#25), and
+# the GPU's memory, not the schema, is what a larger one would run into.
 MAX_SIDE = 4096
+
+# The most frames a capture lets Path Tracing render to reach its samples: 255 of one sample each is past any total
+# a user would wait for in one call.
+MAX_SETTLE_FRAMES = 255
 
 Clock = Callable[[], float]
 
@@ -48,6 +59,77 @@ def _side(name: str, value: object) -> int:
 def frame_size(width: object, height: object) -> tuple[int, int]:
     """A frame's size as asked for: whole numbers from 1 to MAX_SIDE each. A ValueError names the value at fault."""
     return _side("width", width), _side("height", height)
+
+
+def capture_size(body: Mapping[str, object]) -> tuple[int, int] | None:
+    """The `width` and `height` of a capture_viewport or inspect_prim request, through frame_size; None when it gives
+    neither, which captures at the viewport's own size. One without the other is a ValueError."""
+    given = [name for name in ("width", "height") if body.get(name) is not None]
+    if not given:
+        return None
+    if len(given) == 1:
+        raise ValueError(f"width and height go together: only {given[0]} was given")
+    return frame_size(body.get("width"), body.get("height"))
+
+
+def settle_frames(render_mode: object, spp: object, total_spp: object) -> int:
+    """Frames a camera feed renders after its first, before a capture of it.
+
+    Path Tracing adds `spp` samples a frame until it has `total_spp`, so it renders until the total is reached: no more
+    frames with Isaac Sim's 64 and 64, whose first frame is already converged (#51's E14). The other modes need none:
+    under RT 2.0 a new feed's first capture was within 0.24 of 255 of a settled one, against a noise floor of about
+    0.07 (E14), which no reader of the image sees.
+    """
+    if render_mode != "PathTracing":
+        return 0
+    per_frame = spp if isinstance(spp, int) and not isinstance(spp, bool) and spp > 0 else 1
+    total = total_spp if isinstance(total_spp, int) and not isinstance(total_spp, bool) and total_spp > 0 else 0
+    return min(MAX_SETTLE_FRAMES, max(0, math.ceil(total / per_frame) - 1))
+
+
+def colour_instances(
+    ids: "NDArray[Any]", name_of: Callable[[int], str | None]
+) -> tuple["NDArray[Any]", dict[str, list[int]]]:
+    """Instance ids as an RGB image, each id its own colour and 0 black, and the legend: name -> [R, G, B].
+
+    One pass over the pixels: a colour per distinct id, then each pixel's looked up, where masking the image once per id
+    cost ids times pixels on Kit's main thread, which a 4096-a-side capture makes long (#51). Colours step round the hue
+    circle by the golden ratio, by the id's place among the ids present; a name two ids share keeps the first one's
+    colour in the legend. An id `name_of` has no name for (None) is `instance_<id>`.
+    """
+    # Here, not at the top: every capture uses this module, and the bridge must load in a Kit app without numpy.
+    import numpy as np
+
+    unique, inverse = np.unique(ids, return_inverse=True)
+    palette = np.zeros((len(unique), 3), dtype=np.uint8)
+    legend: dict[str, list[int]] = {}
+    for index, value in enumerate(unique.tolist()):
+        instance = int(value)
+        if instance == 0:
+            continue  # the background stays black
+        name = name_of(instance) or f"instance_{instance}"
+        colour = _hue_colour(index)
+        palette[index] = colour
+        legend.setdefault(name, colour)
+    image = palette[inverse.reshape(-1)].reshape((*ids.shape[:2], 3))
+    return image, legend
+
+
+def _hue_colour(index: int) -> list[int]:
+    """A saturated colour `index` golden-ratio steps round the hue circle."""
+    hue = (index * 0.618033988749895) % 1.0
+    sector = int(hue * 6)
+    fraction = hue * 6 - sector
+    falling = int(255 * (1 - fraction))
+    rising = int(255 * fraction)
+    return [
+        [255, rising, 0],
+        [falling, 255, 0],
+        [0, 255, rising],
+        [0, falling, 255],
+        [rising, 0, 255],
+        [255, 0, falling],
+    ][sector]
 
 
 class CaptureError(RuntimeError):
@@ -80,12 +162,12 @@ class Budget:
         return OutOfTimeError(f"The {self.seconds:g} s this call may take ran out")
 
 
-async def bounded(awaitable: Awaitable[T], seconds: float, budget: Budget | None) -> T:
+async def bounded(awaitable: Awaitable[T], seconds: float, budget: Budget | None, source: str | None = None) -> T:
     """`awaitable` within the shorter of `seconds` and what is left of `budget`.
 
     Its timeout is NoFrameError when `seconds` was the shorter bound, OutOfTimeError when the budget was. Either is
     raised outside the `except`, so it carries no chain back to the cancelled wait, whose frame holds Kit's
-    subscription.
+    subscription. `source` names what rendered no frame, a camera feed say; the viewport when None.
     """
     left = budget.left() if budget is not None else seconds
     if budget is not None and left <= 0:
@@ -99,6 +181,8 @@ async def bounded(awaitable: Awaitable[T], seconds: float, budget: Budget | None
         pass
     if cut_short and budget is not None:
         raise budget.out_of_time()
+    if source is not None:
+        raise NoFrameError(f"{source} rendered no frame in {seconds:g} s")
     raise NoFrameError(
         f"The viewport rendered no frame in {seconds:g} s: its updates may be off, its window hidden, or Eco Mode "
         "paused a static scene"
@@ -110,17 +194,18 @@ async def frames(
     count: int,
     budget: Budget | None = None,
     clock: Clock = time.monotonic,
+    source: str | None = None,
 ) -> None:
     """`count` frames from `next_frame`, each within FRAME_SECONDS and what is left of `budget`.
 
     Without a budget they share one of FRAME_SECONDS, on `clock`, and the first frame is bounded by FRAME_SECONDS
     alone: the shared budget, made a moment before, would cut that wait short by the moment, and a viewport that
-    renders nothing would be OutOfTimeError, not NoFrameError.
+    renders nothing would be OutOfTimeError, not NoFrameError. `source` is as `bounded` takes it.
     """
     own = budget is None
     shared = Budget(FRAME_SECONDS, clock) if budget is None else budget
     for i in range(count):
-        await bounded(next_frame(), FRAME_SECONDS, None if own and i == 0 else shared)
+        await bounded(next_frame(), FRAME_SECONDS, None if own and i == 0 else shared, source)
 
 
 async def poll(
@@ -242,17 +327,22 @@ class Call:
 
 
 class SegmentationWaits:
-    """Where a wait for instance segmentation ended with no data, so a capture there doesn't wait again.
+    """Where a wait for instance segmentation ended with no data, so a capture there waits only briefly.
 
-    Kept per (stage id, render product path): Kit resets the sensor on every stage open, and a new or opened stage has
-    a new id, so it waits afresh. A read with data clears the record.
+    Kept per (stage id, camera, size): each capture renders through a feed of its own, whose render product is new
+    every time, so the stage, the camera and the size are what one capture shares with the last. A new or opened stage
+    has a new id, so it waits afresh. After a wait that got nothing the next is SEGMENTATION_RETRY_SECONDS, not none:
+    a new feed's sensor needs a frame or two for its first data. A read with data clears the record.
     """
 
     def __init__(self) -> None:
         self._failed: set[Hashable] = set()
 
+    def failed_before(self, key: Hashable) -> bool:
+        return key in self._failed
+
     def seconds(self, key: Hashable) -> float:
-        return 0.0 if key in self._failed else SEGMENTATION_SECONDS
+        return SEGMENTATION_RETRY_SECONDS if key in self._failed else SEGMENTATION_SECONDS
 
     def failed(self, key: Hashable) -> None:
         self._failed.add(key)

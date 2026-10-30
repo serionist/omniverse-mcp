@@ -6,8 +6,10 @@ import asyncio
 import gc
 import inspect
 import re
+import time
 import weakref
 
+import numpy as np
 import pytest
 
 from omniverse_mcp.client import BridgeClient
@@ -408,18 +410,24 @@ def test_a_call_stops_on_no_frame_and_out_of_time():
     assert call.settle_after_restore()
 
 
-def test_segmentation_waits_once_per_stage_until_data():
+def test_segmentation_waits_briefly_after_a_wait_that_got_nothing_until_data():
     waits = SegmentationWaits()
-    stage, other_stage = (1, "/Render/RenderProduct_Viewport"), (2, "/Render/RenderProduct_Viewport")
+    # A capture's feed is new each time, so its waits are kept by stage, camera and size.
+    here = (1, "/World/Cam", (320, 240))
+    elsewhere = [(1, "/World/Cam", (640, 480)), (1, "/World/Other", (320, 240)), (2, "/World/Cam", (320, 240))]
 
-    assert waits.seconds(stage) == 5
-    waits.failed(stage)
-    assert waits.seconds(stage) == 0
-    assert waits.seconds(other_stage) == 5  # a new or opened stage waits afresh
-    waits.got_data(stage)
-    assert waits.seconds(stage) == 5
-    waits.got_data(other_stage)  # nothing on record there: no error
-    assert waits.seconds(other_stage) == 5
+    assert waits.seconds(here) == 5
+    assert not waits.failed_before(here)
+    waits.failed(here)
+    assert waits.failed_before(here)
+    # Not none: the next feed's sensor needs a frame or two for its first data.
+    assert waits.seconds(here) == capture.SEGMENTATION_RETRY_SECONDS == 1
+    for key in elsewhere:
+        assert waits.seconds(key) == 5  # another size, camera or stage waits afresh
+    waits.got_data(here)
+    assert waits.seconds(here) == 5
+    waits.got_data(elsewhere[2])  # nothing on record there: no error
+    assert waits.seconds(elsewhere[2]) == 5
 
 
 def test_the_waits_read_their_seconds_when_called(monkeypatch):
@@ -466,6 +474,120 @@ def test_a_frame_size_from_1_to_the_limit_is_taken(width, height):
 def test_a_frame_size_out_of_range_or_not_whole_is_refused_naming_the_value(width, height, named):
     with pytest.raises(ValueError, match=rf"^{named} must be a whole number of pixels from 1 to 4096, got "):
         capture.frame_size(width, height)
+
+
+@pytest.mark.parametrize(
+    ("body", "size"),
+    [
+        ({}, None),
+        ({"width": None, "height": None}, None),
+        ({"width": 320, "height": 240}, (320, 240)),
+        ({"width": capture.MAX_SIDE, "height": capture.MAX_SIDE}, (4096, 4096)),
+    ],
+)
+def test_a_capture_size_is_both_sides_or_neither(body, size):
+    assert capture.capture_size(body) == size
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ({"width": 320}, "only width was given"),
+        ({"height": 240}, "only height was given"),
+        ({"width": capture.MAX_SIDE + 1, "height": 240}, "width must be a whole number of pixels from 1 to 4096"),
+        ({"width": 320, "height": 0}, "height must be"),
+        ({"width": -1, "height": 240}, "width must be"),
+        ({"width": True, "height": 240}, "width must be"),
+        ({"width": 320.5, "height": 240}, "width must be"),
+        ({"width": "1280", "height": 720}, "width must be"),
+    ],
+)
+def test_a_capture_size_out_of_range_or_half_given_is_refused(body, message):
+    with pytest.raises(ValueError, match=message):
+        capture.capture_size(body)
+
+
+@pytest.mark.parametrize(
+    ("mode", "spp", "total", "frames"),
+    [
+        ("PathTracing", 64, 64, 0),  # Isaac Sim's: its first frame has every sample
+        ("PathTracing", 1, 64, 63),
+        ("PathTracing", 4, 10, 2),
+        ("PathTracing", 8, 0, 0),  # no total set: nothing to wait for
+        ("PathTracing", 1, 100_000, capture.MAX_SETTLE_FRAMES),
+        ("PathTracing", None, 3, 2),  # no samples a frame read: one each
+        ("RealTimePathTracing", 1, 64, 0),
+        ("RaytracedLighting", 1, 64, 0),
+        (None, 1, 64, 0),
+    ],
+)
+def test_a_feed_settles_until_path_tracing_has_its_samples(mode, spp, total, frames):
+    assert capture.settle_frames(mode, spp, total) == frames
+
+
+def _colour_loop(ids, name_of):
+    """The bridge's colouring before #51, one mask per id, for the one-pass version to match."""
+    unique = np.unique(ids)
+    image = np.zeros((*ids.shape[:2], 3), dtype=np.uint8)
+    legend = {}
+    for index, uid in enumerate(unique):
+        if int(uid) == 0:
+            continue
+        hue = (index * 0.618033988749895) % 1.0
+        sector = int(hue * 6)
+        fraction = hue * 6 - sector
+        falling, rising = int(255 * (1 - fraction)), int(255 * fraction)
+        colours = [
+            [255, rising, 0],
+            [falling, 255, 0],
+            [0, 255, rising],
+            [0, falling, 255],
+            [rising, 0, 255],
+            [255, 0, falling],
+        ]
+        image[ids == uid] = colours[sector]
+        legend.setdefault(name_of(int(uid)), colours[sector])
+    return image, legend
+
+
+def test_instances_are_coloured_as_before_in_one_pass():
+    ids = np.array([[0, 7, 7, 3], [3, 0, 9, 12], [12, 12, 0, 7]], dtype=np.uint32)
+    names = {3: "/World/A", 7: "/World/B", 9: "/World/B", 12: "/World/C"}  # two ids, one prim
+
+    image, legend = capture.colour_instances(ids, names.__getitem__)
+    expected_image, expected_legend = _colour_loop(ids, names.__getitem__)
+    assert image.dtype == np.uint8
+    assert image.shape == (3, 4, 3)
+    assert np.array_equal(image, expected_image)
+    assert legend == expected_legend
+    assert list(legend) == ["/World/A", "/World/B", "/World/C"]
+    assert not image[ids == 0].any()  # the background stays black
+
+
+def test_an_instance_without_a_name_is_named_by_its_id():
+    _image, legend = capture.colour_instances(np.array([[0, 5]], dtype=np.uint32), lambda _instance: None)
+    assert list(legend) == ["instance_5"]
+
+
+def test_colouring_a_4096_a_side_capture_is_one_pass():
+    ids = (np.arange(4096 * 4096, dtype=np.uint32) % 50).reshape(4096, 4096)
+    started = time.monotonic()
+    image, legend = capture.colour_instances(ids, lambda instance: f"/World/P{instance}")
+    took = time.monotonic() - started
+    assert image.shape == (4096, 4096, 3)
+    assert len(legend) == 49
+    # A mask per id was 50 passes over the 16.8 million pixels; one lookup takes a few seconds at most on any runner.
+    assert took < 10, f"{took:.1f} s"
+
+
+def test_a_feed_that_renders_nothing_is_named_in_its_error():
+    async def never():
+        await asyncio.sleep(1)
+
+    with pytest.raises(NoFrameError, match=r"^The camera /World/Cam rendered no frame in 0\.05 s$"):
+        _run(bounded(never(), 0.05, None, "The camera /World/Cam"))
+    with pytest.raises(NoFrameError, match=r"^The viewport rendered no frame in 0\.05 s: its updates may be off"):
+        _run(bounded(never(), 0.05, None))
 
 
 def test_a_call_ends_before_the_server_gives_up():

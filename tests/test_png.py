@@ -7,7 +7,7 @@ import zlib
 
 import numpy as np
 
-from ovmcp.core.png import encode_png, is_complete_png
+from ovmcp.core.png import encode_png, is_complete_png, png_size
 
 PNG = encode_png(np.zeros((2, 2, 3), dtype=np.uint8))
 
@@ -70,6 +70,18 @@ def test_a_whole_png_is_complete_and_a_partly_written_one_is_not():
     for cut in (0, 8, len(data) // 2, len(data) - 1):
         assert not is_complete_png(data[:cut])
     assert not is_complete_png(b"not a png" + data[8:])
+
+
+def test_a_png_s_size_is_read_from_its_header():
+    assert png_size(encode_png(np.zeros((240, 320, 3), dtype=np.uint8))) == (320, 240)
+    assert png_size(PNG[:24]) == (2, 2)  # the signature and the header are enough
+
+
+def test_what_isn_t_a_png_header_has_no_size():
+    assert png_size(b"") is None
+    assert png_size(PNG[:23]) is None
+    assert png_size(b"GIF89a" + PNG[6:]) is None
+    assert png_size(PNG[:12] + b"IDAT" + PNG[16:]) is None  # a first chunk that isn't the header
 
 
 def test_the_module_loads_without_numpy(monkeypatch):
