@@ -1,7 +1,8 @@
 """apply_force's request, checked, whether PhysX can push the body, and the point it pushes at. No Kit.
 
-The handler reads the facts from Kit and PhysX and passes them in, so the decisions here are unit-tested without it;
-whether a body is an articulation's link is read from the stage, which usd-core gives the tests.
+The handler reads the facts from Kit and PhysX and passes them in, so the decisions here are unit-tested without it.
+What holds a body, an articulation it is a link of or a fixed joint to the world, is read from the stage, which
+usd-core gives the tests.
 """
 
 import math
@@ -51,15 +52,27 @@ def force_args(body: Mapping[str, Any]) -> ForceArgs:
 
 
 def refusal(
-    prim_path: str, *, stopped: bool, enabled: bool, kinematic: bool, held: bool, articulation: str | None
+    prim_path: str, *, stopped: bool, direct_gpu: bool, enabled: bool, kinematic: bool, held: bool
 ) -> str | None:
-    """Why PhysX won't move the body, or None when it will. A stopped timeline first: PhysX holds no bodies then, so
-    the others say nothing. Then what the prim says of itself, then whether PhysX holds it, then whether it is a link
-    of the articulation `articulation` names."""
+    """Why PhysX won't move the body, or None when it will, as far as the cheap facts tell; `fixed_refusal` asks the
+    stage's joints after.
+
+    A stopped timeline first: PhysX holds no bodies then, so the others say nothing. Then PhysX's Direct GPU API,
+    under which no push moves any body. Then what the prim says of itself, then whether PhysX holds it.
+    """
     if stopped:
         return (
             "The simulation is stopped, so PhysX holds no bodies to push: play it first with sim_control('play'); "
             "paused works too"
+        )
+    if direct_gpu:
+        # Measured on Isaac Sim 6.2 with GPU dynamics and suppressReadback: the push returns and moves nothing. A
+        # stage opened after a GPU device can keep the setting on a CPU scene, where a push is unmeasured: refused too,
+        # with how to turn the setting off.
+        return (
+            "PhysX's Direct GPU API is on (/physics/suppressReadback is true), and a push moves nothing under it "
+            "(#68). To push bodies, stop the simulation, turn it off with execute_script: "
+            "carb.settings.get_settings().set_bool('/physics/suppressReadback', False), and play again"
         )
     if not enabled:
         # PhysX makes such a body a static rigid, as NVIDIA's own rigid body tests count it, and nothing moves one.
@@ -74,67 +87,137 @@ def refusal(
         )
     if not held:
         return f"PhysX holds no rigid body at {prim_path}; get_logs(min_level='warn') may say why"
-    if articulation is not None:
-        # Measured on Isaac Sim 6.2: apply_force_at_pos on the G1's pelvis returns as on any body and moves nothing.
-        return (
-            f"{prim_path} is a link of the articulation at {articulation}: PhysX's push doesn't reach an "
-            "articulation's links yet (#58)"
-        )
     return None
 
 
-def articulation_holding(stage: Usd.Stage, body_path: str) -> str | None:
-    """The prim whose ArticulationRootAPI makes body_path one of its articulation's links, or None for a body PhysX
-    holds on its own.
+def fixed_refusal(prim_path: str, fixed_base: str, articulation: str | None) -> str:
+    """Why no force moves a body a fixed joint holds: `fixed_base` is the body that joint holds, prim_path itself or
+    the one it is welded to (`Joints.held_to_world`). `articulation` names the root of the articulation the body is a
+    link of."""
+    if fixed_base == prim_path:
+        # Measured on Isaac Sim 6.2: the Franka's base takes the push and moves less than 1e-8.
+        base = f", as the base of the articulation at {articulation}" if articulation else ""
+        return f"{prim_path} is held to the world by a fixed joint{base}: no force moves it"
+    within = f", in the articulation at {articulation}" if articulation else ""
+    return (
+        f"{prim_path} is welded to its fixed base {fixed_base}, which a fixed joint holds to the world{within}: "
+        "no force moves it"
+    )
 
-    Read as UsdPhysics's own parser reads an articulation: every body joined to the root's through joints belongs to
-    it, wherever it sits in the hierarchy (the G1's links are its pelvis's siblings, the root on the pelvis), and the
-    root may be on one of those bodies, on one of those joints, or on a prim above either (a robot's Xform). A joint
-    excluded from articulations still joins, as the parser counts it. An end that is no body, the world or a static
-    prim, joins nothing: two things fixed to one wall are not one articulation.
+
+class Joints:
+    """The stage's joints, read in one traversal, for what holds a body: the articulation it is a link of, and a fixed
+    joint that holds it to the world.
+
+    A joint's end is a body's path, or nothing for the world, a static prim or a disabled body, which PhysX holds as
+    static (`_body_of`). A joint whose target doesn't exist counts for nothing, as PhysX makes no joint of it.
     """
-    neighbours: dict[str, set[str]] = {}
-    joints_at: dict[str, list[Usd.Prim]] = {}
-    for prim in Usd.PrimRange.Stage(stage, Usd.TraverseInstanceProxies()):
-        if not is_a(prim, UsdPhysics.Joint):
-            continue
-        joint = UsdPhysics.Joint(prim)
-        ends: list[str] = []
-        for rel in (joint.GetBody0Rel(), joint.GetBody1Rel()):
-            targets: list[Sdf.Path] = rel.GetTargets()
-            # No target holds that end to the world; a target in no body anchors it to a static prim.
-            end = _body_of(stage, targets[0]) if targets else None
-            if end is not None:
-                ends.append(end)
-        for end in ends:
-            joints_at.setdefault(end, []).append(prim)
-        if len(ends) == 2 and ends[0] != ends[1]:
-            neighbours.setdefault(ends[0], set()).add(ends[1])
-            neighbours.setdefault(ends[1], set()).add(ends[0])
 
-    joined, queue = {body_path}, [body_path]
+    def __init__(self, stage: Usd.Stage) -> None:
+        self._stage = stage
+        self._neighbours: dict[str, set[str]] = {}
+        self._joints_at: dict[str, list[Usd.Prim]] = {}
+        # Bodies an enabled fixed joint joins to each other, and those it holds to the world.
+        self._welded: dict[str, set[str]] = {}
+        self._anchored: set[str] = set()
+        for prim in Usd.PrimRange.Stage(stage, Usd.TraverseInstanceProxies()):
+            if not is_a(prim, UsdPhysics.Joint):
+                continue
+            joint = UsdPhysics.Joint(prim)
+            ends: list[str] = []
+            dangling = False
+            for rel in (joint.GetBody0Rel(), joint.GetBody1Rel()):
+                targets: list[Sdf.Path] = rel.GetTargets()
+                # No target holds that end to the world; a target in no body anchors it to a static prim; a target
+                # that doesn't exist leaves no joint at all (below).
+                target = stage.GetPrimAtPath(targets[0]) if targets else None
+                if target is not None and not target.IsValid():
+                    dangling = True
+                    break
+                end = None if target is None else _body_of(target)
+                if end is not None:
+                    ends.append(end)
+            if dangling:
+                # Measured on Isaac Sim 6.2: a cube fixed to a prim since deleted moves as a free one does, so PhysX
+                # makes no joint of it. usd-core's parser reads that end as the world all the same.
+                continue
+            for end in ends:
+                self._joints_at.setdefault(end, []).append(prim)
+            two = len(ends) == 2 and ends[0] != ends[1]
+            if two:
+                _link(self._neighbours, ends[0], ends[1])
+            # A disabled joint holds nothing; an excluded one still holds, outside the articulation's own joints.
+            if is_a(prim, UsdPhysics.FixedJoint) and joint.GetJointEnabledAttr().Get() is not False:
+                # A kinematic body moves only by its transform, so what it holds no force moves either: ground, as
+                # the world is. Only here: it still joins an articulation as the parser reads one.
+                movable = [end for end in ends if not _kinematic(stage, end)]
+                if len(movable) == 2 and movable[0] != movable[1]:
+                    _link(self._welded, movable[0], movable[1])
+                elif len(movable) == 1:
+                    self._anchored.add(movable[0])
+
+    def articulation_holding(self, body_path: str) -> str | None:
+        """The prim whose ArticulationRootAPI makes body_path one of its articulation's links, or None for a body
+        PhysX holds on its own.
+
+        Read as UsdPhysics's own parser reads an articulation: every body joined to the root's through joints belongs
+        to it, wherever it sits in the hierarchy (the G1's links are its pelvis's siblings, the root on the pelvis),
+        and the root may be on one of those bodies, on one of those joints, or on a prim above either (a robot's
+        Xform). A joint excluded from articulations still joins, as the parser counts it. An end that is no body
+        joins nothing: two things fixed to one wall are not one articulation.
+        """
+        joined = _reach(self._neighbours, body_path)
+        for path in sorted(joined):
+            for prim in (self._stage.GetPrimAtPath(path), *self._joints_at.get(path, [])):
+                root = _root_at_or_above(prim)
+                if root is not None:
+                    return root
+        return None
+
+    def held_to_world(self, body_path: str) -> str | None:
+        """The body an enabled fixed joint holds to the world, when body_path is that body or is welded to it through
+        more enabled fixed joints; None when nothing holds it so.
+
+        No force moves such a body: PhysX makes a fixed joint to the world an articulation's fixed base, and holds a
+        lone body with it. Its other end is the world, a static prim, a disabled body or a kinematic one. A joint
+        excluded from articulations counts too.
+        """
+        if body_path in self._anchored:
+            return body_path
+        return next((path for path in sorted(_reach(self._welded, body_path)) if path in self._anchored), None)
+
+
+def _link(graph: dict[str, set[str]], a: str, b: str) -> None:
+    graph.setdefault(a, set()).add(b)
+    graph.setdefault(b, set()).add(a)
+
+
+def _reach(graph: dict[str, set[str]], start: str) -> set[str]:
+    """start and every node joined to it through graph's edges."""
+    joined, queue = {start}, [start]
     while queue:
-        for other in neighbours.get(queue.pop(), set()):
+        for other in graph.get(queue.pop(), set()):
             if other not in joined:
                 joined.add(other)
                 queue.append(other)
-    for path in sorted(joined):
-        for prim in (stage.GetPrimAtPath(path), *joints_at.get(path, [])):
-            root = _root_at_or_above(prim)
-            if root is not None:
-                return root
-    return None
+    return joined
 
 
-def _body_of(stage: Usd.Stage, path: Sdf.Path) -> str | None:
+def _body_of(prim: Usd.Prim) -> str | None:
     """The rigid body a joint's target belongs to: the target, or the nearest prim above it with RigidBodyAPI, as a
-    joint may name a body's child. None when none is: a static anchor, as UsdPhysics reads it."""
-    prim = stage.GetPrimAtPath(path)
+    joint may name a body's child. None when none is, a static anchor as UsdPhysics reads it, and None for a disabled
+    body, which PhysX holds as static and UsdPhysics's parser reads so."""
     while prim.IsValid() and not prim.IsPseudoRoot():
         if has_api(prim, UsdPhysics.RigidBodyAPI):
+            if UsdPhysics.RigidBodyAPI(prim).GetRigidBodyEnabledAttr().Get() is False:
+                return None
             return str(prim.GetPath())
         prim = prim.GetParent()
     return None
+
+
+def _kinematic(stage: Usd.Stage, body_path: str) -> bool:
+    return UsdPhysics.RigidBodyAPI(stage.GetPrimAtPath(body_path)).GetKinematicEnabledAttr().Get() is True
 
 
 def _root_at_or_above(prim: Usd.Prim) -> str | None:

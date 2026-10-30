@@ -13,6 +13,12 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   frames of the viewport pass first, which costs about 20 to 70 ms. Recording's frames don't wait, and still show the
   scene a few updates before their simulation time. The fix is in the Kit extension: run
   `uvx omniverse-mcp extension install` and restart Kit (#57).
+- **`apply_force` pushes an articulation's links again,** such as a robot's: 0.2.1 refused them on a misread
+  measurement, and PhysX's push reaches them. A push on a link moves the robot through its joints: a floating robot
+  touching nothing changes speed by the impulse over its whole mass. A body a fixed joint holds to the world is now
+  refused, since no force moves it: a robot's fixed base, a link welded to one, or a lone body, which answered
+  success and moved nothing. So is every push under PhysX's Direct GPU API, where none moves anything (#68). The fix
+  is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#58).
 
 ## 0.2.2 (2026-10-29)
 

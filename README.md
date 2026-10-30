@@ -261,8 +261,8 @@ More in [SETUP.md](docs/SETUP.md#troubleshooting).
 
 On Isaac Sim 6.2, the only Kit app tested so far:
 
-- **`apply_force` refuses an articulation's links,** such as a robot's: PhysX's push doesn't reach them yet
-  ([#58](https://github.com/serionist/omniverse-mcp/issues/58)).
+- **`apply_force` is refused under PhysX's Direct GPU API,** which Isaac Sim turns on for a GPU device: its push
+  moves nothing there ([#68](https://github.com/serionist/omniverse-mcp/issues/68)).
 - **`capture_viewport` and `inspect_prim` return the image at the viewport's size,** while their boxes use the size
   asked for ([#51](https://github.com/serionist/omniverse-mcp/issues/51)).
 - **Some parameters are ignored:** `start_recording`'s camera and size: it records the active viewport at its own
