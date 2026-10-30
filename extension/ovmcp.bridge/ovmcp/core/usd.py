@@ -6,6 +6,7 @@
 - A layer's GetPrimAtPath, GetAttributeAtPath and GetRelationshipAtPath are typed as always finding a spec; they give
   None for a path the layer has none for.
 - A prim spec's nameChildren is typed without __delitem__.
+- Sdf.FileFormat.FindByExtension is typed as always finding a format; it gives None for an extension none reads.
 """
 
 from typing import Protocol, cast
@@ -55,3 +56,8 @@ def relationship_spec(layer: Sdf.Layer, path: Sdf.Path) -> Sdf.RelationshipSpec 
 
 def remove_child_spec(parent: Sdf.PrimSpec, name: str) -> None:
     del cast("_Deletable", parent.nameChildren)[name]
+
+
+def format_of(path: str) -> Sdf.FileFormat | None:
+    """The file format for path's extension, in any case, or None."""
+    return Sdf.FileFormat.FindByExtension(path)
