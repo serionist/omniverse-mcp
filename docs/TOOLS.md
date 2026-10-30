@@ -508,25 +508,37 @@ Works by setting USD drive target attributes directly - does not require articul
 
 ### `set_camera`
 
-Set the viewport camera position and optionally aim it at a target.
+Move the viewport's camera to a world position and aim it at a target point.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `position` | list[float] | required | `[x, y, z]` camera position in world space |
-| `target` | list[float] | `null` | `[x, y, z]` point to look at |
+| `target` | list[float] | `null` | `[x, y, z]` world point to look at; the origin when omitted |
+
+It moves whichever camera the viewport looks through, a scene camera included, and the user sees the move. Aiming
+goes through Isaac Sim's `isaacsim.core.utils.viewports`: other Kit apps only move the camera, without aiming it.
+
+**When to use:** for a view from coordinates you choose. To frame a prim by its path, use `look_at_prim`; to capture
+from another camera without moving the viewport, `capture_viewport`'s `camera_path`.
 
 ---
 
 ### `look_at_prim`
 
-Point the viewport camera at a prim from a given angle. Auto-computes distance from object size.
+Move the viewport's camera to frame a prim from an angle around it, aimed at the centre of the prim's bounding box.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Target prim |
-| `distance` | float | `null` | Camera distance in metres, above 0 (auto if omitted) |
-| `azimuth` | float | `45.0` | Horizontal angle: 0=front, 90=right, 180=back, 270=left |
+| `distance` | float | `null` | Camera distance from the prim's centre in stage units, above 0; 2.5 times the prim's largest side if omitted |
+| `azimuth` | float | `45.0` | Horizontal angle: 0=front (+Y on a Z-up stage, +Z on a Y-up one), 90=right (+X), 180=back, 270=left |
 | `elevation` | float | `30.0` | Vertical angle above horizontal |
+
+It moves whichever camera the viewport looks through, and the user sees the move. Aiming goes through Isaac Sim's
+`isaacsim.core.utils.viewports`: other Kit apps only move the camera, without aiming it.
+
+**When to use:** to see one prim, given only its path. `set_camera` places the camera at coordinates, and
+`inspect_prim` captures a prim from up to 14 sides in one call; `capture_viewport` then takes the picture.
 
 ---
 
@@ -534,7 +546,7 @@ Point the viewport camera at a prim from a given angle. Auto-computes distance f
 
 Orbit-capture: take screenshots from 14 systematic angles around a prim using a cube-based approach (6 face centres + 8 cube corners). The camera distance is fitted so the prim's bounding sphere fills the captured frame with a 10px margin, at `width` x `height`. Optionally includes instance segmentation at each angle.
 
-The orbit moves the viewport's camera, as the user sees, and each angle is rendered from that camera at `width` x `height` in a render of the call's own, as `capture_viewport`'s is. The first line gives that size; with an extension of 0.2.2 or older, whose images are the viewport's size, a `WARNING` says so when it isn't the size asked for, with the command that installs this release's extension.
+The orbit moves the viewport's camera, as the user sees, and leaves it at the last angle; each angle is rendered from that camera at `width` x `height` in a render of the call's own, as `capture_viewport`'s is. The first line gives that size; with an extension of 0.2.2 or older, whose images are the viewport's size, a `WARNING` says so when it isn't the size asked for, with the command that installs this release's extension.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -568,7 +580,8 @@ Capture a camera at `width` x `height` and save **3 files** for full scene under
 2. **Bounding boxes** (TXT) - screen-space pixel coordinates for each visible prim, plus world-space centre and dimensions
 3. **Instance segmentation** (PNG + legend TXT) - each prim rendered as a unique colour, with a legend mapping colours to prim paths
 
-Use files 2 and 3 to understand which object is where in the viewport image.
+Use files 2 and 3 to understand which object is where in the viewport image. Aim first with `set_camera` or
+`look_at_prim`; for one prim from every side, use `inspect_prim`.
 
 All three come from one frame of `camera_path`, rendered at `width` x `height` in a render of the call's own, so the boxes are in the image's pixels and from the camera captured. The viewport the user sees keeps its camera and size. That render uses the viewport's renderer settings, but it is a view of its own: not pixel for pixel what the viewport shows (on average about 2 of 255 apart). While it runs the app renders one view more: about a third fewer updates a second at 640x480, headless.
 
