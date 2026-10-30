@@ -143,7 +143,8 @@ ys, xs = np.nonzero(np.all(rgb == np.array(COLOUR, dtype=np.uint8), axis=-1))
 result = None if xs.size == 0 else [int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1]
 """
 
-# A camera prim aimed at a point from another side than the viewport's, on the stage's up axis.
+# A camera prim aimed at a point from another side than the viewport's, on the stage's up axis. A wide lens, as the
+# viewport's own: with USD's default 50 mm the cube filled the frame, and a box that is the whole frame shows little.
 _AIMED_CAMERA = """
 from pxr import Gf, UsdGeom
 
@@ -152,6 +153,7 @@ up = Gf.Vec3d(0, 0, 1) if UsdGeom.GetStageUpAxis(stage) == "Z" else Gf.Vec3d(0, 
 target = Gf.Vec3d(*TARGET)
 eye = target + Gf.Vec3d(-1.5, 0, 0) + up * 0.8 + (Gf.Vec3d(0, 1.2, 0) if up[2] else Gf.Vec3d(0, 0, 1.2))
 camera = UsdGeom.Camera.Define(stage, PATH)
+camera.CreateFocalLengthAttr(18.0)
 UsdGeom.Xformable(camera).ClearXformOpOrder()
 UsdGeom.Xformable(camera).AddTransformOp().Set(Gf.Matrix4d().SetLookAt(eye, target, up).GetInverse())
 result = PATH
@@ -416,6 +418,9 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         result = self.client.capture_viewport(640, 480, camera_path=camera)
         self.assertEqual(result["status"], "success", result)
         box, pixels = self._cube_box_and_pixels(result["result"])
+        self.assertTrue(
+            0 < box[0] < box[2] < 640 and 0 < box[1] < box[3] < 480, f"the cube isn't inside the frame: {box}"
+        )
         self._assert_box_on_pixels(box, pixels)
         self.assertEqual(self._traces()["viewport"], before)
 
