@@ -269,15 +269,18 @@ No parameters.
 
 ### `get_mesh_stats`
 
-Get face/vertex/triangle counts for a mesh prim or subtree.
+Count the faces, vertices and triangles of every mesh at or under a prim.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Prim to analyse (includes all descendant meshes) |
 
-**Returns:** Per-mesh breakdown and totals (faces, vertices, triangles, mesh count). Written to file if many meshes.
+**Returns:** Totals (faces, vertices, triangles, mesh count), and each mesh's own counts when there are 20 or fewer.
+Written to file if long. Only `UsdGeom.Mesh` prims count, inside instances too: implicit shapes such as `Cube` and
+`Sphere` have no faces.
 
-**When to use:** Checking a geometry budget, or what a simplification saved.
+**When to use:** Checking a geometry budget, or what a simplification saved. `get_prim_face_count_tree` shows where
+the faces are across a whole tree, and `compare_prims` puts two prims or variants side by side.
 
 ---
 
@@ -291,6 +294,8 @@ Get scene tree with face counts per mesh and subtree totals.
 | `max_depth` | int | `10` | Max traversal depth; 0 for root alone |
 
 **Returns:** Prim-block text where each mesh shows `faces`, `vertices`, `triangles` and each group shows `subtree_faces` total.
+Unlike `get_scene_tree`, it looks inside instanceable prims. Prims below `max_depth` are left out of the list but still
+count in their ancestors' `subtree_faces`.
 
 **When to use:** Quick overview of where geometry budget is spent in a scene, without needing individual `get_mesh_stats` calls.
 
@@ -311,8 +316,11 @@ Compare two prims or two variants: mesh counts, bounds, materials.
 
 **Returns:** Side-by-side stats (faces, vertices, triangles, meshes, bounds, materials) with deltas and percentage change.
 
+Mode 2 wins when all four of its parameters are given. It switches the selection to each variant in turn, then back to
+the one before. A variant name is not checked: one not in the set measures the prim with none of the set's variants.
+
 **When to use:** Checking what a simplified copy or another variant changed. Bounds are measured afresh after each
-variant switch.
+variant switch. For one prim's counts, use `get_mesh_stats`.
 
 ---
 
@@ -320,16 +328,23 @@ variant switch.
 
 ### `flatten_usd`
 
-Flatten a USD file: resolve all references, payloads, sublayers into a single self-contained file.
+Write a stage flattened into one USD file: its references, payloads and sublayers resolved into a single layer.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `output_path` | string | required | Where to write the flattened USD file |
-| `input_path` | string | `""` | Source USD file (default: current stage) |
+| `output_path` | string | required | Where to write the flattened USD file, on Kit's machine; a file there is overwritten |
+| `input_path` | string | `""` | Source USD file (default: the open stage, unsaved edits included) |
 
 **Returns:** Input/output paths and number of layers resolved.
 
+Textures and other files the stage points at are not copied.
+
+> **Never name a file the open stage has loaded** (its own file, a sublayer, a referenced asset) as `input_path` or
+> `output_path`: the bridge first clears an open layer of that name in memory, which empties it in the open scene too.
+> For the open stage, leave `input_path` empty.
+
 **When to use:** Before modifying a component (flatten first so all references are resolved), preparing a file for external tools.
+`save_scene` keeps the references and writes only the root layer; `export_prim_as_file` writes one prim's subtree.
 
 ---
 
@@ -345,6 +360,10 @@ Export a prim subtree as a standalone USD file.
 **Returns:** Output path, target root prim name, material count, up axis.
 
 Flattens the source (resolves all references) and includes materials even if they live outside the exported subtree. Output is self-contained and can be imported into Blender or other DCC tools.
+The prim becomes `/<its name>` and the file's default prim, with the stage's up axis and units. `output_path` is on
+Kit's machine and is overwritten; textures and other files the subtree points at are not copied. As with
+`flatten_usd`, never name a file the open stage has loaded: the bridge first clears an open layer of that name in
+memory, which empties it in the open scene too.
 
 ---
 
@@ -352,7 +371,8 @@ Flattens the source (resolves all references) and includes materials even if the
 
 ### `set_variant_selection`
 
-Switch variant selection on a prim with proper viewport refresh.
+Select a variant in a prim's variant set, and wait until the viewport shows it. The set and the variant must exist:
+an error lists the ones there.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -369,16 +389,20 @@ old geometry in the viewport, and this tool refreshes it.
 
 ### `create_variant_structure`
 
-Create variant set boilerplate on a prim.
+Add a variant set of empty variants to a prim and select one, ready to fill and to switch between with
+`set_variant_selection`.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Target prim |
 | `variant_set_name` | string | required | Name for the new variant set |
 | `variant_names` | list[string] | required | List of variant names to create (e.g., `["focused", "shell"]`) |
-| `default_variant` | string | `""` | Which variant to select by default (default: first in list) |
+| `default_variant` | string | `""` | Which variant to select (default, or a name not in the list: the first in the list) |
 
 **Returns:** Prim path, variant set name, created variants, default selection.
+
+A set or variant that already exists is kept and added to, never replaced. The variants hold nothing until you author
+into them, with `execute_script`.
 
 ---
 
@@ -407,17 +431,20 @@ to repoint bindings after materials move, `update_material_paths`.
 
 ### `update_material_paths`
 
-Bulk-update material reference paths in a subtree.
+Rewrite every path under a subtree that starts with `old_prefix` to start with `new_prefix` instead.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `old_prefix` | string | required | Path prefix to find (e.g., `"/OldProject/Materials"`) |
-| `new_prefix` | string | required | Replacement prefix (e.g., `"/World/Materials"`) |
+| `old_prefix` | string | required | Path prefix to find, matched as text (e.g., `"/OldProject/Materials/"`) |
+| `new_prefix` | string | required | Replacement prefix (e.g., `"/World/Materials/"`) |
 | `prim_path` | string | `"/"` | Root of subtree to update (default: entire stage) |
 
 **Returns:** Number of updated references and list of affected prims.
 
-Updates both relationship targets (material bindings) and asset path attributes (texture file paths) that start with `old_prefix`.
+Updates both relationship targets, such as material bindings, and asset path attributes, such as texture files, that
+start with `old_prefix`. It isn't limited to materials: any relationship or asset path that matches changes, a joint's
+bodies or a shader's source file among them, so end the prefix with `/` and keep it specific. Nothing checks that the new paths
+exist. Kit's undo doesn't record the change, and a failure part way keeps the edits made before it.
 
 **When to use:** After copying USD assets to a new directory where material paths need updating.
 

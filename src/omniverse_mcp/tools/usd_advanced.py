@@ -19,10 +19,12 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     def get_mesh_stats(
         prim_path: Annotated[str, Field(description="The prim to measure, its descendant meshes included")],
     ) -> str:
-        """Get face/vertex/triangle counts for a mesh prim or subtree.
+        """Count the faces, vertices and triangles of every mesh at or under a prim: totals, and each mesh's own counts
+        when there are 20 or fewer.
 
-        Returns per-mesh breakdown and totals. Use for measuring geometry budget,
-        shell reduction ratios, etc.
+        Use it for one subtree's geometry budget, or what a simplification saved; get_prim_face_count_tree shows where
+        the faces are across a whole tree, and compare_prims puts two prims or variants side by side. Only UsdGeom.Mesh
+        prims count, inside instances too: implicit shapes such as Cube and Sphere have no faces.
         """
         resp = bridge_call(client.mesh_stats, prim_path)
         r = resp["result"]
@@ -46,10 +48,12 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         root: Annotated[str, Field(description="Prim path to start from")] = "/World",
         max_depth: Annotated[int, Field(ge=0, description="How many levels below root; 0 for root alone")] = 10,
     ) -> str:
-        """Get scene tree with face counts per mesh and subtree totals.
+        """List the prims under root with their geometry: faces, vertices and triangles on each mesh, and subtree_faces
+        on each prim above meshes, to find where a scene's faces are.
 
-        Like get_scene_tree but focused on geometry budget: each mesh shows
-        face/vertex/triangle counts, each group shows subtree_faces total.
+        Use it to find the heavy subtrees, then get_mesh_stats for one subtree's totals or compare_prims for two.
+        Unlike get_scene_tree, it looks inside instanceable prims. Prims below max_depth are left out of the list but
+        still count in their ancestors' subtree_faces. A long answer is written to a file and its path returned.
         """
         resp = bridge_call(client.face_count_tree, root, max_depth)
         r = resp["result"]
@@ -57,12 +61,22 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
     @mcp.tool(annotations=DESTROYS)
     def flatten_usd(
-        output_path: Annotated[str, Field(description="The flattened USD file to write")],
-        input_path: Annotated[str, Field(description="The USD file to flatten; the open stage when empty")] = "",
+        output_path: Annotated[str, Field(description="The USD file to write, on Kit's machine; overwritten if there")],
+        input_path: Annotated[
+            str,
+            Field(
+                description="The USD file to flatten, on Kit's machine; the open stage, unsaved edits too, when empty"
+            ),
+        ] = "",
     ) -> str:
-        """Flatten a USD file: resolve all references, payloads, sublayers into one file.
+        """Write a stage flattened into one USD file: its references, payloads and sublayers resolved into a single
+        layer.
 
-        If input_path is omitted, flattens the current stage.
+        Use it to hand the whole scene to another tool as one file; save_scene keeps the references and writes only the
+        root layer, and export_prim_as_file writes one prim's subtree. Leave input_path empty for the open stage, or
+        name another USD file. output_path is overwritten; textures and other files the stage points at are not copied.
+        Never name a file the open stage has loaded (its own file, a sublayer, a referenced asset) as either path: the
+        bridge first clears an open layer of that name in memory, which empties it in the open scene too.
         """
         resp = bridge_call(client.flatten_usd, output_path, input_path)
         r = resp["result"]
@@ -71,12 +85,21 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @mcp.tool(annotations=DESTROYS)
     def export_prim_as_file(
         prim_path: Annotated[str, Field(description="The root of the subtree to export")],
-        output_path: Annotated[str, Field(description="The file to write: .usd, .usda or .usdc (the default)")],
+        output_path: Annotated[
+            str,
+            Field(
+                description="The file to write on Kit's machine: .usd, .usda or .usdc, which a path without one gets"
+            ),
+        ],
     ) -> str:
-        """Export a prim subtree as a standalone USD file.
+        """Write one prim's subtree to a USD file of its own, flattened, with the materials it is bound to from outside
+        the subtree, so the file opens without the scene.
 
-        Flattens the source (resolves all references) and includes materials
-        even if they live outside the exported subtree. Output is self-contained.
+        The prim becomes /<its name> and the file's default prim, with the stage's up axis and units. Use it to hand
+        one asset to another tool or project; flatten_usd writes the whole stage, save_scene the root layer as it is.
+        output_path is overwritten. Never name a file the open stage has loaded: the bridge first clears an open layer
+        of that name in memory, which empties it in the open scene too. Textures and other files the subtree points at
+        are not copied.
         """
         resp = bridge_call(client.export_prim, prim_path, output_path)
         r = resp["result"]
@@ -91,10 +114,12 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         variant_set: Annotated[str, Field(description='The variant set\'s name, e.g. "model"')],
         variant_name: Annotated[str, Field(description='The variant to select, e.g. "shell"')],
     ) -> str:
-        """Switch variant selection on a prim with proper viewport refresh.
+        """Select a variant in a prim's variant set, and wait until the viewport shows it.
 
-        Includes Hydra rprim refresh workaround (activation toggle + frame pumping)
-        to ensure the viewport renders the correct geometry after switching.
+        Switch variants with this rather than execute_script: with Fabric Scene Delegate on, it deactivates and
+        reactivates the prim around the switch, some 40 app updates, so the viewport drops the old geometry; otherwise
+        it waits 5. The set and the variant must exist (create_variant_structure makes them): an error lists the ones
+        there. The selection is written to the stage; compare_prims measures two variants and puts the selection back.
         """
         resp = bridge_call(client.set_variant_selection, prim_path, variant_set, variant_name)
         r = resp["result"]
@@ -109,11 +134,15 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         prim_path: Annotated[str, Field(description="The prim to add the variant set to")],
         variant_set_name: Annotated[str, Field(description='The new variant set\'s name, e.g. "model"')],
         variant_names: Annotated[list[str], Field(description='The variants to create, e.g. ["focused", "shell"]')],
-        default_variant: Annotated[str, Field(description="The variant selected at first; the first when empty")] = "",
+        default_variant: Annotated[
+            str, Field(description="The variant to select; the first of variant_names when empty or not among them")
+        ] = "",
     ) -> str:
-        """Create variant set boilerplate on a prim.
+        """Add a variant set of empty variants to a prim and select one, ready to fill and to switch between with
+        set_variant_selection.
 
-        Adds the variant set, creates empty variant bodies, and sets the default.
+        A set or variant that already exists is kept and added to, never replaced. The variants hold nothing until you
+        author into them, with execute_script. An error when the prim doesn't exist.
         """
         resp = bridge_call(client.create_variant_structure, prim_path, variant_set_name, variant_names, default_variant)
         r = resp["result"]
@@ -132,14 +161,16 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         variant_a: Annotated[str, Field(description="Two variants: the first")] = "",
         variant_b: Annotated[str, Field(description="Two variants: the second")] = "",
     ) -> str:
-        """Compare two prims or two variants: mesh counts, bounds, materials.
+        """Compare two prims, or two variants of one prim, side by side: mesh, face, vertex and triangle counts, world
+        bounds and bound materials, with B minus A and the change in faces as a percentage.
 
         Two modes:
-        1. Prim comparison: provide prim_path_a and prim_path_b
-        2. Variant comparison: provide prim_path, variant_set, variant_a, variant_b
+        1. Two prims: prim_path_a and prim_path_b.
+        2. Two variants: prim_path, variant_set, variant_a and variant_b; this mode wins when all four are given.
 
-        Returns side-by-side stats with deltas. Properly clears BBoxCache between
-        variant switches to avoid stale data.
+        Variant mode switches the selection to each variant in turn, then back to the one before. A variant name is not
+        checked: one not in the set measures the prim with none of the set's variants. For one prim's counts, use
+        get_mesh_stats.
         """
         resp = bridge_call(client.compare_prims, prim_path_a, prim_path_b, prim_path, variant_set, variant_a, variant_b)
         r = resp["result"]
@@ -165,14 +196,20 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
     @mcp.tool(annotations=DESTROYS)
     def update_material_paths(
-        old_prefix: Annotated[str, Field(description='The path prefix to find, e.g. "/OldProject/Materials"')],
-        new_prefix: Annotated[str, Field(description='What to put in its place, e.g. "/World/Materials"')],
+        old_prefix: Annotated[
+            str, Field(description='The start of the paths to change, matched as text, e.g. "/OldProject/Materials/"')
+        ],
+        new_prefix: Annotated[str, Field(description='What to put in its place, e.g. "/World/Materials/"')],
         prim_path: Annotated[str, Field(description="The subtree to update; the whole stage by default")] = "/",
     ) -> str:
-        """Bulk-update material reference paths in a subtree.
+        """Rewrite every path under a subtree that starts with old_prefix to start with new_prefix instead: relationship
+        targets, such as material bindings, and asset paths, such as texture files.
 
-        Updates both relationship targets (material bindings) and asset path
-        attributes (texture file paths) that start with old_prefix.
+        Use it after materials or textures move, so bindings and textures point at their new place. The match is a plain
+        text prefix, on any relationship or asset path: a joint's bodies or a shader's source file change too if they
+        match, so end the prefix with "/" and keep it specific. Nothing checks that the new paths exist. Kit's undo
+        doesn't record the change, and a failure part way keeps the edits made before it. The answer counts the paths
+        changed and names the prims.
         """
         resp = bridge_call(client.update_material_paths, old_prefix, new_prefix, prim_path)
         r = resp["result"]
