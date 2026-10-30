@@ -14,6 +14,7 @@ from ovmcp.core.force import (
     AT_GIVEN,
     Joints,
     centre_of_mass,
+    fixed_refusal,
     force_args,
     refusal,
     world_point,
@@ -219,7 +220,6 @@ async def handle_apply_force(body: dict) -> dict:
     try:
         live = not stopped and not direct_gpu
         pose = get_physx_interface().get_rigidbody_transformation(args.prim_path) if live else {}
-        joints = Joints(stage) if live else None
         refused = refusal(
             args.prim_path,
             stopped=stopped,
@@ -227,9 +227,13 @@ async def handle_apply_force(body: dict) -> dict:
             enabled=enabled,
             kinematic=kinematic,
             held=bool(pose.get("ret_val")),
-            fixed_base=joints.held_to_world(args.prim_path) if joints else None,
-            articulation=joints.articulation_holding(args.prim_path) if joints else None,
         )
+        if refused is None:
+            # The joints take a traversal of the whole stage, so they are read only once the rest lets the push by.
+            joints = Joints(stage)
+            fixed_base = joints.held_to_world(args.prim_path)
+            if fixed_base is not None:
+                refused = fixed_refusal(args.prim_path, fixed_base, joints.articulation_holding(args.prim_path))
         if refused:
             return {"status": "error", "error": refused}
 

@@ -681,9 +681,9 @@ Automatically applies the required USD physics APIs (`MassAPI`, `PhysicsMaterial
 
 Push a rigid body through PhysX, so its mass counts: at `position`, or at its centre of mass when it is left out.
 The simulation must be playing or paused. A body can be an articulation's link, such as a robot's: the push moves
-the whole robot. The robot's momentum changes by the impulse, so its speed changes by the impulse over the robot's
-mass, not the link's, and the link turns about its joints as well. Measured on Isaac Sim 6.2, on PhysX's CPU
-pipeline.
+the robot through its joints. A floating robot touching nothing gains the impulse as momentum, so its speed changes
+by the impulse over the whole robot's mass, not the link's. A fixed-base robot's link turns about its joints, and a
+robot on the ground loses some of the push to friction. Measured on Isaac Sim 6.2, on PhysX's CPU pipeline.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -701,7 +701,7 @@ pipeline.
 | the body is disabled (`physics:rigidBodyEnabled` is false) | PhysX holds it as a static body, which no force moves |
 | the body is kinematic (`physics:kinematicEnabled` is true) | PhysX takes the force and moves it only by its transform |
 | PhysX holds no rigid body at `prim_path` | nothing to push; `get_logs(min_level="warn")` may say why |
-| a fixed joint holds the body to the world, or welds it to a body one holds | no force moves it, as measured on the Franka's base. That is an enabled `UsdPhysics.FixedJoint` whose other end is the world, a static prim or a disabled body, excluded from articulations or not. The error names the articulation when the body is a robot's fixed base or welded to one |
+| a fixed joint holds the body to the world, or welds it to a body one holds | no force moves it, as measured on the Franka's base. That is an enabled `UsdPhysics.FixedJoint` whose other end is the world, a static prim, a disabled body or a kinematic one, excluded from articulations or not. The error names the articulation when the body is a robot's fixed base or welded to one |
 | `position` is left out and PhysX gives the body no mass | no centre of mass to push at: give a `position` |
 
 **Returns:** `position`, the world point pushed at; `at`, `given` or `centre of mass`; `method`, `physx`. A point off

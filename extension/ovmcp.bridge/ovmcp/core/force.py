@@ -52,23 +52,13 @@ def force_args(body: Mapping[str, Any]) -> ForceArgs:
 
 
 def refusal(
-    prim_path: str,
-    *,
-    stopped: bool,
-    direct_gpu: bool,
-    enabled: bool,
-    kinematic: bool,
-    held: bool,
-    fixed_base: str | None,
-    articulation: str | None,
+    prim_path: str, *, stopped: bool, direct_gpu: bool, enabled: bool, kinematic: bool, held: bool
 ) -> str | None:
-    """Why PhysX won't move the body, or None when it will.
+    """Why PhysX won't move the body, or None when it will, as far as the cheap facts tell; `fixed_refusal` asks the
+    stage's joints after.
 
     A stopped timeline first: PhysX holds no bodies then, so the others say nothing. Then PhysX's Direct GPU API,
-    under which no push moves any body. Then what the prim says of itself, then whether PhysX holds it, then whether a
-    fixed joint holds it to the world: `fixed_base` is the body that joint holds, the body itself or the one it is
-    welded to (`Joints.held_to_world`). `articulation` names the root of the articulation the body is a link of, for
-    the message.
+    under which no push moves any body. Then what the prim says of itself, then whether PhysX holds it.
     """
     if stopped:
         return (
@@ -76,10 +66,13 @@ def refusal(
             "paused works too"
         )
     if direct_gpu:
-        # Measured on Isaac Sim 6.2 with GPU dynamics and suppressReadback: the push returns and moves nothing.
+        # Measured on Isaac Sim 6.2 with GPU dynamics and suppressReadback: the push returns and moves nothing. A
+        # stage opened after a GPU device can keep the setting on a CPU scene, where a push is unmeasured: refused too,
+        # with how to turn the setting off.
         return (
-            "PhysX runs with its Direct GPU API (/physics/suppressReadback is true), where a push moves nothing "
-            "(#68): run physics on the CPU to push a body"
+            "PhysX's Direct GPU API is on (/physics/suppressReadback is true), and a push moves nothing under it "
+            "(#68). To push bodies, stop the simulation, turn it off with execute_script: "
+            "carb.settings.get_settings().set_bool('/physics/suppressReadback', False), and play again"
         )
     if not enabled:
         # PhysX makes such a body a static rigid, as NVIDIA's own rigid body tests count it, and nothing moves one.
@@ -94,17 +87,22 @@ def refusal(
         )
     if not held:
         return f"PhysX holds no rigid body at {prim_path}; get_logs(min_level='warn') may say why"
+    return None
+
+
+def fixed_refusal(prim_path: str, fixed_base: str, articulation: str | None) -> str:
+    """Why no force moves a body a fixed joint holds: `fixed_base` is the body that joint holds, prim_path itself or
+    the one it is welded to (`Joints.held_to_world`). `articulation` names the root of the articulation the body is a
+    link of."""
     if fixed_base == prim_path:
         # Measured on Isaac Sim 6.2: the Franka's base takes the push and moves less than 1e-8.
         base = f", as the base of the articulation at {articulation}" if articulation else ""
         return f"{prim_path} is held to the world by a fixed joint{base}: no force moves it"
-    if fixed_base is not None:
-        within = f", in the articulation at {articulation}" if articulation else ""
-        return (
-            f"{prim_path} is welded to its fixed base {fixed_base}, which a fixed joint holds to the world{within}: "
-            "no force moves it"
-        )
-    return None
+    within = f", in the articulation at {articulation}" if articulation else ""
+    return (
+        f"{prim_path} is welded to its fixed base {fixed_base}, which a fixed joint holds to the world{within}: "
+        "no force moves it"
+    )
 
 
 class Joints:
@@ -140,10 +138,13 @@ class Joints:
                 _link(self._neighbours, ends[0], ends[1])
             # A disabled joint holds nothing; an excluded one still holds, outside the articulation's own joints.
             if is_a(prim, UsdPhysics.FixedJoint) and joint.GetJointEnabledAttr().Get() is not False:
-                if two:
-                    _link(self._welded, ends[0], ends[1])
-                elif len(ends) == 1:
-                    self._anchored.add(ends[0])
+                # A kinematic body moves only by its transform, so what it holds no force moves either: ground, as
+                # the world is. Only here: it still joins an articulation as the parser reads one.
+                movable = [end for end in ends if not _kinematic(stage, end)]
+                if len(movable) == 2 and movable[0] != movable[1]:
+                    _link(self._welded, movable[0], movable[1])
+                elif len(movable) == 1:
+                    self._anchored.add(movable[0])
 
     def articulation_holding(self, body_path: str) -> str | None:
         """The prim whose ArticulationRootAPI makes body_path one of its articulation's links, or None for a body
@@ -168,8 +169,8 @@ class Joints:
         more enabled fixed joints; None when nothing holds it so.
 
         No force moves such a body: PhysX makes a fixed joint to the world an articulation's fixed base, and holds a
-        lone body with it. Its other end is the world, a static prim or a disabled body. A joint excluded from
-        articulations counts too.
+        lone body with it. Its other end is the world, a static prim, a disabled body or a kinematic one. A joint
+        excluded from articulations counts too.
         """
         if body_path in self._anchored:
             return body_path
@@ -204,6 +205,10 @@ def _body_of(stage: Usd.Stage, path: Sdf.Path) -> str | None:
             return str(prim.GetPath())
         prim = prim.GetParent()
     return None
+
+
+def _kinematic(stage: Usd.Stage, body_path: str) -> bool:
+    return UsdPhysics.RigidBodyAPI(stage.GetPrimAtPath(body_path)).GetKinematicEnabledAttr().Get() is True
 
 
 def _root_at_or_above(prim: Usd.Prim) -> str | None:

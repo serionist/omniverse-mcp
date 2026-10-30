@@ -11,6 +11,7 @@ from ovmcp.core.force import (
     ForceArgs,
     Joints,
     centre_of_mass,
+    fixed_refusal,
     force_args,
     refusal,
     world_point,
@@ -85,36 +86,26 @@ def _why(
     enabled: bool = True,
     kinematic: bool = False,
     held: bool = True,
-    fixed_base: str | None = None,
-    articulation: str | None = None,
 ) -> str | None:
     """refusal for a body PhysX would push, but for what the test names."""
-    return refusal(
-        path,
-        stopped=stopped,
-        direct_gpu=direct_gpu,
-        enabled=enabled,
-        kinematic=kinematic,
-        held=held,
-        fixed_base=fixed_base,
-        articulation=articulation,
-    )
+    return refusal(path, stopped=stopped, direct_gpu=direct_gpu, enabled=enabled, kinematic=kinematic, held=held)
 
 
 def test_a_stopped_timeline_is_refused_first():
     # Stopped, PhysX holds no bodies, so whether it holds this one says nothing.
-    why = _why(stopped=True, direct_gpu=True, enabled=False, kinematic=True, held=False, fixed_base="/World/Box")
+    why = _why(stopped=True, direct_gpu=True, enabled=False, kinematic=True, held=False)
     assert why is not None
     assert why.startswith("The simulation is stopped")
     assert "paused works too" in why
 
 
-def test_the_direct_gpu_api_is_refused_before_what_the_body_says():
+def test_the_direct_gpu_api_is_refused_before_what_the_body_says_and_says_how_to_turn_it_off():
     # Measured on Isaac Sim 6.2: with suppressReadback, a push on a lone cube returned and moved nothing (#68).
-    why = _why(direct_gpu=True, enabled=False, kinematic=True, held=False, fixed_base="/World/Box")
+    why = _why(direct_gpu=True, enabled=False, kinematic=True, held=False)
     assert why == (
-        "PhysX runs with its Direct GPU API (/physics/suppressReadback is true), where a push moves nothing (#68): "
-        "run physics on the CPU to push a body"
+        "PhysX's Direct GPU API is on (/physics/suppressReadback is true), and a push moves nothing under it (#68). "
+        "To push bodies, stop the simulation, turn it off with execute_script: "
+        "carb.settings.get_settings().set_bool('/physics/suppressReadback', False), and play again"
     )
 
 
@@ -131,8 +122,8 @@ def test_a_kinematic_body_is_refused():
     assert why.startswith("/World/Box is kinematic (physics:kinematicEnabled is true)")
 
 
-def test_a_body_physx_doesnt_hold_is_refused_before_a_fixed_joint_is_asked():
-    why = _why(held=False, fixed_base="/World/Box")
+def test_a_body_physx_doesnt_hold_is_refused():
+    why = _why(held=False)
     assert why is not None
     assert why.startswith("PhysX holds no rigid body at /World/Box")
 
@@ -143,41 +134,43 @@ def test_a_body_physx_holds_while_it_plays_or_pauses_is_pushed():
 
 def test_an_articulation_s_link_is_pushed():
     # 0.2.1 refused it on a misread measurement; PhysX's push reaches a link (#58).
-    assert _why("/World/G1/hip", articulation="/World/G1/pelvis") is None
+    assert _why("/World/G1/hip") is None
 
 
 def test_a_body_a_fixed_joint_holds_to_the_world_is_refused():
-    assert _why(fixed_base="/World/Box") == "/World/Box is held to the world by a fixed joint: no force moves it"
+    assert fixed_refusal("/World/Box", "/World/Box", None) == (
+        "/World/Box is held to the world by a fixed joint: no force moves it"
+    )
 
 
 def test_a_fixed_base_names_its_articulation():
-    why = _why("/World/Arm/base", fixed_base="/World/Arm/base", articulation="/World/Arm")
-    assert why == (
+    assert fixed_refusal("/World/Arm/base", "/World/Arm/base", "/World/Arm") == (
         "/World/Arm/base is held to the world by a fixed joint, as the base of the articulation at /World/Arm: no "
         "force moves it"
     )
 
 
 def test_a_body_welded_to_its_fixed_base_is_refused():
-    assert _why("/World/Shelf", fixed_base="/World/Post") == (
+    assert fixed_refusal("/World/Shelf", "/World/Post", None) == (
         "/World/Shelf is welded to its fixed base /World/Post, which a fixed joint holds to the world: no force "
         "moves it"
     )
 
 
 def test_a_link_welded_to_its_fixed_base_names_its_articulation():
-    why = _why("/World/Arm/sensor", fixed_base="/World/Arm/base", articulation="/World/Arm")
-    assert why == (
+    assert fixed_refusal("/World/Arm/sensor", "/World/Arm/base", "/World/Arm") == (
         "/World/Arm/sensor is welded to its fixed base /World/Arm/base, which a fixed joint holds to the world, in "
         "the articulation at /World/Arm: no force moves it"
     )
 
 
-def _body(stage: Usd.Stage, path: str, *, enabled: bool = True) -> Usd.Prim:
+def _body(stage: Usd.Stage, path: str, *, enabled: bool = True, kinematic: bool = False) -> Usd.Prim:
     prim = UsdGeom.Cube.Define(stage, path).GetPrim()
     body = UsdPhysics.RigidBodyAPI.Apply(prim)
     if not enabled:
         body.CreateRigidBodyEnabledAttr().Set(False)
+    if kinematic:
+        body.CreateKinematicEnabledAttr().Set(True)
     UsdPhysics.CollisionAPI.Apply(prim)
     return prim
 
@@ -396,6 +389,30 @@ def test_a_disabled_body_is_static_ground_that_joins_nothing():
     assert joints.held_to_world("/World/Rig/base") is None
     assert joints.articulation_holding("/World/Rig/base") == "/World/Rig/base"
     assert joints.articulation_holding("/World/Rig/tip") is None
+
+
+def test_a_kinematic_mount_holds_what_is_fixed_to_it():
+    # A kinematic body moves only by its transform, so a base fixed to one takes a push and doesn't move. It still
+    # joins the articulation: UsdPhysics's parser lists it among the articulated bodies.
+    stage = Usd.Stage.CreateInMemory()
+    UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")
+    UsdPhysics.ArticulationRootAPI.Apply(UsdGeom.Xform.Define(stage, "/World/Turret").GetPrim())
+    _body(stage, "/World/Mount", kinematic=True)
+    _body(stage, "/World/Turret/base")
+    _body(stage, "/World/Turret/gun")
+    _body(stage, "/World/Turret/sight")
+    _joint(stage, "/World/Turret/fix", "/World/Mount", "/World/Turret/base", fixed=True)
+    _joint(stage, "/World/Turret/swivel", "/World/Turret/base", "/World/Turret/gun")
+    _joint(stage, "/World/Turret/weld", "/World/Turret/base", "/World/Turret/sight", fixed=True)
+    # Two kinematic bodies fixed together: neither is held by the other, and a push on either is refused as kinematic.
+    _body(stage, "/World/Hoist", kinematic=True)
+    _joint(stage, "/World/hoistweld", "/World/Mount", "/World/Hoist", fixed=True)
+    joints = Joints(stage)
+    assert joints.held_to_world("/World/Turret/base") == "/World/Turret/base"
+    assert joints.held_to_world("/World/Turret/sight") == "/World/Turret/base"
+    assert joints.held_to_world("/World/Turret/gun") is None
+    assert joints.held_to_world("/World/Hoist") is None
+    assert joints.articulation_holding("/World/Mount") == "/World/Turret"
 
 
 def test_the_centre_of_mass_comes_from_physx_s_mass_information():
