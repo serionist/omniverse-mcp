@@ -5,6 +5,12 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+## 0.2.3 (2026-10-30)
+
+A new tool, `open_scene`. Captures, recording, `apply_force`, `flatten_usd` and `export_prim_as_file` are fixed, and
+every tool's description is rewritten. Most of it is in the Kit extension: run
+`uvx omniverse-mcp==0.2.3 extension install` (the plugin's `/omniverse-mcp:setup` does it) and restart Kit.
+
 ### Added
 
 - **`open_scene` opens a USD file as the stage,** the counterpart of `save_scene`: a path on Kit's machine (a
