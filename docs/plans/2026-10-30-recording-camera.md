@@ -1,9 +1,9 @@
 ---
 title: Record start_recording's frames from its camera at its size
 issue: "#25"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-10-30
 ---
 
 # Record start_recording's frames from its camera at its size
@@ -244,15 +244,15 @@ Two plans planned alongside this one touch the same code. Each lands on its own;
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 | Keep the tool's schema as it is (defaults 640, 480, `""`; minimum 1), so a default call now records 640x480 from the active camera, where it recorded the viewport's size? | Yes: 640x480 is what the contract has always said; "0 means the viewport's size" would be a schema change for a case `capture_viewport` covers | |
-| Q2 | Cap a side at 4096, as #51 does, refused by the extension, not in the schema? | Yes: 4096x4096 works, a 6.5 MB frame in 1.14 s, though rendering it every update leaves a quarter of the app's updates headless (E20), which TOOLS.md says; a schema `maximum` is a contract change for no gain. #51's round-1 plan (`00469be`) names 3840x2160 a frame besides; this plan measured 4096x4096 and keeps 4096 a side alone, for the shared check (Q8) | |
-| Q3 | Keep #52's warning for an extension of 0.2.2 or older, told apart by `render_product` missing from its answer? | Yes, with the install line: a new server on an old extension would otherwise say nothing again | |
-| Q4 | When the stage changes or the camera goes mid-recording, stop taking frames and say so at stop, rather than record near-black or white frames (E8, E9)? | Yes | |
-| Q5 | Up to four frames in flight, each numbered at its tick, where today's unbounded ticks overwrite each other (E10) and one in flight halves `fps=30` (E15)? | Four: close to the `fps` asked, and bounded | |
-| Q6 | #51's direction (resize the viewport for a capture, or capture through this plan's feed), and the merge order of #51, #57 and #25 | #51's own call; whichever order, the second to land takes the first's size check, and #51's recording skip goes (Overlap) | |
-| Q7 | Frames overwriting each other (E10) gets an issue of its own, closed by this PR, with its own CHANGELOG line? | Yes: a bug users hit at any `fps` whose ticks outrun a capture, apart from #25's camera and size | |
-| Q8 | One size check in `ovmcp/core` for `capture_viewport`, `inspect_prim` and `start_recording`? | Yes: one cap, one message, one test | |
-| Q9 | The feed renders every update while the recording runs (settled frames; a third of the app's updates at 640x480 headless, three quarters at 4096x4096, E20), or only for each frame (nothing measurable between frames; frames about four times the settled noise under real-time path tracing, E23)? | Every update: recorded frames match what the viewport shows, and the cost lasts only while recording. Headless, where each update advances the simulation a fixed step (E15: 161 updates, 2.63 s simulated), it slows the run's wall time, not its results. A warm-up of a few updates before each frame is a middle way no run here has measured | |
+| Q1 | Keep the tool's schema as it is (defaults 640, 480, `""`; minimum 1), so a default call now records 640x480 from the active camera, where it recorded the viewport's size? | Yes: 640x480 is what the contract has always said; "0 means the viewport's size" would be a schema change for a case `capture_viewport` covers || As recommended (2026-10-30) |
+| Q2 | Cap a side at 4096, as #51 does, refused by the extension, not in the schema? | Yes: 4096x4096 works, a 6.5 MB frame in 1.14 s, though rendering it every update leaves a quarter of the app's updates headless (E20), which TOOLS.md says; a schema `maximum` is a contract change for no gain. #51's round-1 plan (`00469be`) names 3840x2160 a frame besides; this plan measured 4096x4096 and keeps 4096 a side alone, for the shared check (Q8) || As recommended (2026-10-30) |
+| Q3 | Keep #52's warning for an extension of 0.2.2 or older, told apart by `render_product` missing from its answer? | Yes, with the install line: a new server on an old extension would otherwise say nothing again || As recommended (2026-10-30) |
+| Q4 | When the stage changes or the camera goes mid-recording, stop taking frames and say so at stop, rather than record near-black or white frames (E8, E9)? | Yes || As recommended (2026-10-30) |
+| Q5 | Up to four frames in flight, each numbered at its tick, where today's unbounded ticks overwrite each other (E10) and one in flight halves `fps=30` (E15)? | Four: close to the `fps` asked, and bounded || As recommended (2026-10-30) |
+| Q6 | #51's direction (resize the viewport for a capture, or capture through this plan's feed), and the merge order of #51, #57 and #25 | #51's own call; whichever order, the second to land takes the first's size check, and #51's recording skip goes (Overlap) || As recommended (2026-10-30) |
+| Q7 | Frames overwriting each other (E10) gets an issue of its own, closed by this PR, with its own CHANGELOG line? | Yes: a bug users hit at any `fps` whose ticks outrun a capture, apart from #25's camera and size || As recommended (2026-10-30) |
+| Q8 | One size check in `ovmcp/core` for `capture_viewport`, `inspect_prim` and `start_recording`? | Yes: one cap, one message, one test || As recommended (2026-10-30) |
+| Q9 | The feed renders every update while the recording runs (settled frames; a third of the app's updates at 640x480 headless, three quarters at 4096x4096, E20), or only for each frame (nothing measurable between frames; frames about four times the settled noise under real-time path tracing, E23)? | Every update: recorded frames match what the viewport shows, and the cost lasts only while recording. Headless, where each update advances the simulation a fixed step (E15: 161 updates, 2.63 s simulated), it slows the run's wall time, not its results. A warm-up of a few updates before each frame is a middle way no run here has measured || As recommended (2026-10-30) |
 
 ## Compatibility
 
@@ -391,7 +391,7 @@ pending the new owner call Q9.
 **Refuted:** none recorded by this round.
 
 **Owner calls:** Q1-Q9, in Design, Decisions for the maintainer; Q6-Q8 are this round's, Q9 its follow-up run's.
-Unanswered.
+All answered as recommended by the maintainer, 2026-10-30. Q7's issue is #69, which this PR closes with #25.
 
 | Improvement | Answer |
 |---|---|
