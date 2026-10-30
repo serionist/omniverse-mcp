@@ -26,6 +26,40 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             item.add_marker(skip)
 
 
+# execute_script code for the live suites: sets one of ovmcp.core.capture's limits, its time or its count of frames;
+# an extension from before the bounded waits has none to set. The token says whose change it is: by value alone, an
+# earlier run's late undo would put back a later run's limit mid-test. `undo` puts it back, and runs by itself after
+# 60 s in case the test can't.
+SET_LIMIT = """
+import asyncio
+try:
+    from ovmcp.core import capture
+except ImportError:
+    capture = None
+undo = None
+if capture is not None:
+    token = object()
+    capture._ovmcp_test_{name} = token
+    capture.{name} = {value!r}
+
+    def undo():
+        if getattr(capture, "_ovmcp_test_{name}", None) is token:
+            capture.{name} = {default!r}
+            capture._ovmcp_test_{name} = None
+
+    asyncio.get_running_loop().call_later(60, undo)
+result = capture is not None
+"""
+
+# execute_script code that puts a limit SET_LIMIT set back, from a test's cleanup.
+RESTORE_LIMIT = """
+from ovmcp.core import capture
+capture.{name} = {default!r}
+capture._ovmcp_test_{name} = None
+result = capture.{name}
+"""
+
+
 def live_bridge() -> tuple[str, int]:
     """Where the live suites find the bridge: OMNIVERSE_MCP_HOST and OMNIVERSE_MCP_PORT, read by the server's own
     parser, so a Kit app of your own can keep 8211 while another runs them. Read when a live suite starts."""

@@ -14,8 +14,9 @@ import unittest
 import pytest
 
 from omniverse_mcp.client import BridgeClient
+from ovmcp.core import capture
 
-from .conftest import live_bridge
+from .conftest import SET_LIMIT, live_bridge
 
 pytestmark = pytest.mark.scenario
 
@@ -61,6 +62,48 @@ RED_PIXELS = (
     "red, green, blue = rgb[..., 0], rgb[..., 1], rgb[..., 2]\n"
     "result = int(((red - green > 80) & (red - blue > 80)).sum())\n"
 )
+# How long each drawing of DRAWN_THEN_CAPTURED lasts: a capture that ends after it may have missed it for that alone.
+DRAWN_SECONDS = 1.0
+# In one execute_script, `times` times: draw_debug's handler draws the zigzag with the backend in use, then
+# capture_viewport captures at once, with no HTTP round trip between them to hide a stale frame (#57). Each draw starts
+# from an empty view: the last drawing gone from the book, then 10 frames rendered, so none of its lines is in a frame
+# still on its way. The result: each capture's strongly red pixels (as RED_PIXELS counts them) and the seconds from
+# the draw to the capture's end. `set_limit` is SET_LIMIT's code, or `undo = None`; its undo runs in the finally, so a
+# limit changed for this call is back before the call answers.
+DRAWN_THEN_CAPTURED = """
+import base64, io, time
+import numpy as np
+import omni.kit.app
+from PIL import Image
+from omni.kit.viewport.utility import get_active_viewport, next_viewport_frame_async
+from ovmcp.bridge.handlers.debug_draw import _drawings, handle_draw_debug
+{set_limit}
+app = omni.kit.app.get_app()
+out = []
+try:
+    for _ in range({times}):
+        while not _drawings.book.idle:
+            await app.next_update_async()
+        await next_viewport_frame_async(get_active_viewport(), 10)
+        started = time.monotonic()
+        drawn = await handle_draw_debug(
+            {{"type": "lines", "points": {zigzag!r}, "color": [1, 0, 0], "duration": {duration!r}}}
+        )
+        if drawn["status"] != "success":
+            raise RuntimeError(drawn["error"])
+        cap = await mcp.capture_viewport(width=320, height=240)
+        took = time.monotonic() - started
+        if cap["status"] != "success":
+            raise RuntimeError(cap["error"])
+        png = base64.b64decode(cap["result"]["image_base64"])
+        rgb = np.asarray(Image.open(io.BytesIO(png)).convert("RGB")).astype(np.int32)
+        red, green, blue = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+        out.append([int(((red - green > 80) & (red - blue > 80)).sum()), took])
+finally:
+    if undo is not None:
+        undo()
+result = out
+"""
 
 
 def _turn_degrees(q0: list[float], q1: list[float]) -> float:
@@ -161,6 +204,43 @@ class TestScenarios(unittest.TestCase):
         r = self.c.execute(RED_PIXELS)
         self.assertEqual(r["status"], "success", r)
         return r["result"]["return_value"]
+
+    def _drawn_then_captured(
+        self, zigzag: list[list[float]], times: int = 5, fresh_frames: int | None = None
+    ) -> list[tuple[int, float]]:
+        """DRAWN_THEN_CAPTURED's captures, each its red pixels and seconds; each must end inside its drawing's
+        DRAWN_SECONDS. With `fresh_frames`, the capture waits that many frames instead of FRESH_FRAMES, for this call
+        only. Its own client: the five drawings come close to the scenario client's 10 s."""
+        set_limit = "undo = None"
+        if fresh_frames is not None:
+            set_limit = SET_LIMIT.format(name="FRESH_FRAMES", value=fresh_frames, default=capture.FRESH_FRAMES)
+        code = DRAWN_THEN_CAPTURED.format(set_limit=set_limit, times=times, zigzag=zigzag, duration=DRAWN_SECONDS)
+        host, port = live_bridge()
+        client = BridgeClient(host=host, port=port, timeout=60.0)
+        try:
+            r = client.execute(code)
+        finally:
+            client.close()
+        self.assertEqual(r["status"], "success", r)
+        captures = [(red, took) for red, took in r["result"]["return_value"]]
+        for _, took in captures:
+            self.assertLess(took, DRAWN_SECONDS, f"a capture ended {took:.2f} s after its draw: Kit was slow")
+        return captures
+
+    def _a_capture_at_once_holds_the_drawing(self, zigzag: list[list[float]]) -> None:
+        """Without fresh frames, a capture made at once misses the drawing at least once in 5 (#57's trail, shown on
+        this bridge); with them, as shipped, every capture holds it."""
+        unwaited = self._drawn_then_captured(zigzag, fresh_frames=0)
+        print(f"  Captured at once, no fresh frames: red pixels {[red for red, _ in unwaited]}")
+        self.assertTrue(
+            any(red <= 100 for red, _ in unwaited),
+            "Every capture with no fresh frames held the drawing: this Kit shows no trail, so the next check proves "
+            "nothing here",
+        )
+        waited = self._drawn_then_captured(zigzag)
+        print(f"  Captured at once, as shipped: red pixels {[red for red, _ in waited]}")
+        for red, _ in waited:
+            self.assertGreater(red, 100, "a capture made just after the drawing doesn't hold it")
 
     def _choose_backend(self, *names: str) -> str:
         """The bridge's choose_backend, through execute: the first of `names` it can draw with, or the default."""
@@ -1313,7 +1393,7 @@ class TestScenarios(unittest.TestCase):
         self._pass()
 
     def test_16_08_draw_debug_reaches_a_capture(self):
-        """Phase 16.8: A drawing shows in a capture"""
+        """Phase 16.8: A drawing shows in a capture, however soon after it is made"""
         self._lines_go_after_the_test()
         zigzag = self._aim_away()
         before = self._red_pixels()
@@ -1323,6 +1403,7 @@ class TestScenarios(unittest.TestCase):
         print(f"  Strongly red pixels: {before} before the zigzag, {drawn} with it")
         self.assertLess(before, 20, "the view aimed away from the red cube holds red already")
         self.assertGreater(drawn, 100, "the zigzag isn't in the capture")
+        self._a_capture_at_once_holds_the_drawing(zigzag)
         self._pass()
 
     def test_16_09_draw_debug_with_omni_debugdraw(self):
@@ -1355,6 +1436,8 @@ class TestScenarios(unittest.TestCase):
         print(f"  Strongly red pixels: {during} while it lasts, {after} after")
         self.assertGreater(during, 100, "omni.debugdraw's zigzag isn't in the capture")
         self.assertLess(after, 20, "omni.debugdraw's zigzag outlasted its duration")
+        # The fallback draws a frame later than isaacsim.util.debug_draw, so it missed a capture first (#57).
+        self._a_capture_at_once_holds_the_drawing(zigzag)
         self._pass()
 
     # ===== Phase 17: Scene Lifecycle =====
