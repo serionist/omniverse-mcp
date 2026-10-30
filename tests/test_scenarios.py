@@ -67,9 +67,11 @@ DRAWN_SECONDS = 1.0
 # In one execute_script, `times` times: draw_debug's handler draws the zigzag with the backend in use, then
 # capture_viewport captures at once, with no HTTP round trip between them to hide a stale frame (#57). Each draw starts
 # from an empty view: the last drawing gone from the book, then 10 frames rendered, so none of its lines is in a frame
-# still on its way. The result: each capture's strongly red pixels (as RED_PIXELS counts them) and the seconds from
-# the draw to the capture's end. `set_limit` is SET_LIMIT's code, or `undo = None`; its undo runs in the finally, so a
-# limit changed for this call is back before the call answers.
+# still on its way. First, from such an empty view, one capture says whether the view is black: a black capture is
+# taken again after a renderer reset, whose frames would hide the trail, so then nothing is drawn. The result: whether
+# it was black, and each capture's strongly red pixels (as RED_PIXELS counts them) and the seconds from the draw to the
+# capture's end. `set_limit` is SET_LIMIT's code, or `undo = None`; its undo runs in the finally, so a limit changed
+# for this call is back before the call answers.
 DRAWN_THEN_CAPTURED = """
 import base64, io, time
 import numpy as np
@@ -81,7 +83,14 @@ from ovmcp.bridge.handlers.debug_draw import _drawings, handle_draw_debug
 app = omni.kit.app.get_app()
 out = []
 try:
-    for _ in range({times}):
+    while not _drawings.book.idle:
+        await app.next_update_async()
+    await next_viewport_frame_async(get_active_viewport(), 10)
+    view = await mcp.capture_viewport(width=320, height=240)
+    if view["status"] != "success":
+        raise RuntimeError(view["error"])
+    black = view["result"]["is_black"]
+    for _ in range(0 if black else {times}):
         while not _drawings.book.idle:
             await app.next_update_async()
         await next_viewport_frame_async(get_active_viewport(), 10)
@@ -102,8 +111,13 @@ try:
 finally:
     if undo is not None:
         undo()
-result = out
+result = {{"black": black, "captures": out}}
 """
+
+
+def _shown(captures: list[tuple[int, float]]) -> str:
+    """Captures as `red (seconds)`, for a test's printout."""
+    return ", ".join(f"{red} ({took:.2f} s)" for red, took in captures)
 
 
 def _turn_degrees(q0: list[float], q1: list[float]) -> float:
@@ -208,9 +222,10 @@ class TestScenarios(unittest.TestCase):
     def _drawn_then_captured(
         self, zigzag: list[list[float]], times: int = 5, fresh_frames: int | None = None
     ) -> list[tuple[int, float]]:
-        """DRAWN_THEN_CAPTURED's captures, each its red pixels and seconds; each must end inside its drawing's
-        DRAWN_SECONDS. With `fresh_frames`, the capture waits that many frames instead of FRESH_FRAMES, for this call
-        only. Its own client: the five drawings come close to the scenario client's 10 s."""
+        """DRAWN_THEN_CAPTURED's captures, each its red pixels and seconds; the view must not be black without the
+        drawing (test_02_01 lights the stage), and each capture must end inside its drawing's DRAWN_SECONDS. With
+        `fresh_frames`, the capture waits that many frames instead of FRESH_FRAMES, for this call only. Its own
+        client: the five drawings come close to the scenario client's 10 s."""
         set_limit = "undo = None"
         if fresh_frames is not None:
             set_limit = SET_LIMIT.format(name="FRESH_FRAMES", value=fresh_frames, default=capture.FRESH_FRAMES)
@@ -222,7 +237,9 @@ class TestScenarios(unittest.TestCase):
         finally:
             client.close()
         self.assertEqual(r["status"], "success", r)
-        captures = [(red, took) for red, took in r["result"]["return_value"]]
+        done = r["result"]["return_value"]
+        self.assertFalse(done["black"], "the view is black: light the stage first, as test_02_01 does")
+        captures = [(red, took) for red, took in done["captures"]]
         for _, took in captures:
             self.assertLess(took, DRAWN_SECONDS, f"a capture ended {took:.2f} s after its draw: Kit was slow")
         return captures
@@ -232,19 +249,13 @@ class TestScenarios(unittest.TestCase):
         #57) it missed every time.
 
         First the same with no fresh frames, to show the renderer's trail on this bridge: printed, not asserted, since
-        with async rendering the renderer sometimes keeps up and all 5 hold the drawing anyway.
-
-        The view must not be black without the drawing: a black capture is taken again after a renderer reset, which
-        would let the frames pass that the first half means to skip. test_02_01 lights the stage."""
-        view = self.c.capture_viewport(320, 240)
-        self.assertEqual(view["status"], "success", view)
-        self.assertFalse(view["result"]["is_black"], "the view is black: light the stage first, as test_02_01 does")
+        with async rendering the renderer sometimes keeps up and all 5 hold the drawing anyway."""
         unwaited = self._drawn_then_captured(zigzag, fresh_frames=0)
         missed = sum(red <= 100 for red, _ in unwaited)
         trail = f"{missed} missed: the trail is there" if missed else "none missed: the renderer kept up this time"
-        print(f"  Captured at once, no fresh frames: red pixels {[red for red, _ in unwaited]}, {trail}")
+        print(f"  Captured at once, no fresh frames: red pixels and seconds {_shown(unwaited)}, {trail}")
         waited = self._drawn_then_captured(zigzag)
-        print(f"  Captured at once, as shipped: red pixels {[red for red, _ in waited]}")
+        print(f"  Captured at once, as shipped: red pixels and seconds {_shown(waited)}")
         for red, _ in waited:
             self.assertGreater(red, 100, "a capture made just after the drawing doesn't hold it")
 
