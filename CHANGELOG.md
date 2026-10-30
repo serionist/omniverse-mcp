@@ -48,6 +48,11 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   `mcp.inspect`, or the extension's HTTP routes, a `width` or `height` that isn't a whole number from 1 to 4096, such
   as `"1280"` or `720.0`, or a request with one of the two alone, is refused, where it was converted or defaulted. The
   tools always send both as whole numbers (#51).
+- **Every tool's description says when to use it rather than its neighbours,** what a parameter left out does, and how
+  it fails, so a client picks and calls the right one; `docs/TOOLS.md` says the same. Some said less than the tools do:
+  `update_material_paths` rewrites any relationship or asset path that starts with the prefix, not only materials',
+  `sim_control("step")` plays two app updates, and `set_camera` and `look_at_prim` aim the camera only in Isaac Sim
+  (#78).
 
 ## 0.2.2 (2026-10-29)
 
