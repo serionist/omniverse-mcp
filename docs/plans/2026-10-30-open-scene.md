@@ -1,9 +1,9 @@
 ---
 title: Add an open_scene tool that opens a USD file as the stage
 issue: "#79"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-10-30
 ---
 
 # Add an open_scene tool that opens a USD file as the stage
@@ -503,12 +503,12 @@ Owner calls:
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 | The tool: `open_scene(file_path)`, required, destructive hint, the answer above | Yes: it sits beside `new_scene` and `save_scene`, and takes `save_scene`'s parameter name | |
-| Q2 | Unsaved changes: refuse, take a flag, or discard as `new_scene` does | Discard, and say so in the description and the docs: `has_pending_edit()` is true after every new stage, open and save (E3, E6), so a refusal or a flag would fire on every call | |
-| Q3 | Paths: `create_robot`'s rule, a relative path read from Kit's working folder, URLs, `/Isaac/...` | Yes: one rule for both tools, and `save_scene` writes a relative path to the same place | |
-| Q4 | A file that passes the checks and fails to load: leave no stage, as Kit does, or open an empty one | Leave none and say so: an empty stage the agent didn't ask for would hide the failure, and `new_scene` is one call away | |
-| Q5 | `openWorldHint`: false, as `create_robot` has it though it also fetches URLs, or true for URLs | False, for consistency: open world marks `RUNS` here, where anything can happen | |
-| Q6 | A stat that answers `ERROR_NOT_SUPPORTED`: refuse, as Kit's File > Open does (F6), or go on, as Isaac Sim's asset-root check does (`accept_unsupported=True`, F11) | Refuse, which keeps the open stage, except under the asset library's root, where Isaac Sim itself trusts it | |
+| Q1 | The tool: `open_scene(file_path)`, required, destructive hint, the answer above | Yes: it sits beside `new_scene` and `save_scene`, and takes `save_scene`'s parameter name | As recommended (2026-10-30) |
+| Q2 | Unsaved changes: refuse, take a flag, or discard as `new_scene` does | Discard, and say so in the description and the docs: `has_pending_edit()` is true after every new stage, open and save (E3, E6), so a refusal or a flag would fire on every call | As recommended (2026-10-30) |
+| Q3 | Paths: `create_robot`'s rule, a relative path read from Kit's working folder, URLs, `/Isaac/...` | Yes: one rule for both tools, and `save_scene` writes a relative path to the same place | As recommended (2026-10-30) |
+| Q4 | A file that passes the checks and fails to load: leave no stage, as Kit does, or open an empty one | Leave none and say so: an empty stage the agent didn't ask for would hide the failure, and `new_scene` is one call away | As recommended (2026-10-30) |
+| Q5 | `openWorldHint`: false, as `create_robot` has it though it also fetches URLs, or true for URLs | False, for consistency: open world marks `RUNS` here, where anything can happen | As recommended (2026-10-30) |
+| Q6 | A stat that answers `ERROR_NOT_SUPPORTED`: refuse, as Kit's File > Open does (F6), or go on, as Isaac Sim's asset-root check does (`accept_unsupported=True`, F11) | Refuse, which keeps the open stage, except under the asset library's root, where Isaac Sim itself trusts it | As recommended (2026-10-30) |
 
 Improvements:
 
