@@ -15,7 +15,7 @@ and the geometry skill. No blocker or major; two minors, both fixed, so no secon
 
 | # | Sev | Where | Finding | Status |
 |---|---|---|---|---|
-| F1 | minor | `core/layers.py`, `_same_file` | A link to the open stage's file under another name got past `write_refusal`: the file-name filter ran before any disk check. On Linux, with `/proj/shot/v003.usda` open and `/proj/shot/latest.usda` a symlink to it, `export_prim_as_file("/World/Robot", "/proj/shot/latest.usda")` wasn't refused: `Find` resolves the link's path without following it, the names differ, so `samefile` was never tried, and Export wrote through the link onto the scene's file. A Windows short name (`SCENE~1.USD`) and a `file:` URL, whose `samefile` raised and read as no match, the same. A hard link was safe (the writer renames a temp file over that entry) | fixed in `3f1af9f`: `write_refusal` compares every used layer's file with the output's, whatever its name, one stat each when the output exists, a `file:` URL taken as its path first (`url2pathname`); the pass over held layers outside the stage keeps the name filter, where a miss only leaves one stale. `test_a_symlink_to_a_file_of_the_open_stage_is_refused_whatever_its_name` (skipped only where the account can't make a symlink; it ran on Windows here and runs on CI's Linux), `test_a_file_url_of_the_open_stages_file_is_refused`, `test_a_layer_whose_file_is_gone_doesnt_stop_the_check`. The docstring and TOOLS.md promise only what the check does |
+| F1 | minor | `core/layers.py`, `_same_file` | A link to the open stage's file under another name got past `write_refusal`: the file-name filter ran before any disk check. On Linux, with `/proj/shot/v003.usda` open and `/proj/shot/latest.usda` a symlink to it, `export_prim_as_file("/World/Robot", "/proj/shot/latest.usda")` wasn't refused: `Find` resolves the link's path without following it, the names differ, so `samefile` was never tried, and Export wrote through the link onto the scene's file. A Windows short name (`SCENE~1.USD`) and a `file:` URL, whose `samefile` raised and read as no match, the same. A hard link was safe (the writer renames a temp file over that entry) | fixed in `3f1af9f`: `write_refusal` compares every used layer's file with the output's, whatever its name, one stat each when the output exists, a `file:` URL taken as its path first (with `url2pathname`, then, after the merge with `main`, with `open_scene`'s `path_of` in `1563b1c`, which keeps a UNC host); the pass over held layers outside the stage keeps the name filter, where a miss only leaves one stale. `test_a_symlink_to_a_file_of_the_open_stage_is_refused_whatever_its_name` (skipped only where the account can't make a symlink; it ran on Windows here and runs on CI's Linux), `test_a_file_url_of_the_open_stages_file_is_refused`, `test_a_layer_whose_file_is_gone_doesnt_stop_the_check`. The docstring and TOOLS.md promise only what the check does |
 | F2 | minor | `plugin/skills/geometry/SKILL.md`, its trap | The trap taught `Reload()` where the code needs `Reload(force=True)`: without force, USD compares the file's time with the load's, to the second on Windows, so an Export and a Reload in the same second leave the layer as it was | fixed in `10e4bdd`: `Reload(force=True)`, and why |
 
 Refuted, each from the code:
@@ -68,14 +68,14 @@ Isaac Sim 6.2.0 headless, a fresh Kit at 8212 with the bridge at `2250d27`, thro
   - "Flattened IntTestScene.usda: the open stage kept /World/IntTestFlatCube and its unsaved /World/IntTestUnsaved";
   - "export_prim_as_file and flatten_usd refused the open stage's own file; the stage is intact".
 
-The fixes' live run, of `TestFlattenAndExportKeepTheOpenStage` at the merge with `main`: pending.
+The fixes' live run, of `TestFlattenAndExportKeepTheOpenStage` after the merge with `main` (`dfda34a`), at `1563b1c`: pending.
 
 Not shown: other Kit apps, such as USD Composer, the Isaac Sim GUI, and output paths on Nucleus (`omniverse://`).
 
 ## Checks
 
 - **The gate:** `uv run tools/gate.py full` passed on `10e4bdd`: 15 checks, 1196 passed and 169 skipped, coverage
-  95.93%; `ovmcp/core/layers.py` at 100%.
+  95.93%; `ovmcp/core/layers.py` at 100%. After the merge with `main`, on `1563b1c`: 15 checks, 1268 passed and 176 skipped, coverage 96.18%.
 - **Each guard has a test that fails without it:** run by hand on `ac71c67` and again on the fixes, removing one
   guard at a time (the reload of held inputs, the used and unsaved-edits exclusions, the anonymous one, `Find`, the
   file system's identity, the any-name pass, the `file:` URL).
