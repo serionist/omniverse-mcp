@@ -48,7 +48,7 @@ the last five lines of its traceback, or why the Kit app couldn't be reached.
 
 Each tool registers through `_annotations.py`'s `tool()`, with its hints and its docstring as the description. The
 SDK sends a docstring as `__doc__` holds it, which Python before 3.13 keeps indented as in the source, so `tool()`
-passes it through `inspect.cleandoc`; `tests/test_contract.py` fails on a description with an indented line.
+passes it through `inspect.cleandoc`; `tests/test_contract.py` fails on a description that still carries it.
 
 | Module | Tools |
 |--------|-------|

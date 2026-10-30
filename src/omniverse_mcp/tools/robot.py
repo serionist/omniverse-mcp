@@ -84,9 +84,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Get each joint's position and velocity from physics while the simulation plays or is paused; an error while
         it is stopped, which says to play or step first.
 
-        Radians for revolute joints and metres for prismatic ones, velocities per second (set_joint_targets takes
+        Radians for revolute joints and stage units for prismatic ones, velocities per second (set_joint_targets takes
         degrees). Use it to see where a robot is now; get_robot_info reads names, limits and drives from USD at any
-        time. prim_path is the robot's articulation root or a prim above it. Needs Isaac Sim; tested on 6.2.
+        time. prim_path is the robot's articulation root or a prim above it. Needs Isaac Sim.
         """
         resp = bridge_call(client.get_joint_states, prim_path)
         r = resp["result"]
@@ -110,7 +110,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             Field(
                 description=(
                     "Required: {joint_name: value}, or [v0, v1, ...] in get_robot_info's joint order, fixed joints "
-                    "included; degrees for revolute joints, metres for prismatic ones"
+                    "included; degrees for revolute joints, stage units for prismatic ones"
                 )
             ),
         ] = None,

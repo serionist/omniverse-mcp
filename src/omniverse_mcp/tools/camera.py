@@ -111,15 +111,14 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Render one frame from a camera at width x height and save 3 files to mcp_output/captures/:
 
         1. **Image** (PNG): what the camera sees.
-        2. **Bounding boxes** (TXT): each visible prim under /World, with its box in pixels, world centre and size.
+        2. **Bounding boxes** (TXT): each visible mesh or shape under /World, its box in pixels, world centre and size.
         3. **Instance segmentation** (PNG): each prim in a colour of its own, with a legend naming them.
 
         Use it to see the scene and tell which prim is where: the boxes for places, the segmentation for prims that
         overlap. It renders camera_path, or the viewport's camera when empty, in a render of its own, so the viewport
         the user sees keeps its camera and size. Aim first with set_camera or look_at_prim; for one prim from every
-        side, use inspect_prim. include_image=True also returns the image inline, at a cost in context. An all-black
-        image comes with a warning saying what to change with viewport_light. Without omni.syntheticdata the image
-        and boxes still come, and the segmentation line says why it is missing.
+        side, use inspect_prim. An all-black image comes with a warning saying what to change with viewport_light.
+        Without omni.syntheticdata only the image comes: the boxes and segmentation need it.
         """
         resp = bridge_call(client.capture_viewport, width, height, camera_path)
 
@@ -210,8 +209,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         target defaults to the world origin. To frame a prim by its path, use look_at_prim; to capture from another
         camera without moving the viewport, capture_viewport's camera_path. It moves whichever camera the viewport
-        looks through, a scene camera included, and the user sees the move. Aiming needs Isaac Sim
-        (isaacsim.core.utils.viewports): other Kit apps only move the camera, without aiming it.
+        looks through, a scene camera included, and the user sees the move. Aiming needs Isaac Sim: other Kit apps
+        only move the camera, without aiming it.
         """
         resp = bridge_call(client.camera_set, position, target)
         r = resp["result"]
@@ -241,8 +240,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Use it to see one prim: set_camera places the camera at coordinates, and inspect_prim captures a prim from up
         to 14 sides in one call; capture_viewport then takes the picture. It moves whichever camera the viewport looks
-        through, and the user sees the move. Aiming needs Isaac Sim (isaacsim.core.utils.viewports): other Kit apps
-        only move the camera, without aiming it. An error when the prim doesn't exist.
+        through, and the user sees the move. Aiming needs Isaac Sim: other Kit apps only move the camera, without
+        aiming it. An error when the prim doesn't exist.
         """
         resp = bridge_call(client.camera_look_at, prim_path, distance, azimuth, elevation)
         r = resp["result"]
@@ -284,10 +283,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Use it to see one object from every side; capture_viewport takes one picture from a camera as it stands. The
         angles are the 6 face centres and 8 corners of a cube around the prim, all 14 unless angles names some. The
-        distance is fitted to the prim's size at width x height, then moved by zoom_offset. It moves the viewport's own
-        camera, which stays at the last angle, and renders each angle in a render of its own at width x height. isolate
-        hides everything but the prim and the lights while it captures, then shows them again. A call has about 80 s:
-        an angle that fails says why, and the angles after it say Not captured. An orthographic camera is refused.
+        distance is fitted to the prim's size at width x height, then moved by zoom_offset. It moves whichever camera
+        the viewport looks through, a scene camera included, and leaves it at the last angle. isolate hides everything
+        but the prim and the lights while it captures, then shows them again. A call has about 80 s: an angle that
+        fails says why, and the angles after it say Not captured. An orthographic camera is refused.
         """
         resp = bridge_call(
             client.camera_inspect,

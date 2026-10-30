@@ -19,12 +19,18 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @tool(mcp, READS)
     def get_scene_tree(
         root: Annotated[str, Field(description="Prim path to start from")] = "/",
-        max_depth: Annotated[int, Field(ge=0, le=15, description="How many levels below root; 0 for root alone")] = 5,
+        max_depth: Annotated[
+            int,
+            Field(
+                ge=0, le=15, description="How many levels below root to list; the next shows only prims with children"
+            ),
+        ] = 5,
     ) -> str:
         """List the stage's prims under root as prim blocks: each one's path, type and world position.
 
-        Use it to find prim paths before acting on them: it is the lightest look at a scene. A branch cut at max_depth
-        shows how many children it holds, and the prims inside an instanceable prim are not listed
+        Use it to find prim paths before acting on them: it is the lightest look at a scene. The level after max_depth
+        lists only the prims that have children, each with its type and how many children it holds; the rest of that
+        level, and everything deeper, is left out. The prims inside an instanceable prim are not listed
         (get_prim_face_count_tree looks inside). For properties, use get_prim_properties on one prim, or dump_scene for
         many at once, written to a file to grep.
         """
@@ -49,8 +55,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         file's path, to grep or read in parts.
 
         Each block holds the prim's type, world position, rotation and bounding box, and every attribute's value unless
-        include_properties is False. Use it to search many prims' values at once, or for a scene too large for
-        get_scene_tree; get_prim_properties reads one prim inline. filter_types keeps the blocks of those types and
+        include_properties is False. Use it for many prims' values at once, or for depths beyond get_scene_tree's 15;
+        get_prim_properties reads one prim inline. filter_types keeps the blocks of those types and
         still walks the others' children. Each call replaces the last dump. Kit writes the file itself, so with Kit on
         another machine it lands there. Like get_scene_tree, it doesn't list the prims inside an instanceable prim.
         """
@@ -108,10 +114,11 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Set a prim's position, rotation or scale relative to its parent; any of the three left out keeps its value.
 
         Use it to move, turn or size a prim; to aim the viewport camera, use set_camera or look_at_prim, and to push a
-        rigid body while physics runs, apply_force. Values are in the parent's space, not world space: get_prim_bounds
-        gives world positions. It rewrites the prim's xform ops as translate, rotateXYZ (orient for a quaternion) and
-        scale, and drops any other op, so a prim placed by a matrix (xformOp:transform), as imported assets often are,
-        loses that placement. An error when the prim doesn't exist or can't be transformed.
+        rigid body while physics runs, apply_force. Values are in the parent's space, not world space:
+        get_prim_properties gives a prim's world position. It rewrites the prim's xform ops as translate, rotateXYZ
+        (orient for a quaternion) and scale, and drops any other op, so a prim placed by a matrix (xformOp:transform),
+        as imported assets often are, loses that placement. An error when the prim doesn't exist or can't be
+        transformed.
         """
         bridge_call(client.set_transform, prim_path, position, rotation, scale)
         return f"Transform updated for {prim_path}"
@@ -134,8 +141,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         prim_type is a USD type name: Cube, Sphere, Cylinder, Cone, Capsule, Xform, Camera, DistantLight, DomeLight,
         SphereLight and the rest. Missing parents are made as typeless prims. A prim already at prim_path keeps its
         type: one of another type is refused, one of the same type takes the new transform. usd_path adds its reference
-        to a prim already there. enable_physics makes the prim a rigid body with a collider, which falls and collides
-        while the simulation plays. To copy a prim, use clone_prim; for a robot, create_robot.
+        to a prim already there. enable_physics puts the RigidBody and Collision APIs on the prim itself, so a shape
+        falls and collides while the simulation plays; the meshes under an Xform or a referenced file's root get no
+        Collision API of their own. To copy a prim, use clone_prim; for a robot, create_robot.
         """
         kwargs = {}
         if usd_path:
@@ -211,9 +219,12 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Copy a prim with everything under it to a new path, once or as a row of count copies.
 
         The first copy sits on the source and each next one moves by offset from the one before, so a single copy is
-        never moved: move it with set_prim_transform. It copies what the stage's root layer holds at source_path, its
-        references included, so a prim from a sublayer, or from inside a referenced asset, can't be copied whole. A
-        target path that already holds a prim is refused before anything is copied. For a new prim, use create_prim.
+        never moved: move it with set_prim_transform. With offset, the copies it places, and a single copy, get their
+        xform ops rewritten as set_prim_transform does, counted from the source's translate (the origin without one):
+        copies of a prim placed by a matrix lose that placement. It copies what the stage's root layer holds at
+        source_path, its references included, so a prim from a sublayer, or from inside a referenced asset, can't be
+        copied whole. A target path that already holds a prim is refused before anything is copied. For a new prim,
+        use create_prim.
         """
         resp = bridge_call(client.clone_prim, source_path, target_path, count, offset)
         r = resp["result"]

@@ -23,8 +23,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     ) -> str:
         """Run Python inside the Kit app (Isaac Sim, USD Composer, ...) on its main thread, for what no tool does.
 
-        Prefer a tool that does the job: it checks its input and bounds its waits. Kit's APIs change between releases,
-        so look one up with Context7 MCP (library: isaac-sim/isaacsim) before using it. The script has omni, carb, Usd,
+        Prefer a tool that does the job: it checks its input and bounds its waits. The script has omni, carb, Usd,
         UsdGeom, UsdLux, UsdPhysics, Sdf, Gf and mcp. Assign to 'result' to return JSON-serialisable data (anything else
         comes back as its str); stdout and stderr come back too, and an exception as an error with the traceback's last
         lines. A script that blocks freezes Kit: the call gives up after 120 s, and the script runs on.
@@ -103,9 +102,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Get the latest entries of the Kit app's log, read from its log file since the bridge extension started, by
         level, channel or text.
 
-        Use this to investigate errors: when any tool fails, call get_logs(min_level="warn") to see what the Kit app
-        reported. Kit's file holds Info and above by default; verbose lines need Kit started with both
-        --/log/level=verbose and --/log/fileLogLevel=verbose.
+        Kit's file holds Info and above by default; verbose lines need Kit started with both --/log/level=verbose and
+        --/log/fileLogLevel=verbose.
         """
         resp = bridge_call(client.get_logs, count, min_level, channel, None, search)
         r = resp["result"]

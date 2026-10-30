@@ -43,10 +43,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Get the simulation's state and the stage's frame of reference: playing, paused or stopped, the timeline's
         time, the up axis, meters_per_unit, the prim count, and the versions of the Kit extension and this server.
 
-        Call it first in a session: the up axis says which coordinate is height, and meters_per_unit what every
-        distance means. fps is the timeline's time codes per second, not a render rate. When the two versions differ,
-        the answer names the command that installs the matching extension; while a recording runs whose frames stopped
-        early, it says why. sim_control changes the state.
+        fps is the timeline's time codes per second, not a render rate. When the two versions differ, the answer names
+        the command that installs the matching extension; while a recording runs whose frames stopped early, it says
+        why. sim_control changes the state.
         """
         resp = bridge_call(client.sim_state)
         r = resp["result"]
@@ -125,7 +124,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         floating robot touching nothing changes speed by the impulse over its whole mass; a fixed robot's link turns
         about its joints, and on the ground friction takes some of the push. Refused for a prim without RigidBodyAPI, a
         disabled or kinematic body, one a fixed joint holds to the world (a fixed robot's base), and under PhysX's
-        Direct GPU API (#68). To place a body rather than push it, use set_prim_transform."""
+        Direct GPU API. To place a body rather than push it, use set_prim_transform."""
         resp = bridge_call(client.apply_force, prim_path, force, position, impulse)
         r = resp["result"]
         mode = "impulse" if r.get("impulse") else "force"
@@ -138,7 +137,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @tool(mcp, READS)
     def raycast(
         origin: Annotated[list[float], Field(description="[x, y, z] start point in world space")],
-        direction: Annotated[list[float], Field(description="[dx, dy, dz] direction in world space; it is normalised")],
+        direction: Annotated[
+            list[float],
+            Field(description="[dx, dy, dz] direction in world space, a unit vector: PhysX takes it as given"),
+        ],
         max_distance: Annotated[float, Field(gt=0, description="The longest the ray goes, in stage units")] = 1000.0,
     ) -> str:
         """Cast a ray through PhysX and return the closest collider it hits: its prim, the hit point, the surface
@@ -187,10 +189,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         three crossing lines, or a small cross per point.
 
         Use it to mark points, rays or paths, such as a raycast's hit, for a capture or the user to see: on Isaac Sim
-        6.x the lines show in capture_viewport's image. Nothing is added to the stage. Isaac Sim draws with
-        isaacsim.util.debug_draw, turned on at the first call. Its clear takes every line drawn with it, so when a
-        drawing expires, lines other code drew with it go too. Other Kit apps draw with omni.debugdraw when they have
-        it. A new stage drops the old one's drawings."""
+        6.x the lines show in capture_viewport's image. Nothing is added to the stage. In Isaac Sim, when a drawing
+        expires, lines other code drew with isaacsim.util.debug_draw go too. A new stage drops the old one's
+        drawings."""
         kwargs: dict[str, Any] = {"duration": duration}
         if color is not None:
             kwargs["color"] = color

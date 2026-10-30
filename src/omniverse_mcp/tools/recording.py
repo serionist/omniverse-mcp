@@ -68,8 +68,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         saved as PNGs in mcp_output/recordings/, by Kit itself. One recording runs at a time: another start is refused
         until stop_recording. Use stop_recording when done, then get_recording_frame to review any frame.
 
-        Optionally tracks prim state (transforms, properties) alongside video frames.
-        State is written to a grep-friendly state.txt in prim-block format.
+        Optionally tracks prim state (transforms, properties) alongside video frames, in state.txt.
         """
         rec_dir = os.path.join(h.output_dir, "recordings")
         resp = bridge_call(
@@ -122,7 +121,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         session_dir: Annotated[
             str,
             Field(
-                description="The session folder start_recording named, on Kit's machine; the last recording when empty"
+                description="The session folder on Kit's machine, absolute or relative to Kit's working folder; "
+                "the last recording when empty"
             ),
         ] = "",
     ) -> str:
@@ -131,9 +131,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Frames come from start_recording, which Kit writes itself as frame_00000.png and on in the session folder: with
         Kit on this machine you can also open them there, and with Kit on another this brings one here. Without
-        session_dir it reads the last recording started since the Kit extension started, the running one included. A
-        frame Kit failed to capture comes back as an empty file; a frame number past the last is an error. For a
-        picture of the scene now, use capture_viewport.
+        session_dir it reads the last recording started since the Kit extension started, the running one included.
+        Kit reads session_dir against its own working folder, while start_recording and stop_recording may give the
+        folder relative to the server's: pass an absolute path. A frame Kit failed to capture comes back as an empty
+        file; a frame number past the last is an error. For a picture of the scene now, use capture_viewport.
         """
         resp = bridge_call(client.recording_frame, session_dir, frame_index)
 

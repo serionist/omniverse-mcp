@@ -73,11 +73,12 @@ List the stage's prims under `root` as prim blocks: each one's path, type and wo
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `root` | string | `"/"` | Starting prim path |
-| `max_depth` | int | `5` | Traversal depth, 0 (root alone) to 15 |
+| `max_depth` | int | `5` | Levels below `root` to list, 0 to 15; the next level shows only prims with children |
 
 **Returns:** Prim-block text showing each prim's path, type, and world position. Written to file if output exceeds 1000 characters.
-A branch cut at `max_depth` shows how many children it holds. The prims inside an instanceable prim, as Isaac Sim's
-robot assets often are, are not listed: `get_prim_face_count_tree` looks inside.
+The level after `max_depth` lists only the prims that have children, each with its type and `children = N
+(truncated)`; the rest of that level, and everything deeper, is left out. The prims inside an instanceable prim, as
+Isaac Sim's robot assets often are, are not listed: `get_prim_face_count_tree` looks inside.
 
 **When to use:** to find prim paths before acting on them; it is the lightest look at a scene. For properties, use
 `get_prim_properties` on one prim, or `dump_scene` for many at once, written to a file to grep.
@@ -102,7 +103,7 @@ unless `include_properties` is false.
 dump. Kit writes the file itself, so with Kit on another machine it lands there. Like `get_scene_tree`, it doesn't list
 the prims inside an instanceable prim.
 
-**When to use:** to search many prims' values at once, or a scene too large for `get_scene_tree`. The output is in
+**When to use:** for many prims' values at once, or for depths beyond `get_scene_tree`'s 15. The output is in
 prim-block format - grep for prim paths or property names. `get_prim_properties` reads one prim inline.
 
 ---
@@ -150,7 +151,7 @@ Set a prim's position, rotation or scale relative to its parent.
 
 Only provided parameters are changed; others are preserved.
 
-- **Local, not world:** values are in the parent's space; `get_prim_bounds` gives world positions.
+- **Local, not world:** values are in the parent's space; `get_prim_properties` gives a prim's world position.
 - **Its xform ops:** it rewrites them as translate, rotateXYZ (orient for a quaternion) and scale, and drops any other
   op, so a prim placed by a matrix (`xformOp:transform`), as imported assets often are, loses that placement.
 - **Errors:** a prim that doesn't exist, or one that can't be transformed.
@@ -176,7 +177,8 @@ Create a new prim in the scene.
 
 A prim already at `prim_path` keeps its type: creating one of another type there is refused, and one of the same type
 takes the new transform. A `usd_path` adds its reference to a prim already there. Missing parents are made as typeless
-prims.
+prims. `enable_physics` puts both APIs on the prim itself, so a shape falls and collides while the simulation plays;
+the meshes under an Xform or a referenced file's root get no Collision API of their own.
 
 **When to use:** Creating geometric shapes, lights, cameras, or loading external USD assets. To copy a prim, use
 `clone_prim`; for a robot, `create_robot`.
@@ -210,7 +212,9 @@ already holds a prim is refused, before anything is copied.
 | `offset` | list[float] | `null` | `[x, y, z]` per-copy offset, in the parent's space. The first copy sits on the source, and each next one shifts by this amount from the previous, so a single copy never moves. |
 
 It copies what the stage's root layer holds at `source_path`, its references included, so a prim from a sublayer, or
-from inside a referenced asset, can't be copied whole.
+from inside a referenced asset, can't be copied whole. With `offset`, the copies it places, and a single copy, get their
+xform ops rewritten as `set_prim_transform` does, counted from the source's translate (the origin without one): copies
+of a prim placed by a matrix lose that placement.
 
 **Example:** Clone a cube into a row of 5, the first on the cube and each 2 further along x:
 ```
@@ -511,7 +515,8 @@ Get current joint positions and velocities.
 | `prim_path` | string | required | Root prim of the robot |
 
 **Returns:** each degree of freedom's name, position and velocity: radians and radians per second for revolute
-joints, metres and metres per second for prismatic ones. `set_joint_targets` takes degrees for revolute joints.
+joints, stage units and stage units per second for prismatic ones. `set_joint_targets` takes degrees for revolute
+joints.
 
 - **Physics playing or paused:** joint states come from physics, so a stopped simulation is an error that says to
   play or step it first. The tool never starts physics itself.
@@ -530,7 +535,7 @@ Set the position targets of a robot's joint drives, which physics drives the joi
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Root prim of the robot |
-| `targets` | dict or list | `null` | Required in practice: `{joint_name: value}` dict or `[v0, v1, ...]` list. Values in degrees (revolute) or metres (prismatic). |
+| `targets` | dict or list | `null` | Required in practice: `{joint_name: value}` dict or `[v0, v1, ...]` list. Values in degrees (revolute) or stage units (prismatic). |
 
 Works by setting USD drive target attributes directly - does not require articulation initialisation, or physics
 running. A dict sets the joints it names and skips names it doesn't find; a list follows `get_robot_info`'s joint
@@ -581,7 +586,7 @@ It moves whichever camera the viewport looks through, and the user sees the move
 
 Orbit-capture: take screenshots from 14 systematic angles around a prim using a cube-based approach (6 face centres + 8 cube corners). The camera distance is fitted so the prim's bounding sphere fills the captured frame with a 10px margin, at `width` x `height`. Optionally includes instance segmentation at each angle.
 
-The orbit moves the viewport's camera, as the user sees, and leaves it at the last angle; each angle is rendered from that camera at `width` x `height` in a render of the call's own, as `capture_viewport`'s is. The first line gives that size; with an extension of 0.2.2 or older, whose images are the viewport's size, a `WARNING` says so when it isn't the size asked for, with the command that installs this release's extension.
+The orbit moves whichever camera the viewport looks through, a scene camera included, as the user sees, and leaves it at the last angle; each angle is rendered from that camera at `width` x `height` in a render of the call's own, as `capture_viewport`'s is. The first line gives that size; with an extension of 0.2.2 or older, whose images are the viewport's size, a `WARNING` says so when it isn't the size asked for, with the command that installs this release's extension.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -612,7 +617,7 @@ A call takes about 90 s at most, under the server's 120 s timeout: 80 s for the 
 Capture a camera at `width` x `height` and save **3 files** for full scene understanding:
 
 1. **Viewport image** (PNG) - what the camera sees
-2. **Bounding boxes** (TXT) - screen-space pixel coordinates for each visible prim, plus world-space centre and dimensions
+2. **Bounding boxes** (TXT) - screen-space pixel coordinates for each visible mesh or shape under `/World`, plus world-space centre and dimensions
 3. **Instance segmentation** (PNG + legend TXT) - each prim rendered as a unique colour, with a legend mapping colours to prim paths
 
 Use files 2 and 3 to understand which object is where in the viewport image. Aim first with `set_camera` or
@@ -642,7 +647,7 @@ world_center = [0.0, 0.5, 0.0]
 world_dimensions = [1.0, 1.0, 1.0]
 ```
 
-> **Note:** Instance segmentation requires `omni.syntheticdata` (included in Isaac Sim). Without it, or when it gives no data, the viewport image and bounding boxes are still returned, and `Segmentation: ERROR` says why. Each capture turns the sensor on for its own render and waits up to 5 s for its first data; when none comes, later captures of that camera at that size on that stage wait 1 s, until one gets data.
+> **Note:** Instance segmentation and the bounding boxes require `omni.syntheticdata` (included in Isaac Sim). Without it only the viewport image comes. When it gives no segmentation data, the image and bounding boxes are still returned, and `Segmentation: ERROR` says why. Each capture turns the sensor on for its own render and waits up to 5 s for its first data; when none comes, later captures of that camera at that size on that stage wait 1 s, until one gets data.
 
 > **Black image detection:** If the captured image is all-black, the response includes a `WARNING` with the lighting mode and whether scene lights exist. Use the `viewport_light` tool to check the lighting mode and change it if needed, then recapture. No automatic light changes are made.
 
@@ -779,7 +784,7 @@ stopped, the frame's simulation time.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `frame_index` | int | `0` | Frame number (0-based), not negative |
-| `session_dir` | string | `""` | Session directory on Kit's machine (uses the last recording started since the extension started, the running one included, if empty) |
+| `session_dir` | string | `""` | Session directory on Kit's machine, absolute or relative to Kit's working folder (uses the last recording started since the extension started, the running one included, if empty). `start_recording` and `stop_recording` may give it relative to the server's folder: pass an absolute path |
 
 Kit writes a recording's frames itself, as `frame_00000.png` and on in the session folder: with Kit on this machine you
 can also open them there, and with Kit on another this tool brings one here. A frame Kit failed to capture comes back
@@ -858,7 +863,7 @@ Cast a ray through PhysX and return the closest collider it hits.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `origin` | list[float] | required | `[x, y, z]` start point in world space |
-| `direction` | list[float] | required | `[dx, dy, dz]` direction in world space (normalised automatically) |
+| `direction` | list[float] | required | `[dx, dy, dz]` direction in world space, a unit vector: PhysX takes it as given |
 | `max_distance` | float | `1000.0` | Maximum ray length in stage units, above 0 |
 
 **Returns:** Hit prim path, hit position, surface normal, and distance. Returns "No hit" if ray doesn't intersect anything.
