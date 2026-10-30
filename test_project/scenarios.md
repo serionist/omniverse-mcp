@@ -425,14 +425,32 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 - A cube with `physics:kinematicEnabled` true; play; `apply_force` → error
 
 ### 15.11 Apply Force to a Robot Link
-- Play; `apply_force(link, force=[100,0,0], impulse=True)` on the pelvis of `/World/G1`, then on another of its
-  links → error each time: PhysX's push doesn't reach an articulation's links yet (#58)
+- Stopped, lift `/World/G1` 20 units, so it falls with nothing to touch; play, then pause
+- Its speed along X over 12 steps, from PhysX's poses and masses; `apply_force(pelvis, force=[100,0,0],
+  impulse=True)`; its speed over 12 more steps
+- Verify: the speed changed by 100 / the robot's mass (about 2.92) within 2%, before it landed; put it back after
 
 ### 15.12 Apply Force to a Disabled Body
 - A cube with `physics:rigidBodyEnabled` false; play; `apply_force` → error: PhysX holds it as a static body
 
 ### 15.13 Apply Force to Invalid Prim
 - `apply_force("/World/Nonexistent", force=[1,0,0])` → error
+
+### 15.14 Apply Force to a Link of a Free Articulation
+- Two 5 kg cubes of their own on a hinge, an articulation rooted on their Xform, gravity off; play, then pause
+- `apply_force(second cube, force=[10,0,0], impulse=True)` between two measures of their speed along X
+- Verify: the speed changed by 1.0 (10 N s / 10 kg) within 2%
+
+### 15.15 Apply Force to a Body Fixed to the World
+- The same pair with a fixed joint from the world to the first cube, and a cube bolted to the world
+- `apply_force` on the bolted cube, then on the first cube → error each time: a fixed joint holds it to the world,
+  naming the articulation for the cube in one
+- A sideways impulse on the second cube: success; over 30 steps it moves, the first doesn't
+
+### 15.16 Apply Force to Isaac Sim's Franka
+- `create_robot("franka", ...)` away from the scene; play, then pause
+- `apply_force` on `panda_link0` → error: held to the world by a fixed joint, as the base of the articulation
+- `apply_force` on `panda_hand` → success
 
 ---
 

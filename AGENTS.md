@@ -60,8 +60,7 @@ PowerShell unless a PowerShell form stands beside it.
 
 - **Live suites** need a Kit app running `ovmcp.bridge` (Kit's extension search path pointed at `extension/`), at
   `OMNIVERSE_MCP_HOST` and `OMNIVERSE_MCP_PORT` (127.0.0.1:8211 by default), as the server finds it.
-  Without `OMNIVERSE_MCP_SIM=1` they skip, even with a Kit app running; with it they run, and fail when no Kit
-  answers.
+  Without `OMNIVERSE_MCP_SIM=1` they skip, even with a Kit app running; with it they run, and fail when no Kit answers.
 - **A headless Isaac Sim** needs `OMNI_KIT_ACCEPT_EULA=YES` (PowerShell: `$env:OMNI_KIT_ACCEPT_EULA = "YES"`), set
   by the person who accepts NVIDIA's EULA. An agent never sets it on its own.
 - **Hosted CI never runs Kit:** a change to the extension, the client or a tool says in its PR whether the live
@@ -133,6 +132,7 @@ What this repo's history already paid for:
 | Every capture read one temp path, which Kit 110 writes after it says the capture is done: each image was the previous capture's | #32 | A file per capture, read once the PNG is whole (`capture_viewport_png`) |
 | Render waits counted updates (too few on a cold start) or had no bound (a stalled viewport hung the call) | #27, #35 | Waits by time, each bounded, a call limit under the server's 120 s (`ovmcp.core.capture`) |
 | A capture took the next frame Kit delivered, rendered about 3 updates before: a drawing made just before was missing | #57 | `FRESH_FRAMES` frames before `capture_viewport` and `inspect_prim` capture; recording waits none (#69) |
+| A live check read a robot's drift against a threshold, so `apply_force` refused links PhysX pushes | #58 | Live force checks compare the change of momentum with the push |
 
 ## Look up APIs before coding against them
 
