@@ -431,9 +431,17 @@ CASES = [
         "start_recording",
         {"fps": 10, "track_prims": ["/World/G1"]},
         "/recording/start",
-        {"session_id": "rec_1", "fps": 10, "output_dir": "rec_1", "track_prims": ["/World/G1", "/World/G1/base"]},
+        {
+            "session_id": "rec_1",
+            "fps": 10,
+            "output_dir": "rec_1",
+            "resolution": [640, 480],
+            "camera_path": "/OmniverseKit_Persp",
+            "render_product": "/Render/OmniverseKit/HydraTextures/ovmcp_recording_0",
+            "track_prims": ["/World/G1", "/World/G1/base"],
+        },
         {"output_dir": str(Path(OUTPUT) / "recordings"), "fps": 10, "track_prims": ["/World/G1"]},
-        ("Recording rec_1 at 10fps", "Tracking 2 prims"),
+        ("Recording rec_1 at 10fps, 640x480 from /OmniverseKit_Persp", "Tracking 2 prims"),
     ),
     Case(
         "stop_recording",
@@ -662,23 +670,53 @@ def test_get_sim_state_says_nothing_more_when_the_extension_is_this_release(brid
     assert "note = " not in text
 
 
-# What the bridge answers a recording's start with: no extension yet records from a camera or at a size (#25).
-RECORDING = {"session_id": "rec_1", "fps": 5, "output_dir": "rec_1", "resolution": [640, 480]}
+# What an extension of 0.2.2 or older answers a recording's start with: it records the viewport, and names no render
+# product (#25).
+OLDER_RECORDING = {"session_id": "rec_1", "fps": 5, "output_dir": "rec_1", "resolution": [640, 480]}
 
 
-def test_start_recording_warns_of_the_camera_and_size_the_extension_ignores(bridge: MockIsaacServer, tmp_path: Path):
+def _recording(camera: str, width: int, height: int) -> dict[str, Any]:
+    """What this release's extension answers: the frames' camera and size, and the render product they come from."""
+    return {
+        "session_id": "rec_1",
+        "fps": 5,
+        "output_dir": "rec_1",
+        "resolution": [width, height],
+        "camera_path": camera,
+        "render_product": "/Render/OmniverseKit/HydraTextures/ovmcp_recording_0",
+    }
+
+
+@pytest.mark.parametrize(
+    ("args", "answer", "says"),
+    [
+        (
+            {"camera_path": "/World/RecCam", "width": 320, "height": 240},
+            _recording("/World/RecCam", 320, 240),
+            "Recording rec_1 at 5fps, 320x240 from /World/RecCam -> ",
+        ),
+        ({}, _recording("/OmniverseKit_Persp", 640, 480), "Recording rec_1 at 5fps, 640x480 from /OmniverseKit_Persp"),
+    ],
+)
+def test_start_recording_says_the_camera_and_size_it_records(
+    args: dict[str, Any], answer: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    text = _check(Case("start_recording", args, "/recording/start", answer, args, (says,)), bridge, tmp_path)
+    assert "WARNING" not in text
+
+
+def test_start_recording_warns_an_older_extension_ignores_the_camera_and_size(bridge: MockIsaacServer, tmp_path: Path):
     _check(
         Case(
             "start_recording",
             {"camera_path": "/World/RecCam", "width": 320, "height": 240},
             "/recording/start",
-            RECORDING,
-            # Sent all the same: the extension that records from a camera at a size will take them as they are.
+            OLDER_RECORDING,
             {"camera_path": "/World/RecCam", "width": 320, "height": 240},
             (
-                "WARNING: frames come from the active viewport, from its camera at its own size: camera_path "
-                "/World/RecCam, width 320 and height 240 are ignored for now (#25).",
-                "Aim the viewport with set_camera or look_at_prim before playing.",
+                "WARNING: this Kit extension records the active viewport, from its camera at its own size: "
+                "camera_path /World/RecCam, width 320 and height 240 are ignored.",
+                f"Install the extension of this server's release, {kit_extension.install_command()}, then restart Kit",
             ),
         ),
         bridge,
@@ -689,24 +727,56 @@ def test_start_recording_warns_of_the_camera_and_size_the_extension_ignores(brid
 @pytest.mark.parametrize(
     ("args", "says"),
     [
-        ({"camera_path": "/World/RecCam"}, "camera_path /World/RecCam is ignored for now (#25)"),
-        ({"width": 1920}, ": width 1920 is ignored for now (#25)"),
-        ({"width": 640, "height": 720}, ": height 720 is ignored for now (#25)"),
-        ({"camera_path": "/World/RecCam", "height": 240}, "camera_path /World/RecCam and height 240 are ignored"),
+        ({"camera_path": "/World/RecCam"}, "camera_path /World/RecCam is ignored."),
+        ({"width": 1920}, ": width 1920 is ignored."),
+        ({"width": 640, "height": 720}, ": height 720 is ignored."),
+        ({"camera_path": "/World/RecCam", "height": 240}, "camera_path /World/RecCam and height 240 are ignored."),
     ],
 )
-def test_start_recording_names_each_ignored_parameter_it_was_given(
+def test_start_recording_on_an_older_extension_names_each_ignored_parameter_it_was_given(
     args: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
 ):
-    _check(Case("start_recording", args, "/recording/start", RECORDING, args, (says,)), bridge, tmp_path)
+    _check(Case("start_recording", args, "/recording/start", OLDER_RECORDING, args, (says,)), bridge, tmp_path)
+
+
+def test_stop_recording_says_why_frames_stopped_early(bridge: MockIsaacServer, tmp_path: Path):
+    note = "frames stopped after 12, at 0.40 s of simulation: the stage changed"
+    _check(
+        Case(
+            "stop_recording",
+            {},
+            "/recording/stop",
+            {"frame_count": 12, "duration_seconds": 1.2, "output_dir": "rec_1", "state_file": None, "note": note},
+            {},
+            ("Stopped. 12 frames, 1.2s", f"Note: {note}"),
+        ),
+        bridge,
+        tmp_path,
+    )
+
+
+def test_get_sim_state_says_why_a_recording_s_frames_stopped(bridge: MockIsaacServer, tmp_path: Path):
+    note = "frames stopped after 3, at 0.10 s of simulation: the camera is gone: No prim at /World/RecCam"
+    _check(
+        Case(
+            "get_sim_state",
+            {},
+            "/sim/state",
+            {"state": "playing", "recording_active": True, "recording_note": note},
+            {},
+            (f"recording_note = {note}",),
+        ),
+        bridge,
+        tmp_path,
+    )
 
 
 @pytest.mark.parametrize("args", [{}, {"fps": 10}, {"width": 640, "height": 480, "camera_path": ""}])
-def test_start_recording_warns_of_nothing_without_a_camera_or_a_size(
+def test_start_recording_on_an_older_extension_warns_of_nothing_without_a_camera_or_a_size(
     args: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path
 ):
     # The defaults are what every call sends; a warning on each would be noise the model learns to skip.
-    bridge.set_response("/recording/start", {"status": "success", "result": RECORDING})
+    bridge.set_response("/recording/start", {"status": "success", "result": OLDER_RECORDING})
     client = BridgeClient(port=bridge.port, token="invented-test-token")
     try:
 

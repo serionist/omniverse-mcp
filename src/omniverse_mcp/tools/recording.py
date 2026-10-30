@@ -7,6 +7,7 @@ from mcp.server.mcpserver import MCPServer
 from pydantic import Field
 
 from omniverse_mcp.client import BridgeClient
+from omniverse_mcp.kit_extension import install_command
 
 from ._annotations import EDITS, READS
 from ._bridge import bridge_call
@@ -14,14 +15,15 @@ from ._bridge import bridge_call
 if TYPE_CHECKING:
     from omniverse_mcp.server import Helpers
 
-# start_recording's size when none is given. The bridge ignores the size, so a size other than this one, or any
-# camera_path, gets a warning: the tool can't tell 640 given from 640 by default.
+# start_recording's size when none is given. An extension of 0.2.2 or older ignores the size, so for one of those a
+# size other than this one, or any camera_path, gets a warning: the tool can't tell 640 given from 640 by default.
 DEFAULT_WIDTH = 640
 DEFAULT_HEIGHT = 480
 
 
 def _ignored_warning(camera_path: str, width: int, height: int) -> str | None:
-    """The WARNING line for the recording parameters the Kit extension ignores (#25), or None when none was given."""
+    """The WARNING line for the recording parameters an older Kit extension ignores (#25), or None when none was
+    given."""
     ignored = [f"camera_path {camera_path}"] if camera_path else []
     if width != DEFAULT_WIDTH:
         ignored.append(f"width {width}")
@@ -31,9 +33,9 @@ def _ignored_warning(camera_path: str, width: int, height: int) -> str | None:
         return None
     named = ignored[0] if len(ignored) == 1 else f"{', '.join(ignored[:-1])} and {ignored[-1]}"
     return (
-        f"WARNING: frames come from the active viewport, from its camera at its own size: {named} "
-        f"{'is' if len(ignored) == 1 else 'are'} ignored for now (#25). Aim the viewport with set_camera or "
-        "look_at_prim before playing."
+        f"WARNING: this Kit extension records the active viewport, from its camera at its own size: {named} "
+        f"{'is' if len(ignored) == 1 else 'are'} ignored. Install the extension of this server's release, "
+        f"{install_command()}, then restart Kit, to record from a camera at a size."
     )
 
 
@@ -41,14 +43,11 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @mcp.tool(annotations=EDITS)
     def start_recording(
         fps: Annotated[int, Field(ge=1, description="Frames a second: 5 captures one every 0.2 s")] = 5,
-        width: Annotated[
-            int, Field(ge=1, description="Ignored for now: frames come at the active viewport's size (#25)")
-        ] = DEFAULT_WIDTH,
-        height: Annotated[
-            int, Field(ge=1, description="Ignored for now: frames come at the active viewport's size (#25)")
-        ] = DEFAULT_HEIGHT,
+        width: Annotated[int, Field(ge=1, description="Frame width in pixels, up to 4096")] = DEFAULT_WIDTH,
+        height: Annotated[int, Field(ge=1, description="Frame height in pixels, up to 4096")] = DEFAULT_HEIGHT,
         camera_path: Annotated[
-            str, Field(description="Ignored for now: frames come from the active viewport's camera (#25)")
+            str,
+            Field(description="The camera to record, e.g. /World/RecCam; the active viewport's camera when empty"),
         ] = "",
         track_prims: Annotated[
             list[str] | None, Field(description='Prims whose state to record, descendants included, e.g. ["/World/G1"]')
@@ -60,13 +59,14 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     ) -> str:
         """Start recording simulation frames to disk.
 
-        Records the active viewport, from its camera at its own size: aim it with set_camera or look_at_prim first.
-        camera_path, width and height are ignored for now (#25); the answer warns when given a camera_path, or a size
-        other than 640x480.
+        Records camera_path, or the active viewport's camera when empty, at width x height (up to 4096 a side),
+        through a render of its own: the viewport, its camera and its size stay as they are. The extra render runs
+        while the recording does, and slows the app's updates, the more the larger the frames.
 
         Captures a frame every few app updates, about 1/fps seconds, whether or not the simulation plays: play it to
-        record motion. Frames are saved as PNGs in mcp_output/recordings/. Use stop_recording when done,
-        then get_recording_frame to review any frame.
+        record motion. Frames stop if the stage changes or the camera is deleted; stop_recording says so. Frames are
+        saved as PNGs in mcp_output/recordings/. Use stop_recording when done, then get_recording_frame to review any
+        frame.
 
         Optionally tracks prim state (transforms, properties) alongside video frames.
         State is written to a grep-friendly state.txt in prim-block format.
@@ -83,12 +83,15 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             property_filter=property_filter,
         )
         r = resp["result"]
-        msg = f"Recording {r['session_id']} at {r['fps']}fps -> {h.rel(r['output_dir'])}"
+        # Only an extension that records from the camera at the size names the render product it renders into.
+        from_camera = "render_product" in r
+        size = f", {r['resolution'][0]}x{r['resolution'][1]} from {r['camera_path']}" if from_camera else ""
+        msg = f"Recording {r['session_id']} at {r['fps']}fps{size} -> {h.rel(r['output_dir'])}"
         if r.get("track_prims"):
             tp: list[str] | int = r["track_prims"]
             count = len(tp) if isinstance(tp, list) else tp
             msg += f"\nTracking {count} prims"
-        warning = _ignored_warning(camera_path, width, height)
+        warning = None if from_camera else _ignored_warning(camera_path, width, height)
         if warning:
             msg += f"\n{warning}"
         msg += "\nCall sim_control('play') to start."
@@ -105,6 +108,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         msg = f"Stopped. {r['frame_count']} frames, {r['duration_seconds']}s -> {h.rel(r['output_dir'])}"
         if r.get("state_file"):
             msg += f"\nState: {h.rel(r['state_file'])}"
+        if r.get("note"):
+            msg += f"\nNote: {r['note']}"
         return msg
 
     @mcp.tool(annotations=READS)
