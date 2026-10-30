@@ -132,9 +132,12 @@ The last changes from "a link" to "a body held to the world":
   - the world (no target);
   - a static prim;
   - a disabled body (`physics:rigidBodyEnabled` false), which PhysX holds as static (`core/force.py` line 65), as
-    UsdPhysics's parser reads it (fact 11c).
+    UsdPhysics's parser reads it (fact 11c);
+  - a kinematic body, which moves only by its transform (review-code F2; measured in its probe).
 
-  So is a body welded to such a body through more enabled fixed joints. It doesn't matter whether the body is
+  So is a body welded to such a body through more enabled fixed joints. A joint whose target doesn't exist holds
+  nothing: PhysX makes no joint of it, though usd-core's parser reads that end as the world (review-code F1;
+  measured in its probe). It doesn't matter whether the body is
   articulated, or whether the joint is excluded from articulations (`physics:excludeFromArticulation`). This covers
   an articulation's fixed base, the case PhysX's `fixed_base` names (E6, E11), a link welded to that base, and a cube
   bolted to the world.
@@ -151,9 +154,10 @@ The last changes from "a link" to "a body held to the world":
 - **Not refused:**
   - a joint of another type to the world, such as a revolute one, since the body moves about it;
   - a disabled fixed joint, which holds nothing.
-- **`refusal`'s signature:** it takes `direct_gpu: bool` and `fixed_base: str | None` (what `held_to_world`
-  returns), and keeps `articulation: str | None`, now only to name the root in the message. The handler reads
-  neither PhysX's pose nor the joints under the Direct GPU API.
+- **`refusal`'s signature:** it takes `direct_gpu: bool` and loses `articulation`. A second function,
+  `fixed_refusal(prim_path, fixed_base, articulation)`, gives the held and welded messages. The handler builds
+  `Joints` only once `refusal` lets the push by (review-code improvement 2), and reads neither PhysX's pose nor the
+  joints under the Direct GPU API.
 
 ### The server
 
