@@ -1,4 +1,4 @@
-"""apply_force's request, its refusals and the point it pushes at (#25), without Kit."""
+"""apply_force's request, its refusals and the point it pushes at (#25, #58), without Kit."""
 
 import math
 import re
@@ -9,7 +9,7 @@ from pxr import Sdf, Usd, UsdGeom, UsdPhysics
 
 from ovmcp.core.force import (
     ForceArgs,
-    articulation_holding,
+    Joints,
     centre_of_mass,
     force_args,
     refusal,
@@ -77,65 +77,129 @@ def test_force_args_refuse_what_physx_cant_take(body, says):
         force_args(body)
 
 
+def _why(
+    path: str = "/World/Box",
+    *,
+    stopped: bool = False,
+    direct_gpu: bool = False,
+    enabled: bool = True,
+    kinematic: bool = False,
+    held: bool = True,
+    fixed_base: str | None = None,
+    articulation: str | None = None,
+) -> str | None:
+    """refusal for a body PhysX would push, but for what the test names."""
+    return refusal(
+        path,
+        stopped=stopped,
+        direct_gpu=direct_gpu,
+        enabled=enabled,
+        kinematic=kinematic,
+        held=held,
+        fixed_base=fixed_base,
+        articulation=articulation,
+    )
+
+
 def test_a_stopped_timeline_is_refused_first():
     # Stopped, PhysX holds no bodies, so whether it holds this one says nothing.
-    why = refusal("/World/Box", stopped=True, enabled=False, kinematic=True, held=False, articulation=None)
+    why = _why(stopped=True, direct_gpu=True, enabled=False, kinematic=True, held=False, fixed_base="/World/Box")
     assert why is not None
     assert why.startswith("The simulation is stopped")
     assert "paused works too" in why
 
 
+def test_the_direct_gpu_api_is_refused_before_what_the_body_says():
+    # Measured on Isaac Sim 6.2: with suppressReadback, a push on a lone cube returned and moved nothing (#68).
+    why = _why(direct_gpu=True, enabled=False, kinematic=True, held=False, fixed_base="/World/Box")
+    assert why == (
+        "PhysX runs with its Direct GPU API (/physics/suppressReadback is true), where a push moves nothing (#68): "
+        "run physics on the CPU to push a body"
+    )
+
+
 def test_a_disabled_rigid_body_is_refused_before_a_kinematic_one():
-    why = refusal("/World/Box", stopped=False, enabled=False, kinematic=True, held=True, articulation=None)
+    why = _why(enabled=False, kinematic=True)
     assert why is not None
     assert why.startswith("/World/Box's rigid body is disabled (physics:rigidBodyEnabled is false)")
     assert "static body" in why
 
 
 def test_a_kinematic_body_is_refused():
-    why = refusal("/World/Box", stopped=False, enabled=True, kinematic=True, held=True, articulation=None)
+    why = _why(kinematic=True)
     assert why is not None
     assert why.startswith("/World/Box is kinematic (physics:kinematicEnabled is true)")
 
 
-def test_a_body_physx_doesnt_hold_is_refused():
-    why = refusal(
-        "/World/Box", stopped=False, enabled=True, kinematic=False, held=False, articulation="/World/G1/pelvis"
-    )
+def test_a_body_physx_doesnt_hold_is_refused_before_a_fixed_joint_is_asked():
+    why = _why(held=False, fixed_base="/World/Box")
     assert why is not None
     assert why.startswith("PhysX holds no rigid body at /World/Box")
 
 
 def test_a_body_physx_holds_while_it_plays_or_pauses_is_pushed():
-    assert refusal("/World/Box", stopped=False, enabled=True, kinematic=False, held=True, articulation=None) is None
+    assert _why() is None
 
 
-def test_an_articulation_s_link_is_refused_naming_its_issue():
-    # Measured on Isaac Sim 6.2: 100 N s on the G1's pelvis succeeded and moved it no further than gravity did.
-    why = refusal(
-        "/World/G1/hip", stopped=False, enabled=True, kinematic=False, held=True, articulation="/World/G1/pelvis"
-    )
+def test_an_articulation_s_link_is_pushed():
+    # 0.2.1 refused it on a misread measurement; PhysX's push reaches a link (#58).
+    assert _why("/World/G1/hip", articulation="/World/G1/pelvis") is None
+
+
+def test_a_body_a_fixed_joint_holds_to_the_world_is_refused():
+    assert _why(fixed_base="/World/Box") == "/World/Box is held to the world by a fixed joint: no force moves it"
+
+
+def test_a_fixed_base_names_its_articulation():
+    why = _why("/World/Arm/base", fixed_base="/World/Arm/base", articulation="/World/Arm")
     assert why == (
-        "/World/G1/hip is a link of the articulation at /World/G1/pelvis: PhysX's push doesn't reach an "
-        "articulation's links "
-        "yet (#58)"
+        "/World/Arm/base is held to the world by a fixed joint, as the base of the articulation at /World/Arm: no "
+        "force moves it"
     )
 
 
-def _body(stage: Usd.Stage, path: str) -> Usd.Prim:
+def test_a_body_welded_to_its_fixed_base_is_refused():
+    assert _why("/World/Shelf", fixed_base="/World/Post") == (
+        "/World/Shelf is welded to its fixed base /World/Post, which a fixed joint holds to the world: no force "
+        "moves it"
+    )
+
+
+def test_a_link_welded_to_its_fixed_base_names_its_articulation():
+    why = _why("/World/Arm/sensor", fixed_base="/World/Arm/base", articulation="/World/Arm")
+    assert why == (
+        "/World/Arm/sensor is welded to its fixed base /World/Arm/base, which a fixed joint holds to the world, in "
+        "the articulation at /World/Arm: no force moves it"
+    )
+
+
+def _body(stage: Usd.Stage, path: str, *, enabled: bool = True) -> Usd.Prim:
     prim = UsdGeom.Cube.Define(stage, path).GetPrim()
-    UsdPhysics.RigidBodyAPI.Apply(prim)
+    body = UsdPhysics.RigidBodyAPI.Apply(prim)
+    if not enabled:
+        body.CreateRigidBodyEnabledAttr().Set(False)
     UsdPhysics.CollisionAPI.Apply(prim)
     return prim
 
 
-def _joint(stage: Usd.Stage, path: str, body0: str | None, body1: str, *, excluded: bool = False) -> Usd.Prim:
-    joint = UsdPhysics.RevoluteJoint.Define(stage, path)
+def _joint(
+    stage: Usd.Stage,
+    path: str,
+    body0: str | None,
+    body1: str,
+    *,
+    fixed: bool = False,
+    excluded: bool = False,
+    enabled: bool = True,
+) -> Usd.Prim:
+    joint = (UsdPhysics.FixedJoint if fixed else UsdPhysics.RevoluteJoint).Define(stage, path)
     if body0 is not None:  # none: held to the world
         joint.CreateBody0Rel().SetTargets([Sdf.Path(body0)])
     joint.CreateBody1Rel().SetTargets([Sdf.Path(body1)])
     if excluded:
         joint.CreateExcludeFromArticulationAttr().Set(True)
+    if not enabled:
+        joint.CreateJointEnabledAttr().Set(False)
     return joint.GetPrim()
 
 
@@ -172,8 +236,35 @@ def robots() -> Usd.Stage:
     UsdGeom.Xform.Define(stage, "/World/Crane")
     _body(stage, "/World/Crane/base")
     _body(stage, "/World/Crane/boom")
-    UsdPhysics.ArticulationRootAPI.Apply(_joint(stage, "/World/Crane/fix", None, "/World/Crane/base"))
+    UsdPhysics.ArticulationRootAPI.Apply(_joint(stage, "/World/Crane/fix", None, "/World/Crane/base", fixed=True))
     _joint(stage, "/World/Crane/slew", "/World/Crane/base", "/World/Crane/boom")
+    # A fixed arm as the Franka is built: its base fixed to the world, a sensor welded to the base, a link that turns.
+    UsdPhysics.ArticulationRootAPI.Apply(UsdGeom.Xform.Define(stage, "/World/Panda").GetPrim())
+    _body(stage, "/World/Panda/base")
+    _body(stage, "/World/Panda/sensor")
+    _body(stage, "/World/Panda/link")
+    _joint(stage, "/World/Panda/fix", None, "/World/Panda/base", fixed=True)
+    _joint(stage, "/World/Panda/weld", "/World/Panda/base", "/World/Panda/sensor", fixed=True)
+    _joint(stage, "/World/Panda/j1", "/World/Panda/base", "/World/Panda/link")
+    # A cart bolted to the wall, a static prim; a rover held by a fixed joint excluded from articulations; a lift
+    # whose fixed joint is disabled; and a crate bolted to the world, in no articulation.
+    UsdPhysics.ArticulationRootAPI.Apply(UsdGeom.Xform.Define(stage, "/World/Cart").GetPrim())
+    _body(stage, "/World/Cart/base")
+    _body(stage, "/World/Cart/wheel")
+    _joint(stage, "/World/Cart/bolt", "/World/Wall", "/World/Cart/base", fixed=True)
+    _joint(stage, "/World/Cart/axle", "/World/Cart/base", "/World/Cart/wheel")
+    UsdPhysics.ArticulationRootAPI.Apply(UsdGeom.Xform.Define(stage, "/World/Rover").GetPrim())
+    _body(stage, "/World/Rover/base")
+    _body(stage, "/World/Rover/wheel")
+    _joint(stage, "/World/Rover/fix", None, "/World/Rover/base", fixed=True, excluded=True)
+    _joint(stage, "/World/Rover/axle", "/World/Rover/base", "/World/Rover/wheel")
+    UsdPhysics.ArticulationRootAPI.Apply(UsdGeom.Xform.Define(stage, "/World/Lift").GetPrim())
+    _body(stage, "/World/Lift/base")
+    _body(stage, "/World/Lift/arm")
+    _joint(stage, "/World/Lift/fix", None, "/World/Lift/base", fixed=True, enabled=False)
+    _joint(stage, "/World/Lift/j1", "/World/Lift/base", "/World/Lift/arm")
+    _body(stage, "/World/Crate")
+    _joint(stage, "/World/cratebolt", None, "/World/Crate", fixed=True)
     # No articulation: a hinged door, a gate hinged to a wall that is no body, and a loose box.
     _body(stage, "/World/Door")
     _body(stage, "/World/Frame")
@@ -198,6 +289,13 @@ def robots() -> Usd.Stage:
         ("/World/Arm/link", "/World/Arm"),
         ("/World/Crane/base", "/World/Crane/fix"),
         ("/World/Crane/boom", "/World/Crane/fix"),
+        ("/World/Panda/base", "/World/Panda"),
+        ("/World/Panda/sensor", "/World/Panda"),
+        ("/World/Panda/link", "/World/Panda"),
+        ("/World/Cart/wheel", "/World/Cart"),
+        ("/World/Rover/wheel", "/World/Rover"),
+        ("/World/Lift/arm", "/World/Lift"),
+        ("/World/Crate", None),
         ("/World/Door", None),
         ("/World/Frame", None),
         ("/World/Gate", None),
@@ -205,18 +303,99 @@ def robots() -> Usd.Stage:
     ],
 )
 def test_a_body_joined_to_an_articulation_root_is_its_link(robots: Usd.Stage, body: str, root: str | None):
-    assert articulation_holding(robots, body) == root
+    assert Joints(robots).articulation_holding(body) == root
+
+
+@pytest.mark.parametrize(
+    ("body", "base"),
+    [
+        ("/World/Panda/base", "/World/Panda/base"),
+        ("/World/Panda/sensor", "/World/Panda/base"),  # welded to it
+        ("/World/Crane/base", "/World/Crane/base"),
+        ("/World/Cart/base", "/World/Cart/base"),  # bolted to a static prim, which PhysX holds still
+        ("/World/Rover/base", "/World/Rover/base"),  # excluded from the articulation, the joint still holds it
+        ("/World/Crate", "/World/Crate"),  # in no articulation
+        ("/World/Panda/link", None),  # turns about its joint
+        ("/World/Crane/boom", None),
+        ("/World/Cart/wheel", None),
+        ("/World/Rover/wheel", None),
+        ("/World/Lift/base", None),  # its fixed joint is disabled
+        ("/World/Lift/arm", None),
+        ("/World/Arm/base", None),  # held by revolute joints, about which it turns
+        ("/World/Arm/link", None),
+        ("/World/G1/pelvis", None),
+        ("/World/Tool", None),
+        ("/World/Gate", None),
+        ("/World/Box", None),
+    ],
+)
+def test_a_fixed_joint_to_the_world_holds_its_body_and_what_is_welded_to_it(
+    robots: Usd.Stage, body: str, base: str | None
+):
+    assert Joints(robots).held_to_world(body) == base
+
+
+def _parsed(stage: Usd.Stage, kind: str) -> list[tuple[str, Any]]:
+    # UsdPhysics's own parser, which the pxr stubs predate: each object of a kind, as (path, description).
+    physics: Any = UsdPhysics
+    paths, descs = physics.UsdPhysicsLoadStageFromPrimRange(stage, ["/"])[getattr(physics.ObjectType, kind)]
+    return [(str(path), desc) for path, desc in zip(paths, descs, strict=True)]
 
 
 def test_the_links_are_the_articulated_bodies_usd_physics_parses(robots: Usd.Stage):
-    # UsdPhysics's own parser, which the pxr stubs predate: the articulations as it reads them, each with its bodies.
-    physics: Any = UsdPhysics
-    parsed = physics.UsdPhysicsLoadStageFromPrimRange(robots, ["/"])
-    _, descs = parsed[physics.ObjectType.Articulation]
-    articulated = {str(b) for desc in descs for b in desc.articulatedBodies} - {""}  # "" is the world
+    articulated = {str(b) for _, desc in _parsed(robots, "Articulation") for b in desc.articulatedBodies} - {""}
     bodies = [str(p.GetPath()) for p in robots.Traverse() if has_api(p, UsdPhysics.RigidBodyAPI)]
-    assert len(bodies) == 14
-    assert {b for b in bodies if articulation_holding(robots, b) is not None} == articulated
+    assert len(bodies) == 24
+    joints = Joints(robots)
+    assert {b for b in bodies if joints.articulation_holding(b) is not None} == articulated
+
+
+def test_the_held_links_are_the_ones_usd_physics_fixes_to_the_world(robots: Usd.Stage):
+    # The parser lists a fixed base's joint to the world ("", a static prim's end too) among an articulation's
+    # joints, an excluded one too, and leaves a disabled one out. Held: a body fixed to "" by one of those joints, and
+    # a body welded to a held one.
+    fixed = dict(_parsed(robots, "FixedJoint"))
+    held: set[str] = set()
+    welds: list[tuple[str, str]] = []
+    for _, desc in _parsed(robots, "Articulation"):
+        for joint in map(str, desc.articulatedJoints):
+            if joint in fixed and fixed[joint].jointEnabled:
+                ends = (str(fixed[joint].body0), str(fixed[joint].body1))
+                if "" in ends:
+                    held.update(set(ends) - {""})
+                else:
+                    welds.append(ends)
+    for _ in welds:
+        held.update(b for a, c in welds for b in (a, c) if {a, c} & held)
+    articulated = {str(b) for _, desc in _parsed(robots, "Articulation") for b in desc.articulatedBodies} - {""}
+    joints = Joints(robots)
+    assert held == {b for b in articulated if joints.held_to_world(b) is not None}
+    assert held == {
+        "/World/Panda/base",
+        "/World/Panda/sensor",
+        "/World/Crane/base",
+        "/World/Cart/base",
+        "/World/Rover/base",
+    }
+
+
+def test_a_disabled_body_is_static_ground_that_joins_nothing():
+    # PhysX holds a disabled body as a static one, and UsdPhysics's parser reads it so: what is fixed to it is held,
+    # and it joins no articulation through it.
+    stage = Usd.Stage.CreateInMemory()
+    UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")
+    UsdPhysics.ArticulationRootAPI.Apply(_body(stage, "/World/Rig/base"))
+    _body(stage, "/World/Rig/off", enabled=False)
+    _body(stage, "/World/Rig/tip")
+    _joint(stage, "/World/Rig/j1", "/World/Rig/base", "/World/Rig/off")
+    _joint(stage, "/World/Rig/j2", "/World/Rig/off", "/World/Rig/tip", fixed=True)
+    # Bolting the disabled body to the world joins no body at either end, so it holds nothing more.
+    _joint(stage, "/World/Rig/bolt", None, "/World/Rig/off", fixed=True)
+    joints = Joints(stage)
+    assert joints.held_to_world("/World/Rig/tip") == "/World/Rig/tip"
+    assert joints.held_to_world("/World/Rig/base") is None
+    assert joints.articulation_holding("/World/Rig/base") == "/World/Rig/base"
+    assert joints.articulation_holding("/World/Rig/tip") is None
 
 
 def test_the_centre_of_mass_comes_from_physx_s_mass_information():

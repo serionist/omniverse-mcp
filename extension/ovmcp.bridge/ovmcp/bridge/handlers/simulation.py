@@ -12,7 +12,7 @@ from pxr import UsdGeom, UsdPhysics, UsdShade
 from ovmcp.core.force import (
     AT_CENTRE_OF_MASS,
     AT_GIVEN,
-    articulation_holding,
+    Joints,
     centre_of_mass,
     force_args,
     refusal,
@@ -181,10 +181,12 @@ async def handle_set_physics_properties(body: dict) -> dict:
 
 
 async def handle_apply_force(body: dict) -> dict:
-    """Apply a force or impulse to a rigid body through PhysX, at a world point or at its centre of mass.
+    """Apply a force or impulse to a rigid body or an articulation's link through PhysX, at a world point or at its
+    centre of mass.
 
-    Refused where PhysX would move nothing: the timeline stopped, a disabled or kinematic body, a prim PhysX holds no
-    body for, an articulation's link (#58). A PhysX failure is an error; nothing else moves the body in its place.
+    Refused where PhysX would move nothing: the timeline stopped, PhysX's Direct GPU API (#68), a disabled or kinematic
+    body, a prim PhysX holds no body for, a body a fixed joint holds to the world. A PhysX failure is an error;
+    nothing else moves the body in its place.
     """
     try:
         args = force_args(body)
@@ -208,19 +210,25 @@ async def handle_apply_force(body: dict) -> dict:
         return {"status": "error", "error": f"PhysX (omni.physx) is not loaded in this Kit app: {e}"}
 
     stopped = omni.timeline.get_timeline_interface().is_stopped()
+    # With the Direct GPU API, PhysX keeps its bodies on the GPU, and the push below returns and moves nothing (#68).
+    direct_gpu = carb.settings.get_settings().get_as_bool("/physics/suppressReadback")
     body_api = UsdPhysics.RigidBodyAPI(prim)
     # Both attributes have fallbacks (enabled, not kinematic); only an authored false disables the body.
     enabled = body_api.GetRigidBodyEnabledAttr().Get() is not False
     kinematic = bool(body_api.GetKinematicEnabledAttr().Get())
     try:
-        pose = {} if stopped else get_physx_interface().get_rigidbody_transformation(args.prim_path)
+        live = not stopped and not direct_gpu
+        pose = get_physx_interface().get_rigidbody_transformation(args.prim_path) if live else {}
+        joints = Joints(stage) if live else None
         refused = refusal(
             args.prim_path,
             stopped=stopped,
+            direct_gpu=direct_gpu,
             enabled=enabled,
             kinematic=kinematic,
             held=bool(pose.get("ret_val")),
-            articulation=None if stopped else articulation_holding(stage, args.prim_path),
+            fixed_base=joints.held_to_world(args.prim_path) if joints else None,
+            articulation=joints.articulation_holding(args.prim_path) if joints else None,
         )
         if refused:
             return {"status": "error", "error": refused}
