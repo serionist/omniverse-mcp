@@ -5,13 +5,14 @@ head: 2250d27
 date: 2026-10-30
 round: 1
 tier: standard (one fresh reviewer on Claude; findings checked against the code by the author)
-verdict: needs-fixes
+verdict: clean
 ---
 
 # Review: flatten_usd and export_prim_as_file keep off the open stage's layers
 
 Read from the branch's diff, `ovmcp/core/layers.py` and its tests, the two handlers, the tool descriptions, TOOLS.md
-and the geometry skill. No blocker or major; two minors, both fixed, so no second round.
+and the geometry skill. No blocker or major; two minors, both fixed, so no second round. The reviewer returned
+needs-fixes for the minors; by review-code's rule, a round with no blocker or major open is clean.
 
 | # | Sev | Where | Finding | Status |
 |---|---|---|---|---|
