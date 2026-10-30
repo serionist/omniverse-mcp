@@ -18,19 +18,20 @@ True when this is done:
 | | What | Shown by |
 |---|---|---|
 | 1 | Why `test_16_09` misses `omni.debugdraw`'s lines is measured on Kit: which frame a capture takes, against the update that drew the lines | Design, the three runs |
-| 2 | A capture waits `FRESH_FRAMES` frames of the viewport after it is asked for, then captures, every wait bounded as now | `tests/test_capture.py`; the live suites |
-| 3 | `test_16_09` (the `omni.debugdraw` fallback) and `test_16_08` (`isaacsim.util.debug_draw`) capture each drawing at once after it is made, 5 times; on `765d51c`'s bridge they fail in every run (measured: 15 and 14 misses of 15), with the fix they pass in 3 cold starts and 3 warm runs | Design; Step 6 |
+| 2 | A `capture_viewport` or `inspect_prim` capture waits `FRESH_FRAMES` frames of the viewport after it is asked for, then captures, every wait bounded as now; a recording frame doesn't wait | `tests/test_capture.py`; the live suites |
+| 3 | `test_16_09` (the `omni.debugdraw` fallback) and `test_16_08` (`isaacsim.util.debug_draw`) capture each drawing at once after it is made, 5 times, and show the miss themselves with the wait set to 0; on `765d51c`'s bridge they fail in every run (measured: 15 and 14 misses of 15), with the fix they pass in 3 cold starts and 3 warm runs | Design; Step 6 |
+| 4 | The same holds with async rendering on, as Isaac Sim's GUI runs it | run 4 (Design) |
 
 Why it matters: an assistant that draws a path with `draw_debug` and captures to check it can get a picture without
 the path, and any change made just before a capture can be missing from it the same way: the image is about 3
 updates old.
 
-- **In scope:** `capture_viewport_png` (`handlers/_utils.py`), through which `capture_viewport`, `inspect_prim` and
-  recording capture; the wait's rule and count in `ovmcp/core/capture.py`; `test_16_08`, `test_16_09` and their
-  scenario text; the docs.
-- **Out of scope:** the settle waits of `set_camera`, `look_at_prim` and `viewport_light`; Kit's zero-delay setting
-  (`hydraEngine.waitIdle`); Eco Mode; the segmentation read, which reads its own sensor after the image;
-  `omni.debugdraw` drawing in the handler (Alternatives).
+- **In scope:** `capture_viewport_png` (`handlers/_utils.py`), through which `capture_viewport` and `inspect_prim`
+  capture; the wait's rule and count in `ovmcp/core/capture.py`; `test_16_08`, `test_16_09` and their scenario
+  text; the docs, ARCHITECTURE's wrong premise about async rendering in Isaac Sim included.
+- **Out of scope:** recording, whose frames keep no wait (Compatibility); the settle waits of `set_camera`,
+  `look_at_prim` and `viewport_light`; Kit's zero-delay setting (`hydraEngine.waitIdle`); the segmentation read,
+  which reads its own sensor after the image; `omni.debugdraw` drawing in the handler (Alternatives).
 
 ## Design
 
@@ -83,12 +84,13 @@ So the stale frame is not the fallback's alone: `isaacsim.util.debug_draw` draws
 **Frames carry no number to tell their age:** `NEW_FRAME`'s `swh_frame_number` is `-1` on every frame, and
 `frame_info` has no `swh_frame_number` (its keys: `device_mask`, `fps`, `frame_number`, `metadata`, `progression`,
 `projection`, `resolution`, `status`, `subframe_count`, `view`, `viewport_handle`). A capture that first waited for a
-`NEW_FRAME` numbered from the update after the request found none among the 450 to 620 frames of its 2 s, in each of
+`NEW_FRAME` numbered from the update after the request found none among the 107 to 619 frames of its 2 s, in each of
 70 captures.
 
 **The wait that works** (run 3, a fresh Kit, 187 frames a second): the capture first waits k frames of the viewport
-(`next_viewport_frame_async(viewport, 1)`, k times), then captures as before. Drawn, then captured at once, 10 times
-with each extension:
+(`next_viewport_frame_async(viewport, 1)`, k times), then captures as before. These k frames come after the one app
+update `handle_capture` already waits before it captures (`handlers/camera.py` line 790), so the counts below hold
+for `capture_viewport`'s path as it is. Drawn, then captured at once, 10 times with each extension:
 
 | k | `omni.debugdraw` misses | `isaacsim.util.debug_draw` misses | Each wait took |
 |---|---|---|---|
@@ -101,6 +103,19 @@ with each extension:
 With k = 4 the HTTP path missed 0 of 60. `frame_info["metadata"]` is an `omni.kit.renderer_capture` `Metadata`
 object, with nothing that names the frame's update.
 
+**With async rendering (run 4, pending):** runs 1 to 3 were synchronous, headless. Isaac Sim's GUI renders
+asynchronously whenever the simulation is stopped or paused (What the sources show), so run 4 repeats run 3's tight test for k = 0 to 4 on a
+headless Kit with `/app/asyncRendering` and `/app/asyncRenderingLowLatency` turned on through `execute_script`, as
+`isaacsim.core.throttling` does; counts which thread each frame event comes on (Q6); and tries a capture under Eco
+Mode on a static scene (Q7). The script is `e57_async.py`, the order `e57_sequence4.sh`.
+
+| Run 4 shows | Then |
+|---|---|
+| k = 4 never misses, and the immediate `NEW_FRAME` comes on the main thread | the plan as written |
+| k = 4 never misses; the immediate `NEW_FRAME` comes on the renderer thread, the deferred one or `DRAWABLE_CHANGED` on the main thread | the wait listens to the main-thread event (Q6) |
+| a miss at k = 4 | P3 becomes a major: `FRESH_FRAMES` rises to the fewest that never missed plus one, and the plan goes back to review |
+| Eco Mode gives no frames on a static scene | a capture there fails after `FRAME_SECONDS`, wait or not (Risks, 3); Q7 says whether the capture turns Eco Mode off for its frames, as `_reset_renderer` does |
+
 ### What the sources show
 
 | Fact | Where it shows |
@@ -111,6 +126,8 @@ object, with nothing that names the frame's update.
 | Kit's own way to wait for a fresh frame, `omni.syntheticdata`'s `next_sensor_data_async(waitSimFrame=True)`, and `RenderCapture`'s `frame_to_capture`, both read `swh_frame_number`, which this Kit leaves at `-1` or absent (the runs) | `omni.syntheticdata-0.6.17`, `scripts/sensors.py` lines 56-112; `omni.kit.widget.viewport-110.0.1`, `capture.py` lines 123-140 |
 | NVIDIA's own visual test of `omni.debugdraw` draws for 20 updates before it captures, "Windows requires ~5 Linux requires ~20", and the extension marks its tests unreliable | `omni.debugdraw-0.1.4`, `omni/debugdraw/tests/visualtests.py` (`base`), `config/extension.toml` |
 | `inspect_prim` settles 20 frames before each angle, so its captures were already fresh; `capture_viewport` and recording capture with no wait before | `handlers/camera.py` lines 726-729, 790-800; `handlers/recording.py` `_record_tick` |
+| Recording starts a tick task every `steps_per_frame` updates with no limit on ticks in flight; each reads `frame_count` before its capture's `await` and sets it after, so ticks that overlap write the same frame file. A capture takes about 4 updates now; with 4 more frames, about 8, so at 8 to 15 frames a second ticks would overlap and about half the PNGs be overwritten. `test_07_02` checks only that the cube falls | `handlers/recording.py` lines 145, 158, 192, 196-206 (round 1, P1) |
+| Isaac Sim's GUI renders asynchronously: `isaacsim.exp.full.kit` sets `isaacsim.core.throttling`'s `enable_async = true`, which turns `/app/asyncRendering` and `/app/asyncRenderingLowLatency` on at startup and a few updates after each stop or pause, and off on play; throttling also turns Eco Mode on at stop and pause, off on play. So ARCHITECTURE's "Isaac Sim turns async rendering off" holds for the headless Python app only | `isaacsim.exp.full.kit` line 155; `isaacsim.core.throttling`, `extension.py` (`_set_async_rendering`, `_on_frame_update`; `/rtx/ecoMode/enabled` lines 260, 277, 295) |
 | #55 did not change the path from the draw to the capture: the image capture is the same call, now inside `asyncio.wait_for`; #55 changed the settle before the draw (`_aim_away`'s `set_camera`) and the segmentation after the image. The measured cause, the trail against a 2-update gap, passes through neither, and the HTTP miss rate swings between sessions (2 of 20, then 0 of 60), so the record before and after #55 (2 passes, then 2 misses in 7) is chance | `git show a70ab29 -- extension/ovmcp.bridge/ovmcp/bridge/handlers/`; the runs |
 | Kit 107 has `next_viewport_frame_async`, which the wait uses, as the settles have since #55 | Isaac Sim 5.1, `omni.kit.viewport.utility-1.1.2`, `__init__.py` line 736 |
 
@@ -122,17 +139,24 @@ third HTTP trials, and none came after.
 
 ### The fix: wait out the trail, then capture
 
-`capture.capture_png` (`ovmcp/core/capture.py`) waits `FRESH_FRAMES` frames of the viewport before it schedules the
-capture, through the `frames` it already has: each frame bounded by `FRAME_SECONDS` and the call's budget, a viewport
-that renders nothing a `NoFrameError` before anything is scheduled.
+`capture.capture_png` (`ovmcp/core/capture.py`) takes an optional `next_frame`. Given one, it waits `FRESH_FRAMES`
+frames of the viewport before it schedules the capture, through the `frames` it already has: each frame bounded by
+`FRAME_SECONDS` and the call's budget, a viewport that renders nothing a `NoFrameError` before anything is scheduled.
+Without one, it captures at once, as now.
 
 - **The count:** `FRESH_FRAMES = 4`. Two frames were the fewest that never missed in run 3, where the trail was 3
   updates; run 1's third draw trailed 4, which needs one more; and one frame of margin. Read when it runs, as the
-  other limits are, so a live test can change it through `execute_script`.
-- **The bridge:** `capture_viewport_png` passes `next_viewport_frame_async(viewport, 1)` for the capture's own
-  viewport; a Kit without the frame event pumps app updates instead, as `_viewport_frames` does.
-- **All captures get it:** `capture_viewport`, `inspect_prim` (on top of its 20-frame settle) and recording.
-- **Kit's log:** the slow-capture line (over 2 s) also says how long the wait took.
+  other limits are, so a live test can change it through `execute_script`. Run 4 checks it with async rendering.
+- **The bridge:** one helper, `_next_frame(viewport)`, waits one frame of a viewport through
+  `next_viewport_frame_async(viewport, 1)`; `_viewport_frames` (the settles) and `capture_viewport_png` both use it,
+  and a Kit without the frame event pumps app updates instead, as `_viewport_frames` does now. Run 4 decides which
+  event it listens to (Q6).
+- **Who waits:** `capture_viewport` and `inspect_prim` (on top of its 20-frame settle): `capture_viewport_png` passes
+  `_next_frame` by default. Recording passes none: its ticks would overlap with the longer capture and overwrite
+  frames (What the sources show), and the wait buys it nothing a user asked for.
+- **Kit's log:** the slow-capture line (over 2 s) also says how long the wait took, and the app's
+  `/app/settings/fabricDefaultStageFrameHistoryCount`, the stage history the renderer may trail by, for a later
+  look at other apps.
 
 **Alternatives:**
 
@@ -145,9 +169,23 @@ that renders nothing a `NoFrameError` before anything is scheduled.
 | `omni.debugdraw` draws in the handler too, as `isaacsim.util.debug_draw` does | One update sooner: enough for the HTTP path most of the time, never for a capture made at once |
 | `draw_debug` waits before it answers | Every draw pays it, and every other change before a capture keeps the stale frame |
 | The issue's fallback: the test captures several times; TOOLS.md says lines can miss | Leaves every capture about 3 updates old |
+| The count from the app: `fabricDefaultStageFrameHistoryCount` + 1, at least 4 | One number is simpler until another app shows a longer history; the slow-capture line logs the history for that day (round 1) |
+| Recording waits too, with one tick in flight at a time | A change to recording's timing that nobody asked for here; recording is #25's ground |
 
 The count is of the renderer's frames, the unit the trail is measured in, each bounded by time; #27's trouble was app
 updates counted for render progress, with no bound.
+
+### For the maintainer
+
+| | Question | Recommendation | Answer |
+|---|---|---|---|
+| Q1 | Should `inspect_prim` pay the 4 frames too, on top of its 20-frame settle per angle? | Yes: one rule for every capture but recording, about 20 ms an angle | |
+| Q2 | `FRESH_FRAMES = 4`? | Yes: the fewest that never missed (2), one for the longer trail run 1 saw, one of margin; a core constant, not an extension setting | |
+| Q3 | Who runs Kit for the code PR's live runs, since the agents' start of Kit is refused? | As for runs 1 to 4: the coordinating session | |
+| Q4 | Recording gets no wait (round 1, P1)? | Yes | |
+| Q5 | Must a GUI run, or run 4 headless with async rendering, come before CHANGELOG says Fixed? | Run 4 is required; a GUI run is welcome | |
+| Q6 | The wait listens for `NEW_FRAME`, which with async rendering fires on the renderer thread (ARCHITECTURE, Threading; #5 was a deadlock of that kind): accept it, as for the settles since #55, or listen to an event that comes on the main thread? | Measure the thread in run 4, then decide | |
+| Q7 | Eco Mode, which throttling turns on at stop and pause: does a static scene still give the frames the wait needs? | Measure it in run 4, headless | |
 
 ## Compatibility
 
@@ -155,29 +193,42 @@ None of the one-way doors in `AGENTS.md`: the routes, the tools' names, paramete
 (`tests/fixtures/mcp-tools.json` untouched), the answers, the extension's settings and the output folder stay as they
 are. `FRESH_FRAMES` is a constant in the core, not an extension setting.
 
-- **What users see:** a capture's image holds what was done just before it, a drawing or any other change; a
-  recording frame is rendered after its simulation time, where it was about 3 updates before. Each capture takes 4
-  frames longer: 4 updates, about 21 ms, at run 3's 187 frames a second; about 67 ms at 60.
-- **Kit apps:** Isaac Sim 6.2 live; Isaac Sim 5.x untested live, as for #55. A Kit app whose renderer keeps a longer
-  trail than Isaac Sim's would still see stale frames (Risks, 1).
+- **What users see:** a `capture_viewport` or `inspect_prim` image holds what was done just before it, a drawing or
+  any other change. Each takes 4 frames longer: 4 updates, about 21 ms, at run 3's 187 frames a second; about 67 ms
+  at 60.
+- **Recording is unchanged:** its frames still show the scene about 3 updates before their simulation time, as now.
+- **Kit apps:** Isaac Sim 6.2 live, headless, synchronous (runs 1 to 3) and asynchronous (run 4); the GUI untested;
+  Isaac Sim 5.x untested live, as for #55. A Kit app whose renderer keeps a longer trail than Isaac Sim's would still
+  see stale frames (Risks, 1).
 - **Moving over:** the fix is in the Kit extension: `uvx omniverse-mcp extension install`, then restart Kit, as the
   CHANGELOG line says.
 
 ## Steps
 
-1. **Measure (done, live).** The three runs above, recorded in Design; the scripts in the PR's description.
-2. **The core.** `FRESH_FRAMES`, and `capture_png` taking a `next_frame` and waiting that many frames before it
-   schedules. Proven by `tests/test_capture.py`: the capture is scheduled only after `FRESH_FRAMES` frames; a frame
-   that never comes is `NoFrameError` with nothing scheduled; the budget caps the frames and says `OutOfTimeError`;
-   the count is read when it runs; the existing tests keep their meaning with the frames given at once.
-3. **The bridge.** `capture_viewport_png` passes the viewport's frame wait, with the app-update fallback; the slow
-   line says the wait's time. Proven by the live suites (Step 6).
+1. **Measure (live).** Runs 1 to 3, recorded in Design; run 4, with async rendering, before any code: its result
+   decides Q6 and checks `FRESH_FRAMES` (Design, its table). The scripts go in the PR's description.
+2. **The core.** `FRESH_FRAMES`, and `capture_png` taking an optional `next_frame`: given one, it waits that many
+   frames before it schedules; without, it captures at once. Proven by `tests/test_capture.py`: with `next_frame`
+   the capture is scheduled only after `FRESH_FRAMES` frames, and without it at once; a frame that never comes is
+   `NoFrameError` with nothing scheduled; the budget caps the frames and says `OutOfTimeError`; the count is read
+   when it runs; the existing tests keep their meaning.
+3. **The bridge.** `_next_frame(viewport)` for `_viewport_frames` and `capture_viewport_png`, with the app-update
+   fallback, on the event Q6 settles; `capture_viewport_png` passes it unless its caller says not to, and recording
+   says not to; the slow line says the wait's time and the stage frame history. Proven by the live suites (Step 6),
+   the recording tests (`test_07_*`) among them; a unit test of the bridge's call is out of reach, since the
+   handlers import Kit.
 4. **The live tests.** A helper, `_drawn_then_captured(zigzag, times=5)`: in one `execute_script`, `draw_debug`'s
-   handler (a 0.5 s drawing), then `mcp.capture_viewport` at once, then wait for the drawing to go; the red pixels of
-   each capture. `test_16_08` (with `isaacsim.util.debug_draw`) and `test_16_09` (with `omni.debugdraw`) keep their
-   checks over HTTP and add this one: each of the 5 captures holds over 100 red pixels. `test_project/scenarios.md`
-   16.8 and 16.9 say so. Proven by: on `765d51c`'s bridge both fail in 5 runs of 5 (Design measured 15 and 14
-   misses of 15), and pass with the fix.
+   handler (a 1 s drawing), then `mcp.capture_viewport` at once, then wait for the drawing to go; each capture's red
+   pixels, and the time from the draw to the end of its capture. `test_16_08` (with `isaacsim.util.debug_draw`) and
+   `test_16_09` (with `omni.debugdraw`) keep their checks over HTTP and add this one twice:
+   - first with `capture.FRESH_FRAMES` set to 0 through `execute_script` (put back in the test's first cleanup): at
+     least one of the 5 captures misses, so the test shows on its own bridge that the trail is there (Design measured
+     15 and 14 misses of 15 without the wait);
+   - then as shipped: each of the 5 holds over 100 red pixels;
+   - each time, a capture that ended after its drawing's 1 s fails as "Kit was slow", as `test_16_09` does now.
+
+   `test_project/scenarios.md` 16.8 and 16.9 say so. Proven by: on `765d51c`'s bridge both fail in 5 runs of 5, and
+   pass with the fix.
 5. **Docs** (Docs).
 6. **The live runs** (Tests).
 
@@ -187,34 +238,67 @@ are. `FRESH_FRAMES` is a constant in the core, not an extension setting.
 |---|---|
 | Unit (CI) | `tests/test_capture.py` (Step 2) |
 | Live, `test_scenarios.py` | `test_16_08` and `test_16_09` (Step 4): 5 runs of `-k test_16_0` on `765d51c`'s bridge, each failing; with the fix, 3 cold starts with the full suites first thing, and 3 warm runs, all passing |
-| Live, both suites | the full suites on the 3 cold starts: every capture test (`test_13`, `test_15c` to `test_15f`, `test_22_01`) and recording pass; the suites' time within a few seconds of `765d51c`'s; on the cold starts `test_16_09` runs after the G1 is loaded, the condition of the original misses |
-| Not shown | Isaac Sim 5.x (5.1 crashes in its own start on the test machine); a Kit app that has only `omni.debugdraw`, such as USD Composer, where the fallback is the default and the renderer's trail may differ; async rendering (Kit 110 sends frame events on the renderer thread there, as for the settles since #55) |
+| Live, both suites | the full suites on the 3 cold starts: every capture test (`test_13`, `test_15c` to `test_15f`, `test_22_01`) and recording (`test_07_*`) pass; the suites' time within a few seconds of `765d51c`'s; on the cold starts `test_16_09` runs after the G1 is loaded, the condition of the original misses |
+| Live, async rendering | `-k test_16_0` with `/app/asyncRendering` and its low-latency twin turned on through `execute_script` before the suite, as run 4 does: required before CHANGELOG says Fixed (Q5) |
+| Not shown | Isaac Sim's GUI itself, unless the maintainer runs it (Q5); Isaac Sim 5.x (5.1 crashes in its own start on the test machine); a Kit app that has only `omni.debugdraw`, such as USD Composer, where the fallback is the default and the renderer's trail may differ |
 
 ## Docs
 
-- `docs/TOOLS.md`: `capture_viewport`, a line that the image holds what was done before the call, at the cost of
-  `FRESH_FRAMES` frames; `draw_debug`'s Captures bullet: with either extension, a capture after `draw_debug` holds the
-  drawing, however soon.
-- `docs/ARCHITECTURE.md`, Viewport Capture: the renderer's trail, the wait before each capture, a row in the limits
-  table; Threading's note on `NEW_FRAME` covers this wait too.
-- `CHANGELOG.md`, Unreleased, Fixed: a capture showed the scene about 3 updates before the call, so a drawing or a
-  change made just before could be missing, `omni.debugdraw`'s lines most often; the fix is in the Kit extension: run
-  `extension install` and restart Kit (#57).
+- `docs/TOOLS.md`: `capture_viewport` and `inspect_prim`, a line that the image holds what was done before the call,
+  at the cost of `FRESH_FRAMES` frames; `draw_debug`'s Captures bullet: with either extension, a capture after
+  `draw_debug` holds the drawing, however soon; `start_recording`: its frames show the scene a few updates before
+  their simulation time.
+- `docs/ARCHITECTURE.md`, Viewport Capture: the renderer's trail, the wait before each capture and why recording has
+  none, a row in the limits table. Threading: the premise corrected, that Isaac Sim's GUI renders asynchronously
+  through `isaacsim.core.throttling` (on at startup and after a stop or pause, off while it plays), and what run 4
+  showed of the frame events' thread.
+- `CHANGELOG.md`, Unreleased, Fixed: `capture_viewport` and `inspect_prim` showed the scene about 3 updates before the
+  call, so a drawing or a change made just before could be missing, `omni.debugdraw`'s lines most often; the fix is in
+  the Kit extension: run `extension install` and restart Kit (#57).
 - `AGENTS.md`, Traps: a row, "a capture took the next frame delivered, which the renderer made about 3 updates
-  before (#57)"; the guard: `FRESH_FRAMES` frames before the capture. `AGENTS.md` is at 149 of its 150 lines; the gate
-  says whether the row fits, or a line elsewhere gets shorter.
+  before (#57)"; the guard: `FRESH_FRAMES` frames before the capture, none for recording. `AGENTS.md` is at 149 of
+  its 150 lines; the gate says whether the row fits, or a line elsewhere gets shorter.
 - `test_project/scenarios.md`: 16.8 and 16.9 (Step 4).
 
 ## Risks
 
 | Risk | Status |
 |---|---|
-| 1. On a loaded Kit, or another Kit app, the trail is longer than `FRESH_FRAMES` | Accepted, with evidence: the cold-start full suites run `test_16_08` and `test_16_09` after the G1 is loaded; a frame of margin over the measured count; a Kit app with a longer trail still gets fresher frames than now |
+| 1. On a loaded Kit, with async rendering, or in another Kit app, the trail is longer than `FRESH_FRAMES` | Async rendering: run 4 measures it, and a miss there sends the plan back (Design). The rest accepted, with evidence: the cold-start full suites run `test_16_08` and `test_16_09` after the G1 is loaded; a frame of margin over the measured count; a Kit app with a longer trail still gets fresher frames than now |
 | 2. Captures get slower | Accepted: 4 frames each, about 21 ms headless and 67 ms at 60 frames a second (run 3); `inspect_prim`'s 14 angles stay inside the same 80 s |
-| 3. A paused viewport (Eco Mode on a static scene) gives no frame, so the wait fails | As today: the capture's own frame wait fails the same way after `FRAME_SECONDS`; `_reset_renderer` already turns Eco Mode off for its frames |
-| 4. A frame event on the renderer thread (async rendering) | As for the settles since #55 (ARCHITECTURE.md, Threading); untested live |
-| 5. Agents could not start Kit here: the brief's command was refused twice by the auto mode permission check | Resolved for the plan: the coordinating session ran the three runs; Step 6's runs need the same |
+| 3. A paused viewport gives no frame, so the wait fails: Eco Mode on a static scene, which throttling turns on in the GUI at stop and pause | Run 4 measures whether it happens (Q7). If it does, it is as today: the capture's own frame wait fails the same way after `FRAME_SECONDS`, and Q7 says whether the capture turns Eco Mode off for its frames, as `_reset_renderer` does |
+| 4. A frame event on the renderer thread (async rendering): #5 was a deadlock of that kind | Run 4 counts the thread of each event; Q6 decides which the wait listens to |
+| 5. Recording's ticks overlap and overwrite frames when a capture takes longer | Resolved: recording gets no wait (round 1, P1; Q4) |
+| 6. Agents could not start Kit here: the brief's command was refused twice by the auto mode permission check | Resolved for the plan: the coordinating session ran runs 1 to 3 and runs run 4; Step 6's runs need the same |
 
 ## Plan review
 
-Written by `review-plan`.
+### Round 1
+
+- **How:** review-plan, one fresh reviewer agent on Claude, started by the coordinating session, 2026-10-30, on
+  `0a011ab`.
+- **Verdict:** needs-fixes: one major, two minors. The root cause found shown; a frame count found the right unit;
+  every number in the run tables checked against the three outputs.
+- **Now:** all three fixed in the commit that records this round; P3's measurement is run 4, pending. A second round
+  follows, for the major.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P1 | major | Recording's frames would overwrite each other at middle frame rates: `_record_tick` reads `frame_count` before its capture's `await` and sets it after (`recording.py` lines 145, 158, 192), with no limit on ticks in flight. A capture takes about 4 updates now, so at 10 frames a second (a tick every 6 updates) ticks don't overlap; with 4 fresh frames it takes about 8, so at 8 to 15 frames a second about half the PNGs would be overwritten. `test_07_02` checks only that the cube falls. The wait buys recording nothing | fixed: `capture_png`'s `next_frame` is optional and recording passes none (Design, The fix; Compatibility; Q4); a Risk row and an Alternatives row |
+| P2 | minor | "450 to 620 frames ... in each of 70 captures" doesn't match the patch log (107 to 619 seen); and `capture_viewport` waits one app update before it captures (`camera.py` line 790), which the k table depends on | fixed: 107 to 619; the k table says its frames follow that update |
+| P3 | minor | Isaac Sim's GUI runs async rendering: `isaacsim.exp.full.kit` sets `isaacsim.core.throttling`'s `enable_async = true`, which turns `/app/asyncRendering` on at startup and a few updates after each stop or pause. All three runs were synchronous and headless, and ARCHITECTURE's "Isaac Sim turns async rendering off" is false for the GUI after a stop. If the trail is longer there, this becomes a major | fixed in the plan: a sources row, the Docs line correcting ARCHITECTURE's premise, Goal row 4, a Tests row; run 4 (`e57_async.py`, `e57_sequence4.sh`) measures the trail for k = 0 to 4 with async rendering on, pending, with its decision table in Design |
+
+Refuted: none.
+
+Owner calls: Q1 to Q7 (Design, For the maintainer), the review's Q4 to Q7 among them; their answers wait for the
+maintainer. The reviewer recommends merging #57 first, without recording, then #51, then #25.
+
+Improvements:
+
+| Improvement | Answer |
+|---|---|
+| A self-proving live test: set `capture.FRESH_FRAMES = 0` through `execute_script` to show the miss on the new bridge | taken: Step 4 |
+| A "Kit was slow" guard, as `test_16_09` has | taken: Step 4, each capture against its drawing's 1 s |
+| One bridge-side `_next_frame(viewport)` shared with `_viewport_frames` | taken: Design, The fix; Step 3 (#51 may reuse it) |
+| Log `fabricDefaultStageFrameHistoryCount` in the slow-capture line | taken: Design, The fix |
+| Wait for the history count + 1 frames, at least 4 | left: one number is simpler until another app shows a longer history; Alternatives |
