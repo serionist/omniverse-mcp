@@ -6,6 +6,7 @@ Requires Isaac Sim to be running with the ovmcp.bridge extension enabled.
 Usage, with Kit running: OMNIVERSE_MCP_SIM=1 uv run pytest -m sim
 """
 
+import base64
 import json
 import secrets
 import shutil
@@ -75,18 +76,93 @@ result = "unwrapped"
 """
 
 _SENSORS = "import omni.syntheticdata as syn\ntarget = syn.sensors"
-_VIEWPORT_UTILITY = "import omni.kit.viewport.utility as target"
+# What a capture's feed captures with and renders through (handlers/camera_feed.py), each looked up when it is used.
+_FILE_CAPTURE = "import omni.kit.widget.viewport.capture as target"
+_HYDRA_TEXTURE = "import omni.kit.hydra_texture as target"
 
-# Kit's capture delegate, done at once with the result it names, and no file written.
+# Kit's capture delegate as the feed is handed it, done at once with the result it names, and no file written. A frame
+# handed to it is ignored.
 _FINISHED_CAPTURE = """
-class _Finished:
+class wrapper:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def capture(self, *args, **kwargs):
+        pass
+
     async def wait_for_result(self, completion_frames=2):
         return {result!r}
-
-
-def wrapper(viewport_api, file_path=None, *args, **kwargs):
-    return _Finished()
 """
+
+# Textures made with their updates off, so a capture's feed renders no frame, as a viewport with its updates off.
+_NO_FRAMES = """
+def wrapper(*args, **kwargs):
+    texture = original(*args, **kwargs)
+    if texture is not None:
+        texture.set_updates_enabled(False)
+    return texture
+"""
+
+# What a capture could leave behind or change, to compare before and after: every path under /Render, composed or
+# held by a layer, but /Render/Vars, where Kit keeps the outputs render products share; whether the root layer's text
+# names a capture's feed (Kit lists render products in /Render/OmniverseGlobalRenderSettings.products there); the
+# capture graphs omni.syntheticdata still keeps; and the viewport's camera, size, render scale and fill mode.
+_CAPTURE_TRACES = """
+from omni.kit.viewport.utility import get_active_viewport
+from omni.syntheticdata import SyntheticData
+from pxr import Usd
+
+stage = omni.usd.get_context().get_stage()
+paths = set()
+render = stage.GetPrimAtPath("/Render")
+if render:
+    paths.update(str(prim.GetPath()) for prim in Usd.PrimRange(render))
+for layer in stage.GetLayerStack(includeSessionLayers=True):
+    if layer.GetPrimAtPath("/Render"):
+        layer.Traverse("/Render", lambda path: paths.add(str(path)) if path.IsPrimPath() else None)
+viewport = get_active_viewport()
+result = {
+    "render": sorted(path for path in paths if not path.startswith("/Render/Vars")),
+    "root_names_a_feed": "ovmcp_capture_" in stage.GetRootLayer().ExportToString(),
+    "graphs": sorted(path for path in SyntheticData.Get()._nodeGraphs if "ovmcp_capture_" in path),
+    "viewport": [
+        str(viewport.camera_path), list(viewport.full_resolution), viewport.resolution_scale, viewport.fill_frame
+    ],
+}
+"""
+
+# The pixels of one colour in a segmentation PNG, as their extent [x0, y0, x1, y1], counted in Kit with the numpy and
+# Pillow Isaac Sim ships; None when there are none.
+_COLOUR_EXTENT = """
+import base64, io
+import numpy as np
+from PIL import Image
+
+rgb = np.asarray(Image.open(io.BytesIO(base64.b64decode(SEGMENTATION))).convert("RGB"))
+ys, xs = np.nonzero(np.all(rgb == np.array(COLOUR, dtype=np.uint8), axis=-1))
+result = None if xs.size == 0 else [int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1]
+"""
+
+# A camera prim aimed at a point from another side than the viewport's, on the stage's up axis.
+_AIMED_CAMERA = """
+from pxr import Gf, UsdGeom
+
+stage = omni.usd.get_context().get_stage()
+up = Gf.Vec3d(0, 0, 1) if UsdGeom.GetStageUpAxis(stage) == "Z" else Gf.Vec3d(0, 1, 0)
+target = Gf.Vec3d(*TARGET)
+eye = target + Gf.Vec3d(-1.5, 0, 0) + up * 0.8 + (Gf.Vec3d(0, 1.2, 0) if up[2] else Gf.Vec3d(0, 0, 1.2))
+camera = UsdGeom.Camera.Define(stage, PATH)
+UsdGeom.Xformable(camera).ClearXformOpOrder()
+UsdGeom.Xformable(camera).AddTransformOp().Set(Gf.Matrix4d().SetLookAt(eye, target, up).GetInverse())
+result = PATH
+"""
+
+
+def _png_size(image_base64: str) -> tuple[int, int]:
+    """A base64 PNG's width and height, from its header."""
+    head = base64.b64decode(image_base64[:32])
+    return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+
 
 # Turns the active viewport's updates off, then waits up to 3 s for a frame through Kit's own frame wait.
 _UPDATES_OFF = """
@@ -292,6 +368,112 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertGreater(result["result"]["distance"], 0)
         print(f"  Looking at IntTestCube, dist={result['result']['distance']:.2f}m")
 
+    # ===== Captures at the size asked for, through a feed of their own (#51) =====
+
+    def _traces(self) -> dict:
+        """_CAPTURE_TRACES, read in Kit."""
+        return self._kit(_CAPTURE_TRACES)
+
+    def _cube_box_and_pixels(self, result: dict, prim: str = "/World/IntTestCube") -> tuple[list, list]:
+        """The prim's screen box in a capture, and the extent of its colour in the capture's segmentation."""
+        (box,) = [b["screen_bbox"] for b in result["screen_bboxes"] if b["prim_path"] == prim]
+        colour = result["segmentation_legend"][prim]
+        code = _COLOUR_EXTENT.replace("SEGMENTATION", repr(result["segmentation_base64"])).replace(
+            "COLOUR", repr(colour)
+        )
+        pixels = self._kit(code)
+        self.assertIsNotNone(pixels, f"{prim}'s colour isn't in its segmentation")
+        return box, pixels
+
+    def _assert_box_on_pixels(self, box: list, pixels: list) -> None:
+        for edge, (b, p) in enumerate(zip(box, pixels, strict=True)):
+            self.assertLessEqual(abs(b - p), 2, f"edge {edge}: box {box} against the pixels {pixels}")
+
+    def test_12b_capture_is_the_size_asked_for(self):
+        """The image, its segmentation and its boxes at the size asked for, the boxes on the cube's pixels, whatever the
+        viewport's size; on 0.2.2 the image was the viewport's 1280x720 while the boxes were scaled to the size asked
+        for (#51)."""
+        for width, height in ((320, 240), (640, 360), (360, 640)):
+            result = self.client.capture_viewport(width, height)
+            self.assertEqual(result["status"], "success", result)
+            r = result["result"]
+            self.assertEqual((r["width"], r["height"]), (width, height))
+            self.assertEqual(_png_size(r["image_base64"]), (width, height))
+            self.assertEqual(_png_size(r["segmentation_base64"]), (width, height), r.get("segmentation_error"))
+            box, pixels = self._cube_box_and_pixels(r)
+            self._assert_box_on_pixels(box, pixels)
+            print(f"  {width}x{height}: box {box}, pixels {pixels}")
+
+    def test_12c_capture_from_a_camera_path_boxes_that_camera(self):
+        """With camera_path, the boxes are that camera's, where 0.2.2 projected them from the viewport's own camera
+        (#70); the viewport's camera doesn't move; a path that isn't a camera is refused."""
+        camera = "/World/IntTestCam"
+        self.addCleanup(self.client.delete_prim, camera)
+        center = self.client.prim_bounds("/World/IntTestCube")["result"]["center"]
+        self._kit(_AIMED_CAMERA.replace("TARGET", repr(center)).replace("PATH", repr(camera)))
+        before = self._traces()["viewport"]
+
+        result = self.client.capture_viewport(640, 480, camera_path=camera)
+        self.assertEqual(result["status"], "success", result)
+        box, pixels = self._cube_box_and_pixels(result["result"])
+        self._assert_box_on_pixels(box, pixels)
+        self.assertEqual(self._traces()["viewport"], before)
+
+        for path, why in (("/World/NoSuchCamera", "No prim at /World/NoSuchCamera"), ("/World/IntTestCube", "not a")):
+            refused = self.client.capture_viewport(320, 240, camera_path=path)
+            self.assertEqual(refused["status"], "error", refused)
+            self.assertIn(why, refused["error"])
+        print(f"  {camera}: box {box}, pixels {pixels}")
+
+    def _assert_nothing_left(self, before: dict, since: int) -> None:
+        """Nothing of a capture's left once it answered: the stage's /Render, the root layer, omni.syntheticdata's
+        graphs and the viewport as before, and, 2 s on, no error from a graph left behind in Kit's log (#51's E16)."""
+        after = self._traces()
+        self.assertEqual(after, before)
+        self.assertFalse(after["root_names_a_feed"])
+        self.assertEqual(after["graphs"], [])
+        time.sleep(2.0)
+        logged = self.client.get_logs(count=50, since_index=since, search="Py_Graph")["result"]["entries"]
+        self.assertEqual(logged, [], "omni.syntheticdata tripped on a capture's graph")
+
+    def _log_index(self) -> int:
+        entries = self.client.get_logs(count=1)["result"]["entries"]
+        return entries[-1]["index"] if entries else -1
+
+    def test_12d_a_capture_leaves_nothing(self):
+        """A capture, and one that fails after its segmentation is turned on, leave the stage, its root layer,
+        omni.syntheticdata and the viewport as they found them."""
+        camera = "/World/IntTestCam"
+        self.addCleanup(self.client.delete_prim, camera)
+        center = self.client.prim_bounds("/World/IntTestCube")["result"]["center"]
+        self._kit(_AIMED_CAMERA.replace("TARGET", repr(center)).replace("PATH", repr(camera)))
+        self.assertEqual(self.client.capture_viewport(320, 240, camera_path=camera)["status"], "success")
+        before, since = self._traces(), self._log_index()
+
+        result = self.client.capture_viewport(320, 240, camera_path=camera)
+        self.assertEqual(result["status"], "success", result)
+        self.assertIsNotNone(result["result"]["segmentation_base64"], result["result"].get("segmentation_error"))
+        self._assert_nothing_left(before, since)
+
+        self._wrap(_FILE_CAPTURE, "FileCapture", _FINISHED_CAPTURE.format(result=[]))
+        since = self._log_index()
+        failed = self.client.capture_viewport(320, 240, camera_path=camera)
+        self.assertEqual(failed["status"], "error", failed)
+        self.assertIn("wait_for_result gave []", failed["error"])
+        self._assert_nothing_left(before, since)
+        print(f"  {len(before['render'])} paths under /Render before and after, a capture and a failed one")
+
+    def test_12e_an_oversized_capture_is_refused(self):
+        """A side above 4096 is refused before anything is made."""
+        before = self._traces()
+        for result in (
+            self.client.capture_viewport(capture.MAX_SIDE + 1, 240),
+            self.client.camera_inspect("/World/IntTestCube", angles=["front"], width=5000, height=240),
+        ):
+            self.assertEqual(result["status"], "error", result)
+            self.assertIn("from 1 to 4096", result["error"])
+        self.assertEqual(self._traces(), before)
+
     def test_13_camera_inspect_auto_fit(self):
         """Inspect with auto-fit distance (no zoom_offset)."""
         result = self.client.camera_inspect("/World/IntTestCube", angles=["front", "right"])
@@ -301,6 +483,25 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         for cap in result["result"]["captures"]:
             self.assertIn("image_base64", cap)
         print(f"  Inspect auto-fit: dist={result['result']['distance']:.2f}m, 2 angles")
+
+    def test_13b_inspect_is_the_size_asked_for(self):
+        """Each angle and its segmentation at the size asked for, where 0.2.2 gave the viewport's (#51), and nothing of
+        the call's feed left after it."""
+        # Warm: the first segmentation on a stage may make omni.syntheticdata's shared graphs, which stay.
+        self.client.camera_inspect(
+            "/World/IntTestCube", angles=["front"], width=320, height=240, include_segmentation=True
+        )
+        before, since = self._traces(), self._log_index()
+        result = self.client.camera_inspect(
+            "/World/IntTestCube", angles=["front", "top"], width=320, height=240, include_segmentation=True
+        )
+        self.assertEqual(result["status"], "success", result)
+        self.assertEqual((result["result"]["width"], result["result"]["height"]), (320, 240))
+        for cap in result["result"]["captures"]:
+            self.assertEqual(_png_size(cap["image_base64"]), (320, 240), cap.get("error"))
+            self.assertEqual(_png_size(cap["segmentation_base64"]), (320, 240), cap.get("segmentation_error"))
+        self._assert_nothing_left(before, since)
+        print("  2 angles at 320x240, with segmentation")
 
     def test_14_camera_inspect_zoom_offset(self):
         """Inspect with zoom_offset should change distance."""
@@ -429,8 +630,8 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         print(f"  segmentation after {reads} reads")
 
     def test_15d_inspect_says_why_segmentation_is_missing(self):
-        """Segmentation that never comes: each angle's answer says why, the first after one wait, the second without
-        waiting again on the same stage (#27)."""
+        """Segmentation that never comes: each angle's answer says why, the first after one wait, the second after a
+        brief one, since it got nothing with this camera and size on this stage before (#27, #51)."""
         self._wrap(
             _SENSORS,
             "get_instance_segmentation",
@@ -451,7 +652,10 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
             self.assertIn("image_base64", cap)
             self.assertNotIn("segmentation_base64", cap)
         self.assertIn(f"within {capture.SEGMENTATION_SECONDS:g} s of enabling it", first.get("segmentation_error", ""))
-        self.assertIn("as before, so this capture did not wait", second.get("segmentation_error", ""))
+        self.assertIn(
+            f"on this stage before, and none in the {capture.SEGMENTATION_RETRY_SECONDS:g} s this capture waited",
+            second.get("segmentation_error", ""),
+        )
         self.assertLess(took, 15)  # a guard against a hang; the messages tell one wait from two
         print(f"  2 angles, each saying why, in {took:.1f} s")
 
@@ -459,7 +663,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         """A capture whose wait_for_result names nothing captured fails at once, where it waited 10 s for a file that
         could not come (#35). One that names LdrColor but writes no file, as Kit 110 does without a valid resource,
         fails after the file wait."""
-        self._wrap(_VIEWPORT_UTILITY, "capture_viewport_to_file", _FINISHED_CAPTURE.format(result=[]))
+        self._wrap(_FILE_CAPTURE, "FileCapture", _FINISHED_CAPTURE.format(result=[]))
         started = time.monotonic()
         result = self.client.camera_inspect("/World/IntTestCube", angles=["front", "right", "top", "back"])
         took = time.monotonic() - started
@@ -471,7 +675,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertLess(took, 15)
 
         self._shorten("FILE_SECONDS", 2)
-        self._wrap(_VIEWPORT_UTILITY, "capture_viewport_to_file", _FINISHED_CAPTURE.format(result=["LdrColor"]))
+        self._wrap(_FILE_CAPTURE, "FileCapture", _FINISHED_CAPTURE.format(result=["LdrColor"]))
         started = time.monotonic()
         result = self.client.camera_inspect("/World/IntTestCube", angles=["front", "right", "top"])
         no_file = time.monotonic() - started
@@ -484,13 +688,16 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         print(f"  4 empty captures in {took:.1f} s, 3 without a file in {no_file:.1f} s")
 
     def test_15f_a_viewport_that_renders_nothing_fails_in_time(self):
-        """With the viewport's updates off no frame comes: set_camera answers after one frame wait, and inspect_prim
-        stops after its first angle, naming the angles it did not capture; both hung before (#35)."""
+        """With the viewport's updates off no frame comes: set_camera answers after one frame wait. With a capture's
+        feed rendering nothing too (its texture's updates off), inspect_prim stops after its first angle, naming the
+        angles it did not capture; both hung before (#35)."""
         frame_seconds = 3 if self._shorten("FRAME_SECONDS", 3) else capture.FRAME_SECONDS
         try:
             self.assertEqual(
                 self._kit(_UPDATES_OFF), "no frame", "updates_enabled = False did not stop this Kit app's frames"
             )
+            # inspect_prim renders through a feed of its own (#51), whose frames the viewport's updates don't stop.
+            self._wrap(_HYDRA_TEXTURE, "create_hydra_texture", _NO_FRAMES)
             started = time.monotonic()
             moved = self.client.camera_set([5, 3, 5], [0, 0, 0])
             moved_in = time.monotonic() - started
@@ -520,6 +727,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
             self.assertEqual(self._kit(_VISIBILITY), shown)
         finally:
             self.assertTrue(self._kit(_UPDATES_ON))
+            self._kit(_UNWRAP.format(target=_HYDRA_TEXTURE, name="create_hydra_texture"))
         self.assertEqual(self.client.capture_viewport(320, 240)["status"], "success")
         print(
             f"  set_camera in {moved_in:.1f} s, inspect_prim in {inspected_in:.1f} s, isolated in {isolated_in:.1f} s, "

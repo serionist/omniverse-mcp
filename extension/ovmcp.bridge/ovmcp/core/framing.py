@@ -5,6 +5,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
+from .capture import capture_size
+
 MARGIN_PX = 10
 
 CORNER_ELEVATION = 35.26  # atan(1/sqrt(2)): from the horizontal up to a cube's corner
@@ -31,8 +33,7 @@ ANGLES = {
 @dataclass(frozen=True)
 class InspectArgs:
     angles: list[tuple[str, float, float]]  # (name, azimuth, elevation)
-    width: int
-    height: int
+    size: tuple[int, int] | None  # (width, height); None for the viewport's own
     zoom_offset: float
     isolate: bool
     include_segmentation: bool
@@ -40,18 +41,16 @@ class InspectArgs:
 
 def inspect_args(body: dict[str, Any]) -> InspectArgs:
     """inspect_prim's request body, checked; the ValueError says what is wrong with it."""
+    size = capture_size(body)
     try:
-        width = int(body.get("width", 800))
-        height = int(body.get("height", 600))
         zoom_offset = float(body.get("zoom_offset", 0.0))
     except (TypeError, ValueError):
-        raise ValueError("width and height must be whole numbers, and zoom_offset a number") from None
+        raise ValueError("zoom_offset must be a number") from None
     if not math.isfinite(zoom_offset):
         raise ValueError(f"zoom_offset must be a finite number (got {zoom_offset})")
     return InspectArgs(
         angles=_angles(body.get("angles")),
-        width=width,
-        height=height,
+        size=size,
         zoom_offset=zoom_offset,
         isolate=bool(body.get("isolate", False)),
         include_segmentation=bool(body.get("include_segmentation", False)),

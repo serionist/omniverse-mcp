@@ -90,20 +90,15 @@ def test_bounding_radius():
 
 def test_inspect_args_defaults():
     args = inspect_args({"prim_path": "/World/Box"})
-    assert (args.width, args.height, args.zoom_offset, args.isolate, args.include_segmentation) == (
-        800,
-        600,
-        0.0,
-        False,
-        False,
-    )
+    # No size: the viewport's own, where the bridge framed for 800x600 and captured the viewport's size anyway (#51).
+    assert (args.size, args.zoom_offset, args.isolate, args.include_segmentation) == (None, 0.0, False, False)
     assert [name for name, _, _ in args.angles] == list(ANGLES)
 
 
-def test_inspect_args_take_names_pairs_and_numeric_strings():
-    args = inspect_args({"angles": ["front", [30, 15]], "width": "1280", "height": 720.0, "zoom_offset": "-0.25"})
+def test_inspect_args_take_names_pairs_a_size_and_a_numeric_zoom():
+    args = inspect_args({"angles": ["front", [30, 15]], "width": 1280, "height": 720, "zoom_offset": "-0.25"})
     assert args.angles == [("front", 0, 0), ("az30_el15", 30, 15)]
-    assert (args.width, args.height, args.zoom_offset) == (1280, 720, -0.25)
+    assert (args.size, args.zoom_offset) == ((1280, 720), -0.25)
 
 
 @pytest.mark.parametrize(
@@ -112,8 +107,11 @@ def test_inspect_args_take_names_pairs_and_numeric_strings():
         {"zoom_offset": "closer"},
         {"zoom_offset": None},
         {"zoom_offset": [1]},
-        {"width": "wide"},
-        {"height": {"px": 600}},
+        {"width": "wide", "height": 600},
+        {"width": 800, "height": {"px": 600}},
+        {"width": "1280", "height": 720},  # a size is whole numbers, as start_recording's is
+        {"width": 5000, "height": 600},
+        {"width": 800},
         {"zoom_offset": float("nan")},
         {"zoom_offset": float("inf")},
         {"angles": "front"},

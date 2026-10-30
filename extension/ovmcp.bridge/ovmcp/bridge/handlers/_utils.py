@@ -92,7 +92,8 @@ async def _next_update():
 async def capture_viewport_png(viewport, budget: capture.Budget | None = None) -> bytes:
     """The viewport's frame as PNG bytes (capture_file_png), after FRESH_FRAMES frames of it: Kit captures the next
     frame it delivers, which the renderer made about 3 updates earlier, so a drawing or a change made just before the
-    call was missing (#57). A recording captures from its own feed (capture_feed_png), which needs none.
+    call was missing (#57). A recording, capture_viewport and inspect_prim capture from feeds of their own
+    (capture_feed_png), which need none (#25, #51).
     """
     from omni.kit.viewport.utility import capture_viewport_to_file
 
@@ -213,7 +214,7 @@ async def _settle_viewport(frames: int | None = None, budget: capture.Budget | N
     await _viewport_frames(CAMERA_SETTLE_FRAMES if frames is None else frames, budget)
 
 
-async def _reset_renderer(wait_frames: int = 10, budget: capture.Budget | None = None):
+async def _reset_renderer(wait_frames: int = 10, budget: capture.Budget | None = None, frames=None):
     """Reset renderer accumulation and wait for fresh frames.
 
     This forces the RTX renderer to discard its cached frame data and
@@ -226,8 +227,10 @@ async def _reset_renderer(wait_frames: int = 10, budget: capture.Budget | None =
     the wait gives.
 
     Args:
-        wait_frames: Number of viewport frames to wait after the reset.
+        wait_frames: Number of frames to wait after the reset.
         budget: The calling handler's time, if it has one.
+        frames: What waits for them, `(count, budget)`: a camera feed's `wait_frames` for a capture, which renders
+            through a feed of its own (#51); the viewport's frames when None.
     """
     settings = carb.settings.get_settings()
 
@@ -243,7 +246,7 @@ async def _reset_renderer(wait_frames: int = 10, budget: capture.Budget | None =
             ctx.reset_renderer_accumulation()
         except Exception:
             pass
-        await _viewport_frames(wait_frames, budget)
+        await (frames or _viewport_frames)(wait_frames, budget)
     finally:
         if eco_was_on:
             settings.set_bool("/rtx/ecoMode/enabled", True)
