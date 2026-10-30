@@ -7,7 +7,7 @@ from pydantic import Field
 
 from omniverse_mcp.client import BridgeClient
 
-from ._annotations import EDITS, READS
+from ._annotations import EDITS, READS, tool
 from ._bridge import bridge_call
 from ._params import Position, Rotation
 
@@ -18,18 +18,20 @@ RobotRoot = Annotated[str, Field(description='The robot\'s root prim, e.g. "/Wor
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def create_robot(
         robot_type: Annotated[str, Field(description="A robot's name (franka, g1, spot, ...) or a USD file's path")],
         prim_path: Annotated[str, Field(description="Where to put it; made up from the name when empty")] = "",
         position: Position = None,
         rotation: Rotation = None,
     ) -> str:
-        """Add a robot: one of Isaac Sim's asset library by name, or a robot's own USD file.
+        """Add a robot to the stage as a reference: one of Isaac Sim's asset library by name, or a robot's USD file.
 
-        Available: franka, ur10, carter, jetbot, g1, go1, go2, h1, spot, anymal. Or a USD file as robot_type: a path
-        on the Kit app's machine, a URL, or a path in Isaac Sim's asset library (/Isaac/...). Without prim_path,
-        the prim is named after the file.
+        Names, which need Isaac Sim: franka, ur10, carter, jetbot, g1, go1, go2, h1, spot, anymal. A USD file as
+        robot_type is a path on the Kit app's machine, a URL, or a path in Isaac Sim's asset library (/Isaac/...).
+        Without prim_path, the prim is named after the robot or the file: /World/Franka, or /World/MyBot for MyBot.usd.
+        A prim already at prim_path, or a file that can't be opened, is an error. For anything but a robot, use
+        create_prim; get_robot_info then lists the robot's joints.
         """
         resp = bridge_call(client.create_robot, robot_type, prim_path, position, rotation)
         r = resp["result"]
@@ -43,9 +45,16 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
                 parts.append(f"  ... and {len(r['joints']) - 10} more")
         return "\n".join(parts)
 
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def get_robot_info(prim_path: RobotRoot) -> str:
-        """Get robot joint info: names, types, limits, DOF count. Pure USD, no sim needed."""
+        """Read a robot's structure from USD: whether it is an articulation, its link and DOF counts, and each joint's
+        name, type, limits and drive.
+
+        Use it before driving a robot, whatever the simulation's state; get_joint_states reads where the joints are now,
+        from physics. Limits are as USD holds them: degrees for revolute joints, stage units for prismatic ones. The
+        joints come in the order a list of set_joint_targets follows, fixed joints included; the DOF count leaves fixed
+        joints out.
+        """
         resp = bridge_call(client.get_robot_info, prim_path)
         r = resp["result"]
         lines = [
@@ -70,12 +79,14 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         text = "\n".join(lines)
         return h.text_response(text, "robot_info")
 
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def get_joint_states(prim_path: RobotRoot) -> str:
-        """Get joint positions and velocities while the simulation plays or is paused; an error while it is stopped.
+        """Get each joint's position and velocity from physics while the simulation plays or is paused; an error while
+        it is stopped, which says to play or step first.
 
-        Radians for revolute joints and metres for prismatic ones, velocities per second (set_joint_targets takes
-        degrees). Needs Isaac Sim; tested on 6.2.
+        Radians for revolute joints and stage units for prismatic ones, velocities per second (set_joint_targets takes
+        degrees). Use it to see where a robot is now; get_robot_info reads names, limits and drives from USD at any
+        time. prim_path is the robot's articulation root or a prim above it. Needs Isaac Sim.
         """
         resp = bridge_call(client.get_joint_states, prim_path)
         r = resp["result"]
@@ -91,20 +102,27 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         text = "\n".join(lines)
         return h.text_response(text, "joint_states")
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def set_joint_targets(
         prim_path: RobotRoot,
         targets: Annotated[
             dict[str, float] | list[float] | None,
             Field(
                 description=(
-                    "{joint_name: value} or [v0, v1, ...] in joint order: degrees for revolute joints, metres for "
-                    "prismatic ones"
+                    "Required: {joint_name: value}, or [v0, v1, ...] in get_robot_info's joint order, fixed joints "
+                    "included; degrees for revolute joints, stage units for prismatic ones"
                 )
             ),
         ] = None,
     ) -> str:
-        """Set joint drive position targets. Works without articulation initialisation."""
+        """Set the position targets of a robot's joint drives, which physics drives the joints toward while the
+        simulation plays.
+
+        A dict sets the joints it names and skips names it doesn't find; a list follows get_robot_info's joint order,
+        not get_joint_states'. A joint without a drive gets one, with stiffness 1000 and damping 100. It writes USD, so
+        it works stopped too, before physics has started. The answer counts the targets set; get_joint_states then
+        reads where the joints are, in radians.
+        """
         resp = bridge_call(client.set_joint_targets, prim_path, targets)
         r = resp["result"]
         lines = [f"Set {r['targets_set']} joint targets on {r['prim_path']}"]

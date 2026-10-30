@@ -7,7 +7,7 @@ from pydantic import Field
 
 from omniverse_mcp.client import BridgeClient
 
-from ._annotations import DESTROYS, EDITS, READS
+from ._annotations import DESTROYS, EDITS, READS, tool
 from ._bridge import bridge_call
 from ._params import Position, PrimPath, Rotation, Scale
 
@@ -16,22 +16,30 @@ if TYPE_CHECKING:
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def get_scene_tree(
         root: Annotated[str, Field(description="Prim path to start from")] = "/",
-        max_depth: Annotated[int, Field(ge=0, le=15, description="How many levels below root; 0 for root alone")] = 5,
+        max_depth: Annotated[
+            int,
+            Field(
+                ge=0, le=15, description="How many levels below root to list; the next shows only prims with children"
+            ),
+        ] = 5,
     ) -> str:
-        """Get the USD scene hierarchy as grep-friendly prim-block text.
+        """List the stage's prims under root as prim blocks: each one's path, type and world position.
 
-        Each prim shows: path, type, world position. For large scenes, use dump_scene
-        which also includes properties and bounding boxes.
+        Use it to find prim paths before acting on them: it is the lightest look at a scene. The level after max_depth
+        lists only the prims that have children, each with its type and how many children it holds; the rest of that
+        level, and everything deeper, is left out. The prims inside an instanceable prim are not listed
+        (get_prim_face_count_tree looks inside). For properties, use get_prim_properties on one prim, or dump_scene for
+        many at once, written to a file to grep.
         """
         resp = bridge_call(client.scene_tree, root, max_depth, fmt="text")
         r = resp["result"]
         text = r["text"]
         return h.text_response(text, "scene_tree")
 
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def dump_scene(
         root: Annotated[str, Field(description="Prim path to start from")] = "/",
         max_depth: Annotated[int, Field(ge=0, description="How many levels below root; 0 for root alone")] = 15,
@@ -43,10 +51,14 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             list[str] | None, Field(description='Only properties whose names contain one of these, e.g. ["joint"]')
         ] = None,
     ) -> str:
-        """Dump the full scene graph to a text file in prim-block format.
+        """Write the prims under root, with their properties, to mcp_output/scene_dump.txt as prim blocks; returns the
+        file's path, to grep or read in parts.
 
-        Writes ALL prims with properties, bounding boxes, and transforms to a grep-friendly file.
-        Returns the file path. Use your Read tool to examine specific parts.
+        Each block holds the prim's type, world position, rotation and bounding box, and every attribute's value unless
+        include_properties is False. Use it for many prims' values at once, or for depths beyond get_scene_tree's 15;
+        get_prim_properties reads one prim inline. filter_types keeps the blocks of those types and
+        still walks the others' children. Each call replaces the last dump. Kit writes the file itself, so with Kit on
+        another machine it lands there. Like get_scene_tree, it doesn't list the prims inside an instanceable prim.
         """
         resp = bridge_call(
             client.scene_dump,
@@ -60,21 +72,26 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         r = resp["result"]
         return f"Dumped {r['prim_count']} prims ({r['file_size_bytes']:,} bytes) -> {h.rel(r['file_path'])}"
 
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def get_prim_properties(prim_path: PrimPath) -> str:
-        """Get all properties of a specific prim in prim-block text format.
+        """Get one prim as a prim block: its type, world position and rotation, world bounding box, physics flags, and
+        every attribute's value.
 
-        Returns grep-friendly text with type, position, bounding box, and all USD properties.
+        Use it to read one prim; get_prim_bounds when only its size and place matter, dump_scene for many prims at
+        once, get_scene_tree to find paths. Relationships, such as a material binding, are named without their targets.
         """
         resp = bridge_call(client.prim_properties, prim_path, fmt="text")
         text = resp["result"]["text"]
         return h.text_response(text, f"prim_{prim_path.replace('/', '_')}")
 
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def get_prim_bounds(prim_path: PrimPath) -> str:
-        """Get the bounding box of a prim (center, dimensions, min/max corners, diagonal).
+        """Get a prim's world-space, axis-aligned bounding box, its descendants included: centre, dimensions, min and
+        max corners, and diagonal, in the stage's units.
 
-        Use this for spatial reasoning -- understanding sizes, overlap, distances.
+        Use it to place things and measure: what rests on what (a bottom on a top along the up axis), gaps, sizes.
+        get_prim_properties gives the same box among a prim's other values. A prim with no geometry, such as an empty
+        Xform, gets a 0.1 box at its position rather than an error.
         """
         resp = bridge_call(client.prim_bounds, prim_path)
         r = resp["result"]
@@ -87,31 +104,46 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             f"diagonal = {r['diagonal']:.4f}"
         )
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def set_prim_transform(
         prim_path: PrimPath,
         position: Position = None,
         rotation: Rotation = None,
         scale: Scale = None,
     ) -> str:
-        """Set position/rotation/scale of a prim."""
+        """Set a prim's position, rotation or scale relative to its parent; any of the three left out keeps its value.
+
+        Use it to move, turn or size a prim; to aim the viewport camera, use set_camera or look_at_prim, and to push a
+        rigid body while physics runs, apply_force. Values are in the parent's space, not world space:
+        get_prim_properties gives a prim's world position. It rewrites the prim's xform ops as translate, rotateXYZ
+        (orient for a quaternion) and scale, and drops any other op, so a prim placed by a matrix (xformOp:transform),
+        as imported assets often are, loses that placement. An error when the prim doesn't exist or can't be
+        transformed.
+        """
         bridge_call(client.set_transform, prim_path, position, rotation, scale)
         return f"Transform updated for {prim_path}"
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def create_prim(
         prim_path: Annotated[str, Field(description='Where to create it, e.g. "/World/MyCube"')],
         prim_type: Annotated[str, Field(description="USD type name, e.g. Cube, Sphere, Xform, DistantLight")] = "Xform",
-        usd_path: Annotated[str | None, Field(description="A USD file to load as a reference instead")] = None,
+        usd_path: Annotated[
+            str | None,
+            Field(description="A USD file to reference instead of a type: an absolute path on Kit's machine, or a URL"),
+        ] = None,
         position: Position = None,
         rotation: Rotation = None,
         scale: Scale = None,
         enable_physics: Annotated[bool, Field(description="Add the RigidBody and Collision APIs")] = False,
     ) -> str:
-        """Create a new prim in the scene.
+        """Create a prim at prim_path: a shape, an Xform, a camera, a light or any USD type, or a reference to a file.
 
-        Types: Cube, Sphere, Cylinder, Cone, Capsule, Xform, Camera, DistantLight, SphereLight, etc.
-        Or load a USD file via usd_path. A prim already at prim_path keeps its type: one of another type is refused.
+        prim_type is a USD type name: Cube, Sphere, Cylinder, Cone, Capsule, Xform, Camera, DistantLight, DomeLight,
+        SphereLight and the rest. Missing parents are made as typeless prims. A prim already at prim_path keeps its
+        type: one of another type is refused, one of the same type takes the new transform. usd_path adds its reference
+        to a prim already there. enable_physics puts the RigidBody and Collision APIs on the prim itself, so a shape
+        falls and collides while the simulation plays; the meshes under an Xform or a referenced file's root get no
+        Collision API of their own. To copy a prim, use clone_prim; for a robot, create_robot.
         """
         kwargs = {}
         if usd_path:
@@ -129,13 +161,19 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         r = resp["result"]
         return f"Created {r['type']} at {r['prim_path']}"
 
-    @mcp.tool(annotations=DESTROYS)
+    @tool(mcp, DESTROYS)
     def delete_prim(prim_path: PrimPath) -> str:
-        """Delete a prim and all its children."""
+        """Delete a prim and everything under it, by removing what the stage's edit layer holds at that path.
+
+        USD keeps a prim that another layer defines too, or that comes in through a reference or payload, such as a
+        part of a referenced asset: it stays, though the answer says deleted, so check with get_scene_tree. To hide a
+        prim and keep it, use set_visibility. Kit's undo doesn't record the delete, and the file on disk keeps the prim
+        until save_scene. An error when no prim is there.
+        """
         bridge_call(client.delete_prim, prim_path)
         return f"Deleted {prim_path}"
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def set_material(
         prim_path: PrimPath,
         color: Annotated[
@@ -149,10 +187,13 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             str, Field(description="The material prim's path; made under /World/Looks/ when empty")
         ] = "",
     ) -> str:
-        """Apply a PBR material (OmniPBR) to a prim with color and surface properties.
+        """Colour a prim with an OmniPBR material: make the material, or update the one at its path, set its colour and
+        surface values, and bind it to the prim in place of its binding.
 
-        Creates a material automatically and binds it to the target prim.
-        Color values can be 0-1 floats or 0-255 ints (auto-detected).
+        Without material_path the material is /World/Looks/<prim name>_Mat, so prims of the same name share one and
+        colouring one recolours the rest: give material_path to keep them apart, or to share one on purpose. The binding
+        reaches the prim's children unless they have bindings of their own. For friction and bounce, use
+        set_physics_properties; to repoint bindings after materials move, update_material_paths.
         """
         resp = bridge_call(client.set_material, prim_path, color, opacity, roughness, metallic, material_path)
         r = resp["result"]
@@ -163,18 +204,27 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         parts.append(f"metallic={r['metallic']}")
         return f"Material {r['material_path']} -> {r['prim_path']} ({', '.join(parts)})"
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def clone_prim(
         source_path: Annotated[str, Field(description='The prim to clone, e.g. "/World/MyCube"')],
         target_path: Annotated[str, Field(description='Where the copy goes, e.g. "/World/MyCube_Copy"')],
-        count: Annotated[int, Field(ge=1, description="How many copies; paths get _001, _002, ...")] = 1,
+        count: Annotated[
+            int, Field(ge=1, description="How many copies: one goes to target_path, more to target_path_001, _002, ...")
+        ] = 1,
         offset: Annotated[
-            list[float] | None, Field(description="[x, y, z] each copy moves from the one before")
+            list[float] | None,
+            Field(description="[x, y, z] in the parent's space: each copy after the first sits this far from the last"),
         ] = None,
     ) -> str:
-        """Deep-copy a prim (and all children) to a new path. Supports batch cloning.
+        """Copy a prim with everything under it to a new path, once or as a row of count copies.
 
-        Refuses a target path that already holds a prim, before it copies anything.
+        The first copy sits on the source and each next one moves by offset from the one before, so a single copy is
+        never moved: move it with set_prim_transform. With offset, the copies it places, and a single copy, get their
+        xform ops rewritten as set_prim_transform does, counted from the source's translate (the origin without one):
+        copies of a prim placed by a matrix lose that placement. It copies what the stage's root layer holds at
+        source_path, its references included, so a prim from a sublayer, or from inside a referenced asset, can't be
+        copied whole. A target path that already holds a prim is refused before anything is copied. For a new prim,
+        use create_prim.
         """
         resp = bridge_call(client.clone_prim, source_path, target_path, count, offset)
         r = resp["result"]
@@ -183,30 +233,49 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             return f"Cloned {source_path} -> {clones[0]}"
         return f"Cloned {source_path} -> {len(clones)} copies:\n" + "\n".join(f"  {c}" for c in clones)
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def set_visibility(
         prim_path: PrimPath,
         visible: Annotated[bool, Field(description="True to show, False to hide")] = True,
     ) -> str:
-        """Show or hide a prim (and its descendants)."""
+        """Show or hide a prim and everything under it, in the viewport and in captures; the prim stays in the stage.
+
+        Use it to see inside or behind something, then show it again; delete_prim removes a prim, and inspect_prim's
+        isolate hides all but one prim for its captures. Showing a prim under a hidden parent shows the parent and hides
+        the parent's other children, as USD's MakeVisible does. An error for a prim that has no visibility, such as a
+        material.
+        """
         resp = bridge_call(client.set_visibility, prim_path, visible)
         r = resp["result"]
         state = "visible" if r["visible"] else "hidden"
         return f"{r['prim_path']} is now {state}"
 
-    @mcp.tool(annotations=DESTROYS)
+    @tool(mcp, DESTROYS)
     def save_scene(
         file_path: Annotated[
-            str, Field(description="The USD file to write; empty overwrites the stage's own file")
+            str, Field(description="The USD file to write, on Kit's machine; empty overwrites the stage's own file")
         ] = "",
     ) -> str:
-        """Save the current scene to a USD file."""
+        """Write the open stage's root layer to a USD file: back to the stage's own file when file_path is empty, or as
+        a copy at file_path.
+
+        Without file_path it overwrites the file the stage was opened from, and fails for a stage never saved, such as
+        new_scene's. With file_path it overwrites any file there, and the stage stays tied to its own file, or to none.
+        Only the root layer is written: sublayers and referenced files stay as they are, still referenced. For one
+        self-contained file, use flatten_usd; for one prim's subtree, export_prim_as_file.
+        """
         resp = bridge_call(client.save_scene, file_path)
         r = resp["result"]
         return f"Scene saved ({r['action']}) -> {r['file_path']}"
 
-    @mcp.tool(annotations=DESTROYS)
+    @tool(mcp, DESTROYS)
     def new_scene() -> str:
-        """Create a fresh empty scene with a /World root prim and Y-up axis."""
+        """Discard the open stage, unsaved changes included, and open an empty one: Y-up, with a /World Xform as its
+        default prim.
+
+        Call save_scene first to keep the old one. Isaac Sim's robots and stages are Z-up: for robot work, set the axis
+        with execute_script (UsdGeom.SetStageUpAxis) before adding anything. The new stage has no file, so save_scene
+        needs a file_path for it. A recording that runs stops taking frames, and draw_debug's drawings go.
+        """
         bridge_call(client.new_scene)
         return "New scene created with /World root prim (Y-up)"

@@ -68,73 +68,96 @@ A value out of a parameter's range, or not one of its choices, is refused before
 
 ### `get_scene_tree`
 
-Get the USD scene hierarchy as grep-friendly prim-block text.
+List the stage's prims under `root` as prim blocks: each one's path, type and world position.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `root` | string | `"/"` | Starting prim path |
-| `max_depth` | int | `5` | Traversal depth, 0 (root alone) to 15 |
+| `max_depth` | int | `5` | Levels below `root` to list, 0 to 15; the next level shows only prims with children |
 
 **Returns:** Prim-block text showing each prim's path, type, and world position. Written to file if output exceeds 1000 characters.
+The level after `max_depth` lists only the prims that have children, each with its type and `children = N
+(truncated)`; the rest of that level, and everything deeper, is left out. The prims inside an instanceable prim, as
+Isaac Sim's robot assets often are, are not listed: `get_prim_face_count_tree` looks inside.
 
-**When to use:** Quick scene overview for scenes under ~100 prims. For larger scenes, use `dump_scene`.
+**When to use:** to find prim paths before acting on them; it is the lightest look at a scene. For properties, use
+`get_prim_properties` on one prim, or `dump_scene` for many at once, written to a file to grep.
 
 ---
 
 ### `dump_scene`
 
-Dump the full scene graph to a text file with all properties, bounding boxes, and transforms.
+Write the prims under `root`, with their properties, to `mcp_output/scene_dump.txt` as prim blocks, and return the
+file's path. Each block holds the prim's type, world position, rotation and bounding box, and every attribute's value
+unless `include_properties` is false.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `root` | string | `"/"` | Starting prim path |
 | `max_depth` | int | `15` | Max traversal depth; 0 for root alone |
 | `include_properties` | bool | `true` | Include all USD properties per prim |
-| `filter_types` | list[string] | `null` | Only include prims of these types (e.g., `["Mesh", "Xform"]`) |
+| `filter_types` | list[string] | `null` | Only include prims of these types (e.g., `["Mesh", "Xform"]`); the others' children are still walked |
 | `property_filter` | list[string] | `null` | Only include properties containing these substrings |
 
-**Returns:** File path to the dump. Use your file reading tool to examine specific parts.
+**Returns:** File path to the dump. Use your file reading tool to examine specific parts. Each call replaces the last
+dump. Kit writes the file itself, so with Kit on another machine it lands there. Like `get_scene_tree`, it doesn't list
+the prims inside an instanceable prim.
 
-**When to use:** Large scenes where you need full property data. The output is in prim-block format - grep for prim paths or property names.
+**When to use:** for many prims' values at once, or for depths beyond `get_scene_tree`'s 15. The output is in
+prim-block format - grep for prim paths or property names. `get_prim_properties` reads one prim inline.
 
 ---
 
 ### `get_prim_properties`
 
-Get all properties of a specific prim in prim-block text format.
+Get one prim as a prim block: its type, world position and rotation, world bounding box, physics flags, and every
+attribute's value.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Full USD path (e.g., `"/World/Robot"`) |
 
-**Returns:** Prim type, position, bounding box, and all USD properties.
+**Returns:** Prim type, position, bounding box, and all USD properties. Relationships, such as a material binding, are
+named without their targets.
+
+**When to use:** to read one prim. `get_prim_bounds` when only its size and place matter, `dump_scene` for many prims
+at once, `get_scene_tree` to find paths.
 
 ---
 
 ### `get_prim_bounds`
 
-Get the axis-aligned bounding box of a prim.
+Get a prim's world-space, axis-aligned bounding box, its descendants included.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Full USD path |
 
-**Returns:** Centre, dimensions, min/max corners, and diagonal length. Essential for spatial reasoning - computing placement positions, checking overlaps, measuring distances.
+**Returns:** Centre, dimensions, min/max corners, and diagonal length, in the stage's units. Essential for spatial reasoning - computing placement positions, checking overlaps, measuring distances.
+A prim with no geometry, such as an empty Xform, gets a 0.1 box at its position rather than an error.
 
 ---
 
 ### `set_prim_transform`
 
-Set position, rotation, and/or scale of a prim.
+Set a prim's position, rotation or scale relative to its parent.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Full USD path |
-| `position` | list[float] | `null` | `[x, y, z]` in metres |
+| `position` | list[float] | `null` | `[x, y, z]` relative to the parent, in the stage's units |
 | `rotation` | list[float] | `null` | Euler `[rx, ry, rz]` in degrees, or quaternion `[w, x, y, z]` |
 | `scale` | float or list[float] | `null` | Uniform (single float) or per-axis `[sx, sy, sz]` |
 
 Only provided parameters are changed; others are preserved.
+
+- **Local, not world:** values are in the parent's space; `get_prim_properties` gives a prim's world position.
+- **Its xform ops:** it rewrites them as translate, rotateXYZ (orient for a quaternion) and scale, and drops any other
+  op, so a prim placed by a matrix (`xformOp:transform`), as imported assets often are, loses that placement.
+- **Errors:** a prim that doesn't exist, or one that can't be transformed.
+
+**When to use:** to move, turn or size a prim. To aim the viewport camera, use `set_camera` or `look_at_prim`; to push
+a rigid body while physics runs, `apply_force`.
 
 ---
 
@@ -146,41 +169,54 @@ Create a new prim in the scene.
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Where to create (e.g., `"/World/MyCube"`) |
 | `prim_type` | string | `"Xform"` | USD type: `Cube`, `Sphere`, `Cylinder`, `Cone`, `Capsule`, `Xform`, `Camera`, `DistantLight`, `SphereLight`, etc. |
-| `usd_path` | string | `null` | Load a USD file as a reference instead |
-| `position` | list[float] | `null` | `[x, y, z]` |
+| `usd_path` | string | `null` | Reference a USD file instead: an absolute path on Kit's machine, or a URL |
+| `position` | list[float] | `null` | `[x, y, z]` relative to the parent |
 | `rotation` | list[float] | `null` | Euler or quaternion |
 | `scale` | float or list[float] | `null` | Scale |
 | `enable_physics` | bool | `false` | Add RigidBody + Collision APIs |
 
-A prim already at `prim_path` keeps its type: creating one of another type there is refused.
+A prim already at `prim_path` keeps its type: creating one of another type there is refused, and one of the same type
+takes the new transform. A `usd_path` adds its reference to a prim already there. Missing parents are made as typeless
+prims. `enable_physics` puts both APIs on the prim itself, so a shape falls and collides while the simulation plays;
+the meshes under an Xform or a referenced file's root get no Collision API of their own.
 
-**When to use:** Creating geometric shapes, lights, cameras, or loading external USD assets.
+**When to use:** Creating geometric shapes, lights, cameras, or loading external USD assets. To copy a prim, use
+`clone_prim`; for a robot, `create_robot`.
 
 ---
 
 ### `delete_prim`
 
-Delete a prim and all its children from the scene.
+Delete a prim and everything under it, by removing what the stage's edit layer holds at that path.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Full USD path to delete |
 
+USD keeps a prim that another layer defines too, or that comes in through a reference or payload, such as a part of a
+referenced asset: it stays, though the answer says deleted, so check with `get_scene_tree`. To hide a prim and keep it,
+use `set_visibility`. Kit's undo doesn't record the delete, and the file on disk keeps the prim until `save_scene`.
+
 ---
 
 ### `clone_prim`
 
-Deep-copy a prim and all its children to a new path. Supports batch cloning with offset. A target path that
+Copy a prim with everything under it to a new path, once or as a row of `count` copies. A target path that
 already holds a prim is refused, before anything is copied.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `source_path` | string | required | Prim to clone |
 | `target_path` | string | required | Destination path |
-| `count` | int | `1` | Number of copies, at least 1. Paths auto-suffixed: `_001`, `_002`, ... |
-| `offset` | list[float] | `null` | `[x, y, z]` per-copy offset. Each clone shifts by this amount from the previous. |
+| `count` | int | `1` | Number of copies, at least 1. One goes to `target_path`; more go to `target_path_001`, `_002`, ... |
+| `offset` | list[float] | `null` | `[x, y, z]` per-copy offset, in the parent's space. The first copy sits on the source, and each next one shifts by this amount from the previous, so a single copy never moves. |
 
-**Example:** Clone a cube into a row of 5:
+It copies what the stage's root layer holds at `source_path`, its references included, so a prim from a sublayer, or
+from inside a referenced asset, can't be copied whole. With `offset`, the copies it places, and a single copy, get their
+xform ops rewritten as `set_prim_transform` does, counted from the source's translate (the origin without one): copies
+of a prim placed by a matrix lose that placement.
+
+**Example:** Clone a cube into a row of 5, the first on the cube and each 2 further along x:
 ```
 clone_prim("/World/Cube", "/World/CubeRow", count=5, offset=[2, 0, 0])
 ```
@@ -189,22 +225,35 @@ clone_prim("/World/Cube", "/World/CubeRow", count=5, offset=[2, 0, 0])
 
 ### `set_visibility`
 
-Show or hide a prim and its descendants.
+Show or hide a prim and its descendants, in the viewport and in captures; the prim stays in the stage.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Target prim |
 | `visible` | bool | `true` | `true` to show, `false` to hide |
 
+Showing a prim under a hidden parent shows the parent and hides the parent's other children, as USD's `MakeVisible`
+does. A prim that has no visibility, such as a material, is an error.
+
+**When to use:** to see inside or behind something, then show it again. `delete_prim` removes a prim, and
+`inspect_prim`'s `isolate` hides all but one prim for its captures.
+
 ---
 
 ### `save_scene`
 
-Save the current scene to a USD file.
+Write the open stage's root layer to a USD file: back to the stage's own file, or as a copy at `file_path`.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `file_path` | string | `""` | Destination path. If empty, saves to the current file (overwrite). |
+| `file_path` | string | `""` | Destination path, on Kit's machine. If empty, saves to the current file (overwrite). |
+
+- **Without `file_path`:** it overwrites the file the stage was opened from, and fails for a stage never saved, such as
+  `new_scene`'s.
+- **With `file_path`:** it overwrites any file there, and the stage stays tied to its own file, or to none, so a later
+  `save_scene()` without a path still writes there, or fails.
+- **Only the root layer** is written: sublayers and referenced files stay as they are, still referenced. For one
+  self-contained file, use `flatten_usd`; for one prim's subtree, `export_prim_as_file`.
 
 ---
 
@@ -213,7 +262,8 @@ Save the current scene to a USD file.
 Discard the open scene, unsaved changes too, and start an empty one with a `/World` prim. The new stage is
 Y-up, while Isaac Sim's robots and stages are Z-up: for robot work, open a Z-up stage or set the axis with
 `execute_script` (`UsdGeom.SetStageUpAxis(omni.usd.get_context().get_stage(), UsdGeom.Tokens.z)`) before adding
-anything.
+anything. Call `save_scene` first to keep the old stage. The new stage has no file, so `save_scene` needs a `file_path`
+for it. A recording that runs stops taking frames, and `draw_debug`'s drawings go.
 
 No parameters.
 
@@ -223,15 +273,18 @@ No parameters.
 
 ### `get_mesh_stats`
 
-Get face/vertex/triangle counts for a mesh prim or subtree.
+Count the faces, vertices and triangles of every mesh at or under a prim.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Prim to analyse (includes all descendant meshes) |
 
-**Returns:** Per-mesh breakdown and totals (faces, vertices, triangles, mesh count). Written to file if many meshes.
+**Returns:** Totals (faces, vertices, triangles, mesh count), and each mesh's own counts when there are 20 or fewer.
+Written to file if long. Only `UsdGeom.Mesh` prims count, inside instances too: implicit shapes such as `Cube` and
+`Sphere` have no faces.
 
-**When to use:** Checking a geometry budget, or what a simplification saved.
+**When to use:** Checking a geometry budget, or what a simplification saved. `get_prim_face_count_tree` shows where
+the faces are across a whole tree, and `compare_prims` puts two prims or variants side by side.
 
 ---
 
@@ -245,6 +298,8 @@ Get scene tree with face counts per mesh and subtree totals.
 | `max_depth` | int | `10` | Max traversal depth; 0 for root alone |
 
 **Returns:** Prim-block text where each mesh shows `faces`, `vertices`, `triangles` and each group shows `subtree_faces` total.
+Unlike `get_scene_tree`, it looks inside instanceable prims. Prims below `max_depth` are left out of the list but still
+count in their ancestors' `subtree_faces`.
 
 **When to use:** Quick overview of where geometry budget is spent in a scene, without needing individual `get_mesh_stats` calls.
 
@@ -265,8 +320,11 @@ Compare two prims or two variants: mesh counts, bounds, materials.
 
 **Returns:** Side-by-side stats (faces, vertices, triangles, meshes, bounds, materials) with deltas and percentage change.
 
+Mode 2 wins when all four of its parameters are given. It switches the selection to each variant in turn, then back to
+the one before. A variant name is not checked: one not in the set measures the prim with none of the set's variants.
+
 **When to use:** Checking what a simplified copy or another variant changed. Bounds are measured afresh after each
-variant switch.
+variant switch. For one prim's counts, use `get_mesh_stats`.
 
 ---
 
@@ -274,16 +332,23 @@ variant switch.
 
 ### `flatten_usd`
 
-Flatten a USD file: resolve all references, payloads, sublayers into a single self-contained file.
+Write a stage flattened into one USD file: its references, payloads and sublayers resolved into a single layer.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `output_path` | string | required | Where to write the flattened USD file |
-| `input_path` | string | `""` | Source USD file (default: current stage) |
+| `output_path` | string | required | Where to write the flattened USD file, on Kit's machine; a file there is overwritten |
+| `input_path` | string | `""` | Source USD file (default: the open stage, unsaved edits included) |
 
 **Returns:** Input/output paths and number of layers resolved.
 
+Textures and other files the stage points at are not copied.
+
+> **Never name a file the open stage has loaded** (its own file, a sublayer, a referenced asset) as `input_path` or
+> `output_path`: the bridge first clears an open layer of that name in memory, which empties it in the open scene too.
+> For the open stage, leave `input_path` empty.
+
 **When to use:** Before modifying a component (flatten first so all references are resolved), preparing a file for external tools.
+`save_scene` keeps the references and writes only the root layer; `export_prim_as_file` writes one prim's subtree.
 
 ---
 
@@ -299,6 +364,10 @@ Export a prim subtree as a standalone USD file.
 **Returns:** Output path, target root prim name, material count, up axis.
 
 Flattens the source (resolves all references) and includes materials even if they live outside the exported subtree. Output is self-contained and can be imported into Blender or other DCC tools.
+The prim becomes `/<its name>` and the file's default prim, with the stage's up axis and units. `output_path` is on
+Kit's machine and is overwritten; textures and other files the subtree points at are not copied. As with
+`flatten_usd`, never name a file the open stage has loaded: the bridge first clears an open layer of that name in
+memory, which empties it in the open scene too.
 
 ---
 
@@ -306,7 +375,8 @@ Flattens the source (resolves all references) and includes materials even if the
 
 ### `set_variant_selection`
 
-Switch variant selection on a prim with proper viewport refresh.
+Select a variant in a prim's variant set, and wait until the viewport shows it. The set and the variant must exist:
+an error lists the ones there.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -323,16 +393,20 @@ old geometry in the viewport, and this tool refreshes it.
 
 ### `create_variant_structure`
 
-Create variant set boilerplate on a prim.
+Add a variant set of empty variants to a prim and select one, ready to fill and to switch between with
+`set_variant_selection`.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Target prim |
 | `variant_set_name` | string | required | Name for the new variant set |
 | `variant_names` | list[string] | required | List of variant names to create (e.g., `["focused", "shell"]`) |
-| `default_variant` | string | `""` | Which variant to select by default (default: first in list) |
+| `default_variant` | string | `""` | Which variant to select (default, or a name not in the list: the first in the list) |
 
 **Returns:** Prim path, variant set name, created variants, default selection.
+
+A set or variant that already exists is kept and added to, never replaced. The variants hold nothing until you author
+into them, with `execute_script`.
 
 ---
 
@@ -340,7 +414,9 @@ Create variant set boilerplate on a prim.
 
 ### `set_material`
 
-Apply a PBR material (OmniPBR) to a prim with colour and surface properties.
+Colour a prim with an OmniPBR material: make the material, or update the one at its path, set its colour and surface
+values, and bind it to the prim in place of its binding. The binding reaches the prim's children unless they have
+bindings of their own.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -349,23 +425,30 @@ Apply a PBR material (OmniPBR) to a prim with colour and surface properties.
 | `opacity` | float | `1.0` | 0.0 (transparent) to 1.0 (opaque); nothing outside that |
 | `roughness` | float | `0.5` | 0.0 (glossy) to 1.0 (matte); nothing outside that |
 | `metallic` | float | `0.0` | 0.0 (plastic) to 1.0 (metal); nothing outside that |
-| `material_path` | string | `""` | Custom material prim path (auto-generated under `/World/Looks/` if omitted) |
+| `material_path` | string | `""` | Custom material prim path (`/World/Looks/<prim name>_Mat` if omitted) |
+
+Without `material_path`, prims of the same name share one material, so colouring one recolours the rest: give
+`material_path` to keep them apart, or to share one on purpose. For friction and bounce, use `set_physics_properties`;
+to repoint bindings after materials move, `update_material_paths`.
 
 ---
 
 ### `update_material_paths`
 
-Bulk-update material reference paths in a subtree.
+Rewrite every path under a subtree that starts with `old_prefix` to start with `new_prefix` instead.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `old_prefix` | string | required | Path prefix to find (e.g., `"/OldProject/Materials"`) |
-| `new_prefix` | string | required | Replacement prefix (e.g., `"/World/Materials"`) |
+| `old_prefix` | string | required | Path prefix to find, matched as text (e.g., `"/OldProject/Materials/"`) |
+| `new_prefix` | string | required | Replacement prefix (e.g., `"/World/Materials/"`) |
 | `prim_path` | string | `"/"` | Root of subtree to update (default: entire stage) |
 
 **Returns:** Number of updated references and list of affected prims.
 
-Updates both relationship targets (material bindings) and asset path attributes (texture file paths) that start with `old_prefix`.
+Updates both relationship targets, such as material bindings, and asset path attributes, such as texture files, that
+start with `old_prefix`. It isn't limited to materials: any relationship or asset path that matches changes, a joint's
+bodies or a shader's source file among them, so end the prefix with `/` and keep it specific. Nothing checks that the new paths
+exist. Kit's undo doesn't record the change, and a failure part way keeps the edits made before it.
 
 **When to use:** After copying USD assets to a new directory where material paths need updating.
 
@@ -415,6 +498,11 @@ Get robot joint information from USD (no simulation needed).
 | `prim_path` | string | required | Root prim of the robot |
 
 **Returns:** Articulation status, DOF count, link count, and per-joint details (name, type, limits, drive type).
+Limits are as USD holds them: degrees for revolute joints, stage units for prismatic ones. The joints come in the order
+a list of `set_joint_targets` follows, fixed joints included; the DOF count leaves fixed joints out.
+
+**When to use:** before driving a robot, whatever the simulation's state. `get_joint_states` reads where the joints are
+now, from physics.
 
 ---
 
@@ -427,7 +515,8 @@ Get current joint positions and velocities.
 | `prim_path` | string | required | Root prim of the robot |
 
 **Returns:** each degree of freedom's name, position and velocity: radians and radians per second for revolute
-joints, metres and metres per second for prismatic ones. `set_joint_targets` takes degrees for revolute joints.
+joints, stage units and stage units per second for prismatic ones. `set_joint_targets` takes degrees for revolute
+joints.
 
 - **Physics playing or paused:** joint states come from physics, so a stopped simulation is an error that says to
   play or step it first. The tool never starts physics itself.
@@ -441,14 +530,17 @@ joints, metres and metres per second for prismatic ones. `set_joint_targets` tak
 
 ### `set_joint_targets`
 
-Set joint drive position targets.
+Set the position targets of a robot's joint drives, which physics drives the joints toward while the simulation plays.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Root prim of the robot |
-| `targets` | dict or list | `null` | `{joint_name: value}` dict or `[v0, v1, ...]` list. Values in degrees (revolute) or metres (prismatic). |
+| `targets` | dict or list | `null` | Required in practice: `{joint_name: value}` dict or `[v0, v1, ...]` list. Values in degrees (revolute) or stage units (prismatic). |
 
-Works by setting USD drive target attributes directly - does not require articulation initialisation.
+Works by setting USD drive target attributes directly - does not require articulation initialisation, or physics
+running. A dict sets the joints it names and skips names it doesn't find; a list follows `get_robot_info`'s joint
+order, fixed joints included, not `get_joint_states`'. A joint without a drive gets one, with stiffness 1000 and
+damping 100. The answer counts the targets set.
 
 ---
 
@@ -456,25 +548,37 @@ Works by setting USD drive target attributes directly - does not require articul
 
 ### `set_camera`
 
-Set the viewport camera position and optionally aim it at a target.
+Move the viewport's camera to a world position and aim it at a target point.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `position` | list[float] | required | `[x, y, z]` camera position in world space |
-| `target` | list[float] | `null` | `[x, y, z]` point to look at |
+| `target` | list[float] | `null` | `[x, y, z]` world point to look at; the origin when omitted |
+
+It moves whichever camera the viewport looks through, a scene camera included, and the user sees the move. Aiming
+goes through Isaac Sim's `isaacsim.core.utils.viewports`: other Kit apps only move the camera, without aiming it.
+
+**When to use:** for a view from coordinates you choose. To frame a prim by its path, use `look_at_prim`; to capture
+from another camera without moving the viewport, `capture_viewport`'s `camera_path`.
 
 ---
 
 ### `look_at_prim`
 
-Point the viewport camera at a prim from a given angle. Auto-computes distance from object size.
+Move the viewport's camera to frame a prim from an angle around it, aimed at the centre of the prim's bounding box.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Target prim |
-| `distance` | float | `null` | Camera distance in metres, above 0 (auto if omitted) |
-| `azimuth` | float | `45.0` | Horizontal angle: 0=front, 90=right, 180=back, 270=left |
+| `distance` | float | `null` | Camera distance from the prim's centre in stage units, above 0; 2.5 times the prim's largest side if omitted |
+| `azimuth` | float | `45.0` | Horizontal angle: 0=front (+Y on a Z-up stage, +Z on a Y-up one), 90=right (+X), 180=back, 270=left |
 | `elevation` | float | `30.0` | Vertical angle above horizontal |
+
+It moves whichever camera the viewport looks through, and the user sees the move. Aiming goes through Isaac Sim's
+`isaacsim.core.utils.viewports`: other Kit apps only move the camera, without aiming it.
+
+**When to use:** to see one prim, given only its path. `set_camera` places the camera at coordinates, and
+`inspect_prim` captures a prim from up to 14 sides in one call; `capture_viewport` then takes the picture.
 
 ---
 
@@ -482,7 +586,7 @@ Point the viewport camera at a prim from a given angle. Auto-computes distance f
 
 Orbit-capture: take screenshots from 14 systematic angles around a prim using a cube-based approach (6 face centres + 8 cube corners). The camera distance is fitted so the prim's bounding sphere fills the captured frame with a 10px margin, at `width` x `height`. Optionally includes instance segmentation at each angle.
 
-The orbit moves the viewport's camera, as the user sees, and each angle is rendered from that camera at `width` x `height` in a render of the call's own, as `capture_viewport`'s is. The first line gives that size; with an extension of 0.2.2 or older, whose images are the viewport's size, a `WARNING` says so when it isn't the size asked for, with the command that installs this release's extension.
+The orbit moves whichever camera the viewport looks through, a scene camera included, as the user sees, and leaves it at the last angle; each angle is rendered from that camera at `width` x `height` in a render of the call's own, as `capture_viewport`'s is. The first line gives that size; with an extension of 0.2.2 or older, whose images are the viewport's size, a `WARNING` says so when it isn't the size asked for, with the command that installs this release's extension.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -513,10 +617,11 @@ A call takes about 90 s at most, under the server's 120 s timeout: 80 s for the 
 Capture a camera at `width` x `height` and save **3 files** for full scene understanding:
 
 1. **Viewport image** (PNG) - what the camera sees
-2. **Bounding boxes** (TXT) - screen-space pixel coordinates for each visible prim, plus world-space centre and dimensions
+2. **Bounding boxes** (TXT) - screen-space pixel coordinates for each visible mesh or shape under `/World`, plus world-space centre and dimensions
 3. **Instance segmentation** (PNG + legend TXT) - each prim rendered as a unique colour, with a legend mapping colours to prim paths
 
-Use files 2 and 3 to understand which object is where in the viewport image.
+Use files 2 and 3 to understand which object is where in the viewport image. Aim first with `set_camera` or
+`look_at_prim`; for one prim from every side, use `inspect_prim`.
 
 All three come from one frame of `camera_path`, rendered at `width` x `height` in a render of the call's own, so the boxes are in the image's pixels and from the camera captured. The viewport the user sees keeps its camera and size. That render uses the viewport's renderer settings, but it is a view of its own: not pixel for pixel what the viewport shows (on average about 2 of 255 apart). While it runs the app renders one view more: about a third fewer updates a second at 640x480, headless.
 
@@ -542,7 +647,7 @@ world_center = [0.0, 0.5, 0.0]
 world_dimensions = [1.0, 1.0, 1.0]
 ```
 
-> **Note:** Instance segmentation requires `omni.syntheticdata` (included in Isaac Sim). Without it, or when it gives no data, the viewport image and bounding boxes are still returned, and `Segmentation: ERROR` says why. Each capture turns the sensor on for its own render and waits up to 5 s for its first data; when none comes, later captures of that camera at that size on that stage wait 1 s, until one gets data.
+> **Note:** Instance segmentation and the bounding boxes require `omni.syntheticdata` (included in Isaac Sim). Without it only the viewport image comes. When it gives no segmentation data, the image and bounding boxes are still returned, and `Segmentation: ERROR` says why. Each capture turns the sensor on for its own render and waits up to 5 s for its first data; when none comes, later captures of that camera at that size on that stage wait 1 s, until one gets data.
 
 > **Black image detection:** If the captured image is all-black, the response includes a `WARNING` with the lighting mode and whether scene lights exist. Use the `viewport_light` tool to check the lighting mode and change it if needed, then recapture. No automatic light changes are made.
 
@@ -586,7 +691,10 @@ Control the simulation.
 - **play** - Start or resume physics simulation
 - **pause** - Pause simulation (state preserved)
 - **stop** - Stop simulation and reset to initial state
-- **step** - Advance one physics step
+- **step** - Play for two app updates, then pause
+
+**Returns:** the state the timeline is left in. `get_sim_state` reads it without changing it; `get_joint_states` and
+`apply_force` need the simulation playing or paused.
 
 **A robot's first play** cooks its collision meshes, and the Kit app answers nothing until that ends: the G1 cooked
 from scratch in 0.6 s on Isaac Sim 6.2 with an RTX 5090. Kit keeps what it cooked, so the same meshes cook again
@@ -632,6 +740,7 @@ prim the recording renders into, which it deletes at stop.
   advances the simulation as before, so the run takes longer, not differently.
 - **When frames stop:** if the stage changes (`new_scene`, an opened file) or the camera is deleted, since the render
   would show something else then. `get_sim_state` and `stop_recording` say why.
+- **One at a time:** while a recording runs, another start is refused until `stop_recording`.
 - **An extension of 0.2.2 or older** records the active viewport at its own size: the answer then carries a
   `WARNING` line naming the `camera_path`, `width` or `height` it ignores, with the command that installs this
   release's extension.
@@ -669,12 +778,17 @@ frames stopped early or the cleanup failed in part, saying why.
 
 ### `get_recording_frame`
 
-Get a specific frame from a recording session as a PNG.
+Copy one recorded frame to a new PNG in `mcp_output/captures/`, and return its path and, once the recording has
+stopped, the frame's simulation time.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `frame_index` | int | `0` | Frame number (0-based), not negative |
-| `session_dir` | string | `""` | Session directory (uses last recording if empty) |
+| `session_dir` | string | `""` | Session directory on Kit's machine, absolute or relative to Kit's working folder (uses the last recording started since the extension started, the running one included, if empty). `start_recording` and `stop_recording` may give it relative to the server's folder: pass an absolute path |
+
+Kit writes a recording's frames itself, as `frame_00000.png` and on in the session folder: with Kit on this machine you
+can also open them there, and with Kit on another this tool brings one here. A frame Kit failed to capture comes back
+as an empty file; a frame number past the last is an error.
 
 ---
 
@@ -682,17 +796,26 @@ Get a specific frame from a recording session as a PNG.
 
 ### `set_physics_properties`
 
-Set physics material properties on a prim.
+Set a prim's mass or density, and its friction or restitution, for PhysX; a value left out stays as it is.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Target prim |
 | `mass` | float | `null` | Mass in kg, not negative (applies MassAPI); 0 unsets it, so density decides |
 | `density` | float | `null` | Density in kg/m^3, not negative; 0 unsets it; a mass set wins over it |
-| `friction` | float | `null` | Friction coefficient, not negative (usually 0-1) |
+| `friction` | float | `null` | Friction coefficient, not negative (usually 0-1), set as both static and dynamic friction |
 | `restitution` | float | `null` | Bounciness, 0 (no bounce) to 1 (full bounce) |
 
 Automatically applies the required USD physics APIs (`MassAPI`, `PhysicsMaterialAPI`, etc.) if not already present.
+
+- **Mass or density** makes the prim a rigid body (`RigidBodyAPI`) if it isn't one, so a static collider starts to fall
+  when the simulation plays.
+- **Friction or restitution** adds the Collision API if missing, and sets them on a physics material,
+  `/World/PhysicsMaterials/<prim name>_PhysMat`, bound to the prim for physics only: prims of the same name share it,
+  so setting one changes the rest.
+
+**When to use:** for how a prim behaves in physics. Its look is `set_material`'s; to make a new prim physical in one
+call, use `create_prim` with `enable_physics`.
 
 ---
 
@@ -715,6 +838,7 @@ robot on the ground loses some of the push to friction. Measured on Isaac Sim 6.
 
 | When | Why |
 |---|---|
+| the prim has no `RigidBodyAPI` | it is no rigid body: `set_physics_properties` or `create_prim`'s `enable_physics` makes one |
 | the simulation is stopped | PhysX holds no bodies then; paused works |
 | PhysX runs with its Direct GPU API (`/physics/suppressReadback` is true, as Isaac Sim sets it for a GPU device) | the push returns and moves nothing, as measured on Isaac Sim 6.2 ([#68](https://github.com/serionist/omniverse-mcp/issues/68)): run physics on the CPU to push a body |
 | the body is disabled (`physics:rigidBodyEnabled` is false) | PhysX holds it as a static body, which no force moves |
@@ -734,15 +858,23 @@ an error, never a push at another point. All of this is the Kit extension's: one
 
 ### `raycast`
 
-Cast a ray into the scene and return what it hits.
+Cast a ray through PhysX and return the closest collider it hits.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `origin` | list[float] | required | `[x, y, z]` start point |
-| `direction` | list[float] | required | `[dx, dy, dz]` direction (normalised automatically) |
-| `max_distance` | float | `1000.0` | Maximum ray length, above 0 |
+| `origin` | list[float] | required | `[x, y, z]` start point in world space |
+| `direction` | list[float] | required | `[dx, dy, dz]` direction in world space, a unit vector: PhysX takes it as given |
+| `max_distance` | float | `1000.0` | Maximum ray length in stage units, above 0 |
 
 **Returns:** Hit prim path, hit position, surface normal, and distance. Returns "No hit" if ray doesn't intersect anything.
+The prim named is the rigid body hit, or a static collider itself.
+
+- **Colliders only:** prims with the Collision API, which `create_prim`'s `enable_physics` adds, are hit; plain meshes
+  are not.
+- **PhysX must know the scene:** play or step the simulation once first, or the ray may find nothing, or fail.
+
+**When to use:** to find what lies along a line, such as the ground under a point; `get_prim_bounds` measures a prim
+you already know.
 
 ---
 
@@ -751,7 +883,8 @@ Cast a ray into the scene and return what it hits.
 ### `draw_debug`
 
 Draw debug lines in the viewport for `duration` seconds: a line, a polyline, a sphere as three crossing lines, or a
-small cross per point. Every line is 2 pixels wide.
+small cross per point. Every line is 2 pixels wide. Use it to mark points, rays or paths, such as a `raycast`'s hit,
+for a capture or the user to see; nothing is added to the stage.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -791,16 +924,22 @@ small cross per point. Every line is 2 pixels wide.
 
 ### `manage_extensions`
 
-List, enable, or disable Omniverse extensions.
+List the Kit app's extensions, or turn one on or off in the running app.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `action` | string | `"list"` | `"list"`, `"enable"`, or `"disable"` |
 | `extension_id` | string | `""` | Required for enable/disable |
-| `search` | string | `""` | Filter extension list by name (for list) |
+| `search` | string | `""` | Filter extension list by name or id, in any case (for list) |
 | `enabled_only` | bool | `false` | Only show enabled extensions (for list) |
 
+- **list** only reads: each extension's id, version and whether it is on, the first 50 shown with the total.
+- **enable** and **disable** last until Kit restarts, and answer whether the extension is on afterwards: `enabled=False`
+  after an enable means it didn't take. Disabling one that other tools use breaks them, and disabling `ovmcp.bridge`
+  cuts the server off from Kit.
+
 **When to use:** Before using features that depend on optional extensions (e.g., Replicator, measurement tools), check if they're enabled and enable them if needed.
+Or when a tool names an extension it lacks, such as `omni.syntheticdata` for segmentation.
 
 ---
 
@@ -808,7 +947,7 @@ List, enable, or disable Omniverse extensions.
 
 ### `get_logs`
 
-Get recent entries of the Kit app's log.
+Get the latest entries of the Kit app's log, by level, channel or text.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -864,7 +1003,9 @@ Execute arbitrary Python code inside the running Omniverse application.
 | `Gf` | `pxr.Gf` | Math: vectors, matrices, quaternions |
 | `mcp` | `MCPBridge` | Async access to MCP handlers (see below) |
 
-Set `result = <value>` to return JSON-serialisable data to the AI assistant.
+Set `result = <value>` to return JSON-serialisable data to the AI assistant; anything else comes back as its `str`.
+stdout and stderr come back too, and an exception as an error with the traceback's last lines. The script runs on
+Kit's main thread, so one that blocks freezes Kit: the call gives up after 120 s, and the script runs on.
 
 **Example (sync):**
 ```python

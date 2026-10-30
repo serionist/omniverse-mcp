@@ -16,7 +16,7 @@ from pydantic import Field
 from omniverse_mcp.client import BridgeClient
 from omniverse_mcp.kit_extension import install_command
 
-from ._annotations import EDITS, READS
+from ._annotations import EDITS, READS, tool
 from ._bridge import bridge_call
 from ._params import PrimPath
 
@@ -96,7 +96,7 @@ def _legend_beside(seg_path: str) -> str:
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def capture_viewport(
         width: Width = 640,
         height: Height = 480,
@@ -108,16 +108,17 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             bool, Field(description="Also return the image inline, besides the file (uses more context)")
         ] = False,
     ) -> str | list[TextContent | ImageContent]:
-        """Capture a camera at width x height and save 3 files for scene understanding:
+        """Render one frame from a camera at width x height and save 3 files to mcp_output/captures/:
 
-        1. **Viewport image** (PNG) -- what the camera sees
-        2. **Bounding boxes** (TXT) -- screen-space bounding boxes mapping each visible prim to pixel coordinates
-        3. **Instance segmentation** (PNG) -- each prim rendered as a unique color, with a legend mapping colors to prim paths
+        1. **Image** (PNG): what the camera sees.
+        2. **Bounding boxes** (TXT): each visible mesh or shape under /World, its box in pixels, world centre and size.
+        3. **Instance segmentation** (PNG): each prim in a colour of its own, with a legend naming them.
 
-        The camera is rendered at the size asked for, in a render of its own: the viewport the user sees keeps its
-        camera and size. All 3 files come from that one frame, so the boxes are in the image's pixels.
-        Use files 2 and 3 to understand which prim is where in the viewport image.
-        Set include_image=True to return the viewport image inline (uses more context but lets you see the scene directly).
+        Use it to see the scene and tell which prim is where: the boxes for places, the segmentation for prims that
+        overlap. It renders camera_path, or the viewport's camera when empty, in a render of its own, so the viewport
+        the user sees keeps its camera and size. Aim first with set_camera or look_at_prim; for one prim from every
+        side, use inspect_prim. An all-black image comes with a warning saying what to change with viewport_light.
+        Without omni.syntheticdata only the image comes: the boxes and segmentation need it.
         """
         resp = bridge_call(client.capture_viewport, width, height, camera_path)
 
@@ -196,12 +197,21 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             ]
         return "\n".join(lines)
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def set_camera(
         position: Annotated[list[float], Field(description="[x, y, z] camera position in world space")],
-        target: Annotated[list[float] | None, Field(description="[x, y, z] point to look at")] = None,
+        target: Annotated[
+            list[float] | None, Field(description="[x, y, z] world point to look at; the origin when omitted")
+        ] = None,
     ) -> str:
-        """Set the viewport camera position and optionally aim it at a target point."""
+        """Move the viewport's camera to a world position and aim it at a target point, for a view from coordinates
+        you choose.
+
+        target defaults to the world origin. To frame a prim by its path, use look_at_prim; to capture from another
+        camera without moving the viewport, capture_viewport's camera_path. It moves whichever camera the viewport
+        looks through, a scene camera included, and the user sees the move. Aiming needs Isaac Sim: other Kit apps
+        only move the camera, without aiming it.
+        """
         resp = bridge_call(client.camera_set, position, target)
         r = resp["result"]
         msg = f"Camera at {r['position']}"
@@ -209,19 +219,29 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             msg += f" looking at {r['target']}"
         return msg
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def look_at_prim(
         prim_path: PrimPath,
         distance: Annotated[
-            float | None, Field(gt=0, description="Camera distance; worked out from the prim's size when omitted")
+            float | None,
+            Field(gt=0, description="From the prim's centre, in stage units; 2.5 times its largest side when omitted"),
         ] = None,
-        azimuth: Annotated[float, Field(description="Horizontal angle in degrees: 0 front, 90 right, 180 back")] = 45.0,
+        azimuth: Annotated[
+            float,
+            Field(
+                description="Horizontal angle in degrees: 0 from the front (+Y on a Z-up stage, +Z on a Y-up one), "
+                "90 from the right (+X), 180 the back, 270 the left"
+            ),
+        ] = 45.0,
         elevation: Annotated[float, Field(description="Vertical angle in degrees above the horizontal")] = 30.0,
     ) -> str:
-        """Point the viewport camera at a prim from a given angle.
+        """Move the viewport's camera to frame a prim from an angle around it, aimed at the prim's centre, given only
+        its path.
 
-        Auto-computes distance from object size if not specified.
-        Azimuth 0=front, 90=right, 180=back, 270=left.
+        Use it to see one prim: set_camera places the camera at coordinates, and inspect_prim captures a prim from up
+        to 14 sides in one call; capture_viewport then takes the picture. It moves whichever camera the viewport looks
+        through, and the user sees the move. Aiming needs Isaac Sim: other Kit apps only move the camera, without
+        aiming it. An error when the prim doesn't exist.
         """
         resp = bridge_call(client.camera_look_at, prim_path, distance, azimuth, elevation)
         r = resp["result"]
@@ -230,7 +250,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             f"Distance: {r['distance']}m, Azimuth: {r['azimuth']}deg, Elevation: {r['elevation']}deg"
         )
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def inspect_prim(
         prim_path: PrimPath,
         angles: Annotated[
@@ -258,12 +278,15 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             bool, Field(description="Also capture instance segmentation at each angle")
         ] = False,
     ) -> str:
-        """Orbit-capture: take screenshots from 14 systematic angles around a prim (cube-based).
+        """Capture a prim from up to 14 angles around it, each framed so the prim fills the image, and save each as a
+        PNG in mcp_output/captures/.
 
-        Auto-fits camera distance so the prim fills the frame with ~10px margin, at width x height: the viewport's
-        camera is rendered at that size in a render of its own, and the orbit moves that camera.
-        Captures from all 6 face centers + 8 cube corners by default, giving full coverage.
-        Saves each angle as a PNG file. Use Read tool to view images.
+        Use it to see one object from every side; capture_viewport takes one picture from a camera as it stands. The
+        angles are the 6 face centres and 8 corners of a cube around the prim, all 14 unless angles names some. The
+        distance is fitted to the prim's size at width x height, then moved by zoom_offset. It moves whichever camera
+        the viewport looks through, a scene camera included, and leaves it at the last angle. isolate hides everything
+        but the prim and the lights while it captures, then shows them again. A call has about 80 s: an angle that
+        fails says why, and the angles after it say Not captured. An orthographic camera is refused.
         """
         resp = bridge_call(
             client.camera_inspect,
@@ -322,7 +345,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
                 lines.append(cap_line)
         return "\n".join(lines)
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def viewport_light(
         action: Annotated[
             Literal["get", "set", "set_camera_light"],
@@ -333,16 +356,15 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         ] = "",
         enabled: Annotated[bool, Field(description='For "set_camera_light": turn the camera light on or off')] = True,
     ) -> str:
-        """Query or control viewport lighting mode.
+        """Read or set the viewport's lighting mode, which decides how the viewport and its captures are lit, without
+        changing the scene.
 
-        Actions:
-        - "get": Return current lighting mode, available modes, and scene lights
-        - "set": Set lighting mode. Available modes: "off", "camera", "stage",
-          "Default", "Colored Lights", "Grey Studio" (light rigs)
-        - "set_camera_light": legacy, turns the camera light on or off
-
-        When capture_viewport returns a black image, use this tool to check and change
-        the lighting mode, then recapture.
+        Use it when a capture comes back black, then capture again. "get" (the default) answers the mode, the modes on
+        offer, and the stage's lights with their intensity. "set" takes a mode "get" lists: "stage" (the stage's own
+        lights), "camera" (a light that follows the camera), "off", or a light rig such as "Default", "Colored Lights"
+        or "Grey Studio"; rigs need Kit's lighting menu, omni.kit.viewport.menubar.lighting, and a mode not on offer is
+        an error. "set_camera_light" is the older switch, turning the camera light on or off with enabled. To add a
+        light to the stage itself, use create_prim (DistantLight, DomeLight).
         """
         resp = bridge_call(client.viewport_light, action, enabled, mode=mode)
 

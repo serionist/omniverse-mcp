@@ -58,5 +58,5 @@ to the stage with `create_prim` (`DistantLight`, `DomeLight`). Nothing relights 
 | Segmentation missing | the answer says why, as `Segmentation: ERROR` or an angle's `seg: ERROR`: without `omni.syntheticdata` (Isaac Sim has it), `manage_extensions` enables it; with no data yet, capture again; if it stays empty, `get_logs(channel="syntheticdata")` shows what omni.syntheticdata reported, and `get_logs(search="segmentation")` how long the bridge waited |
 | Materials look grey at first | MDL compiles on first use: capture again before deciding a material is broken |
 | `UsdGeom.Cube` and the like have no faces | implicit shapes, not meshes: `get_mesh_stats` counts only `UsdGeom.Mesh` |
-| A new stage has no file | `save_scene` to a path before anything relies on one |
+| A new stage has no file | pass `file_path` to every `save_scene` of it: that writes a copy, and the stage itself still has no file |
 | A scene with thousands of instances | loading can take minutes, and tools answer slowly meanwhile: ask the user whether it has finished |

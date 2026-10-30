@@ -46,6 +46,10 @@ Tools are split into focused modules. Each calls the bridge through `_bridge.py`
 the bridge's answer or raises `ToolError`: the client gets an error result (`isError`) with the bridge's message and
 the last five lines of its traceback, or why the Kit app couldn't be reached.
 
+Each tool registers through `_annotations.py`'s `tool()`, with its hints and its docstring as the description. The
+SDK sends a docstring as `__doc__` holds it, which Python before 3.13 keeps indented as in the source, so `tool()`
+passes it through `inspect.cleandoc`; `tests/test_contract.py` fails on a description that still carries it.
+
 | Module | Tools |
 |--------|-------|
 | `scene.py` | Scene graph: tree, dump, properties, bounds, transform, create, delete, material, clone, visibility, save, new |

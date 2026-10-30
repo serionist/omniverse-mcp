@@ -9,7 +9,7 @@ from pydantic import Field
 from omniverse_mcp.client import BridgeClient
 from omniverse_mcp.kit_extension import carried_version, install_command
 
-from ._annotations import EDITS, READS
+from ._annotations import EDITS, READS, tool
 from ._bridge import bridge_call
 from ._params import PrimPath
 
@@ -23,19 +23,30 @@ def _rounded(values: list[float]) -> list[float]:
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def sim_control(
         action: Annotated[Literal["play", "pause", "stop", "step"], Field(description="What to do")],
     ) -> str:
-        """Control simulation: play, pause, stop, or step."""
+        """Play, pause, stop or step the simulation's timeline, and return the state it is left in.
+
+        play starts or resumes physics; pause holds it where it is; stop rewinds the timeline, and physics puts bodies
+        back where play found them; step plays for two app updates, then pauses. A robot's first play cooks its
+        collision meshes, and Kit answers nothing until that ends. get_sim_state reads the state without changing it;
+        get_joint_states and apply_force need it playing or paused.
+        """
         resp = bridge_call(client.sim_control, action)
         r = resp["result"]
         return f"'{r['action']}' executed. Sim is now: {r['current_state']}"
 
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def get_sim_state() -> str:
-        """Get simulation state: playing/paused/stopped, time, FPS, prim count, up axis, and the versions of the Kit
-        extension and this server, with what to run when they differ."""
+        """Get the simulation's state and the stage's frame of reference: playing, paused or stopped, the timeline's
+        time, the up axis, meters_per_unit, the prim count, and the versions of the Kit extension and this server.
+
+        fps is the timeline's time codes per second, not a render rate. When the two versions differ, the answer names
+        the command that installs the matching extension; while a recording runs whose frames stopped early, it says
+        why. sim_control changes the state.
+        """
         resp = bridge_call(client.sim_state)
         r = resp["result"]
         server = version("omniverse-mcp")
@@ -60,7 +71,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             )
         return "\n".join(lines)
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def set_physics_properties(
         prim_path: PrimPath,
         mass: Annotated[
@@ -70,17 +81,26 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             float | None,
             Field(ge=0, description="Density in kg/m^3 (applies MassAPI); 0 unsets it; a mass set wins over it"),
         ] = None,
-        friction: Annotated[float | None, Field(ge=0, description="Static and dynamic friction coefficient")] = None,
+        friction: Annotated[
+            float | None, Field(ge=0, description="Friction coefficient, set as both static and dynamic friction")
+        ] = None,
         restitution: Annotated[
             float | None, Field(ge=0, le=1, description="Bounciness: 0 no bounce, 1 full bounce")
         ] = None,
     ) -> str:
-        """Set physics material properties on a prim."""
+        """Set a prim's mass or density, and its friction or restitution, for PhysX; a value left out stays as it is.
+
+        Mass or density goes through MassAPI and makes the prim a rigid body (RigidBodyAPI) if it isn't one, so a
+        static collider starts to fall when the simulation plays. Friction or restitution adds the Collision API if
+        missing, and sets them on a physics material, /World/PhysicsMaterials/<prim name>_PhysMat, bound to the prim
+        for physics only: prims of the same name share it, so setting one changes the rest. For the prim's look, use
+        set_material; to make a new prim physical in one call, create_prim with enable_physics.
+        """
         resp = bridge_call(client.set_physics_properties, prim_path, mass, density, friction, restitution)
         r = resp["result"]
         return f"Physics on {r['prim_path']}: {', '.join(r['applied'])}"
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def apply_force(
         prim_path: Annotated[str, Field(description="The rigid body's prim path, a robot's link among them")],
         force: Annotated[
@@ -99,11 +119,12 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             ),
         ] = False,
     ) -> str:
-        """Push a rigid body through PhysX, so its mass counts. The simulation must be playing or paused. A push on an
-        articulation's link, such as a robot's, moves the robot through its joints: a floating robot touching nothing
-        changes speed by the impulse over its whole mass; a fixed robot's link turns about its joints, and on the
-        ground friction takes some of the push. Refused for a disabled or kinematic body, for one a fixed joint holds
-        to the world (a fixed robot's base), and under PhysX's Direct GPU API (#68)."""
+        """Push a rigid body through PhysX with a force or an impulse, so its mass counts. The simulation must be
+        playing or paused. A push on an articulation's link, such as a robot's, moves the robot through its joints: a
+        floating robot touching nothing changes speed by the impulse over its whole mass; a fixed robot's link turns
+        about its joints, and on the ground friction takes some of the push. Refused for a prim without RigidBodyAPI, a
+        disabled or kinematic body, one a fixed joint holds to the world (a fixed robot's base), and under PhysX's
+        Direct GPU API. To place a body rather than push it, use set_prim_transform."""
         resp = bridge_call(client.apply_force, prim_path, force, position, impulse)
         r = resp["result"]
         mode = "impulse" if r.get("impulse") else "force"
@@ -113,13 +134,23 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             return f"{text} at {_rounded(r['position'])} ({r['at']})"
         return f"{text} (method: {r.get('method', 'unknown')})"
 
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def raycast(
-        origin: Annotated[list[float], Field(description="[x, y, z] start point")],
-        direction: Annotated[list[float], Field(description="[dx, dy, dz] direction; it is normalised")],
-        max_distance: Annotated[float, Field(gt=0, description="The longest the ray goes")] = 1000.0,
+        origin: Annotated[list[float], Field(description="[x, y, z] start point in world space")],
+        direction: Annotated[
+            list[float],
+            Field(description="[dx, dy, dz] direction in world space, a unit vector: PhysX takes it as given"),
+        ],
+        max_distance: Annotated[float, Field(gt=0, description="The longest the ray goes, in stage units")] = 1000.0,
     ) -> str:
-        """Cast a ray into the scene and return what it hits. Useful for spatial queries."""
+        """Cast a ray through PhysX and return the closest collider it hits: its prim, the hit point, the surface
+        normal and the distance, or "No hit".
+
+        Use it to find what lies along a line, such as the ground under a point or what a robot faces; get_prim_bounds
+        measures a prim you already know. Only colliders (the Collision API, which create_prim's enable_physics adds)
+        are hit, not plain meshes. PhysX needs to know the scene: play or step the simulation once first, or it may
+        find nothing, or fail. The prim named is the rigid body hit, or a static collider itself.
+        """
         resp = bridge_call(client.raycast, origin, direction, max_distance)
         r = resp["result"]
         if not r["hit"]:
@@ -132,7 +163,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         ]
         return "\n".join(lines)
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def draw_debug(
         shape: Annotated[
             Literal["line", "lines", "sphere", "points"],
@@ -157,9 +188,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Draw debug lines in the viewport, 2 pixels wide, for `duration` seconds: a line, a polyline, a sphere as
         three crossing lines, or a small cross per point.
 
-        Isaac Sim draws with isaacsim.util.debug_draw, turned on at the first call. Its clear takes every line drawn
-        with it, so when a drawing expires, lines other code drew with it go too. Other Kit apps draw with
-        omni.debugdraw when they have it. A new stage drops the old one's drawings."""
+        Use it to mark points, rays or paths, such as a raycast's hit, for a capture or the user to see: on Isaac Sim
+        6.x the lines show in capture_viewport's image. Nothing is added to the stage. In Isaac Sim, when a drawing
+        expires, lines other code drew with isaacsim.util.debug_draw go too. A new stage drops the old one's
+        drawings."""
         kwargs: dict[str, Any] = {"duration": duration}
         if color is not None:
             kwargs["color"] = color
