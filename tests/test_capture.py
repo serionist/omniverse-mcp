@@ -1,6 +1,7 @@
 """The capture path's waits, each bounded by time, and a call's bookkeeping: core/capture.py, with plain asyncio, a fake
 Kit capture and a fake clock."""
 
+import ast
 import asyncio
 import gc
 import inspect
@@ -23,6 +24,8 @@ from ovmcp.core.capture import (
     frames,
     poll,
 )
+
+from .conftest import EXTENSION_ROOT
 
 _WHOLE = b"\x89PNG\r\n\x1a\n" + b"pixels" + b"\x00\x00\x00\x00IEND\xaeB`\x82"
 _PARTIAL = _WHOLE[:12]
@@ -184,6 +187,24 @@ def test_fresh_frames_pass_before_the_capture_is_scheduled():
     png = _run(kit.png())
     assert kit.events == ["schedule"]
     assert png.fresh_seconds == 0.0
+
+
+def test_recording_captures_without_fresh_frames():
+    # Fresh frames would make each recording tick about twice as long, and ticks that overlap write over each other's
+    # frames (#69): recording asks for none until its own feed (#25) replaces the capture. The handlers import Kit, so
+    # the guard reads the source.
+    source = (EXTENSION_ROOT / "ovmcp" / "bridge" / "handlers" / "recording.py").read_text(encoding="utf-8")
+    calls = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "capture_viewport_png"
+    ]
+    assert calls, "recording.py no longer calls capture_viewport_png: guard what it calls instead"
+    for call in calls:
+        fresh = [keyword.value for keyword in call.keywords if keyword.arg == "fresh"]
+        assert len(fresh) == 1, ast.unparse(call)
+        assert isinstance(fresh[0], ast.Constant), ast.unparse(call)
+        assert fresh[0].value is False, ast.unparse(call)
 
 
 def test_a_viewport_that_renders_nothing_schedules_no_capture(monkeypatch):
