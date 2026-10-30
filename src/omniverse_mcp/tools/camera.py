@@ -1,9 +1,12 @@
 """Camera and viewport tools."""
 
+import base64
+import binascii
 import json
 import os
+import struct
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -11,6 +14,7 @@ from mcp.types import ImageContent, TextContent
 from pydantic import Field
 
 from omniverse_mcp.client import BridgeClient
+from omniverse_mcp.kit_extension import install_command
 
 from ._annotations import EDITS, READS
 from ._bridge import bridge_call
@@ -19,8 +23,43 @@ from ._params import PrimPath
 if TYPE_CHECKING:
     from omniverse_mcp.server import Helpers
 
-Width = Annotated[int, Field(ge=1, description="Image width in pixels")]
-Height = Annotated[int, Field(ge=1, description="Image height in pixels")]
+Width = Annotated[
+    int, Field(ge=1, description="Image width in pixels, up to 4096; the camera is rendered at this size")
+]
+Height = Annotated[
+    int, Field(ge=1, description="Image height in pixels, up to 4096; the camera is rendered at this size")
+]
+
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def _png_size(image_base64: str) -> tuple[int, int] | None:
+    """A base64 PNG's width and height, from the first 24 bytes: its signature and header chunk. None for anything
+    else. The server's own: the extension's PNG module is Kit's side, which the server never imports."""
+    try:
+        head = base64.b64decode(image_base64[:32])[:24]
+    except (binascii.Error, ValueError):
+        return None
+    if len(head) < 24 or not head.startswith(_PNG_SIGNATURE) or head[12:16] != b"IHDR":
+        return None
+    width, height = struct.unpack(">II", head[16:24])
+    return width, height
+
+
+def _sizes(r: dict[str, Any]) -> tuple[str, str | None]:
+    """The image's size as `WxH`, from its own header when it has one, and a warning when the answer's size, which
+    its boxes are in, isn't it: an extension from before #51 rendered the viewport's size and scaled the boxes to the
+    size asked for."""
+    told = (r.get("width"), r.get("height"))
+    real = _png_size(r.get("image_base64") or "") or told
+    shown = f"{real[0]}x{real[1]}"
+    if None in told or tuple(told) == tuple(real):
+        return shown, None
+    return shown, (
+        f"WARNING: The image is {shown} but its boxes are for {told[0]}x{told[1]}: the Kit extension is older than "
+        f"this server. Install this server's, {install_command()}, then restart Kit."
+    )
+
 
 # What to do about a black capture. Camera mode needs no other extension; a rig needs the viewport's lighting menu.
 LIGHTING_ADVICE = (
@@ -49,18 +88,21 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         width: Width = 640,
         height: Height = 480,
         camera_path: Annotated[
-            str, Field(description="The camera prim to capture from; the active one when empty")
+            str,
+            Field(description="The camera prim to capture from, which must be a camera; the viewport's when empty"),
         ] = "",
         include_image: Annotated[
             bool, Field(description="Also return the image inline, besides the file (uses more context)")
         ] = False,
     ) -> str | list[TextContent | ImageContent]:
-        """Capture the viewport and save 3 files for scene understanding:
+        """Capture a camera at width x height and save 3 files for scene understanding:
 
         1. **Viewport image** (PNG) -- what the camera sees
         2. **Bounding boxes** (TXT) -- screen-space bounding boxes mapping each visible prim to pixel coordinates
         3. **Instance segmentation** (PNG) -- each prim rendered as a unique color, with a legend mapping colors to prim paths
 
+        The camera is rendered at the size asked for, in a render of its own: the viewport the user sees keeps its
+        camera and size. All 3 files come from that one frame, so the boxes are in the image's pixels.
         Use files 2 and 3 to understand which prim is where in the viewport image.
         Set include_image=True to return the viewport image inline (uses more context but lets you see the scene directly).
         """
@@ -68,13 +110,16 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         r = resp["result"]
         lines: list[str] = []
+        size, mismatch = _sizes(r)
 
         # 1. Save viewport image. Its number names the boxes and the segmentation too, taken once: tools run several
         # at once, and the counter can move between two reads of it.
         capture_id = h.next_capture()
         filepath = h.save_png(r["image_base64"], "viewport", number=capture_id)
         lighting_mode = r.get("lighting_mode", "unknown")
-        lines.append(f"Viewport: {r['width']}x{r['height']} (lighting: {lighting_mode}) -> {filepath}")
+        lines.append(f"Viewport: {size} (lighting: {lighting_mode}) -> {filepath}")
+        if mismatch:
+            lines.append(mismatch)
         if r.get("is_black"):
             has_lights = r.get("has_scene_lights", False)
             if lighting_mode == "camera":
@@ -93,7 +138,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         bboxes = r.get("screen_bboxes", [])
         if bboxes:
             bbox_path = os.path.join(h.output_dir, "captures", f"viewport_{capture_id:04d}_bboxes.txt")
-            text = [f"# Screen-space bounding boxes ({r['width']}x{r['height']})\n"]
+            text = [f"# Screen-space bounding boxes ({r.get('width')}x{r.get('height')})\n"]
             text.append("# Format: [x_min, y_min, x_max, y_max] in pixels\n\n")
             for b in bboxes:
                 sb = b["screen_bbox"]
@@ -202,7 +247,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     ) -> str:
         """Orbit-capture: take screenshots from 14 systematic angles around a prim (cube-based).
 
-        Auto-fits camera distance so the prim fills the viewport with ~10px margin.
+        Auto-fits camera distance so the prim fills the frame with ~10px margin, at width x height: the viewport's
+        camera is rendered at that size in a render of its own, and the orbit moves that camera.
         Captures from all 6 face centers + 8 cube corners by default, giving full coverage.
         Saves each angle as a PNG file. Use Read tool to view images.
         """
@@ -220,7 +266,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         r = resp["result"]
         zoom_info = f", zoom_offset={r['zoom_offset']}" if r.get("zoom_offset", 0) != 0 else ""
         isolate_info = ", isolated" if r.get("isolate") else ""
-        lines = [f"Inspect {prim_path} (dist={r['distance']}m{zoom_info}{isolate_info})"]
+        # An extension from before #51 doesn't say the size, which was the viewport's whatever was asked.
+        size_info = f", {r['width']}x{r['height']}" if r.get("width") and r.get("height") else ""
+        lines = [f"Inspect {prim_path} (dist={r['distance']}m{size_info}{zoom_info}{isolate_info})"]
         for warning in r.get("isolate_warnings", []):
             lines.append(f"  WARNING (isolate): {warning}")
         warned = False
