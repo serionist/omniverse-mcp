@@ -68,7 +68,7 @@ A value out of a parameter's range, or not one of its choices, is refused before
 
 ### `get_scene_tree`
 
-Get the USD scene hierarchy as grep-friendly prim-block text.
+List the stage's prims under `root` as prim blocks: each one's path, type and world position.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -76,65 +76,87 @@ Get the USD scene hierarchy as grep-friendly prim-block text.
 | `max_depth` | int | `5` | Traversal depth, 0 (root alone) to 15 |
 
 **Returns:** Prim-block text showing each prim's path, type, and world position. Written to file if output exceeds 1000 characters.
+A branch cut at `max_depth` shows how many children it holds. The prims inside an instanceable prim, as Isaac Sim's
+robot assets often are, are not listed: `get_prim_face_count_tree` looks inside.
 
-**When to use:** Quick scene overview for scenes under ~100 prims. For larger scenes, use `dump_scene`.
+**When to use:** to find prim paths before acting on them; it is the lightest look at a scene. For properties, use
+`get_prim_properties` on one prim, or `dump_scene` for many at once, written to a file to grep.
 
 ---
 
 ### `dump_scene`
 
-Dump the full scene graph to a text file with all properties, bounding boxes, and transforms.
+Write the prims under `root`, with their properties, to `mcp_output/scene_dump.txt` as prim blocks, and return the
+file's path. Each block holds the prim's type, world position, rotation and bounding box, and every attribute's value
+unless `include_properties` is false.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `root` | string | `"/"` | Starting prim path |
 | `max_depth` | int | `15` | Max traversal depth; 0 for root alone |
 | `include_properties` | bool | `true` | Include all USD properties per prim |
-| `filter_types` | list[string] | `null` | Only include prims of these types (e.g., `["Mesh", "Xform"]`) |
+| `filter_types` | list[string] | `null` | Only include prims of these types (e.g., `["Mesh", "Xform"]`); the others' children are still walked |
 | `property_filter` | list[string] | `null` | Only include properties containing these substrings |
 
-**Returns:** File path to the dump. Use your file reading tool to examine specific parts.
+**Returns:** File path to the dump. Use your file reading tool to examine specific parts. Each call replaces the last
+dump. Kit writes the file itself, so with Kit on another machine it lands there. Like `get_scene_tree`, it doesn't list
+the prims inside an instanceable prim.
 
-**When to use:** Large scenes where you need full property data. The output is in prim-block format - grep for prim paths or property names.
+**When to use:** to search many prims' values at once, or a scene too large for `get_scene_tree`. The output is in
+prim-block format - grep for prim paths or property names. `get_prim_properties` reads one prim inline.
 
 ---
 
 ### `get_prim_properties`
 
-Get all properties of a specific prim in prim-block text format.
+Get one prim as a prim block: its type, world position and rotation, world bounding box, physics flags, and every
+attribute's value.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Full USD path (e.g., `"/World/Robot"`) |
 
-**Returns:** Prim type, position, bounding box, and all USD properties.
+**Returns:** Prim type, position, bounding box, and all USD properties. Relationships, such as a material binding, are
+named without their targets.
+
+**When to use:** to read one prim. `get_prim_bounds` when only its size and place matter, `dump_scene` for many prims
+at once, `get_scene_tree` to find paths.
 
 ---
 
 ### `get_prim_bounds`
 
-Get the axis-aligned bounding box of a prim.
+Get a prim's world-space, axis-aligned bounding box, its descendants included.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Full USD path |
 
-**Returns:** Centre, dimensions, min/max corners, and diagonal length. Essential for spatial reasoning - computing placement positions, checking overlaps, measuring distances.
+**Returns:** Centre, dimensions, min/max corners, and diagonal length, in the stage's units. Essential for spatial reasoning - computing placement positions, checking overlaps, measuring distances.
+A prim with no geometry, such as an empty Xform, gets a 0.1 box at its position rather than an error.
 
 ---
 
 ### `set_prim_transform`
 
-Set position, rotation, and/or scale of a prim.
+Set a prim's position, rotation or scale relative to its parent.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Full USD path |
-| `position` | list[float] | `null` | `[x, y, z]` in metres |
+| `position` | list[float] | `null` | `[x, y, z]` relative to the parent, in the stage's units |
 | `rotation` | list[float] | `null` | Euler `[rx, ry, rz]` in degrees, or quaternion `[w, x, y, z]` |
 | `scale` | float or list[float] | `null` | Uniform (single float) or per-axis `[sx, sy, sz]` |
 
 Only provided parameters are changed; others are preserved.
+
+- **Local, not world:** values are in the parent's space; `get_prim_bounds` gives world positions.
+- **Its xform ops:** it rewrites them as translate, rotateXYZ (orient for a quaternion) and scale, and drops any other
+  op, so a prim placed by a matrix (`xformOp:transform`), as imported assets often are, loses that placement.
+- **Errors:** a prim that doesn't exist, or one that can't be transformed.
+
+**When to use:** to move, turn or size a prim. To aim the viewport camera, use `set_camera` or `look_at_prim`; to push
+a rigid body while physics runs, `apply_force`.
 
 ---
 
@@ -146,41 +168,51 @@ Create a new prim in the scene.
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Where to create (e.g., `"/World/MyCube"`) |
 | `prim_type` | string | `"Xform"` | USD type: `Cube`, `Sphere`, `Cylinder`, `Cone`, `Capsule`, `Xform`, `Camera`, `DistantLight`, `SphereLight`, etc. |
-| `usd_path` | string | `null` | Load a USD file as a reference instead |
-| `position` | list[float] | `null` | `[x, y, z]` |
+| `usd_path` | string | `null` | Reference a USD file instead: an absolute path on Kit's machine, or a URL |
+| `position` | list[float] | `null` | `[x, y, z]` relative to the parent |
 | `rotation` | list[float] | `null` | Euler or quaternion |
 | `scale` | float or list[float] | `null` | Scale |
 | `enable_physics` | bool | `false` | Add RigidBody + Collision APIs |
 
-A prim already at `prim_path` keeps its type: creating one of another type there is refused.
+A prim already at `prim_path` keeps its type: creating one of another type there is refused, and one of the same type
+takes the new transform. A `usd_path` adds its reference to a prim already there. Missing parents are made as typeless
+prims.
 
-**When to use:** Creating geometric shapes, lights, cameras, or loading external USD assets.
+**When to use:** Creating geometric shapes, lights, cameras, or loading external USD assets. To copy a prim, use
+`clone_prim`; for a robot, `create_robot`.
 
 ---
 
 ### `delete_prim`
 
-Delete a prim and all its children from the scene.
+Delete a prim and everything under it, by removing what the stage's edit layer holds at that path.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Full USD path to delete |
 
+USD keeps a prim that another layer defines too, or that comes in through a reference or payload, such as a part of a
+referenced asset: it stays, though the answer says deleted, so check with `get_scene_tree`. To hide a prim and keep it,
+use `set_visibility`. Kit's undo doesn't record the delete, and the file on disk keeps the prim until `save_scene`.
+
 ---
 
 ### `clone_prim`
 
-Deep-copy a prim and all its children to a new path. Supports batch cloning with offset. A target path that
+Copy a prim with everything under it to a new path, once or as a row of `count` copies. A target path that
 already holds a prim is refused, before anything is copied.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `source_path` | string | required | Prim to clone |
 | `target_path` | string | required | Destination path |
-| `count` | int | `1` | Number of copies, at least 1. Paths auto-suffixed: `_001`, `_002`, ... |
-| `offset` | list[float] | `null` | `[x, y, z]` per-copy offset. Each clone shifts by this amount from the previous. |
+| `count` | int | `1` | Number of copies, at least 1. One goes to `target_path`; more go to `target_path_001`, `_002`, ... |
+| `offset` | list[float] | `null` | `[x, y, z]` per-copy offset, in the parent's space. The first copy sits on the source, and each next one shifts by this amount from the previous, so a single copy never moves. |
 
-**Example:** Clone a cube into a row of 5:
+It copies what the stage's root layer holds at `source_path`, its references included, so a prim from a sublayer, or
+from inside a referenced asset, can't be copied whole.
+
+**Example:** Clone a cube into a row of 5, the first on the cube and each 2 further along x:
 ```
 clone_prim("/World/Cube", "/World/CubeRow", count=5, offset=[2, 0, 0])
 ```
@@ -189,22 +221,35 @@ clone_prim("/World/Cube", "/World/CubeRow", count=5, offset=[2, 0, 0])
 
 ### `set_visibility`
 
-Show or hide a prim and its descendants.
+Show or hide a prim and its descendants, in the viewport and in captures; the prim stays in the stage.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Target prim |
 | `visible` | bool | `true` | `true` to show, `false` to hide |
 
+Showing a prim under a hidden parent shows the parent and hides the parent's other children, as USD's `MakeVisible`
+does. A prim that has no visibility, such as a material, is an error.
+
+**When to use:** to see inside or behind something, then show it again. `delete_prim` removes a prim, and
+`inspect_prim`'s `isolate` hides all but one prim for its captures.
+
 ---
 
 ### `save_scene`
 
-Save the current scene to a USD file.
+Write the open stage's root layer to a USD file: back to the stage's own file, or as a copy at `file_path`.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `file_path` | string | `""` | Destination path. If empty, saves to the current file (overwrite). |
+| `file_path` | string | `""` | Destination path, on Kit's machine. If empty, saves to the current file (overwrite). |
+
+- **Without `file_path`:** it overwrites the file the stage was opened from, and fails for a stage never saved, such as
+  `new_scene`'s.
+- **With `file_path`:** it overwrites any file there, and the stage stays tied to its own file, or to none, so a later
+  `save_scene()` without a path still writes there, or fails.
+- **Only the root layer** is written: sublayers and referenced files stay as they are, still referenced. For one
+  self-contained file, use `flatten_usd`; for one prim's subtree, `export_prim_as_file`.
 
 ---
 
@@ -213,7 +258,8 @@ Save the current scene to a USD file.
 Discard the open scene, unsaved changes too, and start an empty one with a `/World` prim. The new stage is
 Y-up, while Isaac Sim's robots and stages are Z-up: for robot work, open a Z-up stage or set the axis with
 `execute_script` (`UsdGeom.SetStageUpAxis(omni.usd.get_context().get_stage(), UsdGeom.Tokens.z)`) before adding
-anything.
+anything. Call `save_scene` first to keep the old stage. The new stage has no file, so `save_scene` needs a `file_path`
+for it. A recording that runs stops taking frames, and `draw_debug`'s drawings go.
 
 No parameters.
 
@@ -340,7 +386,9 @@ Create variant set boilerplate on a prim.
 
 ### `set_material`
 
-Apply a PBR material (OmniPBR) to a prim with colour and surface properties.
+Colour a prim with an OmniPBR material: make the material, or update the one at its path, set its colour and surface
+values, and bind it to the prim in place of its binding. The binding reaches the prim's children unless they have
+bindings of their own.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -349,7 +397,11 @@ Apply a PBR material (OmniPBR) to a prim with colour and surface properties.
 | `opacity` | float | `1.0` | 0.0 (transparent) to 1.0 (opaque); nothing outside that |
 | `roughness` | float | `0.5` | 0.0 (glossy) to 1.0 (matte); nothing outside that |
 | `metallic` | float | `0.0` | 0.0 (plastic) to 1.0 (metal); nothing outside that |
-| `material_path` | string | `""` | Custom material prim path (auto-generated under `/World/Looks/` if omitted) |
+| `material_path` | string | `""` | Custom material prim path (`/World/Looks/<prim name>_Mat` if omitted) |
+
+Without `material_path`, prims of the same name share one material, so colouring one recolours the rest: give
+`material_path` to keep them apart, or to share one on purpose. For friction and bounce, use `set_physics_properties`;
+to repoint bindings after materials move, `update_material_paths`.
 
 ---
 
