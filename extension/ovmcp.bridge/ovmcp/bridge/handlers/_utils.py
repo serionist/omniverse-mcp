@@ -89,19 +89,17 @@ async def _next_update():
     await omni.kit.app.get_app().next_update_async()
 
 
-async def capture_viewport_png(viewport, budget: capture.Budget | None = None, *, fresh: bool = True) -> bytes:
-    """The viewport's frame as PNG bytes (capture_file_png).
-
-    `fresh` lets FRESH_FRAMES frames of the viewport pass first: Kit captures the next frame it delivers, which the
-    renderer made about 3 updates earlier, so a drawing or a change made just before the call was missing (#57).
-    Recording asks for none (handlers/recording.py says why).
+async def capture_viewport_png(viewport, budget: capture.Budget | None = None) -> bytes:
+    """The viewport's frame as PNG bytes (capture_file_png), after FRESH_FRAMES frames of it: Kit captures the next
+    frame it delivers, which the renderer made about 3 updates earlier, so a drawing or a change made just before the
+    call was missing (#57). A recording captures from its own feed (capture_feed_png), which needs none.
     """
     from omni.kit.viewport.utility import capture_viewport_to_file
 
     return await capture_file_png(
         lambda path: capture_viewport_to_file(viewport, file_path=path),
         budget,
-        next_frame=(lambda: _next_frame(viewport)) if fresh else None,
+        next_frame=lambda: _next_frame(viewport),
     )
 
 

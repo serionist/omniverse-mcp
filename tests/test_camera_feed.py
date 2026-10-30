@@ -310,7 +310,11 @@ def utils(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
     return _load("utils_under_test", HANDLERS / "_utils.py")
 
 
-def test_a_feed_s_frame_comes_back_as_png_bytes(feeds, utils, kit):
+def test_a_feed_s_frame_comes_back_as_png_bytes(feeds, utils, kit, monkeypatch):
+    async def no_viewport_frames(_viewport: Any) -> None:
+        raise AssertionError("a feed's capture waited for the viewport's fresh frames (#57's, not the feed's)")
+
+    monkeypatch.setattr(utils, "_next_frame", no_viewport_frames)
     feed = feeds.CameraFeed("/World/RecCam", 320, 240)
     schedule = feed.schedule
 
