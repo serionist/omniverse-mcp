@@ -98,9 +98,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         ] = False,
     ) -> str:
         """Push a rigid body through PhysX, so its mass counts. The simulation must be playing or paused. A push on an
-        articulation's link, such as a robot's, moves the whole robot: its speed changes by the impulse over the
-        robot's mass. Refused for a disabled or kinematic body, for one a fixed joint holds to the world (a fixed
-        robot's base), and under PhysX's Direct GPU API (#68)."""
+        articulation's link, such as a robot's, moves the robot through its joints: a floating robot touching nothing
+        changes speed by the impulse over its whole mass; a fixed robot's link turns about its joints, and on the
+        ground friction takes some of the push. Refused for a disabled or kinematic body, for one a fixed joint holds
+        to the world (a fixed robot's base), and under PhysX's Direct GPU API (#68)."""
         resp = bridge_call(client.apply_force, prim_path, force, position, impulse)
         r = resp["result"]
         mode = "impulse" if r.get("impulse") else "force"
