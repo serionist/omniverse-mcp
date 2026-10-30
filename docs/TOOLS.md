@@ -500,7 +500,7 @@ Orbit-capture: take screenshots from 14 systematic angles around a prim using a 
 
 Each angle is saved as a separate PNG file. When `include_segmentation` is true, each angle also saves a segmentation image + legend; an angle without one says why (`seg: ERROR`), such as no data within 5 s of the sensor being enabled. Default captures all 14 angles for full coverage.
 
-A call takes about 90 s at most, under the server's 120 s timeout: 80 s for the angles, then up to 10 s to restore `isolate`. An angle that fails says why on its line; once the viewport renders no frame (30 s with none) or the 80 s run out, the angles left say `Not captured`, so the angles already captured come back.
+A call takes about 90 s at most, under the server's 120 s timeout: 80 s for the angles, then up to 10 s to restore `isolate`. An angle that fails says why on its line; once the viewport renders no frame (30 s with none) or the 80 s run out, the angles left say `Not captured`, so the angles already captured come back. Each angle's image waits 4 frames of the viewport before it is taken, as `capture_viewport`'s does, so it holds what was done before the call.
 
 `angles` also takes `[azimuth, elevation]` pairs in degrees. An unknown angle name, a non-numeric `width`, `height` or `zoom_offset`, or an orthographic viewport camera (such as `/OmniverseKit_Top`; switch to `/OmniverseKit_Persp`) is refused with an error.
 
@@ -541,6 +541,10 @@ world_dimensions = [1.0, 1.0, 1.0]
 > **Note:** Instance segmentation requires `omni.syntheticdata` (included in Isaac Sim). Without it, or when it gives no data, the viewport image and bounding boxes are still returned, and `Segmentation: ERROR` says why. After a stage opens, the bridge enables the sensor again and waits up to 5 s for its first data; when none comes, later captures on that stage don't wait again until one gets data.
 
 > **Black image detection:** If the captured image is all-black, the response includes a `WARNING` with the lighting mode and whether scene lights exist. Use the `viewport_light` tool to check the lighting mode and change it if needed, then recapture. No automatic light changes are made.
+
+> **What was done just before shows:** Kit renders a few updates behind the app, so the frame it delivers next is a
+> few updates old. A capture lets 4 frames of the viewport pass before it captures, so a drawing or any change made
+> just before the call is in the image. It costs those 4 frames: about 20 to 70 ms, at 190 to 60 frames a second.
 
 ---
 
@@ -612,7 +616,9 @@ with `set_camera` or `look_at_prim` first. `camera_path`, `width` and `height` a
 ([#25](https://github.com/serionist/omniverse-mcp/issues/25)), and the answer carries a `WARNING` line when it is
 given a `camera_path`, or a size other than 640x480: the server can't tell 640x480 asked for from the default. The
 recording's `metadata.json` still lists the camera and size asked for, not the ones used. Frames are taken every few
-app updates, whether or not the simulation plays: play it to record motion.
+app updates, whether or not the simulation plays: play it to record motion. Unlike `capture_viewport`, a frame doesn't
+wait for the renderer to catch up, so its image shows the scene a few updates before its `sim_time`
+([#57](https://github.com/serionist/omniverse-mcp/issues/57)).
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -749,8 +755,8 @@ small cross per point. Every line is 2 pixels wide.
 
 - **Drawings belong to their stage:** `new_scene` or opening another stage drops them, and no drawing is made while a
   stage opens or closes.
-- **Captures:** on Isaac Sim 6.x, drawings show in `capture_viewport`'s image, headless too, with either extension
-  (checked live on 6.2). On Isaac Sim 5.x this is untested live.
+- **Captures:** on Isaac Sim 6.x, drawings show in `capture_viewport`'s image, headless too, with either extension,
+  however soon after `draw_debug` the capture comes (checked live on 6.2). On Isaac Sim 5.x this is untested live.
 - **A wrong shape is an error:** an unknown `shape`, a vector that isn't three finite numbers, or a missing part, such
   as `start` for a line.
 - **The fix is in the Kit extension:** a bridge from 0.2.0 or before draws for one frame, and fails headless.

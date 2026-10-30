@@ -261,7 +261,7 @@ The format is implemented in `ovmcp/core/formatter.py` with functions for:
 1. The HTTP server runs on the Omniverse application's asyncio event loop
 2. Handlers use `await omni.kit.app.get_app().next_update_async()` to sync with the main thread before accessing USD/PhysX state
 3. Script execution (`execute_script`) runs `exec()` directly on the main thread with stdout/stderr captured via `io.StringIO`. It must run on the main thread because USD/Omniverse APIs are not thread-safe. If the code contains `await` expressions, it is automatically wrapped in an async function and awaited, allowing scripts to call async `mcp.*` methods while still running on the main thread's event loop
-4. Viewport capture waits for the viewport's frame, then for its file, each wait bounded by time (`ovmcp/core/capture.py`): `asyncio.wait_for` and polls on the same loop, no thread, so a viewport that renders nothing fails the call rather than hanging it. A frame wait observes Kit's `NEW_FRAME` event through omni.usd's `next_frame_async`, as an immediate observer, which Kit 110's own code says fires on the renderer thread. Isaac Sim turns async rendering off (`asyncRendering = false` in its `.kit` files), and `omni.syntheticdata` does too when it loads, so there the event comes on the main thread; a Kit app with async rendering on and without `omni.syntheticdata`, such as USD Composer, is untested
+4. Viewport capture waits for fresh frames, the viewport's frame, then its file, each wait bounded by time (`ovmcp/core/capture.py`): `asyncio.wait_for` and polls on the same loop, no thread, so a viewport that renders nothing fails the call rather than hanging it. A frame wait observes Kit's `NEW_FRAME` event through omni.usd's `next_frame_async`, as an immediate observer, which Kit 110's own code says may fire on the renderer thread with async rendering. Isaac Sim's headless Python app renders synchronously (`asyncRendering = false`); its GUI renders asynchronously whenever the simulation is stopped or paused, since `isaacsim.core.throttling` (`enable_async = true` in `isaacsim.exp.full.kit`) turns async rendering on at startup and a few updates after each stop or pause, and off on play. On Isaac Sim 6.2 headless with async rendering turned on the same way, every `NEW_FRAME`, immediate or deferred, and every `DRAWABLE_CHANGED` came on the main thread (#57); the GUI itself, and other Kit apps such as USD Composer, are untested
 5. The bridge hands Kit's logging no Python callback. Kit runs one on whichever thread logs, and a physics worker that
    logged waited for the GIL that the main thread held while it waited for the worker, so Kit hung
    ([#5](https://github.com/serionist/omniverse-mcp/issues/5)). `get_logs` reads Kit's log file on the main thread
@@ -354,6 +354,15 @@ The robot tools use a hybrid approach:
 
 Viewport capture uses `omni.kit.viewport.utility.capture_viewport_to_file()`, through `capture_viewport_png` in `handlers/_utils.py`: each capture writes a file of its own, read once the PNG is whole (`ovmcp.core.png.is_complete_png`), since on Kit 110 the capture reports done before the file is written. The image is base64-encoded and sent in the HTTP response to the MCP server, which decodes it and saves it as a PNG file.
 
+**Fresh frames:** Kit captures the next frame the viewport delivers, which the renderer made about 3 updates before:
+Isaac Sim keeps 3 stage frames of history for it (`/app/settings/fabricDefaultStageFrameHistoryCount`). Captured
+at once, a drawing or a change made just before was missing (#57). So `capture_viewport` and `inspect_prim` let
+`FRESH_FRAMES` (4) frames of the viewport pass before they capture. Measured on Isaac Sim 6.2 headless, rendering
+synchronously and asynchronously: 2 frames were always enough, 3 for the longest trail seen. Frames carry no number
+that would tell their age (`swh_frame_number` is `-1` there), so the wait counts them. Recording asks for none:
+its ticks would take about twice as long and overlap, and overlapping ticks write over each other's frames (#69);
+its frames still show the scene a few updates before their `sim_time`.
+
 **Cold start:** the first capture after the app starts can come back black while the renderer warms up. A black
 frame is reset and captured once more by itself (`_capture_frame` in `handlers/camera.py`); if it is still black,
 the answer says so, with the lighting mode.
@@ -362,16 +371,17 @@ the answer says so, with the lighting mode.
 
 | Wait | Limit |
 |---|---|
-| one frame of the viewport: each of a settle's 20, a renderer reset's, and the capture's own `wait_for_result` | 30 s (`FRAME_SECONDS`) |
+| one frame of the viewport: each of a settle's 20, a renderer reset's, a capture's 4 fresh ones, and the capture's own `wait_for_result` | 30 s (`FRAME_SECONDS`) |
 | the file, after the frame | 10 s (`FILE_SECONDS`) |
 | instance segmentation's first data after the sensor is enabled, read after each app update | 5 s (`SEGMENTATION_SECONDS`) |
 | an `inspect_prim` or `capture_viewport` call | 80 s (`CALL_SECONDS`), then 10 s (`CLEANUP_SECONDS`) for the settle after `isolate` |
 
 - **Fails at once:** a capture whose `wait_for_result` names nothing captured (`[]` or `None`), and a viewport with
   no render texture yet: no file will come for either.
-- **Frame by frame:** a settle waits through `next_viewport_frame_async`, one frame at a time, not
-  `ViewportAPI.wait_for_rendered_frames`, which counts its subscribe call as a frame and leaves a cancelled wait's
-  callback in the viewport.
+- **Frame by frame:** a settle and a capture's fresh frames wait through `next_viewport_frame_async`, one frame at a
+  time (`_next_frame` in `handlers/_utils.py`), not `ViewportAPI.wait_for_rendered_frames`, which counts its
+  subscribe call as a frame and leaves a cancelled wait's callback in the viewport. A Kit without the frame event
+  pumps an app update for each frame instead, with a warning the first time.
 - **A call stops:** in `inspect_prim`, a frame that never comes (`NoFrameError`) or the call's time running out
   (`OutOfTimeError`) stops the call, and the angles left are `Not captured`; after `NoFrameError`, the restore after
   `isolate` doesn't wait for frames. Any other error is its angle's alone.
@@ -385,8 +395,8 @@ the answer says so, with the lighting mode.
   in its own start on the test machine, before any extension loaded.
 - **Timers on Kit's loop:** they fire only while the loop runs, so a main thread blocked by a shader compile delays
   them.
-- **In Kit's log:** a failed capture's step and seconds (a warning); a capture over 2 s, how long its frame and file
-  took; each segmentation wait's updates and seconds. `get_logs(search="capture")` and `search="segmentation"`
+- **In Kit's log:** a failed capture's step and seconds (a warning); a capture over 2 s, how long its fresh frames,
+  frame and file took, with the app's stage frame history; each segmentation wait's updates and seconds. `get_logs(search="capture")` and `search="segmentation"`
   find the bridge's lines; `channel="syntheticdata"` finds what `omni.syntheticdata` itself reported, whose lines
   rarely name it.
 
