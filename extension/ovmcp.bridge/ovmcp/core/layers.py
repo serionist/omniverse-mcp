@@ -12,25 +12,18 @@ Kit-free, so unit-tested against usd-core's stages: the handlers pass in the ope
 import os
 from collections.abc import Iterable
 from pathlib import Path, PurePath
-from urllib.parse import urlparse
-from urllib.request import url2pathname
 
 from pxr import Sdf, Tf, Usd
 
+from .stage_open import path_of
 from .usd import find_layer, has_unsaved_edits
 
 
-def _file_path(path: str) -> str:
-    """A file: URL as the file path it names, as Kit may spell a layer's path; any other path as it is. A Windows path
-    parses with its drive letter as the scheme, which is never file."""
-    url = urlparse(path)
-    return url2pathname(url.path) if url.scheme.lower() == "file" else path
-
-
 def _stat(path: str) -> os.stat_result | None:
-    """The file at path as the file system knows it, through any link; None for no such file, or another URL."""
+    """The file at path as the file system knows it, through any link, a file: URL as the path it names (Kit names a
+    layer opened from one file:/C:/...); None for no such file, or another URL."""
     try:
-        return Path(_file_path(path)).stat()
+        return Path(path_of(path)).stat()
     except (OSError, ValueError):
         return None
 
@@ -44,7 +37,7 @@ def _layers_at(path: str, layers: Iterable[Sdf.Layer], *, any_name: bool = False
     Windows short name under another name is missed; any_name looks up every layer's file, a disk read each."""
     found = find_layer(path)
     target = _stat(path)
-    name = PurePath(_file_path(path)).name.casefold()
+    name = PurePath(path_of(path)).name.casefold()
 
     def named(layer: Sdf.Layer) -> bool:
         if found and layer == found:
@@ -52,7 +45,7 @@ def _layers_at(path: str, layers: Iterable[Sdf.Layer], *, any_name: bool = False
         real = layer.realPath
         if target is None or not real:
             return False
-        if not any_name and PurePath(_file_path(real)).name.casefold() != name:
+        if not any_name and PurePath(path_of(real)).name.casefold() != name:
             return False
         held = _stat(real)
         return held is not None and os.path.samestat(target, held)
