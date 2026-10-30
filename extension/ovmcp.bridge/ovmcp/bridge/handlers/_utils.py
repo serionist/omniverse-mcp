@@ -89,8 +89,12 @@ async def _next_update():
     await omni.kit.app.get_app().next_update_async()
 
 
-async def capture_viewport_png(viewport, budget: capture.Budget | None = None) -> bytes:
+async def capture_viewport_png(viewport, budget: capture.Budget | None = None, *, fresh: bool = True) -> bytes:
     """The viewport's frame as PNG bytes, read once Kit has written all of it (ovmcp.core.capture.capture_png).
+
+    `fresh` lets FRESH_FRAMES frames of the viewport pass first: Kit captures the next frame it delivers, which the
+    renderer made about 3 updates earlier, so a drawing or a change made just before the call was missing (#57).
+    Recording asks for none (handlers/recording.py says why).
 
     A CaptureError, a RuntimeError, when no whole file arrives in time; each wait is bounded, and capped by `budget`.
     Each capture gets a file of its own: with one path for every capture, a capture whose file wasn't written yet read
@@ -103,7 +107,11 @@ async def capture_viewport_png(viewport, budget: capture.Budget | None = None) -
     started = time.monotonic()
     try:
         png = await capture.capture_png(
-            lambda: capture_viewport_to_file(viewport, file_path=str(path)), path.read_bytes, _next_update, budget
+            lambda: capture_viewport_to_file(viewport, file_path=str(path)),
+            path.read_bytes,
+            _next_update,
+            budget,
+            next_frame=(lambda: _next_frame(viewport)) if fresh else None,
         )
     except capture.CaptureError as e:
         carb.log_warn(f"[MCP Bridge] Capture failed after {time.monotonic() - started:.1f} s: {e}")
@@ -112,22 +120,47 @@ async def capture_viewport_png(viewport, budget: capture.Budget | None = None) -
         # A file Kit is still writing can't be deleted on Windows; its name is never read again.
         with contextlib.suppress(OSError):
             path.unlink()
-    if png.frame_seconds + png.file_seconds > SLOW_CAPTURE_SECONDS:
+    if png.fresh_seconds + png.frame_seconds + png.file_seconds > SLOW_CAPTURE_SECONDS:
+        # The stage's frame history is how far behind the update the app lets its renderer run: a longer one than
+        # Isaac Sim's 3 could need more fresh frames.
+        history = carb.settings.get_settings().get("/app/settings/fabricDefaultStageFrameHistoryCount")
         carb.log_info(
-            f"[MCP Bridge] Slow capture: the frame took {png.frame_seconds:.2f} s, the file {png.file_seconds:.2f} s"
+            f"[MCP Bridge] Slow capture: the fresh frames took {png.fresh_seconds:.2f} s, the frame "
+            f"{png.frame_seconds:.2f} s, the file {png.file_seconds:.2f} s (stage frame history: {history})"
         )
     return png.data
 
 
-async def _viewport_frames(count: int, budget: capture.Budget | None):
-    """`count` frames of the active viewport, each bounded by time (ovmcp.core.capture.frames).
+# Fallbacks already reported in Kit's log, so each is reported once rather than on every frame.
+_warned: set[str] = set()
 
-    Frame by frame through next_viewport_frame_async, not ViewportAPI.wait_for_rendered_frames: that counts the call
-    it makes on subscribe as a frame, and a cancelled wait leaves its callback in the viewport for good. Without the
-    viewport utility or a viewport, it pumps app updates, as it always has.
+
+async def _next_frame(viewport):
+    """One frame of `viewport`, through next_viewport_frame_async.
+
+    Not ViewportAPI.wait_for_rendered_frames: that counts the call it makes on subscribe as a frame, and a cancelled
+    wait leaves its callback in the viewport for good. A Kit without the frame event (no usd_context on the viewport,
+    say) gets an app update instead, rather than a failed settle or capture. A wait cut short by its time limit is
+    cancelled, which is not an Exception, so it is never taken for that.
     """
     try:
-        from omni.kit.viewport.utility import get_active_viewport, next_viewport_frame_async
+        from omni.kit.viewport.utility import next_viewport_frame_async
+
+        await next_viewport_frame_async(viewport, 1)
+    except Exception as e:
+        if "frame event" not in _warned:
+            _warned.add("frame event")
+            carb.log_warn(f"[MCP Bridge] Can't wait for the viewport's frames, pumping app updates instead: {e}")
+        await _next_update()
+
+
+async def _viewport_frames(count: int, budget: capture.Budget | None):
+    """`count` frames of the active viewport, each bounded by time (ovmcp.core.capture.frames), through _next_frame.
+
+    Without the viewport utility or a viewport, it pumps app updates, as it always has.
+    """
+    try:
+        from omni.kit.viewport.utility import get_active_viewport
 
         viewport = get_active_viewport()
     except Exception:
@@ -136,15 +169,7 @@ async def _viewport_frames(count: int, budget: capture.Budget | None):
         for _ in range(count):
             await _next_update()
         return
-    try:
-        await capture.frames(lambda: next_viewport_frame_async(viewport, 1), count, budget)
-    except capture.CaptureError:
-        raise
-    except Exception as e:
-        # A Kit without the frame event (no usd_context on the viewport, say): wait as before rather than fail.
-        carb.log_warn(f"[MCP Bridge] Can't wait for the viewport's frames, pumping app updates instead: {e}")
-        for _ in range(count):
-            await _next_update()
+    await capture.frames(lambda: _next_frame(viewport), count, budget)
 
 
 async def _settle_viewport(frames: int | None = None, budget: capture.Budget | None = None):
