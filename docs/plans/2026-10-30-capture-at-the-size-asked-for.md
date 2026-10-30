@@ -1,9 +1,9 @@
 ---
 title: Render capture_viewport and inspect_prim at the size asked for
-issue: "#51"
-status: draft
-approved_by:
-approved_at:
+issue: "#51, #70"
+status: approved
+approved_by: serionist
+approved_at: 2026-10-30
 ---
 
 # Render capture_viewport and inspect_prim at the size asked for
@@ -263,15 +263,15 @@ frames from a feed of its own, a capture during a recording would put its size o
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 | Which way: (a) resize the viewport for the call, (b) a camera feed for the call, #25's, or (c) report the viewport's size and give up `width` and `height`? | (b): the comparison above. (a) if the private omni.syntheticdata call is unwanted | |
-| Q2 | One size limit for every frame the bridge renders, 4096 a side alone, as #25 now has it (it measured 4096x4096), refused by the extension, the schema unchanged? (Round 2's O2) | Yes: one check, one message; a schema `maximum` is a contract change (Breaking in 0.x) for no gain | |
-| Q3 | Fix `camera_path`'s boxes (E5) in this change? | Yes, under an issue of its own that this PR closes too: the same disagreement between boxes and image, and (b) fixes it by construction | |
-| Q4 | Only if Q1 is (a): in the GUI, the user's viewport shows the size asked for while a capture runs, and on Kit 107 a preset size reaches the persistent resolution (A7). Acceptable? | Yes for (a), as Movie Capture does it; moot for (b) | |
-| Q5 | The GUI can't be tested here (port 8211 is yours). Run `test_12b` to `test_13b` once on the GUI Isaac Sim before merging? | Yes, by you, the PR saying what it showed. For (b) it shows the viewport and its menus untouched; for (a), "Viewport" size and Fill Viewport | |
-| Q6 | The merge order #57, #25, then #51? (Round 2's O1) | Yes: #51 needs #25's feed, and lands last so it meets #57's tests and `AGENTS.md` line as they are (Overlap); this branch is rebased on `main` once both are in, before any code | |
-| Q7 | `capture_viewport` stays `readOnlyHint: true`, though under (b) every capture makes a render product in the stage for its length and sets Kit's unsaved-edits flag after a save (E13)? (Round 2's O4) | Yes: the stage holds nothing more after the call, `main`'s `camera_path` already sets the flag, and the hint is a one-way door; TOOLS.md says a capture leaves the flag set | |
-| Q8 | Merge without a live run on Kit 107 (Isaac Sim 5.x), which doesn't start on this machine? | Yes, as #25 and the PRs before it: #25's feed handles Kit 107's event form, and the unit tests run both | |
-| Q9 | #25's Q9 binds this feed: a capture's feed renders every update for the call's length, whatever recording's feed does? (Round 2's O3) | Yes: E14's settle figures are for a feed rendering every update; the cost lasts the call only (R3) | |
+| Q1 | Which way: (a) resize the viewport for the call, (b) a camera feed for the call, #25's, or (c) report the viewport's size and give up `width` and `height`? | (b): the comparison above. (a) if the private omni.syntheticdata call is unwanted | As recommended (2026-10-30) |
+| Q2 | One size limit for every frame the bridge renders, 4096 a side alone, as #25 now has it (it measured 4096x4096), refused by the extension, the schema unchanged? (Round 2's O2) | Yes: one check, one message; a schema `maximum` is a contract change (Breaking in 0.x) for no gain | As recommended (2026-10-30) |
+| Q3 | Fix `camera_path`'s boxes (E5) in this change? | Yes, under an issue of its own that this PR closes too: the same disagreement between boxes and image, and (b) fixes it by construction | As recommended (2026-10-30): #70 |
+| Q4 | Only if Q1 is (a): in the GUI, the user's viewport shows the size asked for while a capture runs, and on Kit 107 a preset size reaches the persistent resolution (A7). Acceptable? | Yes for (a), as Movie Capture does it; moot for (b) | As recommended (2026-10-30) |
+| Q5 | The GUI can't be tested here (port 8211 is yours). Run `test_12b` to `test_13b` once on the GUI Isaac Sim before merging? | Yes, by you, the PR saying what it showed. For (b) it shows the viewport and its menus untouched; for (a), "Viewport" size and Fill Viewport | As recommended (2026-10-30) |
+| Q6 | The merge order #57, #25, then #51? (Round 2's O1) | Yes: #51 needs #25's feed, and lands last so it meets #57's tests and `AGENTS.md` line as they are (Overlap); this branch is rebased on `main` once both are in, before any code | As recommended (2026-10-30) |
+| Q7 | `capture_viewport` stays `readOnlyHint: true`, though under (b) every capture makes a render product in the stage for its length and sets Kit's unsaved-edits flag after a save (E13)? (Round 2's O4) | Yes: the stage holds nothing more after the call, `main`'s `camera_path` already sets the flag, and the hint is a one-way door; TOOLS.md says a capture leaves the flag set | As recommended (2026-10-30) |
+| Q8 | Merge without a live run on Kit 107 (Isaac Sim 5.x), which doesn't start on this machine? | Yes, as #25 and the PRs before it: #25's feed handles Kit 107's event form, and the unit tests run both | As recommended (2026-10-30) |
+| Q9 | #25's Q9 binds this feed: a capture's feed renders every update for the call's length, whatever recording's feed does? (Round 2's O3) | Yes: E14's settle figures are for a feed rendering every update; the cost lasts the call only (R3) | As recommended (2026-10-30) |
 
 ## Compatibility
 
@@ -411,7 +411,7 @@ run) Q8, O4 (one size limit with #25) Q2; Q1-Q5 stayed.
 
 | Improvement | Answer |
 |---|---|
-| None offered | |
+| None offered | Nothing to answer |
 
 ### Round 2
 
