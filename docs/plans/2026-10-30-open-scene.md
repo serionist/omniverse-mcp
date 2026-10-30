@@ -200,7 +200,8 @@ the URL pattern, unchanged. `is_usd_file` and `USD_SUFFIXES` stay in `core/robot
   file for them;
 - **`/Isaac/...`, not a file here:** under Isaac Sim's asset root. `usd_file_url` keeps its plain `assets_root`
   callable; `open_scene`'s core looks the root up first, asynchronously, and hands the rule the answer (The open,
-  step 1). A Kit app without `isaacsim.storage.native` has no root, the path stays as given, and the stat refuses it;
+  step 1). A Kit app without `isaacsim.storage.native` has no root, and the path is refused at once, saying so
+  (built so: the plan had the stat refuse it, which named a result rather than the reason);
 - **anything else:** none, and the error names the whole path Kit looked at and says what Kit reads a relative one
   against.
 
@@ -272,7 +273,8 @@ little. It builds the `StageKit` from Kit's calls and awaits `stage_open.open_st
 - `omni.usd.get_context()`'s `get_stage_state`, `get_stage` and `is_writable`;
 - `start_open(url)` calls `open_stage_with_callback(url, callback)` itself, as `open_stage_async` does inside (F4),
   so Kit's open starts in the same step as the state check. Its callback sets the future only while it isn't done.
-  A `False` return needs nothing more: Kit then calls back `(False, "UsdContext busy")` (E14). A context without
+  A `False` return with no answer yet fails at once: Kit called back `(False, "UsdContext busy")` in E14, but when
+  was not measured (built so: the plan waited for that callback). A context without
   `open_stage_with_callback` gets `ensure_future(open_stage_async(url))`, the call Isaac Sim 5.1 makes (F8);
 - `omni.client.stat_async`;
 - `isaacsim.storage.native.get_assets_root_path_async()`, imported at the call, in 5.1 and 6.2 (F11). Without the
@@ -330,8 +332,8 @@ What users notice:
   - Kit 107 through Isaac Sim 5.1's own calls: `open_stage_async` returning `(result, error)`, `stat_async` under
     `wait_for` (F8), and `get_assets_root_path_async` (F11). `StageState` the bridge already reads on both.
     `open_stage_with_callback` there is unread, and its absence falls back to `open_stage_async` (R7).
-  - Kit apps without Isaac Sim's asset library, such as USD Composer: a `/Isaac/...` path stays as given, and the
-    stat refuses it.
+  - Kit apps without Isaac Sim's asset library, such as USD Composer: a `/Isaac/...` path is refused, saying the app
+    has no such library.
 
 ## Steps
 
