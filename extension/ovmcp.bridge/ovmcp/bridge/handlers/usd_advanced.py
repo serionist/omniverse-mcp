@@ -7,6 +7,7 @@ prim comparison, and material path updates.
 
 from pxr import Sdf, Usd, UsdGeom, UsdShade
 
+from ovmcp.core import layers
 from ovmcp.core.bounds import world_bbox
 
 from ._utils import (
@@ -31,29 +32,27 @@ async def handle_flatten_usd(body: dict) -> dict:
 
     await _next_update()
 
+    stage = _get_stage()
+    # Before anything is opened or written: no layer of the open scene is ever cleared or written over (#81).
+    refusal = layers.write_refusal(stage, output_path)
+    if refusal:
+        return {"status": "error", "error": refusal}
+
     if input_path:
-        # Clear cached layer to avoid "layer already exists" errors
-        cached = Sdf.Layer.Find(input_path)
-        if cached:
-            cached.Clear()
-        src_stage = Usd.Stage.Open(input_path)
+        src_stage = layers.open_to_flatten(stage, input_path)
         if not src_stage:
             return {"status": "error", "error": f"Could not open: {input_path}"}
     else:
-        src_stage = _get_stage()
+        src_stage = stage
         input_path = src_stage.GetRootLayer().realPath or "(current stage)"
 
     layer_count = len(src_stage.GetUsedLayers())
     flattened = src_stage.Flatten()
 
-    # Clear target layer if cached
-    cached_out = Sdf.Layer.Find(output_path)
-    if cached_out:
-        cached_out.Clear()
-
     success = flattened.Export(output_path)
     if not success:
         return {"status": "error", "error": f"Failed to export flattened stage to: {output_path}"}
+    layers.refresh_written(stage, output_path)
 
     return {
         "status": "success",
@@ -93,6 +92,9 @@ async def handle_export_prim(body: dict) -> dict:
     prim = stage.GetPrimAtPath(prim_path)
     if not prim.IsValid():
         return {"status": "error", "error": f"Prim not found: {prim_path}"}
+    refusal = layers.write_refusal(stage, output_path)
+    if refusal:
+        return {"status": "error", "error": refusal}
 
     # Collect material bindings from source BEFORE flattening
     materials_outside = set()
@@ -107,12 +109,9 @@ async def handle_export_prim(body: dict) -> dict:
     # Flatten source and copy subtree
     src_layer = stage.Flatten()
 
-    # Clear target layer if cached
-    cached_out = Sdf.Layer.Find(output_path)
-    if cached_out:
-        cached_out.Clear()
-
-    new_stage = Usd.Stage.CreateNew(output_path)
+    # Built in memory and exported, where CreateNew failed with "A layer already exists" while Kit still held a layer
+    # for output_path (#81).
+    new_stage = Usd.Stage.CreateInMemory()
     UsdGeom.SetStageUpAxis(new_stage, UsdGeom.GetStageUpAxis(stage))
     UsdGeom.SetStageMetersPerUnit(new_stage, UsdGeom.GetStageMetersPerUnit(stage))
 
@@ -136,7 +135,9 @@ async def handle_export_prim(body: dict) -> dict:
     exported_prim = new_stage.GetPrimAtPath(target_path)
     if exported_prim.IsValid():
         new_stage.SetDefaultPrim(exported_prim)
-    new_stage.GetRootLayer().Save()
+    if not dst_layer.Export(output_path):
+        return {"status": "error", "error": f"Failed to export {prim_path} to: {output_path}"}
+    layers.refresh_written(stage, output_path)
 
     return {
         "status": "success",

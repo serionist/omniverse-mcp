@@ -6,8 +6,12 @@
 - A layer's GetPrimAtPath, GetAttributeAtPath and GetRelationshipAtPath are typed as always finding a spec; they give
   None for a path the layer has none for.
 - A prim spec's nameChildren is typed without __delitem__.
+- A layer's dirty is typed without a type; it is a bool.
+- Sdf.Layer.Find is typed with a dict of unknowns and as always finding a layer; it gives None when the registry holds
+  none for the path.
 """
 
+from collections.abc import Callable
 from typing import Protocol, cast
 
 from pxr import Sdf, Tf, Usd
@@ -21,6 +25,15 @@ class Vec(Protocol):
 
 class _Deletable(Protocol):
     def __delitem__(self, key: str, /) -> None: ...
+
+
+class _Dirty(Protocol):
+    @property
+    def dirty(self) -> bool: ...
+
+
+class _Registry(Protocol):
+    Find: Callable[[str], "Sdf.Layer | None"]
 
 
 def floats(v: Vec, n: int = 3) -> list[float]:
@@ -55,3 +68,13 @@ def relationship_spec(layer: Sdf.Layer, path: Sdf.Path) -> Sdf.RelationshipSpec 
 
 def remove_child_spec(parent: Sdf.PrimSpec, name: str) -> None:
     del cast("_Deletable", parent.nameChildren)[name]
+
+
+def has_unsaved_edits(layer: Sdf.Layer) -> bool:
+    """Whether the layer holds edits not yet saved to its file."""
+    return cast("_Dirty", layer).dirty
+
+
+def find_layer(path: str) -> Sdf.Layer | None:
+    """The layer Sdf's registry holds for path, or None."""
+    return cast("_Registry", Sdf.Layer).Find(path)
