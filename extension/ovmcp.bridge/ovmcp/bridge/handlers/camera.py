@@ -719,17 +719,20 @@ async def handle_camera_inspect(body: dict) -> dict:
                     }
                 )
     finally:
-        # Put each hidden prim's session-layer visibility back as it was
-        if len(hidden):
-            hidden.restore()
-            # Under a time of its own, since the call's may be spent; not at all after the feed gave no frame. The
-            # viewport's frames: the user's view is what shows the prims again.
-            if call.settle_after_restore():
-                try:
-                    await _settle_viewport(budget=capture.Budget(capture.CLEANUP_SECONDS))
-                except capture.CaptureError as e:
-                    carb.log_warn(f"[MCP Bridge] inspect_prim: the viewport did not settle after isolate: {e}")
-        await release(feed)
+        try:
+            # Put each hidden prim's session-layer visibility back as it was
+            if len(hidden):
+                hidden.restore()
+                # Under a time of its own, since the call's may be spent; not at all after the feed gave no frame.
+                # The viewport's frames: the user's view is what shows the prims again.
+                if call.settle_after_restore():
+                    try:
+                        await _settle_viewport(budget=capture.Budget(capture.CLEANUP_SECONDS))
+                    except capture.CaptureError as e:
+                        carb.log_warn(f"[MCP Bridge] inspect_prim: the viewport did not settle after isolate: {e}")
+        finally:
+            # Whatever the restore did: the feed's render product and graphs must not outlive the call.
+            await release(feed)
 
     return {
         "status": "success",
