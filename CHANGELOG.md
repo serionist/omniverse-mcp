@@ -9,10 +9,18 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 - **`capture_viewport` and `inspect_prim` show what was done just before the call:** Kit captured a frame its
   renderer had made about 3 updates earlier, so a drawing or another change made just before could be missing from
-  the image, `draw_debug`'s lines in Kit apps without `isaacsim.util.debug_draw` most often. A capture now lets 4
-  frames of the viewport pass first, which costs about 20 to 70 ms. Recording's frames don't wait: they come from a
-  render of their own, within one update of their simulation time (#25). The fix is in the Kit extension: run
+  the image, `draw_debug`'s lines in Kit apps without `isaacsim.util.debug_draw` most often. A capture now renders
+  its camera in a render of its own, made for the call, whose first frame holds what was done before it (#51), as
+  recording's frames come from a render of their own (#25). The fix is in the Kit extension: run
   `uvx omniverse-mcp extension install` and restart Kit (#57).
+- **`capture_viewport` and `inspect_prim` render at the `width` and `height` asked for,** 640x480 by default, where the
+  image came at the viewport's size (1280x720 headless, or the window's) and the boxes were scaled to the size asked
+  for, so the two disagreed. The image, its segmentation and its boxes now come from one frame of the camera at that
+  size, in a render of its own; the viewport the user sees keeps its camera and size. With a `camera_path`, the boxes
+  are that camera's, and the viewport no longer switches to it (#70). `inspect_prim` frames each angle for the size
+  asked for. A side over 4096 is refused. While a capture runs, the extra render takes some of the app's updates.
+  With an older extension, `capture_viewport` warns that its boxes don't match the image and names
+  `uvx omniverse-mcp extension install`: run it, then restart Kit (#51).
 - **`start_recording` records from `camera_path` at `width` x `height`,** where it recorded the active viewport at its
   own size and warned that it ignored them. It renders the camera in a texture of its own, so the viewport, its
   camera and its size stay as they are; a side over 4096 is refused. While a recording runs, the extra render takes
@@ -30,6 +38,11 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   refused, since no force moves it: a robot's fixed base, a link welded to one, or a lone body, which answered
   success and moved nothing. So is every push under PhysX's Direct GPU API, where none moves anything (#68). The fix
   is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#58).
+
+### Changed
+
+- **`capture_viewport` refuses a `camera_path` that isn't a camera,** or names no prim, where it captured the viewport
+  anyway: name a `Camera` prim, or leave it empty for the viewport's camera (#51).
 
 ## 0.2.2 (2026-10-29)
 

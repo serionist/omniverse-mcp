@@ -72,7 +72,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 
 ### 3.1 Basic Viewport Capture
 - Call `capture_viewport(640, 480)`
-- Verify: returns image path, bounding box file, segmentation files
+- Verify: returns image path, bounding box file, segmentation files; the image is 640x480, the size asked for, not the
+  viewport's (#51)
 
 ### 3.2 Camera Positioning
 - Call `set_camera(position=[5, 3, 5], target=[0, 0, 0])`
@@ -512,9 +513,10 @@ Each step waits for its drawings to expire before the next.
 - `draw_debug("lines", ...)` a red zigzag across the view, then `capture_viewport()`
 - Verify: the zigzag shows in the capture
 - Drawn and captured at once, 5 times, in one `execute_script` (`draw_debug`'s handler, then
-  `mcp.capture_viewport()`), each from an empty view: with `ovmcp.core.capture.FRESH_FRAMES` set to 0 for that call,
-  captures usually miss the zigzag (the renderer's trail, #57; with async rendering it sometimes keeps up, so this is
-  recorded, not required); as shipped, every one holds it
+  `mcp.capture_viewport()`), each from an empty view: every one holds it. A capture renders through a render of its
+  own, made for the call, whose first frame comes after the drawing (#51); through the viewport it missed (#57)
+- Verify: the render products under `/Render/OmniverseKit/HydraTextures` are the same before and after: each capture's
+  went with it
 
 ### 16.9 The omni.debugdraw Backend
 - `execute_script`: `from ovmcp.bridge.handlers.debug_draw import choose_backend; result = choose_backend(("omni.debugdraw",))`
@@ -545,14 +547,21 @@ Each step waits for its drawings to expire before the next.
 - Verify: 0. `omni.syntheticdata` drops its sensors on every stage open, so the new stage has no segmentation yet
 - `create_prim("/World/SegmentationCube", "Cube", position=[0, 0.5, 0], size=0.5)`
 - `inspect_prim("/World/SegmentationCube", angles=["front"], include_segmentation=True)`
-- Verify: the angle has a segmentation file with the cube in its legend, and no `seg: ERROR`: the bridge enabled the
-  sensor again and waited for its first data
+- Verify: the angle has a segmentation file with the cube in its legend, and no `seg: ERROR`: the bridge turned the
+  sensor on for the capture's own render and waited for its first data
 - Clean up: `delete_prim("/World/SegmentationCube")`
 
 ### 17.5 A New Stage Stops a Recording
 - `start_recording(fps=10, width=320, height=240)`, then `new_scene()`, then `stop_recording()`
 - Verify: no frames after the new stage, a `Note:` naming the stage, and the answer's `render_product` not on the
   new stage
+
+### 17.6 Segmentation After Captures and a New Stage
+- `create_prim("/World/SegmentedCaptureCube", "Cube", ...)`, `look_at_prim` it, and two `capture_viewport(320, 240)`
+- `new_scene()`, the cube again, and a third capture
+- Verify: each capture's segmentation has the cube in its legend, and `get_logs(search="Py_Graph")` finds nothing
+  since the first: each capture freed its segmentation graphs, so `omni.syntheticdata` tripped on none at the new
+  stage (#51)
 
 ---
 

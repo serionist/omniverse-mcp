@@ -131,7 +131,7 @@ What this repo's history already paid for:
 | A Python `omni.log` consumer of ours deadlocked Kit: a cooking worker logged while the main thread held the GIL | #5 | No Python log hook in the bridge, enforced by `tests/test_logs.py`'s guard; `get_logs` reads Kit's log file |
 | Every capture read one temp path, which Kit 110 writes after it says the capture is done: each image was the previous capture's | #32 | A file per capture, read once the PNG is whole (`capture_viewport_png`) |
 | Render waits counted updates (too few on a cold start) or had no bound (a stalled viewport hung the call) | #27, #35 | Waits by time, each bounded, a call limit under the server's 120 s (`ovmcp.core.capture`) |
-| A capture took the next frame Kit delivered, rendered about 3 updates before: a drawing made just before was missing | #57 | `FRESH_FRAMES` frames before `capture_viewport` and `inspect_prim` capture; recording, on its own feed, waits none |
+| A capture took a frame other than the one asked for: the viewport's, rendered about 3 updates before, missing a drawing made just before (#57), and at the viewport's size while its boxes used the size asked for (#51) | #57, #51 | Each capture renders its camera at its size in a feed of its own (`camera_feed.py`), whose first frame comes after the call starts; its segmentation graphs are freed before its render product goes |
 | A live check read a robot's drift against a threshold, so `apply_force` refused links PhysX pushes | #58 | Live force checks compare the change of momentum with the push |
 
 ## Look up APIs before coding against them
