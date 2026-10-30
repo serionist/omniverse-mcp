@@ -155,12 +155,9 @@ class Extension(omni.ext.IExt):
 
     def on_shutdown(self):
         try:
-            from .handlers.recording import _recording_state
+            from .handlers.recording import shut_down
 
-            if _recording_state.get("active"):
-                _recording_state["active"] = False
-                _recording_state.pop("_sub", None)
-                carb.log_info("[MCP Bridge] Stopped active recording on shutdown")
+            shut_down()
         except Exception:
             pass
 

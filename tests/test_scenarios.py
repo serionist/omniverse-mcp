@@ -5,11 +5,14 @@ Covers phases 1-17, 22-23, and 24-26 from test_project/scenarios.md.
 Usage, with Kit running: OMNIVERSE_MCP_SIM=1 uv run pytest -m scenario
 """
 
+import itertools
 import json
 import math
 import os
 import time
 import unittest
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -118,6 +121,76 @@ result = {{"black": black, "captures": out}}
 def _shown(captures: list[tuple[int, float]]) -> str:
     """Captures as `red (seconds)`, for a test's printout."""
     return ", ".join(f"{red} ({took:.2f} s)" for red, took in captures)
+
+
+# A recording's camera beside the cube's column, 8 units along X, looking at the column 1.5 up, with a wide lens: the
+# red cube is in its view from the ground to above 3, where the viewport aimed away (_aim_away) sees none of it (#25).
+RECORDING_CAMERA = (
+    "from pxr import Gf, UsdGeom\n"
+    "stage = omni.usd.get_context().get_stage()\n"
+    "up = 2 if UsdGeom.GetStageUpAxis(stage) == 'Z' else 1\n"
+    "def at(height, x=0.0):\n"
+    "    v = [x, 0.0, 0.0]\n"
+    "    v[up] = height\n"
+    "    return Gf.Vec3d(*v)\n"
+    "camera = UsdGeom.Camera.Define(stage, PATH)\n"
+    "camera.ClearXformOpOrder()\n"
+    "look = Gf.Matrix4d().SetLookAt(at(1.5, 8.0), at(1.5), at(1.0) - at(0.0))\n"
+    "camera.AddTransformOp().Set(look.GetInverse())\n"
+    "camera.CreateFocalLengthAttr(18.0)\n"
+    "result = str(camera.GetPath())\n"
+)
+# Each frame file's size, strongly red pixels and their mean image row, read in Kit with its numpy and Pillow; None for
+# an empty file, a frame that didn't come.
+FRAME_STATS = (
+    "import io\n"
+    "import numpy as np\n"
+    "from PIL import Image\n"
+    "def stats(path):\n"
+    "    data = open(path, 'rb').read()\n"
+    "    if not data:\n"
+    "        return None\n"
+    "    rgb = np.asarray(Image.open(io.BytesIO(data)).convert('RGB')).astype(np.int32)\n"
+    "    red = (rgb[..., 0] - rgb[..., 1] > 80) & (rgb[..., 0] - rgb[..., 2] > 80)\n"
+    "    rows = np.nonzero(red)[0]\n"
+    "    return [int(rgb.shape[1]), int(rgb.shape[0]), int(red.sum()), float(rows.mean()) if len(rows) else None]\n"
+    "result = [stats(p) for p in PATHS]\n"
+)
+# The viewport as a recording must leave it: its camera, that camera's transform, its resolution; and whether the
+# timeline plays every frame, which Replicator's capture would have turned on.
+VIEWPORT_STATE = (
+    "from omni.kit.viewport.utility import get_active_viewport\n"
+    "from pxr import Usd, UsdGeom\n"
+    "import omni.timeline\n"
+    "vp = get_active_viewport()\n"
+    "stage = omni.usd.get_context().get_stage()\n"
+    "xf = UsdGeom.Xformable(stage.GetPrimAtPath(str(vp.camera_path))).GetLocalTransformation(Usd.TimeCode.Default())\n"
+    "result = [str(vp.camera_path), [round(float(xf[i][j]), 4) for i in range(4) for j in range(4)],\n"
+    "          list(vp.resolution),\n"
+    "          omni.timeline.get_timeline_interface().get_play_every_frame()]\n"
+)
+# What of a render product stays on the stage: whether its prim composes, the layers holding a spec of it, and
+# whether the root layer's text names it.
+RENDER_PRODUCT = (
+    "stage = omni.usd.get_context().get_stage()\n"
+    "name = PATH.rsplit('/', 1)[-1]\n"
+    "layers = [l.identifier for l in stage.GetLayerStack(includeSessionLayers=True) if l.GetPrimAtPath(PATH)]\n"
+    "result = [bool(stage.GetPrimAtPath(PATH)), layers, name in stage.GetRootLayer().ExportToString()]\n"
+)
+# The render products under Kit's textures: one more while a recording runs.
+HYDRA_TEXTURES = (
+    "prim = omni.usd.get_context().get_stage().GetPrimAtPath('/Render/OmniverseKit/HydraTextures')\n"
+    "result = sorted(str(p.GetPath()) for p in prim.GetChildren()) if prim else []\n"
+)
+
+
+def _png_size(path: str) -> tuple[int, int] | None:
+    """A PNG file's width and height from its header; None for an empty file."""
+    with open(path, "rb") as f:
+        head = f.read(24)
+    if len(head) < 24:
+        return None
+    return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
 
 
 def _turn_degrees(q0: list[float], q1: list[float]) -> float:
@@ -481,6 +554,40 @@ class TestScenarios(unittest.TestCase):
             zigzag.append(point)
         return zigzag
 
+    def _run_in_kit(self, code: str, **values: object) -> Any:
+        """`code` through execute, with each of `values` bound to its name first."""
+        bound = "".join(f"{name} = {value!r}\n" for name, value in values.items())
+        r = self.c.execute(bound + code)
+        self.assertEqual(r["status"], "success", r)
+        return r["result"]["return_value"]
+
+    def _recording_camera(self, path: str = "/World/RecCam") -> str:
+        """A camera of the test's own aimed at the red cube's column (RECORDING_CAMERA), deleted after."""
+        self.addCleanup(self.c.delete_prim, path)
+        return str(self._run_in_kit(RECORDING_CAMERA, PATH=path))
+
+    def _recordings(self, name: str) -> str:
+        return os.path.join(os.path.dirname(__file__), "..", "test_project", "results", name)
+
+    def _frames(self, folder: str) -> list[str]:
+        return sorted(str(p) for p in Path(folder).iterdir() if p.name.startswith("frame_"))
+
+    def _frame_stats(self, paths: list[str]) -> list[Any]:
+        return self._run_in_kit(FRAME_STATS, PATHS=[str(Path(p).resolve()) for p in paths])
+
+    def _metadata(self, stop: dict) -> dict:
+        with open(stop["result"]["metadata_file"]) as f:
+            return json.load(f)
+
+    def _stop_recording_after(self) -> None:
+        """A cleanup that ends a recording the test left running, so the next test can start one."""
+
+        def stop() -> None:
+            if self.c.sim_state()["result"].get("recording_active"):
+                self.c.recording_stop()
+
+        self.addCleanup(stop)
+
     # ===== Phase 1: Connectivity =====
 
     def test_01_01_health_check(self):
@@ -760,10 +867,11 @@ class TestScenarios(unittest.TestCase):
         self.c.set_transform("/World/RedCube", position=_along_up(self._up_axis(), 3))
         time.sleep(0.2)
 
-        output_dir = os.path.join(os.path.dirname(__file__), "..", "test_project", "results", "recordings")
-        r = self.c.recording_start(output_dir, fps=5, width=320, height=240)
-        self.assertEqual(r["status"], "success")
+        viewport_camera = self._run_in_kit(VIEWPORT_STATE)[0]
+        r = self.c.recording_start(self._recordings("recordings"), fps=5, width=320, height=240)
+        self.assertEqual(r["status"], "success", r)
         self.__class__._rec_dir = r["result"]["output_dir"]
+        self.assertEqual(r["result"]["camera_path"], viewport_camera)
 
         self.c.sim_control("play")
         time.sleep(2.0)
@@ -771,9 +879,15 @@ class TestScenarios(unittest.TestCase):
         time.sleep(0.3)
 
         r = self.c.recording_stop()
-        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["status"], "success", r)
         self.assertGreater(r["result"]["frame_count"], 0)
-        print(f"  Recorded {r['result']['frame_count']} frames")
+        # Every frame a whole PNG of the size asked for, whatever the viewport's own (#25).
+        frames = self._frames(r["result"]["output_dir"])
+        self.assertEqual(len(frames), r["result"]["frame_count"])
+        self.assertEqual({_png_size(p) for p in frames}, {(320, 240)})
+        meta = self._metadata(r)
+        self.assertEqual((meta["resolution"], meta["camera_path"]), ([320, 240], viewport_camera))
+        print(f"  Recorded {r['result']['frame_count']} frames at 320x240 from {viewport_camera}")
         self._pass()
 
     def test_06_02_review_frames(self):
@@ -789,6 +903,160 @@ class TestScenarios(unittest.TestCase):
         r5 = self.c.recording_frame(rec_dir, 3)
         if r5["status"] == "success":
             print("  Frame 0 and 3 retrieved")
+        self._pass()
+
+    def test_06_03_record_from_a_camera(self):
+        """Phase 6.3: Frames come from the camera asked for, at its size, and the viewport doesn't move (#25)"""
+        self.c.sim_control("stop")
+        self.c.set_transform("/World/RedCube", position=_along_up(self._up_axis(), 1.5))
+        camera = self._recording_camera()
+        self._aim_away()
+        self._stop_recording_after()
+        before = self._run_in_kit(VIEWPORT_STATE)
+
+        r = self.c.recording_start(
+            self._recordings("recordings_camera"), fps=10, width=160, height=120, camera_path=camera
+        )
+        self.assertEqual(r["status"], "success", r)
+        self.assertEqual((r["result"]["camera_path"], r["result"]["resolution"]), (camera, [160, 120]))
+        during = self._run_in_kit(VIEWPORT_STATE)
+        time.sleep(1.0)
+        stop = self.c.recording_stop()
+        self.assertEqual(stop["status"], "success", stop)
+
+        frames = self._frames(stop["result"]["output_dir"])
+        stats = [s for s in self._frame_stats(frames) if s is not None]
+        self.assertGreater(len(stats), 2, "the recording kept no frames")
+        self.assertEqual({(w, h) for w, h, _red, _row in stats}, {(160, 120)})
+        self.assertTrue(all(red > 20 for _w, _h, red, _row in stats), f"a frame without the red cube: {stats}")
+        self.assertEqual(during, before, "the recording moved the viewport")
+        self.assertEqual(self._run_in_kit(VIEWPORT_STATE), before, "the viewport isn't as it was")
+        self.assertLess(self._red_pixels(), 20, "the viewport, aimed away, shows the red cube")
+        print(f"  {len(stats)} frames at 160x120 from {camera}, red pixels {min(s[2] for s in stats)} at least")
+        self._pass()
+
+    def test_06_04_frames_follow_the_simulation(self):
+        """Phase 6.4: Frames of a falling cube show it falling, lower in the last than in the first (#25)"""
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+        self.c.set_transform("/World/RedCube", position=_along_up(self._up_axis(), 3))
+        camera = self._recording_camera()
+        self._stop_recording_after()
+        r = self.c.recording_start(
+            self._recordings("recordings_fall"), fps=10, width=320, height=240, camera_path=camera
+        )
+        self.assertEqual(r["status"], "success", r)
+        self.c.sim_control("play")
+        time.sleep(1.5)
+        # Paused, not stopped: a stop puts the cube back at the top, and a frame taken after it would show that.
+        self.c.sim_control("pause")
+        stop = self.c.recording_stop()
+        self.c.sim_control("stop")
+        self.assertEqual(stop["status"], "success", stop)
+
+        stats = [s for s in self._frame_stats(self._frames(stop["result"]["output_dir"])) if s and s[3] is not None]
+        self.assertGreater(len(stats), 3, f"too few frames with the cube: {stats}")
+        first_row, last_row = stats[0][3], stats[-1][3]
+        self.assertGreater(
+            last_row - first_row, 10, f"the cube didn't fall in the frames: rows {first_row}, {last_row}"
+        )
+        print(f"  The cube from image row {first_row:.0f} to {last_row:.0f} over {len(stats)} frames")
+        self._pass()
+
+    def test_06_05_record_from_a_prim_that_isnt_a_camera(self):
+        """Phase 6.5: A prim that isn't a camera, or none, is refused, and leaves nothing (#25)"""
+        self._stop_recording_after()  # one that started after all mustn't block the next test
+        before = self._run_in_kit(HYDRA_TEXTURES)
+        for path, says in (("/World/RedCube", "not a Camera"), ("/World/NoSuchCamera", "No prim at")):
+            r = self.c.recording_start(self._recordings("recordings_refused"), camera_path=path)
+            self.assertEqual(r["status"], "error", r)
+            self.assertIn(says, r["error"])
+        self.assertEqual(self._run_in_kit(HYDRA_TEXTURES), before)
+        self.assertFalse(self.c.sim_state()["result"]["recording_active"])
+        self._pass()
+
+    def test_06_06_recording_makes_and_removes_its_render_product(self):
+        """Phase 6.6: The recording's render product exists while it runs, and is gone from every layer after (#25)"""
+        camera = self._recording_camera()
+        self._stop_recording_after()
+        play_every_frame = self._run_in_kit(VIEWPORT_STATE)[3]
+        r = self.c.recording_start(self._recordings("recordings_product"), camera_path=camera)
+        self.assertEqual(r["status"], "success", r)
+        product = r["result"]["render_product"]
+        exists, layers, _named = self._run_in_kit(RENDER_PRODUCT, PATH=product)
+        self.assertTrue(exists, product)
+        self.assertTrue(layers)
+        stop = self.c.recording_stop()
+        self.assertEqual(stop["status"], "success", stop)
+        self.assertNotIn("note", stop["result"])
+        # Kit lists the render product in its render settings too, which outlive the prim unless deleted (#25's E22).
+        self.assertEqual(self._run_in_kit(RENDER_PRODUCT, PATH=product), [False, [], False])
+        self.assertEqual(self._run_in_kit(VIEWPORT_STATE)[3], play_every_frame)
+        print(f"  {product} in {len(layers)} layers while recording, in none after")
+        self._pass()
+
+    def test_06_07_refuses_a_frame_too_large(self):
+        """Phase 6.7: A side over 4096 is refused, and nothing starts (#25)"""
+        self._stop_recording_after()  # one that started after all mustn't block the next test
+        for width, height in ((4097, 240), (240, 4097)):
+            r = self.c.recording_start(self._recordings("recordings_refused"), width=width, height=height)
+            self.assertEqual(r["status"], "error", r)
+            self.assertIn("4096", r["error"])
+        self.assertFalse(self.c.sim_state()["result"]["recording_active"])
+        self._pass()
+
+    def test_06_08_each_frame_its_own_number(self):
+        """Phase 6.8: Frames faster than a capture keep a number each, none overwritten (#69)"""
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+        self.c.set_transform("/World/RedCube", position=_along_up(self._up_axis(), 3))
+        camera = self._recording_camera()
+        self._stop_recording_after()
+        r = self.c.recording_start(
+            self._recordings("recordings_fast"), fps=30, width=320, height=240, camera_path=camera
+        )
+        self.assertEqual(r["status"], "success", r)
+        self.c.sim_control("play")
+        time.sleep(1.0)
+        self.c.sim_control("pause")
+        stop = self.c.recording_stop()
+        self.c.sim_control("stop")
+        self.assertEqual(stop["status"], "success", stop)
+
+        meta = self._metadata(stop)
+        numbers = [f["frame"] for f in meta["frames"]]
+        self.assertGreater(len(numbers), 5)
+        self.assertEqual(numbers, list(range(len(numbers))), "a frame number repeats or is missing")
+        frames = self._frames(stop["result"]["output_dir"])
+        self.assertEqual(len(frames), len(numbers))
+        contents = []
+        for path in frames:
+            with open(path, "rb") as f:
+                contents.append(f.read())
+        same = sum(1 for a, b in itertools.pairwise(contents) if a and a == b)
+        print(f"  {len(numbers)} frames in 1 s at fps=30, {same} the same as the one before")
+        self._pass()
+
+    def test_06_09_recording_stops_when_its_camera_goes(self):
+        """Phase 6.9: Deleting the camera stops the frames, and stop says why (#25)"""
+        camera = self._recording_camera("/World/RecCamGone")
+        self._stop_recording_after()
+        r = self.c.recording_start(self._recordings("recordings_gone"), fps=10, camera_path=camera)
+        self.assertEqual(r["status"], "success", r)
+        product = r["result"]["render_product"]
+        time.sleep(0.5)
+        self.assertEqual(self.c.delete_prim(camera)["status"], "success")
+        time.sleep(0.3)
+        state = self.c.sim_state()["result"]
+        self.assertIn("the camera is gone", state.get("recording_note", ""))
+        taken = len(self._frames(r["result"]["output_dir"]))
+        time.sleep(0.5)
+        self.assertEqual(len(self._frames(r["result"]["output_dir"])), taken, "frames went on after the camera went")
+        stop = self.c.recording_stop()
+        self.assertEqual(stop["status"], "success", stop)
+        self.assertIn("the camera is gone", stop["result"].get("note", ""))
+        self.assertEqual(self._run_in_kit(RENDER_PRODUCT, PATH=product), [False, [], False])
+        print(f"  {stop['result']['frame_count']} frames, then: {stop['result']['note']}")
         self._pass()
 
     # ===== Phase 7: Recording with Prim State Tracking =====
@@ -842,8 +1110,8 @@ class TestScenarios(unittest.TestCase):
                 heights.append(float(parts[up].strip()))
 
         self.assertGreater(len(heights), 1, "state.txt should hold the cube in more than one frame")
-        # Down from the first frame to the lowest, not the last: a frame still being captured when 7.1 stops the
-        # recording can be written after 7.1 stops the timeline, which puts the cube back at 3.
+        # Down from the first frame to the lowest, not the last: each frame's state is read at its tick, while 7.1
+        # plays or once it paused, and a cube that landed may bounce, so the last need not be the lowest.
         first, lowest = heights[0], min(heights)
         self.assertGreater(
             first - lowest, 0.1, f"{axis} should fall due to gravity: first={first:.2f}, lowest={lowest:.2f}"
@@ -1726,6 +1994,26 @@ class TestScenarios(unittest.TestCase):
         legend = cap.get("segmentation_legend", {})
         self.assertTrue(any(path == cube or path.startswith(cube + "/") for path in legend), legend)
         print(f"  Segmentation on the new stage: {len(legend)} prims in the legend")
+        self._pass()
+
+    def test_17_05_recording_stops_at_a_new_stage(self):
+        """Phase 17.5: A new stage stops a recording's frames, and its render product doesn't follow (#25)"""
+        self._stop_recording_after()
+        r = self.c.recording_start(self._recordings("recordings_new_stage"), fps=10, width=320, height=240)
+        self.assertEqual(r["status"], "success", r)
+        product = r["result"]["render_product"]
+        time.sleep(0.3)
+        self.assertEqual(self.c.new_scene()["status"], "success")
+        time.sleep(0.5)
+        taken = len(self._frames(r["result"]["output_dir"]))
+        time.sleep(0.5)
+        self.assertEqual(len(self._frames(r["result"]["output_dir"])), taken, "frames went on on the new stage")
+        stop = self.c.recording_stop()
+        self.assertEqual(stop["status"], "success", stop)
+        self.assertIn("stage", stop["result"].get("note", ""))
+        # Kit carries a texture's render product over to a new stage (#25's E13): it must not stay there.
+        self.assertEqual(self._run_in_kit(RENDER_PRODUCT, PATH=product), [False, [], False])
+        print(f"  {stop['result']['frame_count']} frames, then: {stop['result']['note']}")
         self._pass()
 
     # ===== Phase 24: Logging =====

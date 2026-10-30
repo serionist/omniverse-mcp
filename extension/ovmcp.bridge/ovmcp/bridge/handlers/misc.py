@@ -25,7 +25,7 @@ from ._utils import _get_stage, _next_update
 
 
 async def handle_health(_body: dict) -> dict:
-    from .recording import _recording_state
+    from .recording import recording_active
 
     stage = _get_stage()
     ext_mgr = omni.kit.app.get_app().get_extension_manager()
@@ -35,7 +35,7 @@ async def handle_health(_body: dict) -> dict:
             "stage_path": stage.GetRootLayer().realPath or "(unsaved)",
             "up_axis": UsdGeom.GetStageUpAxis(stage),
             "meters_per_unit": UsdGeom.GetStageMetersPerUnit(stage),
-            "recording_active": _recording_state["active"],
+            "recording_active": recording_active(),
             "protocol": PROTOCOL,
             "extension_version": extension_version(),
         },

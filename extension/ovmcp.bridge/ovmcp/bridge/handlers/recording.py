@@ -1,7 +1,9 @@
 """
-Recording handlers.
+Recording handlers: start, stop, and frame retrieval.
 
-Handles recording start, stop, and frame retrieval.
+A recording renders its camera at its size through a camera feed of its own (camera_feed.py), so the user's viewport,
+its camera and its size never change (#25). Frames are numbered when they are taken, never twice (#69), and stop when
+the stage changes or the camera goes, since the feed would render something else then.
 """
 
 import asyncio
@@ -9,33 +11,77 @@ import base64
 import json
 import os
 import time
+from pathlib import Path
 
 import carb
 import omni.kit.app
+import omni.timeline
+import omni.usd
 
+from ovmcp.core import capture
 from ovmcp.core.formatter import format_frame_state
+from ovmcp.core.recording import FrameClock, RecordingArgs, camera_error, recording_args, steps_per_frame
 
-from ._utils import _get_active_camera_path, _get_stage, capture_viewport_png
+from ._utils import _get_active_camera_path, _get_stage, capture_feed_png
+from .camera_feed import CameraFeed, discard, forget
 
-# ---------------------------------------------------------------------------
-# Global recording state (shared across handlers)
-# ---------------------------------------------------------------------------
+ALREADY_ACTIVE = "Recording already active. Stop it first, or use force=True to override."
 
-_recording_state = {
-    "active": False,
-    "session_id": None,
-    "output_dir": None,
-    "frame_count": 0,
-    "fps": 5,
-    "width": 640,
-    "height": 480,
-    "camera_path": "",
-    "start_time": 0.0,
-    "metadata": [],
-    "callback_name": None,
-    "_step_counter": 0,
-    "_steps_per_frame": 1,
-}
+
+class _Session:
+    """One recording: its feed, the frames taken and in flight, and why its frames stopped early, if they did."""
+
+    def __init__(self, session_id: str, folder: str, args: RecordingArgs, camera_path: str, feed: CameraFeed):
+        self.session_id = session_id
+        self.folder = folder
+        self.args = args
+        self.camera_path = camera_path
+        self.feed: CameraFeed | None = feed
+        self.stage_id = omni.usd.get_context().get_stage_id()
+        self.tracked: list[str] = []
+        timeline = omni.timeline.get_timeline_interface()
+        self.clock = FrameClock(steps_per_frame(timeline.get_time_codes_per_seconds() or 60.0, args.fps))
+        self.frames: list[dict] = []
+        # Frames taken and not yet written, by number: their sim_time and wall_time.
+        self.taking: dict[int, tuple[float, float]] = {}
+        self.tasks: set[asyncio.Future] = set()
+        self.ended: str | None = None
+        self.started = time.time()
+        self.stopped = 0.0
+        self.subscription = None
+
+    def record(self, number: int, data: bytes) -> None:
+        """Writes a frame taken; an empty file marks one that didn't come, so the frames keep their numbers."""
+        sim_time, wall_time = self.taking.pop(number)
+        try:
+            (Path(self.folder) / f"frame_{number:05d}.png").write_bytes(data)
+        except OSError as e:
+            carb.log_warn(f"[MCP Recording] Frame {number} not written: {e}")
+        self.frames.append({"frame": number, "sim_time": sim_time, "wall_time": wall_time})
+        self.clock.done()
+
+
+class _State:
+    """The recording running, if any; whether one is starting; the last recording's folder, for its frames; and
+    whether the extension shut down, which a start still waiting for its first frame must see when it resumes."""
+
+    def __init__(self):
+        self.session: _Session | None = None
+        self.starting = False
+        self.last_folder = ""
+        self.closed = False
+
+
+_state = _State()
+
+
+def recording_active() -> bool:
+    return _state.session is not None
+
+
+def recording_note() -> str | None:
+    """Why the running recording's frames stopped early, or None."""
+    return _state.session.ended if _state.session is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -44,186 +90,197 @@ _recording_state = {
 
 
 async def handle_recording_start(body: dict) -> dict:
-    global _recording_state
+    # A start still waiting for its first frame can't be forced aside: it holds no session to end yet.
+    if _state.starting or (_state.session is not None and not body.get("force", False)):
+        return {"status": "error", "error": ALREADY_ACTIVE}
+    try:
+        args = recording_args(body)
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
 
-    force = body.get("force", False)
-    if _recording_state["active"]:
-        if force:
-            # Force-stop the existing recording
-            _recording_state["active"] = False
-            _recording_state.pop("_sub", None)
-            carb.log_warn("[MCP Bridge] Force-stopping previous recording")
-        else:
-            return {
-                "status": "error",
-                "error": "Recording already active. Stop it first, or use force=True to override.",
-            }
+    # Marked before anything is awaited, a forced end included, so no other start slips in meanwhile.
+    _state.starting = True
+    try:
+        return await _start(args)
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+    finally:
+        _state.starting = False
 
-    output_dir = body.get("output_dir", "")
-    fps = body.get("fps", 5)
-    width = body.get("width", 640)
-    height = body.get("height", 480)
-    camera_path = body.get("camera_path", "")
-    track_prims = body.get("track_prims", [])
-    property_filter = body.get("property_filter")
 
-    if not output_dir:
-        return {"status": "error", "error": "output_dir is required"}
+async def _start(args: RecordingArgs) -> dict:
+    from importlib import import_module
 
-    if not camera_path:
-        camera_path = _get_active_camera_path()
-
-    session_id = f"rec_{int(time.time())}"
-    session_dir = os.path.join(output_dir, session_id)
-    os.makedirs(session_dir, exist_ok=True)
-
-    timeline = omni.timeline.get_timeline_interface()
-    sim_fps = timeline.get_time_codes_per_seconds() or 60.0
-    steps_per_frame = max(1, int(sim_fps / fps))
-
-    # Resolve tracked prims (expand to include descendants)
-    tracked_prim_paths = []
-    if track_prims:
-        stage = _get_stage()
-        if stage:
-            from pxr import Usd
-
-            for path in track_prims:
-                root = stage.GetPrimAtPath(path)
-                if root.IsValid():
-                    for p in Usd.PrimRange(root, Usd.TraverseInstanceProxies()):
-                        tracked_prim_paths.append(str(p.GetPath()))
-
-    _recording_state.update(
-        {
-            "active": True,
-            "session_id": session_id,
-            "output_dir": session_dir,
-            "frame_count": 0,
-            "fps": fps,
-            "width": width,
-            "height": height,
-            "camera_path": camera_path,
-            "start_time": time.time(),
-            "metadata": [],
-            "_step_counter": 0,
-            "_steps_per_frame": steps_per_frame,
-            "track_prims": tracked_prim_paths,
-            "property_filter": property_filter,
-        }
-    )
-
-    # Write state file header if tracking prims
-    if tracked_prim_paths:
-        state_path = os.path.join(session_dir, "state.txt")
-        with open(state_path, "w") as f:
-            f.write("# Omniverse MCP Recording State\n")
-            f.write("# format = omniverse-mcp-v1\n")
-            f.write(f"# session = {session_id}\n")
-            f.write(f"# fps = {fps}\n")
-            f.write(f"# tracked_prims = {len(tracked_prim_paths)}\n")
-            if property_filter:
-                f.write(f"# property_filter = {', '.join(property_filter)}\n")
-            f.write(f"# track_roots = {', '.join(track_prims)}\n")
-            f.write("\n")
-
-    # Register a physics callback to capture frames
-    callback_name = f"mcp_recording_{session_id}"
-    _recording_state["callback_name"] = callback_name
-
-    async def _record_tick(sim_time_seconds: float):
-        """Called from the app update loop to capture frames.
-
-        Args:
-            sim_time_seconds: Simulation time captured synchronously in _on_update
-                so it reflects the actual physics time, not a stale value from
-                an async delay.
-        """
-        if not _recording_state["active"]:
-            return
-
-        frame_idx = _recording_state["frame_count"]
+    # A Kit app without them can't render a camera into a texture or capture one: said at the start, not per frame.
+    for module in ("omni.kit.hydra_texture", "omni.kit.widget.viewport.capture"):
         try:
-            from omni.kit.viewport.utility import get_active_viewport
+            import_module(module)
+        except ImportError:
+            return {"status": "error", "error": f"This Kit app can't record from a camera: it has no {module}"}
 
-            viewport = get_active_viewport()
-            if viewport is None:
-                return
+    stage = _get_stage()
+    camera_path = args.camera_path or _get_active_camera_path()
+    problem = camera_error(stage, camera_path)
+    if problem:
+        return {"status": "error", "error": problem}
 
-            frame_path = os.path.join(
-                _recording_state["output_dir"],
-                f"frame_{frame_idx:05d}.png",
-            )
-            try:
-                # No fresh frames: they would make each tick about twice as long, and ticks that overlap read the
-                # same frame_count, so they would write over each other's files (#69). Recording's own feed (#25)
-                # replaces this capture.
-                data = await capture_viewport_png(viewport, fresh=False)
-            except RuntimeError:
-                # No whole frame in time: an empty file marks it, so the frames keep their numbers.
-                data = b""
-            with open(frame_path, "wb") as f:
-                f.write(data)
+    if _state.session is not None:
+        # Forced, and only now the new recording's request and camera are known good: a bad one keeps the old.
+        carb.log_warn("[MCP Bridge] Force-stopping previous recording")
+        await _end(_state.session, write_metadata=False)
 
-            _recording_state["metadata"].append(
-                {
-                    "frame": frame_idx,
-                    "sim_time": sim_time_seconds,
-                    "wall_time": time.time() - _recording_state["start_time"],
-                }
-            )
+    context = omni.usd.get_context()
+    stage_id = context.get_stage_id()
+    feed = CameraFeed(camera_path, args.width, args.height)
+    try:
+        # The bound a viewport frame gets, sized for a renderer's cold start (#27).
+        await feed.first_frame(capture.FRAME_SECONDS)
+        if _state.closed:
+            # Shut down or hot-reloaded meanwhile: a recording started now would run where nothing could stop it.
+            raise RuntimeError("The extension shut down while the recording started")
+        if context.get_stage_id() != stage_id:
+            raise RuntimeError("The stage changed while the recording started: start it again")
+        session_id = f"rec_{int(time.time())}"
+        folder = os.path.join(args.output_dir, session_id)
+        Path(folder).mkdir(parents=True, exist_ok=True)
+        session = _Session(session_id, folder, args, camera_path, feed)
+        session.tracked = _tracked_paths(stage, args.track_prims)
+        if session.tracked:
+            _write_state_header(session)
+    except BaseException:
+        # Nothing of a start that failed stays: not the texture, nor its render product on the stage.
+        discard(feed)
+        raise
 
-            # Capture prim state if tracking
-            if _recording_state["track_prims"]:
-                try:
-                    stage = _get_stage()
-                    if stage:
-                        prims = [stage.GetPrimAtPath(p) for p in _recording_state["track_prims"]]
-                        state_text = format_frame_state(
-                            prims,
-                            frame_index=frame_idx,
-                            sim_time=sim_time_seconds,
-                            property_filter=_recording_state["property_filter"],
-                        )
-                        state_path = os.path.join(_recording_state["output_dir"], "state.txt")
-                        with open(state_path, "a") as sf:
-                            sf.write(state_text)
-                            sf.write("\n")
-                except Exception as state_err:
-                    carb.log_warn(f"[MCP Recording] Frame {frame_idx} state capture failed: {state_err}")
-
-            _recording_state["frame_count"] = frame_idx + 1
-
-        except Exception as e:
-            carb.log_warn(f"[MCP Recording] Frame {frame_idx} capture failed: {e}")
-
-    def _on_update(event):
-        if not _recording_state["active"]:
-            return
-        _recording_state["_step_counter"] += 1
-        if _recording_state["_step_counter"] % _recording_state["_steps_per_frame"] != 0:
-            return
-        # Capture sim time synchronously — the async _record_tick runs later
-        # and timeline.get_current_time() may return stale/reset values by then.
-        timeline = omni.timeline.get_timeline_interface()
-        sim_time = timeline.get_current_time()
-        asyncio.ensure_future(_record_tick(sim_time))
-
-    app = omni.kit.app.get_app()
-    _recording_state["_sub"] = app.get_update_event_stream().create_subscription_to_pop(_on_update, name=callback_name)
-
+    session.subscription = (
+        omni.kit.app.get_app()
+        .get_update_event_stream()
+        .create_subscription_to_pop(lambda _event: _on_update(session), name=f"mcp_recording_{session_id}")
+    )
+    _state.session = session
+    _state.last_folder = folder
     return {
         "status": "success",
         "result": {
             "session_id": session_id,
-            "output_dir": session_dir,
-            "fps": fps,
-            "resolution": [width, height],
+            "output_dir": folder,
+            "fps": args.fps,
+            "resolution": [args.width, args.height],
             "camera_path": camera_path,
-            "track_prims": len(tracked_prim_paths),
-            "property_filter": property_filter,
+            # Also tells the server this extension records from the camera at the size: an older one sent none.
+            "render_product": feed.render_product_path,
+            "track_prims": len(session.tracked),
+            "property_filter": args.property_filter,
         },
     }
+
+
+def _tracked_paths(stage, roots: list[str]) -> list[str]:
+    """The tracked prims and their descendants, through instances, as the state file lists them."""
+    from pxr import Usd
+
+    paths = []
+    for path in roots:
+        root = stage.GetPrimAtPath(path)
+        if root.IsValid():
+            paths.extend(str(p.GetPath()) for p in Usd.PrimRange(root, Usd.TraverseInstanceProxies()))
+    return paths
+
+
+def _write_state_header(session: _Session) -> None:
+    args = session.args
+    lines = [
+        "# Omniverse MCP Recording State",
+        "# format = omniverse-mcp-v1",
+        f"# session = {session.session_id}",
+        f"# fps = {args.fps}",
+        f"# tracked_prims = {len(session.tracked)}",
+    ]
+    if args.property_filter:
+        lines.append(f"# property_filter = {', '.join(args.property_filter)}")
+    lines.append(f"# track_roots = {', '.join(args.track_prims)}")
+    (Path(session.folder) / "state.txt").write_text("\n".join(lines) + "\n\n", encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Each update
+# ---------------------------------------------------------------------------
+
+
+def _why_frames_stop(session: _Session) -> str | None:
+    """Why the feed can no longer render the recording's camera, or None."""
+    context = omni.usd.get_context()
+    if context.get_stage_state() != omni.usd.StageState.OPENED:
+        return "the stage began to close"
+    if context.get_stage_id() != session.stage_id:
+        # The feed would go on rendering the new stage, from its default camera (#25's E13).
+        return "the stage changed"
+    stage = context.get_stage()
+    if camera_error(stage, session.camera_path):
+        # A deleted camera renders white frames, with no error from Kit (#25's E8). Said plainly: camera_error's
+        # wording is for a start, and its advice to look for another prim doesn't fit a recording under way.
+        deleted = not stage.GetPrimAtPath(session.camera_path).IsValid()
+        return f"the camera is gone: {session.camera_path} {'was deleted' if deleted else 'is no longer a Camera'}"
+    return None
+
+
+def _stop_frames(session: _Session, reason: str) -> None:
+    sim_time = omni.timeline.get_timeline_interface().get_current_time()
+    session.ended = f"frames stopped after {session.clock.taken}, at {sim_time:.2f} s of simulation: {reason}"
+    carb.log_warn(f"[MCP Recording] {session.session_id}: {session.ended}")
+    # Frames in flight would wait out their bounds for a frame that won't come: each ends now, as an empty file.
+    for task in session.tasks:
+        task.cancel()
+    feed, session.feed = session.feed, None
+    if feed is not None:
+        discard(feed)
+
+
+def _on_update(session: _Session) -> None:
+    feed = session.feed
+    if feed is None:
+        return
+    reason = _why_frames_stop(session)
+    if reason:
+        _stop_frames(session, reason)
+        return
+    number = session.clock.tick(render_pending=feed.waiting)
+    if number is None:
+        return
+    # Read now, not when the capture ends: the frame shows this update's simulation, give or take one (#25's E17).
+    sim_time = omni.timeline.get_timeline_interface().get_current_time()
+    session.taking[number] = (sim_time, time.time() - session.started)
+    if session.tracked:
+        _write_state(session, number, sim_time)
+    task = asyncio.ensure_future(_take_frame(session, feed, number))
+    session.tasks.add(task)
+    task.add_done_callback(session.tasks.discard)
+
+
+def _write_state(session: _Session, number: int, sim_time: float) -> None:
+    try:
+        stage = _get_stage()
+        prims = [stage.GetPrimAtPath(p) for p in session.tracked]
+        text = format_frame_state(
+            prims, frame_index=number, sim_time=sim_time, property_filter=session.args.property_filter
+        )
+        with (Path(session.folder) / "state.txt").open("a", encoding="utf-8") as f:
+            f.write(text)
+            f.write("\n")
+    except Exception as e:
+        carb.log_warn(f"[MCP Recording] Frame {number} state capture failed: {e}")
+
+
+async def _take_frame(session: _Session, feed: CameraFeed, number: int) -> None:
+    data = b""
+    try:
+        data = await capture_feed_png(feed)
+    except Exception as e:
+        # Any failure of one frame, a capture timing out or Kit raising, is that frame's alone.
+        carb.log_warn(f"[MCP Recording] Frame {number} not captured: {e}")
+    finally:
+        # Cancelled too, when frames stop early: the frame is then the empty marker at once.
+        session.record(number, data)
 
 
 # ---------------------------------------------------------------------------
@@ -231,50 +288,87 @@ async def handle_recording_start(body: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-async def handle_recording_stop(_body: dict) -> dict:
-    global _recording_state
+async def _end(session: _Session, write_metadata: bool) -> tuple[str | None, list[str]]:
+    """Ends `session`: its updates, its frames in flight, its feed and render product, then its metadata.json. Each
+    step on its own, so one that fails leaves the rest done; what failed comes back, with the metadata file's path."""
+    _state.session = None
+    session.subscription = None
+    session.stopped = time.time()
+    problems = []
+    if session.tasks:
+        await asyncio.gather(*list(session.tasks), return_exceptions=True)
+    # A frame whose task was cancelled before it ever ran is still owed its empty marker.
+    for number in list(session.taking):
+        session.record(number, b"")
+    feed, session.feed = session.feed, None
+    if feed is not None:
+        try:
+            discard(feed)
+        except Exception as e:
+            problems.append(f"its render product {feed.render_product_path} was not deleted: {e}")
+            carb.log_warn(f"[MCP Recording] {session.session_id}: {problems[-1]}")
+    if not write_metadata:
+        return None, problems
+    args = session.args
+    meta = {
+        "session_id": session.session_id,
+        "fps": args.fps,
+        "resolution": [args.width, args.height],
+        "camera_path": session.camera_path,
+        "frame_count": session.clock.taken,
+        "duration_seconds": round(session.stopped - session.started, 2),
+        "track_prims": session.tracked,
+        "property_filter": args.property_filter,
+        "frames": sorted(session.frames, key=lambda f: f["frame"]),
+    }
+    if session.ended:
+        meta["ended"] = session.ended
+    meta_path = os.path.join(session.folder, "metadata.json")
+    try:
+        Path(meta_path).write_text(json.dumps(meta, indent=2))
+    except OSError as e:
+        problems.append(f"metadata.json was not written: {e}")
+        carb.log_warn(f"[MCP Recording] {session.session_id}: {problems[-1]}")
+        return None, problems
+    return meta_path, problems
 
-    if not _recording_state["active"]:
+
+async def handle_recording_stop(_body: dict) -> dict:
+    session = _state.session
+    if session is None:
         return {"status": "error", "error": "No active recording"}
 
-    _recording_state["active"] = False
-
-    # Unsubscribe
-    _recording_state["_sub"] = None  # Releases subscription via destructor
-
-    # Write metadata
-    meta_path = os.path.join(_recording_state["output_dir"], "metadata.json")
-    meta = {
-        "session_id": _recording_state["session_id"],
-        "fps": _recording_state["fps"],
-        "resolution": [_recording_state["width"], _recording_state["height"]],
-        "camera_path": _recording_state["camera_path"],
-        "frame_count": _recording_state["frame_count"],
-        "duration_seconds": round(time.time() - _recording_state["start_time"], 2),
-        "track_prims": _recording_state.get("track_prims", []),
-        "property_filter": _recording_state.get("property_filter"),
-        "frames": _recording_state["metadata"],
+    meta_path, problems = await _end(session, write_metadata=True)
+    state_path = os.path.join(session.folder, "state.txt")
+    result = {
+        "session_id": session.session_id,
+        "output_dir": session.folder,
+        "frame_count": session.clock.taken,
+        "duration_seconds": round(session.stopped - session.started, 2),
+        "metadata_file": meta_path,
+        "state_file": state_path if os.path.exists(state_path) else None,
     }
-    with open(meta_path, "w") as f:
-        json.dump(meta, f, indent=2)
+    notes = [session.ended] if session.ended else []
+    notes += problems
+    if notes:
+        result["note"] = "; ".join(notes)
+    return {"status": "success", "result": result}
 
-    # Check if state file was written
-    state_file = None
-    state_path = os.path.join(_recording_state["output_dir"], "state.txt")
-    if os.path.exists(state_path):
-        state_file = state_path
 
-    return {
-        "status": "success",
-        "result": {
-            "session_id": _recording_state["session_id"],
-            "output_dir": _recording_state["output_dir"],
-            "frame_count": _recording_state["frame_count"],
-            "duration_seconds": meta["duration_seconds"],
-            "metadata_file": meta_path,
-            "state_file": state_file,
-        },
-    }
+def shut_down() -> None:
+    """At the extension's shutdown: ends a running recording's frames and feed, and deletes nothing, since the stage
+    may be tearing down. A start still waiting for its first frame fails when it resumes (_start)."""
+    _state.closed = True
+    session, _state.session = _state.session, None
+    if session is not None:
+        session.subscription = None
+        for task in session.tasks:
+            task.cancel()
+        feed, session.feed = session.feed, None
+        if feed is not None:
+            feed.drop()
+        carb.log_info("[MCP Bridge] Stopped active recording on shutdown")
+    forget()
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +382,7 @@ async def handle_recording_frame(body: dict) -> dict:
 
     if not session_dir:
         # Use current/last session
-        session_dir = _recording_state.get("output_dir", "")
+        session_dir = _state.last_folder
     if not session_dir:
         return {"status": "error", "error": "No session_dir provided and no recent recording"}
 

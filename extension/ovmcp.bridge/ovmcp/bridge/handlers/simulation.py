@@ -21,15 +21,7 @@ from ovmcp.core.force import (
 )
 
 from ._utils import _get_stage, _next_update
-
-
-# Import _recording_state for sim_state handler to report recording status
-def _get_recording_active():
-    """Get recording state without circular import."""
-    from .recording import _recording_state
-
-    return _recording_state["active"]
-
+from .recording import recording_active, recording_note
 
 # ---------------------------------------------------------------------------
 # /sim/control
@@ -94,7 +86,8 @@ async def handle_sim_state(_body: dict) -> dict:
             "prim_count": prim_count,
             "up_axis": UsdGeom.GetStageUpAxis(stage),
             "meters_per_unit": UsdGeom.GetStageMetersPerUnit(stage),
-            "recording_active": _get_recording_active(),
+            "recording_active": recording_active(),
+            **({"recording_note": note} if (note := recording_note()) else {}),
         },
     }
 

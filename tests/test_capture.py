@@ -189,22 +189,28 @@ def test_fresh_frames_pass_before_the_capture_is_scheduled():
     assert png.fresh_seconds == 0.0
 
 
-def test_recording_captures_without_fresh_frames():
-    # Fresh frames would make each recording tick about twice as long, and ticks that overlap write over each other's
-    # frames (#69): recording asks for none until its own feed (#25) replaces the capture. The handlers import Kit, so
-    # the guard reads the source.
-    source = (EXTENSION_ROOT / "ovmcp" / "bridge" / "handlers" / "recording.py").read_text(encoding="utf-8")
-    calls = [
-        node
-        for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "capture_viewport_png"
-    ]
-    assert calls, "recording.py no longer calls capture_viewport_png: guard what it calls instead"
-    for call in calls:
-        fresh = [keyword.value for keyword in call.keywords if keyword.arg == "fresh"]
-        assert len(fresh) == 1, ast.unparse(call)
-        assert isinstance(fresh[0], ast.Constant), ast.unparse(call)
-        assert fresh[0].value is False, ast.unparse(call)
+def test_recording_never_waits_for_fresh_frames():
+    # Fresh frames are the viewport's trail (#57). A recording captures from its own camera feed, whose next frame
+    # already shows the simulation within one update of its tick (#25's E17); waiting would only make each frame
+    # longer, so more ticks go untaken. The handlers import Kit, so the guard reads the source.
+    handlers = EXTENSION_ROOT / "ovmcp" / "bridge" / "handlers"
+
+    def calls(tree: ast.AST, name: str) -> list[ast.Call]:
+        return [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name
+        ]
+
+    recording = ast.parse((handlers / "recording.py").read_text(encoding="utf-8"))
+    assert calls(recording, "capture_feed_png"), "recording.py no longer captures from its feed: guard what it calls"
+    assert not calls(recording, "capture_viewport_png")
+    utils = ast.parse((handlers / "_utils.py").read_text(encoding="utf-8"))
+    (feed_png,) = [n for n in ast.walk(utils) if isinstance(n, ast.AsyncFunctionDef) and n.name == "capture_feed_png"]
+    captures = calls(feed_png, "capture_file_png")
+    assert captures
+    for call in captures:
+        assert all(keyword.arg != "next_frame" for keyword in call.keywords), ast.unparse(call)
 
 
 def test_a_viewport_that_renders_nothing_schedules_no_capture(monkeypatch):
@@ -437,6 +443,29 @@ def test_the_waits_read_their_seconds_when_called(monkeypatch):
     kit = _Kit([_WHOLE])
     _run(kit.png(fresh=True))
     assert kit.events == ["schedule"]
+
+
+@pytest.mark.parametrize(("width", "height"), [(1, 1), (640, 480), (capture.MAX_SIDE, capture.MAX_SIDE)])
+def test_a_frame_size_from_1_to_the_limit_is_taken(width, height):
+    assert capture.frame_size(width, height) == (width, height)
+
+
+@pytest.mark.parametrize(
+    ("width", "height", "named"),
+    [
+        (0, 480, "width"),
+        (640, -1, "height"),
+        (capture.MAX_SIDE + 1, 480, "width"),
+        (640, capture.MAX_SIDE + 1, "height"),
+        (True, 480, "width"),  # an int to Python, and 1 pixel wide
+        (640.0, 480, "width"),
+        ("640", 480, "width"),
+        (640, None, "height"),
+    ],
+)
+def test_a_frame_size_out_of_range_or_not_whole_is_refused_naming_the_value(width, height, named):
+    with pytest.raises(ValueError, match=rf"^{named} must be a whole number of pixels from 1 to 4096, got "):
+        capture.frame_size(width, height)
 
 
 def test_a_call_ends_before_the_server_gives_up():

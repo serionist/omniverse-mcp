@@ -51,6 +51,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             f"extension_version = {extension}",
             f"server_version = {server}",
         ]
+        if r.get("recording_note"):
+            lines.append(f"recording_note = {r['recording_note']}")
         if extension != carried:
             lines.append(
                 f"note = the Kit extension is {extension} and this server's is {carried}: install the server's, "

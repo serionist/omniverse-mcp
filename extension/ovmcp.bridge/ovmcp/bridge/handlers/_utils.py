@@ -89,29 +89,56 @@ async def _next_update():
     await omni.kit.app.get_app().next_update_async()
 
 
-async def capture_viewport_png(viewport, budget: capture.Budget | None = None, *, fresh: bool = True) -> bytes:
-    """The viewport's frame as PNG bytes, read once Kit has written all of it (ovmcp.core.capture.capture_png).
+async def capture_viewport_png(viewport, budget: capture.Budget | None = None) -> bytes:
+    """The viewport's frame as PNG bytes (capture_file_png), after FRESH_FRAMES frames of it: Kit captures the next
+    frame it delivers, which the renderer made about 3 updates earlier, so a drawing or a change made just before the
+    call was missing (#57). A recording captures from its own feed (capture_feed_png), which needs none.
+    """
+    from omni.kit.viewport.utility import capture_viewport_to_file
 
-    `fresh` lets FRESH_FRAMES frames of the viewport pass first: Kit captures the next frame it delivers, which the
-    renderer made about 3 updates earlier, so a drawing or a change made just before the call was missing (#57).
-    Recording asks for none (handlers/recording.py says why).
+    return await capture_file_png(
+        lambda path: capture_viewport_to_file(viewport, file_path=path),
+        budget,
+        next_frame=lambda: _next_frame(viewport),
+    )
+
+
+async def capture_feed_png(feed, budget: capture.Budget | None = None) -> bytes:
+    """A camera feed's next frame as PNG bytes (capture_file_png), taken as the viewport's are (camera_feed.py).
+
+    No fresh frames: the feed renders with the update, and its next frame shows the simulation within one update of
+    the request (#25's E17), where the viewport's trails by about 3 (#57).
+    """
+    from omni.kit.widget.viewport.capture import FileCapture
+
+    scheduled = []
+
+    def schedule(path: str):
+        scheduled.append(feed.schedule(FileCapture(path)))
+        return scheduled[-1]
+
+    try:
+        return await capture_file_png(schedule, budget)
+    finally:
+        # A capture given up at its bound, or cancelled, must not be handed a frame later: its file is gone.
+        for delegate in scheduled:
+            feed.withdraw(delegate)
+
+
+async def capture_file_png(schedule, budget: capture.Budget | None = None, *, next_frame=None) -> bytes:
+    """What `schedule(path)` captures into `path`, as PNG bytes, read once Kit has written all of it
+    (ovmcp.core.capture.capture_png), after the frames `next_frame` gives, if any.
 
     A CaptureError, a RuntimeError, when no whole file arrives in time; each wait is bounded, and capped by `budget`.
     Each capture gets a file of its own: with one path for every capture, a capture whose file wasn't written yet read
     the previous capture's file, so every image was one capture behind (#32). On Kit 110 wait_for_result returns before
     the file is written, so the file is waited for too.
     """
-    from omni.kit.viewport.utility import capture_viewport_to_file
-
     path = Path(tempfile.gettempdir()) / f"ovmcp_capture_{uuid.uuid4().hex}.png"
     started = time.monotonic()
     try:
         png = await capture.capture_png(
-            lambda: capture_viewport_to_file(viewport, file_path=str(path)),
-            path.read_bytes,
-            _next_update,
-            budget,
-            next_frame=(lambda: _next_frame(viewport)) if fresh else None,
+            lambda: schedule(str(path)), path.read_bytes, _next_update, budget, next_frame=next_frame
         )
     except capture.CaptureError as e:
         carb.log_warn(f"[MCP Bridge] Capture failed after {time.monotonic() - started:.1f} s: {e}")

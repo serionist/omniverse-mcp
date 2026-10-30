@@ -111,8 +111,8 @@ extension come from one release. `omniverse-mcp extension install` (`src/omniver
 | File | Purpose |
 |------|---------|
 | `ovmcp/bridge/extension.py` | Kit lifecycle: makes the token, starts the core's HTTP server with the routes |
-| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `capture.py` (the capture path's waits, each bounded by time, and a call's bookkeeping), `png.py` (the PNG writer), `logs.py` (Kit's log file read into the log ring, and its query), `force.py` (apply_force's request, its refusals and the point it pushes at; from the stage's joints, the articulation a body is a link of and the fixed joint that holds it to the world), `framing.py`, `isolation.py`, `lighting.py`, `material.py` (set_material's OmniPBR, named by its MDL source), `robot.py` (where create_robot loads a USD file from, and its prim's name; the articulation root get_joint_states reads), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `serial.py`, `usd.py` (typed forms of pxr calls the stubs get wrong) |
-| `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, simulation, recording, robot, debug_draw, misc, usd_advanced, logging) with shared utilities in `_utils.py` (among them `enable_extension`) and `_mcp_bridge.py` |
+| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `capture.py` (the capture path's waits, each bounded by time, a call's bookkeeping, and the frame-size limit, 4096 a side: start_recording's, and capture_viewport's and inspect_prim's once #51 lands), `png.py` (the PNG writer), `logs.py` (Kit's log file read into the log ring, and its query), `force.py` (apply_force's request, its refusals and the point it pushes at; from the stage's joints, the articulation a body is a link of and the fixed joint that holds it to the world), `framing.py`, `isolation.py`, `lighting.py`, `material.py` (set_material's OmniPBR, named by its MDL source), `robot.py` (where create_robot loads a USD file from, and its prim's name; the articulation root get_joint_states reads), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `recording.py` (start_recording's request, the camera check, which updates take a frame and its number, and deleting a camera feed's render product from every layer), `serial.py`, `usd.py` (typed forms of pxr calls the stubs get wrong) |
+| `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, simulation, recording, robot, debug_draw, misc, usd_advanced, logging) with shared utilities in `_utils.py` (among them `enable_extension` and the captures to a file, `capture_viewport_png` and `capture_feed_png`), `camera_feed.py` (a camera rendered at a size in a texture of its own) and `_mcp_bridge.py` |
 | `config/extension.toml` | Extension metadata and default settings |
 
 ### HTTP Server
@@ -266,6 +266,10 @@ The format is implemented in `ovmcp/core/formatter.py` with functions for:
    logged waited for the GIL that the main thread held while it waited for the worker, so Kit hung
    ([#5](https://github.com/serionist/omniverse-mcp/issues/5)). `get_logs` reads Kit's log file on the main thread
    instead; `tests/test_logs.py` fails on any Python hook on Kit's logging in the extension
+6. A recording's camera feed (`handlers/camera_feed.py`) hears of each frame through a Python callback on its
+   texture's drawable-changed event. On Kit 110 Kit calls it on the main thread in every timeline state (#25's
+   E16); on Kit 107, whose event stream is another, nobody has measured. So it does no USD work and logs nothing, as
+   #5 asks of a callback Kit may call from another thread: it only hands the frame to the captures waiting for it
 
 This means all handler code runs on the main thread - there are no threading issues with USD access, but long-running handlers will block the simulation for the duration of their execution.
 
@@ -304,12 +308,31 @@ result = bounds["result"]["center"]
 
 ## Recording System
 
-The recording system captures simulation frames and optional prim state:
+A recording renders its camera at its size through a camera feed of its own, so the user's viewport, its camera and
+its size never change (#25):
 
-1. `start_recording` subscribes to the application's update event stream via `get_update_event_stream().create_subscription_to_pop()`
-2. On each update tick, a step counter increments; when `_step_counter % _steps_per_frame == 0` a frame is captured (steps_per_frame is derived from sim FPS / recording FPS)
-3. Each captured frame is saved as a PNG, and if tracking prims, their state is appended to `state.txt`
-4. `stop_recording` releases the subscription (sets it to `None`) and writes `metadata.json`
+1. **Start** checks the request (`core/recording.py`; a side up to 4096) and the camera: `camera_path`, or the active
+   viewport's camera, must be a `UsdGeom.Camera`. It makes a `CameraFeed` (`handlers/camera_feed.py`): a texture from
+   Kit's public `omni.kit.hydra_texture.create_hydra_texture`, rendering every update while the recording runs, as
+   Replicator makes its render products but with no annotator, so Replicator's orchestrator, its capture settings and
+   the timeline are left alone. It waits for the feed's first frame (`capture.FRAME_SECONDS`), then subscribes to the
+   app's update stream.
+2. **Each update,** `FrameClock` decides whether to take a frame: every `steps_per_frame` updates (the timeline's time
+   codes a second over `fps`), unless the feed still awaits the last frame's render or four frames are still being
+   written. A frame gets its number, its `sim_time` and the tracked prims' state (appended to `state.txt`) at its tick,
+   so numbers never repeat (#69) and the state matches the time.
+3. **A frame** is taken as the viewport's are: a `FileCapture` delegate queued on the feed is handed the feed's next
+   drawable-changed frame (Events 2.0 since Kit 108.2, an event stream before), and `capture_feed_png` waits for the
+   whole PNG (`capture.capture_png`). One that doesn't come in time is written as an empty file, keeping the numbers.
+   Its image shows the simulation within one update of its tick.
+4. **Frames stop** when the stage starts to close, another stage opens, or the camera goes: the feed would go on
+   rendering something else (white for a deleted camera, the new stage's default camera after a new stage). Frames in
+   flight end at once as empty files, and `stop_recording` and `get_sim_state` say why.
+5. **Stop** drops the subscription, awaits the frames in flight, drops the feed, deletes its render product, and writes
+   `metadata.json`, each step on its own so one that fails leaves the rest done. Kit writes a texture's render product
+   into the root and session layers, whatever the edit target, and lists it in `/Render/OmniverseGlobalRenderSettings`'s
+   `products`; both stay after the texture goes, so `camera_feed.discard` deletes them from every layer of the stage
+   open then, or of the next one once it opens.
 
 State tracking uses the prim-block format with frame headers:
 ```
@@ -359,9 +382,9 @@ Isaac Sim keeps 3 stage frames of history for it (`/app/settings/fabricDefaultSt
 at once, a drawing or a change made just before was missing (#57). So `capture_viewport` and `inspect_prim` let
 `FRESH_FRAMES` (4) frames of the viewport pass before they capture. Measured on Isaac Sim 6.2 headless, rendering
 synchronously and asynchronously: 2 frames were always enough, 3 for the longest trail seen. Frames carry no number
-that would tell their age (`swh_frame_number` is `-1` there), so the wait counts them. Recording asks for none:
-its ticks would take about twice as long and overlap, and overlapping ticks write over each other's frames (#69);
-its frames still show the scene a few updates before their `sim_time`.
+that would tell their age (`swh_frame_number` is `-1` there), so the wait counts them. Recording asks for none: it
+captures from its own camera feed, whose next frame shows the simulation within one update of its tick
+([Recording System](#recording-system)).
 
 **Cold start:** the first capture after the app starts can come back black while the renderer warms up. A black
 frame is reset and captured once more by itself (`_capture_frame` in `handlers/camera.py`); if it is still black,
@@ -379,7 +402,7 @@ the answer says so, with the lighting mode.
 - **Fails at once:** a capture whose `wait_for_result` names nothing captured (`[]` or `None`), and a viewport with
   no render texture yet: no file will come for either. `capture_viewport` and `inspect_prim` reach the render texture
   check only after their fresh frames, which such a viewport doesn't deliver, so there they fail after
-  `FRAME_SECONDS`, as a viewport that rendered no frame; recording, without fresh frames, still fails at once.
+  `FRAME_SECONDS`, as a viewport that rendered no frame.
 - **Frame by frame:** a settle and a capture's fresh frames wait through `next_viewport_frame_async`, one frame at a
   time (`_next_frame` in `handlers/_utils.py`), not `ViewportAPI.wait_for_rendered_frames`, which counts its
   subscribe call as a frame and leaves a cancelled wait's callback in the viewport. A Kit without the frame event
@@ -410,8 +433,9 @@ and render product until a read gets data, so `capture_viewport` doesn't pay it 
 ## Extension Lifecycle
 
 - **on_startup**: Creates the HTTP server, binds to configured host:port, registers all routes. Enables the `omni.syntheticdata` instance segmentation sensor once the viewport exists, so the first capture after the app starts has segmentation; Kit drops it on every stage open, and a capture that finds it empty enables it again ([Viewport Capture](#viewport-capture))
-- **on_shutdown**: Stops any active recording, drops the debug drawing subscription and its book (clearing nothing:
-  the stage may be tearing down), clears caches, closes the HTTP server
+- **on_shutdown**: Stops any active recording, cancelling its frames and dropping its camera feed, and drops the debug
+  drawing subscription and its book (deleting and clearing nothing: the stage may be tearing down; a recording's
+  render product stays on a stage that outlives the extension), clears caches, closes the HTTP server
 
 The extension includes:
 - **Content-Length validation**: Rejects request bodies over 100 MB

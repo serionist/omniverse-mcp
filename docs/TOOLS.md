@@ -601,6 +601,7 @@ Get the current simulation state. No parameters.
 - `prim_count` - Total number of prims in the scene
 - `meters_per_unit` - Stage scale factor
 - `extension_version`, `server_version` - the Kit extension's release, from the bridge's handshake, and this server's
+- `recording_note` - only while a recording runs whose frames stopped early: why
 - `note` - only when the bridge's release differs from the server's: the command that installs the matching one
 
 **When to use:** Always call this first to understand the environment (especially up axis and whether physics is running).
@@ -611,21 +612,30 @@ Get the current simulation state. No parameters.
 
 ### `start_recording`
 
-Start recording simulation frames to disk. It records the active viewport, from its camera at its own size: aim it
-with `set_camera` or `look_at_prim` first. `camera_path`, `width` and `height` are ignored for now
-([#25](https://github.com/serionist/omniverse-mcp/issues/25)), and the answer carries a `WARNING` line when it is
-given a `camera_path`, or a size other than 640x480: the server can't tell 640x480 asked for from the default. The
-recording's `metadata.json` still lists the camera and size asked for, not the ones used. Frames are taken every few
-app updates, whether or not the simulation plays: play it to record motion. Unlike `capture_viewport`, a frame doesn't
-wait for the renderer to catch up, so its image shows the scene a few updates before its `sim_time`
-([#57](https://github.com/serionist/omniverse-mcp/issues/57)).
+Start recording simulation frames to disk. It records `camera_path`, or the active viewport's camera when empty, at
+`width` x `height`, through a render of its own: the viewport, its camera and its size stay as they are, in the GUI
+too. A side of more than 4096 pixels is refused. The answer names the camera, the size and `render_product`, the
+prim the recording renders into, which it deletes at stop.
+
+- **When frames come:** every few app updates, about 1/`fps` seconds, whether or not the simulation plays: play it to
+  record motion. A frame shows the simulation within one update of its `sim_time`. Frames asked for faster than they
+  can be written are skipped, which the frames' `sim_time` in `metadata.json` shows; each frame keeps a number of its
+  own.
+- **What it costs:** the extra render runs every update while the recording does, at the frame's size. Headless on
+  Isaac Sim 6.2 it took a third of the app's updates at 640x480 and three quarters at 4096x4096; each update still
+  advances the simulation as before, so the run takes longer, not differently.
+- **When frames stop:** if the stage changes (`new_scene`, an opened file) or the camera is deleted, since the render
+  would show something else then. `get_sim_state` and `stop_recording` say why.
+- **An extension of 0.2.2 or older** records the active viewport at its own size: the answer then carries a
+  `WARNING` line naming the `camera_path`, `width` or `height` it ignores, with the command that installs this
+  release's extension.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `fps` | int | `5` | Capture rate (frames per second), at least 1 |
-| `width` | int | `640` | At least 1; ignored for now: frames come at the active viewport's size |
-| `height` | int | `480` | At least 1; as `width` |
-| `camera_path` | string | `""` | Ignored for now: frames come from the active viewport's camera |
+| `width` | int | `640` | Frame width in pixels, 1 to 4096 |
+| `height` | int | `480` | Frame height in pixels, 1 to 4096 |
+| `camera_path` | string | `""` | The camera to record (a `UsdGeom.Camera`); the active viewport's camera when empty |
 | `track_prims` | list[string] | `null` | Prim paths to track state for (includes descendants) |
 | `property_filter` | list[string] | `null` | Only record properties containing these substrings |
 
@@ -636,15 +646,18 @@ wait for the renderer to catch up, so its image shows the scene a few updates be
 4. `stop_recording()`
 5. `get_recording_frame(0)`, `get_recording_frame(5)`, etc. to review
 
-When `track_prims` is set, a `state.txt` file is written alongside frames in prim-block format. Each frame is separated by `=== FRAME t=X.XXX step=N ===` headers.
+When `track_prims` is set, a `state.txt` file is written alongside frames in prim-block format, each frame's state read at its tick, at its `sim_time`. Each frame is separated by `=== FRAME t=X.XXX step=N ===` headers.
 
 ---
 
 ### `stop_recording`
 
-Stop the active recording session. No parameters.
+Stop the active recording session. No parameters. It waits for the frames still being written, deletes the
+recording's render product and writes `metadata.json`: the frames' camera, size and times, and `ended` when frames
+stopped early.
 
-**Returns:** Frame count, duration, output directory, and state file path (if tracking prims).
+**Returns:** Frame count, duration, output directory, state file path (if tracking prims), and a `Note:` line when
+frames stopped early or the cleanup failed in part, saying why.
 
 ---
 

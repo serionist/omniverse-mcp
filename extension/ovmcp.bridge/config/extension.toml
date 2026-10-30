@@ -9,6 +9,10 @@ readme = "docs/README.md"
 
 [dependencies]
 "omni.kit.uiapp" = { optional = true }
+# A recording's camera feed renders with them; optional, so Kit loads them first where it has them and the bridge still
+# loads in a Kit app without them.
+"omni.kit.hydra_texture" = { optional = true }
+"omni.kit.widget.viewport" = { optional = true }
 
 [[python.module]]
 name = "ovmcp.bridge"
