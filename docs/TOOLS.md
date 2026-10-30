@@ -28,7 +28,7 @@ Reference for every tool the MCP server provides.
 | count faces, or compare two prims or variants | `get_mesh_stats`, `get_prim_face_count_tree`, `compare_prims` |
 | make or switch variants | `create_variant_structure`, `set_variant_selection` |
 | write USD files | `save_scene`, `flatten_usd`, `export_prim_as_file`; `update_material_paths` after files move |
-| start an empty scene | `new_scene` |
+| open a USD file as the stage, or start an empty one | `open_scene`, `new_scene` |
 | find out why something failed | `get_logs` |
 | do anything else in Kit's Python | `execute_script`; `manage_extensions` for Kit's extensions |
 
@@ -39,14 +39,14 @@ it runs one; they are hints, never security (the bridge's token is what keeps ot
 |---|---|---|
 | read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs, and leaves Kit's unsaved-edits flag set) | `get_scene_tree`, `dump_scene`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_prim_face_count_tree`, `get_robot_info`, `get_joint_states`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
 | not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `look_at_prim`, `inspect_prim`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug` |
-| destructive | Deletes or overwrites prims, the whole stage, or USD files on disk | `delete_prim`, `save_scene`, `new_scene`, `flatten_usd`, `export_prim_as_file`, `update_material_paths` |
+| destructive | Deletes or overwrites prims, the whole stage, or USD files on disk | `delete_prim`, `save_scene`, `open_scene`, `new_scene`, `flatten_usd`, `export_prim_as_file`, `update_material_paths` |
 | destructive, open world | Runs Python or loads extensions inside the Kit app: anything can happen | `execute_script`, `manage_extensions` |
 
 A value out of a parameter's range, or not one of its choices, is refused before the tool runs.
 
 ## Table of Contents
 
-- [Scene Tools](#scene-tools) (11 tools)
+- [Scene Tools](#scene-tools) (12 tools)
 - [Geometry & Mesh Tools](#geometry--mesh-tools) (3 tools)
 - [USD Operations](#usd-operations) (2 tools)
 - [Variant Tools](#variant-tools) (2 tools)
@@ -257,10 +257,52 @@ Write the open stage's root layer to a USD file: back to the stage's own file, o
 
 ---
 
+### `open_scene`
+
+Open a USD file as the stage, in place of the open one, which goes with its unsaved changes: call `save_scene` first
+to keep it. `new_scene` starts an empty stage instead.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `file_path` | string | required | The USD file: a path on Kit's machine, a URL, or a path in Isaac Sim's asset library |
+
+- **Paths, as `create_robot` reads them:**
+  - a path on Kit's machine; a relative one is read from the folder Kit was started in, as `save_scene` writes one;
+  - a URL as given: `omniverse://`, `https://`, `file:///`;
+  - a path in Isaac Sim's asset library, such as `/Isaac/Environments/Simple_Room/simple_room.usd`, under the
+    library's root (Isaac Sim only).
+- **Refused, with the open stage kept:**
+  - a file that isn't there, or a URL Kit can't reach;
+  - a type USD doesn't open (`.usd`, `.usda`, `.usdc` and `.usdz` do, and whatever Kit's plugins add, such as
+    `.obj` or `.gltf` in Isaac Sim);
+  - a local file that holds no USD, such as a Git LFS pointer;
+  - a library path when Isaac Sim's asset library can't be found;
+  - a call while Kit opens or closes a stage.
+- **A file that passes those checks and still fails to load leaves no stage open:** Kit closes the open stage before
+  it reads the file, as its own File > Open does. The error says so; `open_scene` another file, or `new_scene`.
+- **On the way:** the simulation is stopped first; a recording that runs stops taking frames, and `draw_debug`'s
+  drawings go. Opening the stage's own file reloads it from disk.
+- **Time:** the checks take at most 20 s and the open 80 s; a small file opens in under a second, Isaac Sim's
+  `simple_room.usd` over HTTPS in about 2.5 s. An open past 80 s goes on in Kit after the error: no stage is open
+  until it has, so tools that read the stage fail, and `get_sim_state` answers once it has opened.
+
+**Returns:** `Opened` with the path or URL handed to Kit, `replaced` with the stage it replaced (`an unsaved stage`
+for one never saved), then `up_axis`, `meters_per_unit`, `default_prim` and `prim_count`, as `get_sim_state` reports
+them. A `note` line each:
+
+- a file that sets no `upAxis` or `metersPerUnit`: USD reads them as Y and 0.01, centimetres;
+- a `.usdz`, which can't be saved back: `flatten_usd`, or `save_scene` with a `.usd` or `.usda` `file_path`;
+- a read-only stage, such as a URL's: `save_scene` needs a `file_path`;
+- the simulation was running, and is stopped now.
+
+A recording that stopped gives its `recording_note`, as `get_sim_state` does.
+
+---
+
 ### `new_scene`
 
-Discard the open scene, unsaved changes too, and start an empty one with a `/World` prim. The new stage is
-Y-up, while Isaac Sim's robots and stages are Z-up: for robot work, open a Z-up stage or set the axis with
+Discard the open scene, unsaved changes too, and start an empty one with a `/World` prim. The new stage is Y-up, while
+Isaac Sim's robots and stages are Z-up: for robot work, open a Z-up stage with `open_scene` or set the axis with
 `execute_script` (`UsdGeom.SetStageUpAxis(omni.usd.get_context().get_stage(), UsdGeom.Tokens.z)`) before adding
 anything. Call `save_scene` first to keep the old stage. The new stage has no file, so `save_scene` needs a `file_path`
 for it. A recording that runs stops taking frames, and `draw_debug`'s drawings go.
@@ -738,7 +780,7 @@ prim the recording renders into, which it deletes at stop.
 - **What it costs:** the extra render runs every update while the recording does, at the frame's size. Headless on
   Isaac Sim 6.2 it took a third of the app's updates at 640x480 and three quarters at 4096x4096; each update still
   advances the simulation as before, so the run takes longer, not differently.
-- **When frames stop:** if the stage changes (`new_scene`, an opened file) or the camera is deleted, since the render
+- **When frames stop:** if the stage changes (`new_scene`, `open_scene`) or the camera is deleted, since the render
   would show something else then. `get_sim_state` and `stop_recording` say why.
 - **One at a time:** while a recording runs, another start is refused until `stop_recording`.
 - **An extension of 0.2.2 or older** records the active viewport at its own size: the answer then carries a
@@ -909,8 +951,8 @@ for a capture or the user to see; nothing is added to the stage.
 | Other Kit apps that ship it | `omni.debugdraw` | It shows a line for one frame, so the bridge draws its lines again on every update. |
 | Neither | none | An error naming both. |
 
-- **Drawings belong to their stage:** `new_scene` or opening another stage drops them, and no drawing is made while a
-  stage opens or closes.
+- **Drawings belong to their stage:** `new_scene`, `open_scene` or another stage opened drops them, and no drawing is
+  made while a stage opens or closes.
 - **Captures:** on Isaac Sim 6.x, drawings show in `capture_viewport`'s image, headless too, with either extension,
   however soon after `draw_debug` the capture comes (checked live on 6.2). On Isaac Sim 5.x this is untested live.
 - **A wrong shape is an error:** an unknown `shape`, a vector that isn't three finite numbers, or a missing part, such

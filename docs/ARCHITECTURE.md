@@ -52,7 +52,7 @@ passes it through `inspect.cleandoc`; `tests/test_contract.py` fails on a descri
 
 | Module | Tools |
 |--------|-------|
-| `scene.py` | Scene graph: tree, dump, properties, bounds, transform, create, delete, material, clone, visibility, save, new |
+| `scene.py` | Scene graph: tree, dump, properties, bounds, transform, create, delete, material, clone, visibility, save, open, new |
 | `camera.py` | Viewport: capture, set camera, look at, inspect (orbit), viewport light |
 | `robot.py` | Robot: create, info, joint states, joint targets |
 | `simulation.py` | Sim control, state, physics properties, apply force, raycast, debug draw |
@@ -365,6 +365,34 @@ without it, turned on at the first call by `enable_extension` (`handlers/_utils.
    book's lines are drawn on every update.
 3. A clear waits for an update with the stage `OPENED`, never while it opens or closes, and the subscription goes
    once nothing is left.
+
+## Opening a Stage
+
+`open_scene` (`handlers/scene_open.py`, its sequence in `core/stage_open.py`) opens a USD file through the USD
+context's own open. Kit closes the open stage before it reads the file, so a file that fails to load leaves no stage
+at all, as Kit's File > Open does. Everything that can refuse runs first (#79):
+
+1. **Checks, the open stage untouched:**
+   - the path rule, `create_robot`'s (`core/usd_files.py`), with Isaac Sim's asset root from
+     `get_assets_root_path_async`, which doesn't stop Kit's loop as `get_assets_root_path` does;
+   - `Usd.Stage.IsSupportedFile`, and no other open under way;
+   - `omni.client.stat_async`, which must answer `OK`; `ERROR_NOT_SUPPORTED` passes under the asset library's root
+     alone, as Isaac Sim's own check takes it;
+   - a local file's header, through `Sdf.FileFormat.CanRead`, which a Git LFS pointer fails.
+
+   The root and the stat share 20 s (`STAT_SECONDS`).
+2. **The timeline stopped,** then an update, as Kit's File > Open does.
+3. **The state read again,** and nothing awaited from there until `open_stage_with_callback` starts Kit's open, so no
+   other request starts one in between. Kit refuses a second open itself, with `UsdContext busy`.
+4. **The open,** waited for up to 80 s (`OPEN_SECONDS`), which leaves 20 s of the client's 120 s. Kit's loop runs
+   during it, so another client's request meanwhile finds no stage. An open past 80 s goes on in Kit after the error.
+5. **The answer,** two updates later, so the recording's and the drawings' update handlers have seen the new stage:
+   the path handed to Kit, the stage it replaced, and the stage's axis, units, default prim and prim count, read as
+   `/sim/state` reads them. A failed open's error follows the state after it: another open under way, no stage, or
+   the stage open now.
+
+Unsaved changes aren't asked about: on Isaac Sim 6.2, `has_pending_edit()` reads true after every new stage, open and
+save, since Kit writes its own render settings into the root layer, so it can't tell a user's edits from Kit's.
 
 ## Robot System
 

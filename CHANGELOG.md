@@ -5,6 +5,17 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Added
+
+- **`open_scene` opens a USD file as the stage,** the counterpart of `save_scene`: a path on Kit's machine (a
+  relative one read from the folder Kit was started in), an `omniverse://`, `https://` or `file:///` URL, or a path
+  in Isaac Sim's asset library such as `/Isaac/Environments/Simple_Room/simple_room.usd`. The open stage goes without
+  a prompt, unsaved changes included, as with `new_scene`; the simulation is stopped first. A file that isn't there,
+  can't be reached, isn't USD, or a call while Kit opens another stage, is refused with the open stage kept. The
+  answer gives the stage's up axis, metres per unit, default prim and prim count, with a note when the file leaves
+  the axis or units to USD's fallbacks, Y and centimetres. It needs this release's Kit extension:
+  `uvx omniverse-mcp extension install`, then restart Kit; an older extension's error says so (#79).
+
 ### Fixed
 
 - **`capture_viewport` and `inspect_prim` show what was done just before the call:** Kit captured a frame its
