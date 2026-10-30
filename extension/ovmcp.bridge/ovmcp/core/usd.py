@@ -9,6 +9,7 @@
 - A layer's dirty is typed without a type; it is a bool.
 - Sdf.Layer.Find is typed with a dict of unknowns and as always finding a layer; it gives None when the registry holds
   none for the path.
+- Sdf.FileFormat.FindByExtension is typed as always finding a format; it gives None for an extension none reads.
 """
 
 from collections.abc import Callable
@@ -78,3 +79,8 @@ def has_unsaved_edits(layer: Sdf.Layer) -> bool:
 def find_layer(path: str) -> Sdf.Layer | None:
     """The layer Sdf's registry holds for path, or None."""
     return cast("_Registry", Sdf.Layer).Find(path)
+
+
+def format_of(path: str) -> Sdf.FileFormat | None:
+    """The file format for path's extension, in any case, or None."""
+    return Sdf.FileFormat.FindByExtension(path)

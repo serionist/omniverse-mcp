@@ -52,7 +52,7 @@ passes it through `inspect.cleandoc`; `tests/test_contract.py` fails on a descri
 
 | Module | Tools |
 |--------|-------|
-| `scene.py` | Scene graph: tree, dump, properties, bounds, transform, create, delete, material, clone, visibility, save, new |
+| `scene.py` | Scene graph: tree, dump, properties, bounds, transform, create, delete, material, clone, visibility, save, open, new |
 | `camera.py` | Viewport: capture, set camera, look at, inspect (orbit), viewport light |
 | `robot.py` | Robot: create, info, joint states, joint targets |
 | `simulation.py` | Sim control, state, physics properties, apply force, raycast, debug draw |
@@ -115,8 +115,8 @@ extension come from one release. `omniverse-mcp extension install` (`src/omniver
 | File | Purpose |
 |------|---------|
 | `ovmcp/bridge/extension.py` | Kit lifecycle: makes the token, starts the core's HTTP server with the routes |
-| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `capture.py` (the capture path's waits, each bounded by time, a call's bookkeeping, the frame-size limit, 4096 a side, for start_recording, capture_viewport and inspect_prim, Path Tracing's settle frames, and segmentation's colours), `png.py` (the PNG writer), `logs.py` (Kit's log file read into the log ring, and its query), `force.py` (apply_force's request, its refusals and the point it pushes at; from the stage's joints, the articulation a body is a link of and the fixed joint that holds it to the world), `framing.py`, `isolation.py`, `lighting.py`, `material.py` (set_material's OmniPBR, named by its MDL source), `robot.py` (where create_robot loads a USD file from, and its prim's name; the articulation root get_joint_states reads), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `recording.py` (start_recording's request, the camera check, which updates take a frame and its number, and deleting a camera feed's render product from every layer), `serial.py`, `layers.py` (the files the open stage has loaded, which flatten_usd and export_prim_as_file refuse to write, and the layers Kit holds that they read again from disk), `usd.py` (typed forms of pxr calls the stubs get wrong) |
-| `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, simulation, recording, robot, debug_draw, misc, usd_advanced, logging) with shared utilities in `_utils.py` (among them `enable_extension` and the capture to a file, `capture_file_png`, with `capture_feed_png` on it), `camera_feed.py` (a camera rendered at a size in a texture of its own, for a recording or a capture, with a capture's segmentation and its release) and `_mcp_bridge.py` |
+| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `capture.py` (the capture path's waits, each bounded by time, a call's bookkeeping, the frame-size limit, 4096 a side, for start_recording, capture_viewport and inspect_prim, Path Tracing's settle frames, and segmentation's colours), `png.py` (the PNG writer), `logs.py` (Kit's log file read into the log ring, and its query), `force.py` (apply_force's request, its refusals and the point it pushes at; from the stage's joints, the articulation a body is a link of and the fixed joint that holds it to the world), `framing.py`, `isolation.py`, `lighting.py`, `material.py` (set_material's OmniPBR, named by its MDL source), `robot.py` (whether create_robot was given a file or a name, and its prim's name; the articulation root get_joint_states reads), `usd_files.py` (where a USD file a tool is given loads from: a URL, a file on Kit's machine, Isaac Sim's asset library), `stage_open.py` (open_scene's checks before Kit closes the open stage, its sequence, its limits and its answer), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `recording.py` (start_recording's request, the camera check, which updates take a frame and its number, and deleting a camera feed's render product from every layer), `serial.py`, `layers.py` (the files the open stage has loaded, which flatten_usd and export_prim_as_file refuse to write, and the layers Kit holds that they read again from disk), `usd.py` (typed forms of pxr calls the stubs get wrong) |
+| `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, scene_open, simulation, recording, robot, debug_draw, misc, usd_advanced, logging) with shared utilities in `_utils.py` (among them `enable_extension` and the capture to a file, `capture_file_png`, with `capture_feed_png` on it), `camera_feed.py` (a camera rendered at a size in a texture of its own, for a recording or a capture, with a capture's segmentation and its release) and `_mcp_bridge.py` |
 | `config/extension.toml` | Extension metadata and default settings |
 
 ### HTTP Server
@@ -159,7 +159,9 @@ over 10 seconds to send its headers too. Connections without the token never hol
 `protocol` differs from its own, or that has no `/bridge`, and says which side to update. Another
 `extension_version` on the same protocol is not refused: the client keeps it, and `get_sim_state` reports it beside
 the server's, with the install command when it differs from the extension the server carries. `/health` reports
-`protocol` and `extension_version` as well, for people.
+`protocol` and `extension_version` as well, for people. A route the extension lacks, such as an older one's for a new
+tool, answers 404 `Unknown endpoint`, and `bridge_call` adds that the extension is older than this MCP server, with
+the install command; a new route leaves `PROTOCOL` alone, so the other tools go on working.
 
 ### Request routing
 
@@ -180,6 +182,7 @@ the server's, with the install command when it differs from the extension the se
 /scene/visibility    -> handle_set_visibility
 /scene/save          -> handle_save_scene
 /scene/new           -> handle_new_scene
+/scene/open          -> handle_open_scene
 /robot/create        -> handle_create_robot
 /robot/info          -> handle_get_robot_info
 /robot/joint_states  -> handle_get_joint_states
@@ -365,12 +368,40 @@ without it, turned on at the first call by `enable_extension` (`handlers/_utils.
 3. A clear waits for an update with the stage `OPENED`, never while it opens or closes, and the subscription goes
    once nothing is left.
 
+## Opening a Stage
+
+`open_scene` (`handlers/scene_open.py`, its sequence in `core/stage_open.py`) opens a USD file through the USD
+context's own open. Kit closes the open stage before it reads the file, so a file that fails to load leaves no stage
+at all, as Kit's File > Open does. Everything that can refuse runs first (#79):
+
+1. **Checks, the open stage untouched:**
+   - the path rule, `create_robot`'s (`core/usd_files.py`), with Isaac Sim's asset root from
+     `get_assets_root_path_async`, which doesn't stop Kit's loop as `get_assets_root_path` does;
+   - `Usd.Stage.IsSupportedFile`, and no other open under way;
+   - `omni.client.stat_async`, which must answer `OK`; `ERROR_NOT_SUPPORTED` passes under the asset library's root
+     alone, as Isaac Sim's own check takes it;
+   - a local file's header, through `Sdf.FileFormat.CanRead`, which a Git LFS pointer fails.
+
+   The root and the stat share 20 s (`STAT_SECONDS`).
+2. **The timeline stopped,** then an update, as Kit's File > Open does.
+3. **The state read again,** and nothing awaited from there until `open_stage_with_callback` starts Kit's open, so no
+   other request starts one in between. Kit refuses a second open itself, with `UsdContext busy`.
+4. **The open,** waited for up to 80 s (`OPEN_SECONDS`), which leaves 20 s of the client's 120 s. Kit's loop runs
+   during it, so another client's request meanwhile finds no stage. An open past 80 s goes on in Kit after the error.
+5. **The answer,** two updates later, so the recording's and the drawings' update handlers have seen the new stage:
+   the path handed to Kit, the stage it replaced, and the stage's axis, units, default prim and prim count, read as
+   `/sim/state` reads them. A failed open's error follows the state after it: another open under way, no stage, or
+   the stage open now.
+
+Unsaved changes aren't asked about: on Isaac Sim 6.2, `has_pending_edit()` reads true after every new stage, open and
+save, since Kit writes its own render settings into the root layer, so it can't tell a user's edits from Kit's.
+
 ## Robot System
 
 The robot tools use a hybrid approach:
 
 - **`create_robot`** loads a named robot from Isaac Sim's asset library, or a USD file, as a USD reference
-  (`core/robot.py` says from where)
+  (`core/usd_files.py` says from where)
 - **`get_robot_info`** traverses the USD hierarchy to find joints, reading types and limits from USD properties
 - **`get_joint_states`** finds the articulation root as `get_robot_info` does (`core/robot.py`), then reads it
   through Isaac Sim's `isaacsim.core.experimental.prims.Articulation`, a new one per call, while physics plays or is

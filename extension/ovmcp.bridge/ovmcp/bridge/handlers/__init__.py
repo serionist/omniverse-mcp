@@ -61,6 +61,9 @@ from .scene import (
     handle_transform,
 )
 
+# --- Opening a scene ---
+from .scene_open import handle_open_scene
+
 # --- Simulation & physics ---
 from .simulation import (
     handle_apply_force,
@@ -112,6 +115,7 @@ __all__ = [
     "handle_face_count_tree",
     "handle_mesh_stats",
     "handle_new_scene",
+    "handle_open_scene",
     "handle_prim_bounds",
     "handle_prim_properties",
     "handle_save_scene",

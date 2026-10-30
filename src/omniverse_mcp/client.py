@@ -342,6 +342,9 @@ class BridgeClient:
     def new_scene(self) -> dict[str, Any]:
         return self.request("/scene/new", {})
 
+    def open_scene(self, file_path: str) -> dict[str, Any]:
+        return self.request("/scene/open", {"file_path": file_path})
+
     # ----- Robot -----
 
     def create_robot(

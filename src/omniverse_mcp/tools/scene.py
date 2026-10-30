@@ -1,6 +1,6 @@
 """Scene management tools."""
 
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 from mcp.server.mcpserver import MCPServer
 from pydantic import Field
@@ -13,6 +13,26 @@ from ._params import Position, PrimPath, Rotation, Scale
 
 if TYPE_CHECKING:
     from omniverse_mcp.server import Helpers
+
+
+def _open_notes(r: dict[str, Any]) -> list[str]:
+    """What the model should know of a stage open_scene opened, beyond its numbers."""
+    notes: list[str] = []
+    if r.get("up_axis_authored") is False:
+        notes.append(f"the file sets no upAxis: USD reads it as {r['up_axis']}")
+    if r.get("meters_per_unit_authored") is False:
+        notes.append(f"the file sets no metersPerUnit: USD reads it as {r['meters_per_unit']} (centimetres)")
+    if r.get("package"):
+        # Kit calls a .usdz's stage writable, but USD can't save one back.
+        notes.append(
+            "a .usdz package can't be saved back: flatten_usd, or save_scene with a file_path ending .usd or .usda, "
+            "keeps changes"
+        )
+    elif r.get("writable") is False:
+        notes.append("the stage is read-only here: save_scene needs a file_path to keep changes")
+    if r.get("stopped"):
+        notes.append("the simulation was playing or paused: it is stopped now")
+    return notes
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
@@ -269,13 +289,52 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         return f"Scene saved ({r['action']}) -> {r['file_path']}"
 
     @tool(mcp, DESTROYS)
+    def open_scene(
+        file_path: Annotated[
+            str,
+            Field(
+                description="The USD file: a path on Kit's machine, a relative one read from the folder Kit was "
+                "started in; a URL (omniverse://, https://, file:///); or a path in Isaac Sim's asset library "
+                "(/Isaac/...)"
+            ),
+        ],
+    ) -> str:
+        """Open a USD file as the stage, in place of the open one, which goes with its unsaved changes.
+
+        Use it to work on a scene from a file; new_scene starts an empty stage instead, and save_scene writes the open
+        one, so call save_scene first to keep it. Opening the stage's own file reloads it from disk. It stops the
+        simulation first; a recording that runs stops taking frames, and draw_debug's drawings go. Refused, with the
+        open stage kept, for a file that isn't there or can't be reached, a type USD doesn't open, a local file that
+        holds no USD (a Git LFS pointer, say), or while Kit opens or closes a stage. A file that passes those checks
+        and still fails to load leaves no stage open, and the error says so; an open that takes over 80 s goes on in
+        Kit after the error. Answers the path opened, the stage it replaced, and the stage's up axis, meters_per_unit,
+        default prim and prim count, with a note for an axis or units the file leaves to USD's fallbacks.
+        """
+        resp = bridge_call(client.open_scene, file_path)
+        r = resp["result"]
+        lines = [f"Opened {r['file_path']}"]
+        if r.get("replaced"):
+            lines.append(f"replaced = {r['replaced']}")
+        lines += [
+            f"up_axis = {r['up_axis']}",
+            f"meters_per_unit = {r['meters_per_unit']}",
+            f"default_prim = {r.get('default_prim') or 'none'}",
+            f"prim_count = {r['prim_count']}",
+        ]
+        lines += [f"note = {note}" for note in _open_notes(r)]
+        if r.get("recording_note"):
+            lines.append(f"recording_note = {r['recording_note']}")
+        return "\n".join(lines)
+
+    @tool(mcp, DESTROYS)
     def new_scene() -> str:
         """Discard the open stage, unsaved changes included, and open an empty one: Y-up, with a /World Xform as its
         default prim.
 
-        Call save_scene first to keep the old one. Isaac Sim's robots and stages are Z-up: for robot work, set the axis
-        with execute_script (UsdGeom.SetStageUpAxis) before adding anything. The new stage has no file, so save_scene
-        needs a file_path for it. A recording that runs stops taking frames, and draw_debug's drawings go.
+        Call save_scene first to keep the old one. Isaac Sim's robots and stages are Z-up: for robot work, open a Z-up
+        stage with open_scene, or set the axis with execute_script (UsdGeom.SetStageUpAxis) before adding anything.
+        The new stage has no file, so save_scene needs a file_path for it. A recording that runs stops taking frames,
+        and draw_debug's drawings go.
         """
         bridge_call(client.new_scene)
         return "New scene created with /World root prim (Y-up)"
