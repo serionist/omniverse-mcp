@@ -354,7 +354,11 @@ def test_a_removal_that_fails_still_ends_the_recording_and_writes_its_metadata(r
     [
         (lambda kit: setattr(kit, "stage_state", CLOSING), "the stage began to close"),
         (lambda kit: setattr(kit, "stage_id", 2), "the stage changed"),
-        (lambda kit: kit.stage.RemovePrim("/World/RecCam"), "the camera is gone: No prim at /World/RecCam"),
+        (lambda kit: kit.stage.RemovePrim("/World/RecCam"), "the camera is gone: /World/RecCam was deleted"),
+        (
+            lambda kit: UsdGeom.Xform.Define(kit.stage, "/World/RecCam"),
+            "the camera is gone: /World/RecCam is no longer a Camera",
+        ),
     ],
 )
 def test_frames_stop_when_the_stage_changes_or_the_camera_goes(recording, kit, tmp_path, change, says):

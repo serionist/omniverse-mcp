@@ -756,7 +756,7 @@ def test_stop_recording_says_why_frames_stopped_early(bridge: MockIsaacServer, t
 
 
 def test_get_sim_state_says_why_a_recording_s_frames_stopped(bridge: MockIsaacServer, tmp_path: Path):
-    note = "frames stopped after 3, at 0.10 s of simulation: the camera is gone: No prim at /World/RecCam"
+    note = "frames stopped after 3, at 0.10 s of simulation: the camera is gone: /World/RecCam was deleted"
     _check(
         Case(
             "get_sim_state",

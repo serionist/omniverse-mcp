@@ -199,10 +199,12 @@ def _why_frames_stop(session: _Session) -> str | None:
     if context.get_stage_id() != session.stage_id:
         # The feed would go on rendering the new stage, from its default camera (#25's E13).
         return "the stage changed"
-    problem = camera_error(context.get_stage(), session.camera_path)
-    if problem:
-        # A deleted camera renders white frames, with no error from Kit (#25's E8).
-        return f"the camera is gone: {problem}"
+    stage = context.get_stage()
+    if camera_error(stage, session.camera_path):
+        # A deleted camera renders white frames, with no error from Kit (#25's E8). Said plainly: camera_error's
+        # wording is for a start, and its advice to look for another prim doesn't fit a recording under way.
+        deleted = not stage.GetPrimAtPath(session.camera_path).IsValid()
+        return f"the camera is gone: {session.camera_path} {'was deleted' if deleted else 'is no longer a Camera'}"
     return None
 
 
