@@ -137,10 +137,9 @@ The last changes from "a link" to "a body held to the world":
 
   So is a body welded to such a body through more enabled fixed joints. A joint whose target doesn't exist holds
   nothing: PhysX makes no joint of it, though usd-core's parser reads that end as the world (review-code F1;
-  measured in its probe). It doesn't matter whether the body is
-  articulated, or whether the joint is excluded from articulations (`physics:excludeFromArticulation`). This covers
-  an articulation's fixed base, the case PhysX's `fixed_base` names (E6, E11), a link welded to that base, and a cube
-  bolted to the world.
+  measured in its probe). It doesn't matter whether the body is articulated, or whether the joint is excluded from
+  articulations (`physics:excludeFromArticulation`). This covers an articulation's fixed base, the case PhysX's
+  `fixed_base` names (E6, E11), a link welded to that base, and a cube bolted to the world.
 - **Where it is decided:** `held_to_world(stage, body_path) -> str | None` in `core/force.py`, from the stage, so
   usd-core unit-tests it. It returns the body the world joint holds: the body itself, or the base it is welded to.
   - **One traversal:** `held_to_world` and `articulation_holding` share a joint index, which collects each joint's
