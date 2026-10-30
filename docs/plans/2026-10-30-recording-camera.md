@@ -146,14 +146,18 @@ PhysX's pose through a table of the cube's image row at six heights, taken stopp
   delegate the frame's outputs exactly as the viewport does (F3). Nothing else runs in it: no USD, no logging (#5's
   rule), whatever thread Kit calls it on (R1).
 - **`schedule(delegate)` and `withdraw(delegate)`:** a frame given up at its time bound is withdrawn, so no late write
-  lands in a temp file already deleted.
+  lands in a temp file already deleted. `waiting` says whether a capture still waits for its frame.
 - **`first_frame(seconds)`:** waits for the first drawable-changed event, bounded. A feed capture waits on the feed's
   own frames only, never the viewport's (Overlap).
 - **`drop()`:** the subscription first, then `set_updates_enabled(False)` and the texture (F5). Safe to call twice.
 - **`remove_render_product(stage)`:** deletes the render product's path from every layer of `stage` that holds a
   spec of it, as Replicator does (F5), and its target from `/Render/OmniverseGlobalRenderSettings`'s `products` in
   every layer that lists it (E22), only while the stage is `OPENED`. It clears the prim on the stage the feed was
-  made on and on a new one (E12, E13). The path is kept when the feed is made, so it is known after `drop()`.
+  made on and on a new one (E12, E13). The path is kept when the feed is made, so it is known after `drop()`. The
+  deletion itself is Kit-free, `delete_render_product(stage, path)` in `core/recording.py`, unit-tested on usd-core.
+- **`discard(feed)`** (a module function): drops the feed and removes its render product from the stage open now, or,
+  while none is, from the next one once it opens, through an update subscription of its own; `forget()` drops those
+  waiting, at the extension's shutdown.
 
 `capture_viewport_png`'s body becomes `capture_file_png(schedule, budget)` in `handlers/_utils.py`: a temp file of its
 own, `capture.capture_png`, the unlink. `capture_viewport_png(viewport, budget)` and the new
@@ -163,19 +167,20 @@ own, `capture.capture_png`, the unlink. `capture_viewport_png(viewport, budget)`
 
 - **`recording_args(body)`:** a `RecordingArgs` or a `ValueError` that says what is wrong. `output_dir` required;
   `fps` a whole number, not a boolean, at least 1; `width` and `height` through the one size check the three tools
-  share (Q8, Overlap): whole numbers from 1 to `MAX_SIDE = 4096` each (Q2); `camera_path` a string; `track_prims`
-  and `property_filter` lists of strings or none.
+  share (Q8, Overlap), `capture.frame_size(width, height)` with `capture.MAX_SIDE = 4096` in `core/capture.py`: whole
+  numbers from 1 to 4096 each (Q2); `camera_path` a string; `track_prims` and `property_filter` lists of strings or
+  none.
 - **`steps_per_frame(time_codes_per_second, fps)`,** as today's inline `max(1, int(...))`.
 - **`camera_error(stage, path)`:** why `path` can't be recorded from (no prim there, or not a `UsdGeom.Camera`), or
   `None`; usd-core runs it in the tests.
-- **`FrameClock(steps_per_frame)`:** `tick()` is the number of the frame to take on this update, or `None`: every
-  `steps_per_frame`-th update, while no frame awaits its render and fewer than `MAX_IN_FLIGHT = 4` frames are in
-  flight; `rendered()` and `done()` free them. Rendering every update, a frame arrives on its request's update (E17),
-  so the first rule costs nothing; it keeps two frames from sharing a render, as they did on demand (E18). Numbers
-  start at 0 and never repeat. A frame takes about four app updates (E15), most of them after its render (E17): with
-  one in flight, `fps=30` gave 15 frames a second; four leave room for more while their files are written, and the
-  one awaiting its render holds a feed that renders nothing to one wait at a time. A tick skipped shows as a gap in
-  the frames' `sim_time` (Q5).
+- **`FrameClock(steps_per_frame)`:** `tick(render_pending)` is the number of the frame to take on this update, or
+  `None`: every `steps_per_frame`-th update, unless a frame awaits its render (the feed's `waiting`, passed in) or
+  `MAX_IN_FLIGHT = 4` frames are in flight; `done()` frees a place. Rendering every update, a frame arrives on its
+  request's update (E17), so the first rule costs nothing; it keeps two frames from sharing a render, as they did on
+  demand (E18). Numbers start at 0 and never repeat. A frame takes about four app updates (E15), most of them after
+  its render (E17): with one in flight, `fps=30` gave 15 frames a second; four leave room for more while their files
+  are written, and the one awaiting its render holds a feed that renders nothing to one wait at a time. A tick
+  skipped shows as a gap in the frames' `sim_time` (Q5).
 
 ### The recording handler (`handlers/recording.py`)
 
@@ -244,15 +249,15 @@ Two plans planned alongside this one touch the same code. Each lands on its own;
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 | Keep the tool's schema as it is (defaults 640, 480, `""`; minimum 1), so a default call now records 640x480 from the active camera, where it recorded the viewport's size? | Yes: 640x480 is what the contract has always said; "0 means the viewport's size" would be a schema change for a case `capture_viewport` covers || As recommended (2026-10-30) |
-| Q2 | Cap a side at 4096, as #51 does, refused by the extension, not in the schema? | Yes: 4096x4096 works, a 6.5 MB frame in 1.14 s, though rendering it every update leaves a quarter of the app's updates headless (E20), which TOOLS.md says; a schema `maximum` is a contract change for no gain. #51's round-1 plan (`00469be`) names 3840x2160 a frame besides; this plan measured 4096x4096 and keeps 4096 a side alone, for the shared check (Q8) || As recommended (2026-10-30) |
-| Q3 | Keep #52's warning for an extension of 0.2.2 or older, told apart by `render_product` missing from its answer? | Yes, with the install line: a new server on an old extension would otherwise say nothing again || As recommended (2026-10-30) |
-| Q4 | When the stage changes or the camera goes mid-recording, stop taking frames and say so at stop, rather than record near-black or white frames (E8, E9)? | Yes || As recommended (2026-10-30) |
-| Q5 | Up to four frames in flight, each numbered at its tick, where today's unbounded ticks overwrite each other (E10) and one in flight halves `fps=30` (E15)? | Four: close to the `fps` asked, and bounded || As recommended (2026-10-30) |
-| Q6 | #51's direction (resize the viewport for a capture, or capture through this plan's feed), and the merge order of #51, #57 and #25 | #51's own call; whichever order, the second to land takes the first's size check, and #51's recording skip goes (Overlap) || As recommended (2026-10-30) |
-| Q7 | Frames overwriting each other (E10) gets an issue of its own, closed by this PR, with its own CHANGELOG line? | Yes: a bug users hit at any `fps` whose ticks outrun a capture, apart from #25's camera and size || As recommended (2026-10-30) |
-| Q8 | One size check in `ovmcp/core` for `capture_viewport`, `inspect_prim` and `start_recording`? | Yes: one cap, one message, one test || As recommended (2026-10-30) |
-| Q9 | The feed renders every update while the recording runs (settled frames; a third of the app's updates at 640x480 headless, three quarters at 4096x4096, E20), or only for each frame (nothing measurable between frames; frames about four times the settled noise under real-time path tracing, E23)? | Every update: recorded frames match what the viewport shows, and the cost lasts only while recording. Headless, where each update advances the simulation a fixed step (E15: 161 updates, 2.63 s simulated), it slows the run's wall time, not its results. A warm-up of a few updates before each frame is a middle way no run here has measured || As recommended (2026-10-30) |
+| Q1 | Keep the tool's schema as it is (defaults 640, 480, `""`; minimum 1), so a default call now records 640x480 from the active camera, where it recorded the viewport's size? | Yes: 640x480 is what the contract has always said; "0 means the viewport's size" would be a schema change for a case `capture_viewport` covers | As recommended (2026-10-30) |
+| Q2 | Cap a side at 4096, as #51 does, refused by the extension, not in the schema? | Yes: 4096x4096 works, a 6.5 MB frame in 1.14 s, though rendering it every update leaves a quarter of the app's updates headless (E20), which TOOLS.md says; a schema `maximum` is a contract change for no gain. #51's round-1 plan (`00469be`) names 3840x2160 a frame besides; this plan measured 4096x4096 and keeps 4096 a side alone, for the shared check (Q8) | As recommended (2026-10-30) |
+| Q3 | Keep #52's warning for an extension of 0.2.2 or older, told apart by `render_product` missing from its answer? | Yes, with the install line: a new server on an old extension would otherwise say nothing again | As recommended (2026-10-30) |
+| Q4 | When the stage changes or the camera goes mid-recording, stop taking frames and say so at stop, rather than record near-black or white frames (E8, E9)? | Yes | As recommended (2026-10-30) |
+| Q5 | Up to four frames in flight, each numbered at its tick, where today's unbounded ticks overwrite each other (E10) and one in flight halves `fps=30` (E15)? | Four: close to the `fps` asked, and bounded | As recommended (2026-10-30) |
+| Q6 | #51's direction (resize the viewport for a capture, or capture through this plan's feed), and the merge order of #51, #57 and #25 | #51's own call; whichever order, the second to land takes the first's size check, and #51's recording skip goes (Overlap) | As recommended (2026-10-30) |
+| Q7 | Frames overwriting each other (E10) gets an issue of its own, closed by this PR, with its own CHANGELOG line? | Yes: a bug users hit at any `fps` whose ticks outrun a capture, apart from #25's camera and size | As recommended (2026-10-30) |
+| Q8 | One size check in `ovmcp/core` for `capture_viewport`, `inspect_prim` and `start_recording`? | Yes: one cap, one message, one test | As recommended (2026-10-30) |
+| Q9 | The feed renders every update while the recording runs (settled frames; a third of the app's updates at 640x480 headless, three quarters at 4096x4096, E20), or only for each frame (nothing measurable between frames; frames about four times the settled noise under real-time path tracing, E23)? | Every update: recorded frames match what the viewport shows, and the cost lasts only while recording. Headless, where each update advances the simulation a fixed step (E15: 161 updates, 2.63 s simulated), it slows the run's wall time, not its results. A warm-up of a few updates before each frame is a middle way no run here has measured | As recommended (2026-10-30) |
 
 ## Compatibility
 
