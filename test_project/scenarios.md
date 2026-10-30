@@ -479,7 +479,8 @@ Each step waits for its drawings to expire before the next.
 - Verify: the zigzag shows in the capture
 - Drawn and captured at once, 5 times, in one `execute_script` (`draw_debug`'s handler, then
   `mcp.capture_viewport()`), each from an empty view: with `ovmcp.core.capture.FRESH_FRAMES` set to 0 for that call,
-  at least one capture misses the zigzag (the renderer's trail, #57); as shipped, every one holds it
+  captures usually miss the zigzag (the renderer's trail, #57; with async rendering it sometimes keeps up, so this is
+  recorded, not required); as shipped, every one holds it
 
 ### 16.9 The omni.debugdraw Backend
 - `execute_script`: `from ovmcp.bridge.handlers.debug_draw import choose_backend; result = choose_backend(("omni.debugdraw",))`

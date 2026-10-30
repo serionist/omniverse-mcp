@@ -243,8 +243,10 @@ are. `FRESH_FRAMES` is a constant in the core, not an extension setting.
    `test_integration.py`'s `_SHORTEN` way, a token and a 60 s timed undo, the snippet shared through `conftest.py`.
    `test_16_08` (with `isaacsim.util.debug_draw`) and `test_16_09` (with `omni.debugdraw`) keep their checks over
    HTTP and add this one twice:
-   - first with `fresh_frames=0`: at least one of the 5 captures misses, so the test shows on its own bridge that the
-     trail is there (Design measured 15 and 14 misses of 15 without the wait);
+   - first with `fresh_frames=0`: its misses are printed, to show the trail on this bridge (Design measured 15 and 14
+     misses of 15 without the wait). Departed from in the build: this asserted at least one miss, but with async
+     rendering the renderer sometimes kept up (the no-wait half held the drawing in 3, 5, 3 and 5 captures of 5), so
+     it is recorded, not asserted; `765d51c`'s bridge still fails the test, on the half below;
    - then as shipped: each of the 5 holds over 100 red pixels;
    - each time, a capture that ended after its drawing's 1 s fails as "Kit was slow", as `test_16_09` does now.
 
