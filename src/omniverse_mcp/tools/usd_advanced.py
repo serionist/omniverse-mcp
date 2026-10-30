@@ -61,7 +61,13 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
     @tool(mcp, DESTROYS)
     def flatten_usd(
-        output_path: Annotated[str, Field(description="The USD file to write, on Kit's machine; overwritten if there")],
+        output_path: Annotated[
+            str,
+            Field(
+                description="The USD file to write, on Kit's machine; overwritten if there, but never one the open "
+                "stage has loaded"
+            ),
+        ],
         input_path: Annotated[
             str,
             Field(
@@ -74,9 +80,11 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Use it to hand the whole scene to another tool as one file; save_scene keeps the references and writes only the
         root layer, and export_prim_as_file writes one prim's subtree. Leave input_path empty for the open stage, or
-        name another USD file. output_path is overwritten; textures and other files the stage points at are not copied.
-        Never name a file the open stage has loaded (its own file, a sublayer, a referenced asset) as either path: the
-        bridge first clears an open layer of that name in memory, which empties it in the open scene too.
+        name a USD file: one the open stage has loaded, its own file included, is flattened as Kit holds it, unsaved
+        edits too, and the open stage is left as it is. output_path is overwritten, but one the open stage has loaded
+        (its own file, a sublayer, a referenced or payload file) is an error, since writing it would replace a file the
+        open scene is made of: name another path, or save the open stage with save_scene. Textures and other files the
+        stage points at are not copied.
         """
         resp = bridge_call(client.flatten_usd, output_path, input_path)
         r = resp["result"]
@@ -88,7 +96,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         output_path: Annotated[
             str,
             Field(
-                description="The file to write on Kit's machine: .usd, .usda or .usdc, which a path without one gets"
+                description="The file to write on Kit's machine: .usd, .usda or .usdc, which a path without one gets; "
+                "never one the open stage has loaded"
             ),
         ],
     ) -> str:
@@ -97,9 +106,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         The prim becomes /<its name> and the file's default prim, with the stage's up axis and units. Use it to hand
         one asset to another tool or project; flatten_usd writes the whole stage, save_scene the root layer as it is.
-        output_path is overwritten. Never name a file the open stage has loaded: the bridge first clears an open layer
-        of that name in memory, which empties it in the open scene too. Textures and other files the subtree points at
-        are not copied.
+        output_path is overwritten, but one the open stage has loaded (its own file, a sublayer, a referenced or
+        payload file) is an error, since writing it would replace a file the open scene is made of: name another path.
+        An error too when the prim doesn't exist. Textures and other files the subtree points at are not copied.
         """
         resp = bridge_call(client.export_prim, prim_path, output_path)
         r = resp["result"]

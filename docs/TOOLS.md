@@ -336,16 +336,22 @@ Write a stage flattened into one USD file: its references, payloads and sublayer
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `output_path` | string | required | Where to write the flattened USD file, on Kit's machine; a file there is overwritten |
+| `output_path` | string | required | Where to write the flattened USD file, on Kit's machine; a file there is overwritten, but never one the open stage has loaded |
 | `input_path` | string | `""` | Source USD file (default: the open stage, unsaved edits included) |
 
 **Returns:** Input/output paths and number of layers resolved.
 
 Textures and other files the stage points at are not copied.
 
-> **Never name a file the open stage has loaded** (its own file, a sublayer, a referenced asset) as `input_path` or
-> `output_path`: the bridge first clears an open layer of that name in memory, which empties it in the open scene too.
-> For the open stage, leave `input_path` empty.
+- **An `input_path` Kit has loaded** is flattened as Kit holds it, unsaved edits included, and the open stage is left
+  as it is: its own file, a sublayer, or a referenced or payload file. A file Kit holds that the open stage doesn't use
+  is read again from disk first, unless it has unsaved edits, so a file changed since Kit loaded it is flattened as it
+  is now.
+- **An `output_path` the open stage has loaded is refused** before anything is written: its own file, a sublayer, its
+  session layer, or a referenced or payload file it has loaded (an unloaded payload's file isn't one). Writing it would
+  replace a file under the open scene. Name another path, or use `save_scene` to save the open stage to its own file. A
+  file Kit holds outside the open stage with unsaved edits is refused too, since writing it would lose them; one with
+  none is read again after the write, so the next open gets the new file.
 
 **When to use:** Before modifying a component (flatten first so all references are resolved), preparing a file for external tools.
 `save_scene` keeps the references and writes only the root layer; `export_prim_as_file` writes one prim's subtree.
@@ -359,15 +365,15 @@ Export a prim subtree as a standalone USD file.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Root of the subtree to export |
-| `output_path` | string | required | Destination file (.usd, .usda or .usdc; .usdc by default) |
+| `output_path` | string | required | Destination file (.usd, .usda or .usdc; .usdc by default); never one the open stage has loaded |
 
 **Returns:** Output path, target root prim name, material count, up axis.
 
 Flattens the source (resolves all references) and includes materials even if they live outside the exported subtree. Output is self-contained and can be imported into Blender or other DCC tools.
 The prim becomes `/<its name>` and the file's default prim, with the stage's up axis and units. `output_path` is on
 Kit's machine and is overwritten; textures and other files the subtree points at are not copied. As with
-`flatten_usd`, never name a file the open stage has loaded: the bridge first clears an open layer of that name in
-memory, which empties it in the open scene too.
+`flatten_usd`, an `output_path` the open stage has loaded is refused before anything is written, and so is one Kit holds
+with unsaved edits; a file Kit holds without any is written and read again. An error too when the prim doesn't exist.
 
 ---
 

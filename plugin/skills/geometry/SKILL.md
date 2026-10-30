@@ -27,7 +27,8 @@ before calling them.
    viewport, where a switch from `execute_script` leaves stale geometry on screen.
 4. **Asset preparation.**
    - `flatten_usd` resolves every reference into one file; `export_prim_as_file` writes a subtree as a self-contained
-     file. Both overwrite the output path: confirm it with the user.
+     file. Both overwrite the output path: confirm it with the user. Both refuse a file the open stage has loaded, its
+     own included: write elsewhere, or `save_scene` to save the open stage itself.
    - After copying assets to a new folder, `update_material_paths(old_prefix, new_prefix)` rebinds materials.
 5. **Check** with `capture_viewport` at one camera position for each state you compare: capture both variants
    before moving the camera, never all of one and then all of the other.
@@ -38,6 +39,6 @@ before calling them.
 |---|---|
 | Stale bounds after a variant switch | `compare_prims` and `set_variant_selection` clear the bounds cache; a script must do it too |
 | Edits inside a variant land on the root layer | Usd-level APIs ignore the variant edit context: a script uses the `Sdf` layer API |
-| A layer reused from cache | a script that writes a new layer calls `Sdf.Layer.Find(path).Clear()` first; the tools do |
+| A layer Kit already holds for a path | never `Clear()` it: if the open stage uses it, the scene empties. A script writes a file from an in-memory layer with `Export`, and `Reload()`s a held layer only when `stage.GetUsedLayers()` lacks it and `layer.dirty` is false; the tools refuse to write a file the open stage has loaded |
 | `prim.SetActive()` in a script moves the camera | Kit may frame the prim again: avoid it in scripts |
 | `stage.Flush()` | does not exist in OpenUSD |

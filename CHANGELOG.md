@@ -39,6 +39,14 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   refused, since no force moves it: a robot's fixed base, a link welded to one, or a lone body, which answered
   success and moved nothing. So is every push under PhysX's Direct GPU API, where none moves anything (#68). The fix
   is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#58).
+- **`flatten_usd` no longer empties the open scene, and neither it nor `export_prim_as_file` writes over a file the
+  open stage has loaded:** both cleared the layer Kit held for their paths, so flattening the open stage's own file,
+  or writing to it, a sublayer or a referenced file, emptied that layer in the open scene. A file the open stage has
+  loaded is now flattened as Kit holds it, unsaved edits too, and the open stage is left as it is; as an output, it is
+  refused before anything is written, with an error that says to name another path or use `save_scene`. So is a file
+  Kit holds outside the open stage with unsaved edits; one without is read again after the write, so the next open
+  gets the new file. `export_prim_as_file` no longer fails with "A layer already exists" on a file Kit holds. The fix
+  is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#81).
 
 ### Changed
 
