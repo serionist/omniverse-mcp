@@ -63,24 +63,46 @@ class _KitCapture:
 
 
 class _Kit:
-    """The bridge's side of capture_png: Kit's capture, the file Kit writes, and the app's updates on a fake clock."""
+    """The bridge's side of capture_png: Kit's capture, the file Kit writes, the viewport's frames and the app's
+    updates on a fake clock, and the order the capture asked for frames and scheduled in."""
 
-    def __init__(self, files=(), *, result=("LdrColor",), done=True, schedules=True, update_seconds=1.0):
+    def __init__(
+        self,
+        files=(),
+        *,
+        result=("LdrColor",),
+        done=True,
+        schedules=True,
+        update_seconds=1.0,
+        frame_seconds=0.0,
+        frames_come=True,
+    ):
         self.files = list(files)  # what each read gives, the last one again once they run out
         self.result = list(result) if isinstance(result, tuple) else result
         self.done = done
         self.schedules = schedules
         self.update_seconds = update_seconds
+        self.frame_seconds = frame_seconds
+        self.frames_come = frames_come
         self.clock = _Clock()
         self.capture: _KitCapture | None = None
+        self.events: list[str] = []
         self.reads = 0
         self.updates = 0
 
     def schedule(self):
+        self.events.append("schedule")
         if not self.schedules:
             return None
         self.capture = _KitCapture(self.result, done=self.done)
         return self.capture
+
+    async def next_frame(self):
+        self.events.append("frame")
+        if not self.frames_come:
+            await asyncio.get_running_loop().create_future()
+        self.clock.now += self.frame_seconds
+        await asyncio.sleep(0)
 
     def read_file(self) -> bytes:
         self.reads += 1
@@ -94,8 +116,11 @@ class _Kit:
         self.clock.now += self.update_seconds
         await asyncio.sleep(0)
 
-    async def png(self, budget=None):
-        return await capture_png(self.schedule, self.read_file, self.next_update, budget, self.clock)
+    async def png(self, budget=None, *, fresh=False):
+        next_frame = self.next_frame if fresh else None
+        return await capture_png(
+            self.schedule, self.read_file, self.next_update, budget, self.clock, next_frame=next_frame
+        )
 
 
 def test_a_capture_returns_the_png_once_the_file_is_whole():
@@ -140,6 +165,52 @@ def test_a_frame_that_never_comes_is_no_frame(monkeypatch):
 
     _run(main())
     assert kit.reads == 0
+
+
+def test_fresh_frames_pass_before_the_capture_is_scheduled():
+    # Kit captures the next frame the viewport delivers, which the renderer made about 3 updates earlier: a drawing
+    # made just before was missing from it (#57).
+    assert capture.FRESH_FRAMES == 4
+    kit = _Kit([_WHOLE], frame_seconds=0.25)
+
+    png = _run(kit.png(fresh=True))
+
+    assert kit.events == ["frame"] * 4 + ["schedule"]
+    assert png.fresh_seconds == 1.0
+    assert png.data == _WHOLE
+
+    # Without next_frame, as recording calls it, the capture is scheduled at once.
+    kit = _Kit([_WHOLE])
+    png = _run(kit.png())
+    assert kit.events == ["schedule"]
+    assert png.fresh_seconds == 0.0
+
+
+def test_a_viewport_that_renders_nothing_schedules_no_capture(monkeypatch):
+    monkeypatch.setattr(capture, "FRAME_SECONDS", 0.05)
+    kit = _Kit([_WHOLE], frames_come=False)
+
+    with pytest.raises(NoFrameError, match=r"no frame in 0\.05 s"):
+        _run(kit.png(fresh=True))
+
+    assert kit.events == ["frame"]
+    assert kit.capture is None
+
+
+def test_the_budget_caps_the_fresh_frames():
+    # Each frame takes 1 s on the fake clock: a budget of 2.5 s has nothing left for the fourth.
+    kit = _Kit([_WHOLE], frame_seconds=1.0)
+    with pytest.raises(OutOfTimeError):
+        _run(kit.png(Budget(2.5, kit.clock), fresh=True))
+    assert kit.events == ["frame"] * 3
+    assert kit.capture is None
+
+    # Frames that spend all of it start no capture: its file would come after the call.
+    kit = _Kit([_WHOLE], frame_seconds=1.0)
+    with pytest.raises(OutOfTimeError):
+        _run(kit.png(Budget(4, kit.clock), fresh=True))
+    assert kit.events == ["frame"] * 4
+    assert kit.capture is None
 
 
 def test_a_file_that_never_comes_fails_after_file_seconds():
@@ -339,6 +410,12 @@ def test_the_waits_read_their_seconds_when_called(monkeypatch):
     assert kit.clock.now == 3.0
 
     assert SegmentationWaits().seconds("stage") == 2.0
+
+    # Set to 0, as the live tests do to show the miss there without the wait.
+    monkeypatch.setattr(capture, "FRESH_FRAMES", 0)
+    kit = _Kit([_WHOLE])
+    _run(kit.png(fresh=True))
+    assert kit.events == ["schedule"]
 
 
 def test_a_call_ends_before_the_server_gives_up():
