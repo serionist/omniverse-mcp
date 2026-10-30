@@ -3,8 +3,8 @@
 - An int index into a Gf vector is typed as giving a list; it gives a float.
 - IsA and HasAPI are typed to take a TfType or a schema's name; pxr converts a schema class to its TfType.
 - Prim.GetChildren is typed as a list of unknowns; GetChildrenNames, which gives the same children, is typed.
-- A layer's GetPrimAtPath and GetAttributeAtPath are typed as always finding a spec; they give None for a path the
-  layer has none for.
+- A layer's GetPrimAtPath, GetAttributeAtPath and GetRelationshipAtPath are typed as always finding a spec; they give
+  None for a path the layer has none for.
 - A prim spec's nameChildren is typed without __delitem__.
 """
 
@@ -47,6 +47,10 @@ def prim_spec(layer: Sdf.Layer, path: Sdf.Path) -> Sdf.PrimSpec | None:
 
 def attribute_spec(layer: Sdf.Layer, path: Sdf.Path) -> Sdf.AttributeSpec | None:
     return layer.GetAttributeAtPath(path)
+
+
+def relationship_spec(layer: Sdf.Layer, path: Sdf.Path) -> Sdf.RelationshipSpec | None:
+    return layer.GetRelationshipAtPath(path)
 
 
 def remove_child_spec(parent: Sdf.PrimSpec, name: str) -> None:

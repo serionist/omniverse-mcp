@@ -439,6 +439,29 @@ def test_the_waits_read_their_seconds_when_called(monkeypatch):
     assert kit.events == ["schedule"]
 
 
+@pytest.mark.parametrize(("width", "height"), [(1, 1), (640, 480), (capture.MAX_SIDE, capture.MAX_SIDE)])
+def test_a_frame_size_from_1_to_the_limit_is_taken(width, height):
+    assert capture.frame_size(width, height) == (width, height)
+
+
+@pytest.mark.parametrize(
+    ("width", "height", "named"),
+    [
+        (0, 480, "width"),
+        (640, -1, "height"),
+        (capture.MAX_SIDE + 1, 480, "width"),
+        (640, capture.MAX_SIDE + 1, "height"),
+        (True, 480, "width"),  # an int to Python, and 1 pixel wide
+        (640.0, 480, "width"),
+        ("640", 480, "width"),
+        (640, None, "height"),
+    ],
+)
+def test_a_frame_size_out_of_range_or_not_whole_is_refused_naming_the_value(width, height, named):
+    with pytest.raises(ValueError, match=rf"^{named} must be a whole number of pixels from 1 to 4096, got "):
+        capture.frame_size(width, height)
+
+
 def test_a_call_ends_before_the_server_gives_up():
     # The bridge sends nothing until a handler returns, so the server's socket timeout bounds the whole call; 20 s are
     # left for encoding the images and sending them.
