@@ -29,7 +29,7 @@ def bridge_call(fn: Callable[..., dict[str, Any]], *args: Any, **kwargs: Any) ->
         message = str(resp.get("error", "the bridge reported an error"))
         if message.startswith(UNKNOWN_ROUTE):
             message += (
-                ". The Kit extension is older than this server and lacks this tool: install the server's, "
+                ". The Kit extension is older than this MCP server and lacks this tool: install the server's, "
                 f"{install_command()}, then restart Kit"
             )
         traceback = str(resp.get("traceback", "")).strip()

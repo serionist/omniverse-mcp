@@ -958,8 +958,9 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(r["status"], "success", r)
 
     def _cube_is_there(self) -> None:
+        """test_31's cube: there before a refused open, as test_31 left it, and after, since the open stage stays."""
         r = self.client.prim_properties(self.OPENED_CUBE)
-        self.assertEqual(r["status"], "success", "the open stage went with a refused open")
+        self.assertEqual(r["status"], "success", "test_31's cube isn't on the open stage")
 
     def test_31_open_scene_opens_a_saved_scene_again(self):
         r = self.client.create_prim(self.OPENED_CUBE, "Cube")
@@ -983,6 +984,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
 
     def test_32_open_scene_refuses_a_missing_file_before_kit_closes_the_stage(self):
         # Kit closes the open stage before it reads the file (#79's E7): the path rule refuses first.
+        self._cube_is_there()
         missing = Path(tempfile.gettempdir()) / self.MISSING
         r = self._open(str(missing))
         self.assertEqual(r["status"], "error", r)
@@ -990,6 +992,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self._cube_is_there()
 
     def test_33_open_scene_refuses_a_file_usd_cant_open(self):
+        self._cube_is_there()
         folder = Path(tempfile.mkdtemp(prefix="ovmcp-open-"))
         self.addCleanup(shutil.rmtree, folder, True)
         notes = folder / "notes.txt"
@@ -1001,6 +1004,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
 
     def test_34_open_scene_refuses_a_url_with_no_file(self):
         # A URL isn't looked for on disk: omni.client's stat refuses it.
+        self._cube_is_there()
         url = (Path(tempfile.gettempdir()) / self.MISSING).as_uri()
         r = self._open(url)
         self.assertEqual(r["status"], "error", r)
@@ -1008,6 +1012,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self._cube_is_there()
 
     def test_35_open_scene_reads_a_relative_path_from_kit_s_folder(self):
+        self._cube_is_there()
         r = self.client.execute(f"import os\nresult = os.path.join(os.getcwd(), *{self.MISSING.split('/')!r})")
         self.assertEqual(r["status"], "success", r)
         whole = r["result"]["return_value"]

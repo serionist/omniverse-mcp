@@ -159,7 +159,9 @@ over 10 seconds to send its headers too. Connections without the token never hol
 `protocol` differs from its own, or that has no `/bridge`, and says which side to update. Another
 `extension_version` on the same protocol is not refused: the client keeps it, and `get_sim_state` reports it beside
 the server's, with the install command when it differs from the extension the server carries. `/health` reports
-`protocol` and `extension_version` as well, for people.
+`protocol` and `extension_version` as well, for people. A route the extension lacks, such as an older one's for a new
+tool, answers 404 `Unknown endpoint`, and `bridge_call` adds that the extension is older than this MCP server, with
+the install command; a new route leaves `PROTOCOL` alone, so the other tools go on working.
 
 ### Request routing
 

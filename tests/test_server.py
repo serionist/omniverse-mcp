@@ -87,7 +87,7 @@ def test_a_route_an_older_extension_lacks_names_the_command_that_installs_this_s
 
     assert result.is_error
     text = result.content[0].text
-    assert "Unknown endpoint: /scene/open. The Kit extension is older than this server" in text
+    assert "Unknown endpoint: /scene/open. The Kit extension is older than this MCP server" in text
     assert f"{install_command()}, then restart Kit" in text
 
 

@@ -721,7 +721,7 @@ def test_open_scene_says_what_the_model_should_know_of_the_stage(bridge: MockIsa
         "note = the file sets no upAxis: USD reads it as Y",
         "note = the file sets no metersPerUnit: USD reads it as 0.01 (centimetres)",
         "note = a .usdz package can't be saved back: flatten_usd, or save_scene with a file_path ending .usd or .usda",
-        "note = the simulation was running: it is stopped now",
+        "note = the simulation was playing or paused: it is stopped now",
         "recording_note = frames stopped after 28, at 0.00 s of simulation: the stage began to close",
     )
     text = _check(_open_scene(OPENED_WITH_NOTES, says), bridge, tmp_path)

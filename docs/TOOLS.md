@@ -285,6 +285,8 @@ to keep it. `new_scene` starts an empty stage instead.
 - **Time:** the checks take at most 20 s and the open 80 s; a small file opens in under a second, Isaac Sim's
   `simple_room.usd` over HTTPS in about 2.5 s. An open past 80 s goes on in Kit after the error: no stage is open
   until it has, so tools that read the stage fail, and `get_sim_state` answers once it has opened.
+- **An extension of 0.2.2 or older** has no `open_scene`: the error says the Kit extension is older than this MCP
+  server, with the command that installs this release's extension; then restart Kit.
 
 **Returns:** `Opened` with the path or URL handed to Kit, `replaced` with the stage it replaced (`an unsaved stage`
 for one never saved), then `up_axis`, `meters_per_unit`, `default_prim` and `prim_count`, as `get_sim_state` reports
@@ -292,8 +294,8 @@ them. A `note` line each:
 
 - a file that sets no `upAxis` or `metersPerUnit`: USD reads them as Y and 0.01, centimetres;
 - a `.usdz`, which can't be saved back: `flatten_usd`, or `save_scene` with a `.usd` or `.usda` `file_path`;
-- a read-only stage, such as a URL's: `save_scene` needs a `file_path`;
-- the simulation was running, and is stopped now.
+- a stage Kit calls read-only, such as an `https://` URL's: `save_scene` needs a `file_path`;
+- the simulation was playing or paused, and is stopped now.
 
 A recording that stopped gives its `recording_note`, as `get_sim_state` does.
 

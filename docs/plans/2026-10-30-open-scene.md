@@ -274,8 +274,8 @@ little. It builds the `StageKit` from Kit's calls and awaits `stage_open.open_st
 - `start_open(url)` calls `open_stage_with_callback(url, callback)` itself, as `open_stage_async` does inside (F4),
   so Kit's open starts in the same step as the state check. Its callback sets the future only while it isn't done.
   A `False` return with no answer yet fails at once: Kit called back `(False, "UsdContext busy")` in E14, but when
-  was not measured (built so: the plan waited for that callback). A context without
-  `open_stage_with_callback` gets `ensure_future(open_stage_async(url))`, the call Isaac Sim 5.1 makes (F8);
+  was not measured (built so: the plan waited for that callback). No fallback to `open_stage_async` (dropped in
+  code review: `open_stage_async`, the call Isaac Sim 5.1 makes (F8), is omni.usd's wrapper over this same call, F4);
 - `omni.client.stat_async`;
 - `isaacsim.storage.native.get_assets_root_path_async()`, imported at the call, in 5.1 and 6.2 (F11). Without the
   module, there is no root;
@@ -331,7 +331,7 @@ What users notice:
   - Kit 110 measured (E1 to E14).
   - Kit 107 through Isaac Sim 5.1's own calls: `open_stage_async` returning `(result, error)`, `stat_async` under
     `wait_for` (F8), and `get_assets_root_path_async` (F11). `StageState` the bridge already reads on both.
-    `open_stage_with_callback` there is unread, and its absence falls back to `open_stage_async` (R7).
+    `open_stage_with_callback` there is unread, but `open_stage_async` is omni.usd's wrapper over it (F4; R7).
   - Kit apps without Isaac Sim's asset library, such as USD Composer: a `/Isaac/...` path is refused, saying the app
     has no such library.
 
@@ -392,7 +392,6 @@ its file with Kit's modules faked in `sys.modules`, against the real core:
 
 - `start_open` calls `open_stage_with_callback` before it returns, and its future takes the callback's answer once;
 - a `False` start, with Kit's busy callback, reaches the core as `(False, "UsdContext busy")`;
-- a context without `open_stage_with_callback` opens through `open_stage_async`;
 - the asset root comes from `get_assets_root_path_async`, and a Kit without `isaacsim.storage.native` has none;
 - the timeline is stopped, and `stop_timeline` says whether it was running.
 
@@ -476,7 +475,7 @@ The section's calls go through a second client with the server's 120 s timeout, 
 | R4 | Kit writes its `/Render` prims into an opened file's root layer, and `save_scene` without a path writes them into the file (E6) | Not ours: Kit's own Save does the same, and any stage opened in the GUI has it today. Out of scope |
 | R5 | `create_robot`'s `get_assets_root_path()` blocks Kit's loop for up to 10 s a server, and raises offline past `_assets_root`'s `ImportError` (F11) | Resolved for `open_scene`, which uses the async form within its budget. Accepted for `create_robot`, as today: out of scope |
 | R6 | A stat can refuse a URL Kit could open, from a server that answers no stat | Accepted: Kit's File > Open refuses it the same way (F6); under the asset root, `ERROR_NOT_SUPPORTED` goes on (Q6) |
-| R7 | Kit 107 untested live, and its `open_stage_with_callback` unread | Accepted: F8's and F11's calls are Isaac Sim 5.1's own, and a context without `open_stage_with_callback` uses `open_stage_async` |
+| R7 | Kit 107 untested live, and its `open_stage_with_callback` unread | Accepted: F8's and F11's calls are Isaac Sim 5.1's own, and its `open_stage_async` is omni.usd's wrapper over `open_stage_with_callback` (F4). The plan's fallback to `open_stage_async` was dropped in code review |
 | R8 | `test_31` and `test_36` leave Kit's stage tied to temp files their cleanups delete; a save there writes them again | Accepted: the live suites run on a test Kit, and the stage's content is the suite's own |
 
 ## Plan review
