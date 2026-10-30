@@ -79,16 +79,12 @@ class _Kit:
         done=True,
         schedules=True,
         update_seconds=1.0,
-        frame_seconds=0.0,
-        frames_come=True,
     ):
         self.files = list(files)  # what each read gives, the last one again once they run out
         self.result = list(result) if isinstance(result, tuple) else result
         self.done = done
         self.schedules = schedules
         self.update_seconds = update_seconds
-        self.frame_seconds = frame_seconds
-        self.frames_come = frames_come
         self.clock = _Clock()
         self.capture: _KitCapture | None = None
         self.events: list[str] = []
@@ -102,13 +98,6 @@ class _Kit:
         self.capture = _KitCapture(self.result, done=self.done)
         return self.capture
 
-    async def next_frame(self):
-        self.events.append("frame")
-        if not self.frames_come:
-            await asyncio.get_running_loop().create_future()
-        self.clock.now += self.frame_seconds
-        await asyncio.sleep(0)
-
     def read_file(self) -> bytes:
         self.reads += 1
         data = self.files[min(self.reads, len(self.files)) - 1] if self.files else None
@@ -121,11 +110,8 @@ class _Kit:
         self.clock.now += self.update_seconds
         await asyncio.sleep(0)
 
-    async def png(self, budget=None, *, fresh=False):
-        next_frame = self.next_frame if fresh else None
-        return await capture_png(
-            self.schedule, self.read_file, self.next_update, budget, self.clock, next_frame=next_frame
-        )
+    async def png(self, budget=None):
+        return await capture_png(self.schedule, self.read_file, self.next_update, budget, self.clock)
 
 
 def test_a_capture_returns_the_png_once_the_file_is_whole():
@@ -172,74 +158,23 @@ def test_a_frame_that_never_comes_is_no_frame(monkeypatch):
     assert kit.reads == 0
 
 
-def test_fresh_frames_pass_before_the_capture_is_scheduled():
-    # Kit captures the next frame the viewport delivers, which the renderer made about 3 updates earlier: a drawing
-    # made just before was missing from it (#57).
-    assert capture.FRESH_FRAMES == 4
-    kit = _Kit([_WHOLE], frame_seconds=0.25)
-
-    png = _run(kit.png(fresh=True))
-
-    assert kit.events == ["frame"] * 4 + ["schedule"]
-    assert png.fresh_seconds == 1.0
-    assert png.data == _WHOLE
-
-    # Without next_frame, as recording calls it, the capture is scheduled at once.
-    kit = _Kit([_WHOLE])
-    png = _run(kit.png())
-    assert kit.events == ["schedule"]
-    assert png.fresh_seconds == 0.0
-
-
-def test_recording_never_waits_for_fresh_frames():
-    # Fresh frames are the viewport's trail (#57). A recording captures from its own camera feed, whose next frame
-    # already shows the simulation within one update of its tick (#25's E17); waiting would only make each frame
-    # longer, so more ticks go untaken. The handlers import Kit, so the guard reads the source.
+def test_every_capture_takes_its_frame_from_a_feed():
+    # A capture of the viewport took the next frame the viewport delivered, rendered about 3 updates before (#57), and
+    # at the viewport's size (#51). Recording, capture_viewport and inspect_prim each render through a feed of their
+    # own, whose next frame is within one update of the request (#25's E17), and no viewport capture is left to call.
+    # The handlers import Kit, so the guard reads the source.
     handlers = EXTENSION_ROOT / "ovmcp" / "bridge" / "handlers"
 
-    def calls(tree: ast.AST, name: str) -> list[ast.Call]:
-        return [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name
-        ]
+    def called(module: str) -> set[str]:
+        tree = ast.parse((handlers / module).read_text(encoding="utf-8"))
+        return {
+            node.func.id for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
 
-    recording = ast.parse((handlers / "recording.py").read_text(encoding="utf-8"))
-    assert calls(recording, "capture_feed_png"), "recording.py no longer captures from its feed: guard what it calls"
-    assert not calls(recording, "capture_viewport_png")
-    utils = ast.parse((handlers / "_utils.py").read_text(encoding="utf-8"))
-    (feed_png,) = [n for n in ast.walk(utils) if isinstance(n, ast.AsyncFunctionDef) and n.name == "capture_feed_png"]
-    captures = calls(feed_png, "capture_file_png")
-    assert captures
-    for call in captures:
-        assert all(keyword.arg != "next_frame" for keyword in call.keywords), ast.unparse(call)
-
-
-def test_a_viewport_that_renders_nothing_schedules_no_capture(monkeypatch):
-    monkeypatch.setattr(capture, "FRAME_SECONDS", 0.05)
-    kit = _Kit([_WHOLE], frames_come=False)
-
-    with pytest.raises(NoFrameError, match=r"no frame in 0\.05 s"):
-        _run(kit.png(fresh=True))
-
-    assert kit.events == ["frame"]
-    assert kit.capture is None
-
-
-def test_the_budget_caps_the_fresh_frames():
-    # Each frame takes 1 s on the fake clock: a budget of 2.5 s has nothing left for the fourth.
-    kit = _Kit([_WHOLE], frame_seconds=1.0)
-    with pytest.raises(OutOfTimeError):
-        _run(kit.png(Budget(2.5, kit.clock), fresh=True))
-    assert kit.events == ["frame"] * 3
-    assert kit.capture is None
-
-    # Frames that spend all of it start no capture: its file would come after the call.
-    kit = _Kit([_WHOLE], frame_seconds=1.0)
-    with pytest.raises(OutOfTimeError):
-        _run(kit.png(Budget(4, kit.clock), fresh=True))
-    assert kit.events == ["frame"] * 4
-    assert kit.capture is None
+    for module in ("recording.py", "camera.py"):
+        assert "capture_feed_png" in called(module), f"{module} no longer captures from a feed: guard what it calls"
+    for module in sorted(p.name for p in handlers.glob("*.py")):
+        assert "capture_viewport_to_file" not in called(module), module
 
 
 def test_a_file_that_never_comes_fails_after_file_seconds():
@@ -446,12 +381,6 @@ def test_the_waits_read_their_seconds_when_called(monkeypatch):
 
     assert SegmentationWaits().seconds("stage") == 2.0
 
-    # Set to 0, as the live tests do to show the miss there without the wait.
-    monkeypatch.setattr(capture, "FRESH_FRAMES", 0)
-    kit = _Kit([_WHOLE])
-    _run(kit.png(fresh=True))
-    assert kit.events == ["schedule"]
-
 
 @pytest.mark.parametrize(("width", "height"), [(1, 1), (640, 480), (capture.MAX_SIDE, capture.MAX_SIDE)])
 def test_a_frame_size_from_1_to_the_limit_is_taken(width, height):
@@ -570,13 +499,14 @@ def test_an_instance_without_a_name_is_named_by_its_id():
 
 
 def test_colouring_a_4096_a_side_capture_is_one_pass():
-    ids = (np.arange(4096 * 4096, dtype=np.uint32) % 50).reshape(4096, 4096)
+    ids = (np.arange(4096 * 4096, dtype=np.uint32) % 2000).reshape(4096, 4096)
     started = time.monotonic()
     image, legend = capture.colour_instances(ids, lambda instance: f"/World/P{instance}")
     took = time.monotonic() - started
     assert image.shape == (4096, 4096, 3)
-    assert len(legend) == 49
-    # A mask per id was 50 passes over the 16.8 million pixels; one lookup takes a few seconds at most on any runner.
+    assert len(legend) == 1999
+    # A mask per id would be 2,000 passes over the 16.8 million pixels, minutes on any runner; one lookup takes a few
+    # seconds at most.
     assert took < 10, f"{took:.1f} s"
 
 

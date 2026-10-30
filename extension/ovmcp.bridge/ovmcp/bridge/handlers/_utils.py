@@ -89,26 +89,12 @@ async def _next_update():
     await omni.kit.app.get_app().next_update_async()
 
 
-async def capture_viewport_png(viewport, budget: capture.Budget | None = None) -> bytes:
-    """The viewport's frame as PNG bytes (capture_file_png), after FRESH_FRAMES frames of it: Kit captures the next
-    frame it delivers, which the renderer made about 3 updates earlier, so a drawing or a change made just before the
-    call was missing (#57). A recording, capture_viewport and inspect_prim capture from feeds of their own
-    (capture_feed_png), which need none (#25, #51).
-    """
-    from omni.kit.viewport.utility import capture_viewport_to_file
-
-    return await capture_file_png(
-        lambda path: capture_viewport_to_file(viewport, file_path=path),
-        budget,
-        next_frame=lambda: _next_frame(viewport),
-    )
-
-
 async def capture_feed_png(feed, budget: capture.Budget | None = None) -> bytes:
     """A camera feed's next frame as PNG bytes (capture_file_png), taken as the viewport's are (camera_feed.py).
 
-    No fresh frames: the feed renders with the update, and its next frame shows the simulation within one update of
-    the request (#25's E17), where the viewport's trails by about 3 (#57).
+    The feed renders with the update, so its next frame shows the simulation within one update of the request (#25's
+    E17), where the viewport's next frame trailed by about 3 (#57): recording, capture_viewport and inspect_prim all
+    capture this way (#25, #51).
     """
     from omni.kit.widget.viewport.capture import FileCapture
 
@@ -126,9 +112,9 @@ async def capture_feed_png(feed, budget: capture.Budget | None = None) -> bytes:
             feed.withdraw(delegate)
 
 
-async def capture_file_png(schedule, budget: capture.Budget | None = None, *, next_frame=None) -> bytes:
+async def capture_file_png(schedule, budget: capture.Budget | None = None) -> bytes:
     """What `schedule(path)` captures into `path`, as PNG bytes, read once Kit has written all of it
-    (ovmcp.core.capture.capture_png), after the frames `next_frame` gives, if any.
+    (ovmcp.core.capture.capture_png).
 
     A CaptureError, a RuntimeError, when no whole file arrives in time; each wait is bounded, and capped by `budget`.
     Each capture gets a file of its own: with one path for every capture, a capture whose file wasn't written yet read
@@ -138,9 +124,7 @@ async def capture_file_png(schedule, budget: capture.Budget | None = None, *, ne
     path = Path(tempfile.gettempdir()) / f"ovmcp_capture_{uuid.uuid4().hex}.png"
     started = time.monotonic()
     try:
-        png = await capture.capture_png(
-            lambda: schedule(str(path)), path.read_bytes, _next_update, budget, next_frame=next_frame
-        )
+        png = await capture.capture_png(lambda: schedule(str(path)), path.read_bytes, _next_update, budget)
     except capture.CaptureError as e:
         carb.log_warn(f"[MCP Bridge] Capture failed after {time.monotonic() - started:.1f} s: {e}")
         raise
@@ -148,13 +132,9 @@ async def capture_file_png(schedule, budget: capture.Budget | None = None, *, ne
         # A file Kit is still writing can't be deleted on Windows; its name is never read again.
         with contextlib.suppress(OSError):
             path.unlink()
-    if png.fresh_seconds + png.frame_seconds + png.file_seconds > SLOW_CAPTURE_SECONDS:
-        # The stage's frame history is how far behind the update the app lets its renderer run: a longer one than
-        # Isaac Sim's 3 could need more fresh frames.
-        history = carb.settings.get_settings().get("/app/settings/fabricDefaultStageFrameHistoryCount")
+    if png.frame_seconds + png.file_seconds > SLOW_CAPTURE_SECONDS:
         carb.log_info(
-            f"[MCP Bridge] Slow capture: the fresh frames took {png.fresh_seconds:.2f} s, the frame "
-            f"{png.frame_seconds:.2f} s, the file {png.file_seconds:.2f} s (stage frame history: {history})"
+            f"[MCP Bridge] Slow capture: the frame took {png.frame_seconds:.2f} s, the file {png.file_seconds:.2f} s"
         )
     return png.data
 

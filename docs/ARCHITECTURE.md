@@ -112,7 +112,7 @@ extension come from one release. `omniverse-mcp extension install` (`src/omniver
 |------|---------|
 | `ovmcp/bridge/extension.py` | Kit lifecycle: makes the token, starts the core's HTTP server with the routes |
 | `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `capture.py` (the capture path's waits, each bounded by time, a call's bookkeeping, the frame-size limit, 4096 a side, for start_recording, capture_viewport and inspect_prim, Path Tracing's settle frames, and segmentation's colours), `png.py` (the PNG writer), `logs.py` (Kit's log file read into the log ring, and its query), `force.py` (apply_force's request, its refusals and the point it pushes at; from the stage's joints, the articulation a body is a link of and the fixed joint that holds it to the world), `framing.py`, `isolation.py`, `lighting.py`, `material.py` (set_material's OmniPBR, named by its MDL source), `robot.py` (where create_robot loads a USD file from, and its prim's name; the articulation root get_joint_states reads), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `recording.py` (start_recording's request, the camera check, which updates take a frame and its number, and deleting a camera feed's render product from every layer), `serial.py`, `usd.py` (typed forms of pxr calls the stubs get wrong) |
-| `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, simulation, recording, robot, debug_draw, misc, usd_advanced, logging) with shared utilities in `_utils.py` (among them `enable_extension` and the captures to a file, `capture_viewport_png` and `capture_feed_png`), `camera_feed.py` (a camera rendered at a size in a texture of its own, for a recording or a capture, with a capture's segmentation and its release) and `_mcp_bridge.py` |
+| `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, simulation, recording, robot, debug_draw, misc, usd_advanced, logging) with shared utilities in `_utils.py` (among them `enable_extension` and the capture to a file, `capture_file_png`, with `capture_feed_png` on it), `camera_feed.py` (a camera rendered at a size in a texture of its own, for a recording or a capture, with a capture's segmentation and its release) and `_mcp_bridge.py` |
 | `config/extension.toml` | Extension metadata and default settings |
 
 ### HTTP Server
@@ -395,8 +395,8 @@ viewport's at its own size, and the boxes were scaled to the size asked for.
   it. A request without a size takes the viewport's resolution.
 
 **Fresh frames:** a feed's first frame comes some 15 updates after it is made, so a drawing or a change made just
-before the call is in the image, with either debug drawing extension (#51's E19). Captures need none of the
-viewport's `FRESH_FRAMES` (#57), which `capture_viewport_png` keeps for a capture of the viewport itself. Path
+before the call is in the image, with either debug drawing extension (#51's E19), where a capture of the viewport
+took the next frame it delivered, rendered about 3 updates before, and had to let frames pass first (#57). Path
 Tracing renders `settle_frames` more, until it has all its samples (none more with Isaac Sim's 64 a frame). After a
 camera move, each `inspect_prim` angle waits 20 of the feed's frames: the move shows from the third.
 
@@ -442,9 +442,8 @@ frame is reset and captured once more by itself, after 20 more of the feed's fra
   in its own start on the test machine, before any extension loaded.
 - **Timers on Kit's loop:** they fire only while the loop runs, so a main thread blocked by a shader compile delays
   them.
-- **In Kit's log:** a failed capture's step and seconds (a warning); a capture over 2 s, how long its fresh frames
-  (none for a feed), frame and file took, with the app's stage frame history; each segmentation wait's updates and
-  seconds; a feed release step that failed. `get_logs(search="capture")` and `search="segmentation"` find the
+- **In Kit's log:** a failed capture's step and seconds (a warning); a capture over 2 s, how long its frame and file
+  took; each segmentation wait's updates and seconds; a feed release step that failed. `get_logs(search="capture")` and `search="segmentation"` find the
   bridge's lines; `channel="syntheticdata"` finds what `omni.syntheticdata` itself reported, whose lines rarely name
   it.
 
