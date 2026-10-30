@@ -295,12 +295,23 @@ def test_a_render_product_waits_for_an_open_stage_then_goes_from_that_one(feeds,
     assert feeds._leftovers.subscription is None
 
 
+def test_a_render_product_is_removed_from_a_stage_only_while_it_is_open(feeds, kit):
+    feed = feeds.CameraFeed("/World/RecCam", 320, 240)
+    _with_product(kit, feed.render_product_path)
+    kit.stage_state = CLOSING
+    assert feed.remove_render_product(kit.stage) is False
+    assert kit.stage.GetPrimAtPath(feed.render_product_path)
+    kit.stage_state = OPENED
+    assert feed.remove_render_product(kit.stage) is True
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+
+
 def test_forget_deletes_nothing_and_stops_looking(feeds, kit):
     feed = feeds.CameraFeed("/World/RecCam", 320, 240)
     kit.stage_state = CLOSING
     feeds.discard(feed)
     feeds.forget()
-    assert feeds._leftovers.paths == []
+    assert feeds._leftovers.feeds == []
     assert feeds._leftovers.subscription is None
 
 

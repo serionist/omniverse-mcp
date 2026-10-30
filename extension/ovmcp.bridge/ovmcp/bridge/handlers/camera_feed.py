@@ -110,38 +110,47 @@ class CameraFeed:
         if texture is not None:
             texture.set_updates_enabled(False)
 
+    def remove_render_product(self, stage: Any) -> bool:
+        """Deletes the render product from every layer of `stage`, with Kit's entry for it in its render settings
+        (core/recording.py), and says so; does nothing and says False while the stage isn't open, since a stage
+        closing or opening is no place to edit."""
+        if omni.usd.get_context().get_stage_state() != omni.usd.StageState.OPENED:
+            return False
+        delete_render_product(stage, self.render_product_path)
+        carb.log_info(f"[MCP Bridge] Deleted the camera feed's render product {self.render_product_path}")
+        return True
+
 
 class _Leftovers:
-    """Render products of dropped feeds waiting for an open stage to be deleted from, and the update subscription that
+    """Dropped feeds whose render products wait for an open stage to be deleted from, and the update subscription that
     looks for one while any wait."""
 
     def __init__(self) -> None:
-        self.paths: list[str] = []
+        self.feeds: list[CameraFeed] = []
         self.subscription: Any = None
 
-    def add(self, path: str) -> None:
-        self.paths.append(path)
+    def add(self, feed: CameraFeed) -> None:
+        self.feeds.append(feed)
         self.delete()
-        if self.paths and self.subscription is None:
+        if self.feeds and self.subscription is None:
             stream = omni.kit.app.get_app().get_update_event_stream()
             self.subscription = stream.create_subscription_to_pop(
                 lambda _event: self.delete(), name="ovmcp camera feed leftovers"
             )
 
     def delete(self) -> None:
-        context = omni.usd.get_context()
-        if context.get_stage_state() == omni.usd.StageState.OPENED:
-            stage = context.get_stage()
-            while self.paths:
-                # Off the list first: a deletion that fails is reported once by Kit, not retried on every update.
-                path = self.paths.pop()
-                delete_render_product(stage, path)
-                carb.log_info(f"[MCP Bridge] Deleted the camera feed's render product {path}")
-        if not self.paths:
+        stage = omni.usd.get_context().get_stage()
+        while self.feeds:
+            # Off the list first: a deletion that fails is reported once by Kit, not retried on every update.
+            feed = self.feeds.pop()
+            if not feed.remove_render_product(stage):
+                self.feeds.append(feed)
+                break
+        if not self.feeds:
             self.subscription = None
 
     def forget(self) -> None:
-        self.paths.clear()
+        self.feeds.clear()
         self.subscription = None
 
 
@@ -149,9 +158,10 @@ _leftovers = _Leftovers()
 
 
 def discard(feed: CameraFeed) -> None:
-    """Drops `feed` and deletes its render product from the stage open now, or from the next stage once it is open."""
+    """Drops `feed` and deletes its render product from the stage open now, or from the next stage once it is open:
+    after a new stage, Kit has carried the render product over to it (#25's E13)."""
     feed.drop()
-    _leftovers.add(feed.render_product_path)
+    _leftovers.add(feed)
 
 
 def forget() -> None:
