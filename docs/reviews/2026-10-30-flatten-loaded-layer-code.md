@@ -68,7 +68,16 @@ Isaac Sim 6.2.0 headless, a fresh Kit at 8212 with the bridge at `2250d27`, thro
   - "Flattened IntTestScene.usda: the open stage kept /World/IntTestFlatCube and its unsaved /World/IntTestUnsaved";
   - "export_prim_as_file and flatten_usd refused the open stage's own file; the stage is intact".
 
-The fixes' live run, of `TestFlattenAndExportKeepTheOpenStage` after the merge with `main` (`dfda34a`), at `1563b1c`: pending.
+The fixes, after the merge with `main` (`dfda34a`, so `open_scene` too), at `877cf58`: a fresh Kit at 8212 with that
+commit's extension, through `build-81-live.sh`:
+
+- **Both live suites:** 174 passed and 11 subtests passed in 144.45 s.
+- **`TestFlattenAndExportKeepTheOpenStage` again,** on the stage the suites left: 4 passed and 11 subtests passed.
+- Each run printed:
+  - "A .usda and a .usdc Kit held were written twice and read again each time; with unsaved edits, refused";
+  - "Flattened IntTestScene.usda: the open stage kept /World/IntTestFlatCube and its unsaved /World/IntTestUnsaved";
+  - "export_prim_as_file and flatten_usd refused the open stage's own file, 3 spellings; the stage is intact".
+- The input that won't open answered "Could not open", with no traceback.
 
 Not shown: other Kit apps, such as USD Composer, the Isaac Sim GUI, and output paths on Nucleus (`omniverse://`).
 
