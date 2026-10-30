@@ -16,6 +16,8 @@
   <a href="https://github.com/serionist/omniverse-mcp/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/serionist/omniverse-mcp/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/serionist/omniverse-mcp/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/serionist/omniverse-mcp/actions/workflows/codeql.yml/badge.svg?branch=main"></a>
   <a href="LICENSE"><img alt="Licence: MIT" src="https://img.shields.io/github/license/serionist/omniverse-mcp?label=licence"></a>
+  <a href="https://glama.ai/mcp/servers/serionist/omniverse-mcp"><img alt="Glama score" src="https://glama.ai/mcp/servers/serionist/omniverse-mcp/badges/score.svg"></a>
+  <a href="https://mcpservers.org/servers/serionist/omniverse-mcp"><img alt="Listed on mcpservers.org" src="https://mcpservers.org/badge.svg"></a>
 </p>
 
 <!-- The official MCP registry trusts the PyPI package by this line, as server.json names it. -->
