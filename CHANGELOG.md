@@ -10,9 +10,20 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 - **`capture_viewport` and `inspect_prim` show what was done just before the call:** Kit captured a frame its
   renderer had made about 3 updates earlier, so a drawing or another change made just before could be missing from
   the image, `draw_debug`'s lines in Kit apps without `isaacsim.util.debug_draw` most often. A capture now lets 4
-  frames of the viewport pass first, which costs about 20 to 70 ms. Recording's frames don't wait, and still show the
-  scene a few updates before their simulation time. The fix is in the Kit extension: run
+  frames of the viewport pass first, which costs about 20 to 70 ms. Recording's frames don't wait: they come from a
+  render of their own, within one update of their simulation time (#25). The fix is in the Kit extension: run
   `uvx omniverse-mcp extension install` and restart Kit (#57).
+- **`start_recording` records from `camera_path` at `width` x `height`,** where it recorded the active viewport at its
+  own size and warned that it ignored them. It renders the camera in a texture of its own, so the viewport, its
+  camera and its size stay as they are; a side over 4096 is refused. While a recording runs, the extra render takes
+  some of the app's updates: a third at 640x480, headless. Frames stop, and `stop_recording` and `get_sim_state` say
+  why, if the stage changes or the camera is deleted. The fix is in the Kit extension: `uvx omniverse-mcp extension
+  install`, then restart Kit; with an older extension the warning stays, now naming that command (#25).
+- **A call with no size now records 640x480 from the active camera,** the defaults the tool has always listed, where
+  it recorded the viewport's own size (1280x720 headless): pass the size you want (#25).
+- **Recording frames no longer overwrite each other** when they come faster than a frame is written, as at `fps=30`:
+  each frame gets its own number when it is taken, and its tracked state is read then too. The fix is in the Kit
+  extension (#69).
 
 ## 0.2.2 (2026-10-29)
 

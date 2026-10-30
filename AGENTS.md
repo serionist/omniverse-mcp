@@ -22,7 +22,7 @@ extension it talks to.
 | Path | What |
 |---|---|
 | `src/omniverse_mcp/` | the server: `server.py` (`create_server()`: MCP server, output files, resources; `main()`), `config.py` (flags, `OMNIVERSE_MCP_*`), `client.py` (the bridge's HTTP client), `bridge_token.py`, `kit_extension.py` (`extension install\|path`: the extension the wheel carries, copied to the user's folder), `tools/` (the tools by area; `_bridge.py`, the one call to the bridge; `_annotations.py`, the four hints; `_params.py`, shared parameters) |
-| `extension/ovmcp.bridge/` | the extension: `config/extension.toml` (id, version, settings), `ovmcp/bridge/` (`extension.py` with the routes, `handlers/`), `ovmcp/core/` (HTTP, token, framing, isolation, bounds, capture waits, the formatter, PNG, logs, materials, robot files, extensions, debug drawing, forces; `usd.py` types what the pxr stubs get wrong), `docs/README.md` |
+| `extension/ovmcp.bridge/` | the extension: `config/extension.toml` (id, version, settings), `ovmcp/bridge/` (`extension.py` with the routes, `handlers/`), `ovmcp/core/` (HTTP, token, framing, isolation, bounds, capture waits, the formatter, PNG, logs, materials, robot files, extensions, debug drawing, forces, recording; `usd.py` types what the pxr stubs get wrong), `docs/README.md` |
 | `tests/` | pytest; `test_integration.py` and `test_scenarios.py` are the live suites (markers `sim`, `scenario`), which need Kit; `fixtures/mcp-tools.json`, the tool contract `test_contract.py` checks; `test_tools.py`, each tool against the mock bridge |
 | `test_project/` | an MCP client project for AI-driven scenario runs: `scenarios.md`, `CLAUDE.md`, `.mcp.json.example` |
 | `docs/` | `SETUP.md` (each client's config, headless Kit, ports, remote, uninstalling: the README's detail), `ARCHITECTURE.md` (routes, protocol, token, threading), `TOOLS.md` (a heading per tool), `AI_GUIDE.md` (for clients without the plugin; points at its skills), `images/` (the README's captures, the logo, the social preview; its README says how each was made), `releasing.md` (the release runbook) |
@@ -132,7 +132,7 @@ What this repo's history already paid for:
 | A Python `omni.log` consumer of ours deadlocked Kit: a cooking worker logged while the main thread held the GIL | #5 | No Python log hook in the bridge, enforced by `tests/test_logs.py`'s guard; `get_logs` reads Kit's log file |
 | Every capture read one temp path, which Kit 110 writes after it says the capture is done: each image was the previous capture's | #32 | A file per capture, read once the PNG is whole (`capture_viewport_png`) |
 | Render waits counted updates (too few on a cold start) or had no bound (a stalled viewport hung the call) | #27, #35 | Waits by time, each bounded, a call limit under the server's 120 s (`ovmcp.core.capture`) |
-| A capture took the next frame Kit delivered, rendered about 3 updates before: a drawing made just before was missing | #57 | `FRESH_FRAMES` frames before `capture_viewport` and `inspect_prim` capture; recording waits none (#69) |
+| A capture took the next frame Kit delivered, rendered about 3 updates before: a drawing made just before was missing | #57 | `FRESH_FRAMES` frames before `capture_viewport` and `inspect_prim` capture; recording, on its own feed, waits none |
 
 ## Look up APIs before coding against them
 

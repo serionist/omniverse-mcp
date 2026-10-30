@@ -166,7 +166,7 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 ### 6.1 Record a Falling Cube
 - Reset cube: `set_prim_transform("/World/RedCube", position=[0,3,0])`
 - `start_recording(fps=5, width=320, height=240)`
-- Verify: the answer has a `WARNING` line that width 320 and height 240 are ignored for now (#25)
+- Verify: the answer says `320x240 from /OmniverseKit_Persp` (the viewport's camera), with no `WARNING` line
 - `sim_control("play")`
 - Wait ~2 seconds
 - `sim_control("stop")`
@@ -177,7 +177,21 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 - `get_recording_frame(frame_index=0)` → should return image path
 - Read the frame image — verify it is non-empty (file size > 0)
 - `get_recording_frame(frame_index=<last>)` → cube lower or on ground
-- Verify: images show cube at different positions
+- Verify: images show cube at different positions, each 320x240 whatever the viewport's size
+
+### 6.3 Record from a Camera
+- `execute_script` making a camera `/World/RecCam` 8 units along X, looking at the cube's column (focal length 18)
+- Aim the viewport away: `set_camera(position=[20,1,0], target=[30,1,0])`
+- `start_recording(fps=10, width=160, height=120, camera_path="/World/RecCam")`, wait 1 s, `stop_recording()`
+- Verify: every frame is 160x120 and shows the red cube; `capture_viewport()` still shows the view aimed away,
+  with no red, and the viewport's camera and size are as before
+
+### 6.4 to 6.9 What a Recording Refuses, Leaves and Says
+- `camera_path="/World/RedCube"` or a path with no prim, and `width=4097`: each an error, and nothing recording
+- While recording, the answer's `render_product` is a prim on the stage; after `stop_recording()` it is gone
+- At `fps=30`, `metadata.json` numbers its frames 0, 1, 2, ... with none repeated, each with its file
+- Delete the recording's camera mid-recording: `get_sim_state` shows `recording_note`, frames stop, and
+  `stop_recording()` ends with a `Note:` saying the camera is gone
 
 ---
 
@@ -514,6 +528,11 @@ Each step waits for its drawings to expire before the next.
 - Verify: the angle has a segmentation file with the cube in its legend, and no `seg: ERROR`: the bridge enabled the
   sensor again and waited for its first data
 - Clean up: `delete_prim("/World/SegmentationCube")`
+
+### 17.5 A New Stage Stops a Recording
+- `start_recording(fps=10, width=320, height=240)`, then `new_scene()`, then `stop_recording()`
+- Verify: no frames after the new stage, a `Note:` naming the stage, and the answer's `render_product` not on the
+  new stage
 
 ---
 

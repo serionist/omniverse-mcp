@@ -34,7 +34,8 @@ before play, so pause to look at a moment in the middle.
    simulation to have played.
 5. **Record what happens.** `start_recording` with `track_prims`, play, then `stop_recording`: each frame's image and
    the tracked prims' state land in `mcp_output/recordings/<session>/`. `get_recording_frame` reads one frame back.
-   Frames keep the viewport's size and camera for now: set the camera before recording.
+   Frames come from `camera_path` (the viewport's camera when empty) at `width` x `height`, 640x480 unless given,
+   without moving the viewport; they stop, with a note, if the stage changes or the camera is deleted.
 6. **Check** with `get_prim_bounds`, `get_joint_states` or a capture, rather than assuming the run did what was
    asked. A tool that fails: `get_logs(min_level="warn")`.
 

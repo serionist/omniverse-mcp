@@ -155,7 +155,7 @@ Something else? See [Troubleshooting](#troubleshooting).
 | **Simulation** | `sim_control`, `get_sim_state` | Play, pause, stop and step physics; the state, the up axis and the versions |
 | **Physics** | `set_physics_properties`, `apply_force`, `raycast` | Mass, friction and bounce; push an object; cast a ray |
 | **Robots** | `create_robot`, `get_robot_info`, `get_joint_states`, `set_joint_targets` | Add a robot from Isaac Sim's library (Franka, UR10, G1, Spot and more), read its joints, set joint targets |
-| **Recording** | `start_recording`, `stop_recording`, `get_recording_frame` | Record frames and objects' state while physics plays, then look back at any frame |
+| **Recording** | `start_recording`, `stop_recording`, `get_recording_frame` | Record frames from any camera at any size, and objects' state, while physics plays, then look back at any frame |
 | **Geometry** | `get_mesh_stats`, `get_prim_face_count_tree`, `compare_prims` | Count faces and vertices, find the heaviest parts, compare two objects or variants |
 | **USD files and variants** | `flatten_usd`, `export_prim_as_file`, `create_variant_structure`, `set_variant_selection` | Write a stage as one file, export an object, make and switch variant sets |
 | **Kit** | `get_logs`, `manage_extensions`, `draw_debug` | Read Kit's log, turn Kit extensions on and off, draw lines and points in the viewport |
@@ -263,9 +263,6 @@ On Isaac Sim 6.2, the only Kit app tested so far:
   ([#58](https://github.com/serionist/omniverse-mcp/issues/58)).
 - **`capture_viewport` and `inspect_prim` return the image at the viewport's size,** while their boxes use the size
   asked for ([#51](https://github.com/serionist/omniverse-mcp/issues/51)).
-- **Some parameters are ignored:** `start_recording`'s camera and size: it records the active viewport at its own
-  size, and warns when it is given them
-  ([#25](https://github.com/serionist/omniverse-mcp/issues/25)).
 
 ## Security
 
