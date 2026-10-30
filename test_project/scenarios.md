@@ -563,6 +563,13 @@ Each step waits for its drawings to expire before the next.
   since the first: each capture freed its segmentation graphs, so `omni.syntheticdata` tripped on none at the new
   stage (#51)
 
+### 17.7 An Opened File Stops a Recording and Drops the Drawings
+- `save_scene(file_path=<a temp .usda>)`, then `start_recording(fps=10, width=320, height=240)` and
+  `draw_debug("line", start=[0, 0, 0], end=[1, 0, 0], duration=30)`, then `open_scene(<that .usda>)`, then
+  `stop_recording()`
+- Verify: no frames after the open, a `Note:` naming the stage, the answer's `render_product` not on the opened
+  stage, the line gone within 5 s, and a capture of a cube with its segmentation on the opened stage
+
 ---
 
 ## Phase 18: Geometry & Mesh Analysis
