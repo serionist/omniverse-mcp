@@ -24,15 +24,55 @@ moved. The reviewers' own ids are the finding ids.
 | D2 | minor | `CHANGELOG.md`, Changed | The stricter size check went unnamed: a `width` or `height` that isn't a whole number, or a request with one of the two alone, is refused through `mcp.*` in `execute_script` or the HTTP routes. | Fixed in `8f51b2f`: a Changed line |
 | D3 | minor | `docs/TOOLS.md`, `capture_viewport` | The older-extension `WARNING` wasn't documented, as `start_recording`'s is. | Fixed in `8f51b2f`: a note under `capture_viewport`, and a sentence under `inspect_prim` for its own warning |
 
-Refuted, or checked and found right, as passed on to the author:
+Refuted, or checked and found right, by both:
 
-- **The one-way doors:** none moved, by both reviewers' reading: tool names, schemas and annotations as
-  `tests/fixtures/mcp-tools.json` holds them (only descriptions changed, which `tools/golden.py` strips), the wire
-  paths, the auth header, the output folder.
+- **The one-way doors:** none moved: tool names, schemas and annotations as `tests/fixtures/mcp-tools.json` holds
+  them (only descriptions changed, which `tools/golden.py` strips), the wire paths, the auth header, the output
+  folder.
+
+Refuted, or checked and found right, on the Kit side:
+
+- **The teardown's order:** as E16 measured: the sensor off, the feed dropped, the graphs popped and reset under a
+  session-layer `EditContext`, two updates, then the leftovers. Replicator pops and resets the same way, with the
+  same rule for which graphs are the render product's.
+- **A release on every path:** `handle_capture` releases in a `finally` once a feed exists; `handle_camera_inspect`
+  in an inner `finally` around the isolate restore (`ad47884`); a cancelled call still hands its feed to the removal
+  list; a stage change waits for `OPENED`. The lines between `_new_feed` and the `try` in `handle_camera_inspect`
+  can't raise.
+- **The private registry fails closed:** `enable_segmentation` checks for `_nodeGraphs` and `_reset_node_graph` first
+  and gives the reason as `segmentation_error`; both names exist in omni.syntheticdata 0.6.13 and 0.6.17.
+- **No growth in the registry per capture:** turning the sensor off pops `_graphNodes` and `_activatedNodePaths`;
+  the free pops `_nodeGraphs`.
+- **Render vars stay out of the user's file:** `activate_node_template` runs under the session layer.
+- **The main thread:** no executor and no thread; `_on_frame` does no USD work.
+- **The waits are bounded,** through `frames`, `bounded` and `poll`: at worst 80 s for a capture and 90 s for an
+  inspection, under the client's 120 s.
+- **The boxes:** `get_view_params` reads only `camera_path` and `resolution`, nothing assigns `viewport.camera_path`
+  any more, and `screen_box` scales by 1 at the PNG's size.
+- **`SegmentationWaits` and its 1 s retry hold:** the sensor is turned on some 15 updates before the feed's first
+  frame (E12), and a read with data clears the record.
+- **`colour_instances`:** the same image and legend as before; an id with no name, or an empty one, reads
+  `instance_<id>`; `.reshape(-1)` handles NumPy 2.0; its cost doesn't grow with the number of ids.
+- **`_get_stage()` outside `handle_capture`'s `try`:** without a stage the call fails with that message before
+  anything is made.
+- **The settle after isolate's restore:** bounded by `CLEANUP_SECONDS`, and it only warns.
+
+Refuted, or checked and found right, on the server and the docs:
+
+- **The boxes file's header** prints the answer's size, which is right: it names the frame the boxes are in, and with
+  this extension it is the PNG's.
+- **`_sizes` can't print `NonexNone`:** every `/sim/capture` answer has carried `width` and `height`.
+- **`test_tools.py`'s capture case doesn't trip the warning:** its PNG is the 8-byte signature alone, so `_png_size`
+  gives None.
+- **`inspect_prim` reports the size asked for,** which is right: the feed renders at that size by construction.
+- **The stricter size check over HTTP isn't a door broken:** the wire protocol's door is its paths, the auth header
+  and the token file's place; the MCP schema stays `int`, `ge=1`; on `main` a width sent as text already failed,
+  without saying so.
+- **Old and new together:** an older extension with this server gets the warning, and an older `inspect_prim` answer
+  without `width` and `height` is guarded and tested; this extension with an older server keeps every field its
+  answers had.
 - **`00193b4`:** with an 18 mm lens the cube sits inside `test_12c`'s frame, so the test now shows which camera the
   boxes came from (#70).
-
-The reviewers' other refutations were not passed on in full; the main session holds them.
 
 Improvements:
 
