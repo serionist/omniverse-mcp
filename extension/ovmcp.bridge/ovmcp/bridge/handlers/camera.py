@@ -17,7 +17,8 @@ from ovmcp.core.bounds import box_corners, center_and_size, screen_box, world_bb
 from ovmcp.core.framing import apply_zoom, bounding_radius, fit_distance, inspect_args, require_perspective
 from ovmcp.core.isolation import LIGHT_TYPES, Hidden, is_light, prims_to_hide
 from ovmcp.core.lighting import camera_light_switch, current_mode
-from ovmcp.core.png import encode_png
+from ovmcp.core.png import encode_png, png_size
+from ovmcp.core.recording import camera_error
 from ovmcp.core.serial import LazyLock, serial
 
 from ._utils import (
@@ -27,11 +28,15 @@ from ._utils import (
     _next_update,
     _reset_renderer,
     _settle_viewport,
-    capture_viewport_png,
+    capture_feed_png,
 )
+from .camera_feed import CameraFeed, enable_segmentation, release
 
-# Where a wait for instance segmentation got nothing, per stage and render product, so it is not repeated there.
+# Where a wait for instance segmentation got nothing, per stage, camera and size, so the next waits only briefly there.
 _segmentation_waits = capture.SegmentationWaits()
+
+# A request that names no size, from a Kit app whose viewport can't say its own: Isaac Sim's default.
+_FALLBACK_SIZE = (1280, 720)
 
 # Held for the whole of every handler that moves the viewport camera, hides prims or captures, so one request never
 # sees another's half-done viewport. Not re-entrant: these handlers call _capture_frame, never each other.
@@ -211,23 +216,48 @@ def _set_lighting_mode(mode: str) -> str | None:
     return None
 
 
-def _viewport_resolution(requested: tuple[int, int]) -> tuple[int, int]:
-    """The pixels the viewport renders, which is what a capture gets; the requested size if it can't be read."""
+def _viewport_size() -> tuple[int, int]:
+    """The size the active viewport renders at, for a request that names none, so it gets the image it always got."""
+    viewport = _active_viewport()
     try:
-        import omni.syntheticdata as syn
-        from omni.kit.viewport.utility import get_active_viewport
-
-        viewport = get_active_viewport()
         if viewport is not None:
-            params = syn.helpers.get_view_params(viewport)
-            return int(params["width"]), int(params["height"])
+            width, height = viewport.resolution
+            return int(width), int(height)
     except Exception as e:
-        _warn_once(
-            "resolution",
-            f"[MCP Bridge] Could not read the viewport's resolution, framing for "
-            f"{requested[0]}x{requested[1]} instead: {e}",
-        )
-    return requested
+        _warn_once("resolution", f"[MCP Bridge] Can't read the viewport's resolution, capturing at 1280x720: {e}")
+    return _FALLBACK_SIZE
+
+
+def _new_feed(camera_path: str, width: int, height: int) -> CameraFeed:
+    """A feed of `camera_path` at the size asked for, for one call: the image, its segmentation and its boxes all come
+    from it, so they agree with each other and with the size (#51); the user's viewport is never touched."""
+    try:
+        return CameraFeed(camera_path, width, height, prefix="ovmcp_capture")
+    except ImportError as e:
+        raise RuntimeError(f"This Kit app can't render a camera into a texture of its own: {e}") from None
+
+
+def _turn_segmentation_on(feed: CameraFeed) -> str | None:
+    """enable_segmentation, whose failure costs the segmentation alone, never the capture: why there is none, or
+    None."""
+    try:
+        return enable_segmentation(feed)
+    except Exception as e:
+        carb.log_warn(f"[MCP Bridge] Instance segmentation could not be turned on: {e}")
+        return f"Instance segmentation failed: {e}"
+
+
+def _settle_frames() -> int:
+    """The frames a feed renders after its first before a capture: for Path Tracing to reach its samples (core)."""
+    settings = carb.settings.get_settings()
+    return capture.settle_frames(
+        settings.get("/rtx/rendermode"), settings.get("/rtx/pathtracing/spp"), settings.get("/rtx/pathtracing/totalSpp")
+    )
+
+
+def _segmentation_key(feed: CameraFeed) -> tuple:
+    """What a capture's segmentation waits are kept by: its feed's render product is new with every call."""
+    return (omni.usd.get_context().get_stage_id(), feed.camera_path, feed.resolution)
 
 
 def _compute_autofit_distance(dims, camera_path, stage, width, height):
@@ -247,75 +277,37 @@ def _compute_autofit_distance(dims, camera_path, stage, width, height):
         if v_val and v_val > 0:
             v_ap = v_val
 
-    res_w, res_h = _viewport_resolution((width, height))
-    return fit_distance(bounding_radius(dims), fl, h_ap, v_ap, res_w, res_h)
+    return fit_distance(bounding_radius(dims), fl, h_ap, v_ap, width, height)
 
 
-async def _capture_frame(
-    camera_path: str, width: int, height: int, budget: capture.Budget | None = None
-) -> tuple[bytes, bool]:
-    """Capture a single frame as PNG bytes from the given camera.
+async def _capture_frame(feed: CameraFeed, budget: capture.Budget | None = None) -> tuple[bytes, bool]:
+    """A frame of `feed` as PNG bytes, and whether it is black.
 
-    If the first capture is black, automatically resets the renderer
-    accumulation and retries once.  This handles the common case where
-    the RTX renderer has not yet warmed up after a scene change. A capture
-    that fails is not retried. Each wait is capped by `budget`.
-
-    Returns (png_bytes, is_black).
+    A black frame is taken once more after the renderer's accumulation is reset and the feed has rendered
+    CAMERA_SETTLE_FRAMES more: the common case is an RTX renderer not yet warm after a scene change. A capture that
+    fails is not retried. Each wait is capped by `budget`.
     """
-    try:
-        from omni.kit.viewport.utility import get_active_viewport
-    except ImportError:
-        raise RuntimeError("omni.kit.viewport.utility not available")
-
-    viewport = get_active_viewport()
-    if viewport is None:
-        raise RuntimeError("No active viewport found")
-
-    # Point viewport at the requested camera if different
-    current_cam = str(viewport.camera_path)
-    changed_camera = camera_path and camera_path != current_cam
-    if changed_camera:
-        viewport.camera_path = camera_path
-        await _next_update()
-        await _next_update()
-
-    async def _do_capture() -> tuple[bytes, bool]:
-        data = await capture_viewport_png(viewport, budget)
-        return data, _is_image_black(data)
-
-    try:
-        png_bytes, is_black = await _do_capture()
-
-        if is_black:
-            # First attempt: reset renderer accumulation (fixes stale cache
-            # after lighting / variant changes).
-            carb.log_info("[MCP Bridge] Black frame detected, resetting renderer")
-            await _reset_renderer(wait_frames=CAMERA_SETTLE_FRAMES, budget=budget)
-            png_bytes, is_black = await _do_capture()
-
-        return png_bytes, is_black
-    finally:
-        # Restore original camera if we changed it
-        if changed_camera:
-            viewport.camera_path = current_cam
+    png_bytes = await capture_feed_png(feed, budget)
+    is_black = _is_image_black(png_bytes)
+    if is_black:
+        carb.log_info("[MCP Bridge] Black frame detected, resetting renderer")
+        await _reset_renderer(wait_frames=CAMERA_SETTLE_FRAMES, budget=budget, frames=feed.wait_frames)
+        png_bytes = await capture_feed_png(feed, budget)
+        is_black = _is_image_black(png_bytes)
+    return png_bytes, is_black
 
 
-def _compute_screen_bboxes(camera_path: str, img_width: int, img_height: int):
-    """Compute screen-space bounding boxes for visible prims using omni.syntheticdata.
+def _compute_screen_bboxes(view, img_width: int, img_height: int):
+    """Screen boxes of the visible prims as `view` sees them, in the image's pixels, through omni.syntheticdata's
+    projection: `view` is a capture's camera feed, which it reads as it reads a viewport (camera_feed.py).
 
     Returns list of {prim_path, type, screen_bbox [x_min, y_min, x_max, y_max],
     world_center, world_dimensions}.
     """
     import numpy as np
     import omni.syntheticdata as syn
-    from omni.kit.viewport.utility import get_active_viewport
 
-    viewport = get_active_viewport()
-    if viewport is None:
-        return []
-
-    vp_params = syn.helpers.get_view_params(viewport)
+    vp_params = syn.helpers.get_view_params(view)
     vp_w = vp_params["width"]
     vp_h = vp_params["height"]
 
@@ -359,7 +351,7 @@ def _compute_screen_bboxes(camera_path: str, img_width: int, img_height: int):
 
         pts = np.array(box_corners(min_pt, max_pt), dtype=np.float64)
         # (8, 3): x and y as fractions of the viewport, then depth
-        projected = syn.helpers.world_to_image(pts, viewport, vp_params)
+        projected = syn.helpers.world_to_image(pts, view, vp_params)
         screen_bbox = screen_box(projected.tolist(), (vp_w, vp_h), (img_width, img_height))
         if screen_bbox is None:
             continue
@@ -388,49 +380,47 @@ def _active_viewport():
     return get_active_viewport()
 
 
-def _has_data(seg_array) -> bool:
-    return seg_array is not None and seg_array.size > 0
-
-
-# Why an answer has no segmentation. Neither points at a new stage, which would throw the user's scene away: every
-# call reads the sensor first, so data that starts flowing is picked up on the same stage. get_logs' search matches
-# only a message, and omni.syntheticdata's own lines rarely name it, so they are found by their channel.
+# Why an answer has no segmentation. Neither points at a new stage, which would throw the user's scene away. get_logs'
+# search matches only a message, and omni.syntheticdata's own lines rarely name it, so they are found by their channel.
 _SEGMENTATION_NONE = (
     "Instance segmentation gave no data within {seconds:g} s of enabling it: capture again, and if it stays empty, "
     'get_logs(channel="syntheticdata") shows what omni.syntheticdata reported'
 )
 _SEGMENTATION_AS_BEFORE = (
-    "Instance segmentation gave no data on this stage, as before, so this capture did not wait: capture again in a "
-    'few seconds; get_logs(channel="syntheticdata") shows what omni.syntheticdata reported'
+    "Instance segmentation gave no data for this camera and size on this stage before, and none in the {seconds:g} s "
+    'this capture waited: capture again in a few seconds; get_logs(channel="syntheticdata") shows what '
+    "omni.syntheticdata reported"
 )
 
 
-async def _segmentation(viewport, budget: capture.Budget) -> tuple[bytes | None, dict, str | None]:
-    """Instance segmentation of the viewport's last frame, each prim its own colour: (png, legend, None), where the
-    legend maps prim_path -> [R, G, B], or (None, {}, why there is none).
+async def _segmentation(feed: CameraFeed, budget: capture.Budget) -> tuple[bytes | None, dict, str | None]:
+    """Instance segmentation of the feed's last frame, each prim its own colour: (png, legend, None), where the legend
+    maps prim_path -> [R, G, B], or (None, {}, why there is none).
 
-    Kit resets the sensor on every stage open, and it gives data only once a frame has rendered after it was
-    enabled. So an empty read enables it again (harmless when it is on) and reads it after each app update for
-    SEGMENTATION_SECONDS: a count of updates was too few on a cold start (#27). A wait that got nothing is not
-    repeated on the same stage and render product until a read gets data.
+    The sensor, turned on when the feed was made (enable_segmentation), gives data only once a frame has rendered
+    after that, so it is read after each app update for SEGMENTATION_SECONDS: a count of updates was too few on a cold
+    start (#27). Data counts only at the feed's size. After a wait that got nothing with this camera and size on this
+    stage, the next waits SEGMENTATION_RETRY_SECONDS, until a read gets data.
     """
     try:
         import omni.syntheticdata as syn
     except ImportError:
         return None, {}, "omni.syntheticdata is not loaded: enable it with manage_extensions"
-    if viewport is None:
-        return None, {}, "No active viewport to read instance segmentation from"
     try:
-        key = (viewport.usd_context.get_stage_id(), str(viewport.render_product_path))
+        key = _segmentation_key(feed)
+        width, height = feed.resolution
 
         def read():
-            return syn.sensors.get_instance_segmentation(viewport)
+            return syn.sensors.get_instance_segmentation(feed)
+
+        def whole(seg_array) -> bool:
+            return seg_array is not None and tuple(seg_array.shape[:2]) == (height, width)
 
         seg_array = read()
-        if not _has_data(seg_array):
+        if not whole(seg_array):
+            waited_before = _segmentation_waits.failed_before(key)
             seconds = _segmentation_waits.seconds(key)
             cut_short = budget.left() < seconds
-            syn.sensors.enable_sensors(viewport, [syn._syntheticdata.SensorType.InstanceSegmentation])
             updates = 0
 
             async def next_update():
@@ -439,14 +429,14 @@ async def _segmentation(viewport, budget: capture.Budget) -> tuple[bytes | None,
                 updates += 1
 
             started = time.monotonic()
-            seg_array = await capture.poll(read, _has_data, next_update, seconds, budget)
+            seg_array = await capture.poll(read, whole, next_update, seconds, budget)
             took = time.monotonic() - started
             if seg_array is None:
-                if seconds == 0:
-                    return None, {}, _SEGMENTATION_AS_BEFORE
                 if cut_short:
                     return None, {}, "Instance segmentation gave no data before this call's time ran out"
                 _segmentation_waits.failed(key)
+                if waited_before:
+                    return None, {}, _SEGMENTATION_AS_BEFORE.format(seconds=seconds)
                 carb.log_warn(
                     f"[MCP Bridge] Instance segmentation gave no data in {updates} updates, {took:.2f} s after "
                     "enabling it"
@@ -465,58 +455,18 @@ async def _segmentation(viewport, budget: capture.Budget) -> tuple[bytes | None,
 
 
 def _colour_segmentation(syn, seg_array) -> tuple[bytes, dict]:
-    """The sensor's instance ids as a PNG, each prim its own colour, and the legend: prim_path -> [R, G, B]."""
-    import numpy as np
-
-    # Map instance IDs to prim paths
+    """The sensor's instance ids as a PNG, each prim its own colour, and the legend: prim_path -> [R, G, B]
+    (core/capture.py's colour_instances)."""
     sd_iface = syn._syntheticdata.acquire_syntheticdata_interface()
-    unique_ids = np.unique(seg_array)
 
-    h, w = seg_array.shape[:2]
-    color_img = np.zeros((h, w, 3), dtype=np.uint8)
-    color_legend = {}  # prim_path -> [R, G, B]
-    id_to_color = {}
-
-    for idx, uid in enumerate(unique_ids):
-        uid_int = int(uid)
-        if uid_int == 0:
-            continue  # Background stays black
-
-        # Get prim path for this instance ID
+    def name_of(instance: int) -> str | None:
         try:
-            prim_path = sd_iface.get_uri_from_instance_segmentation_id(uid_int)
+            return sd_iface.get_uri_from_instance_segmentation_id(instance)
         except Exception:
-            prim_path = f"instance_{uid_int}"
+            return None  # named by its id instead
 
-        # Generate distinct color using golden-ratio hue spacing
-        hue = (idx * 0.618033988749895) % 1.0
-        h_i = int(hue * 6)
-        f = hue * 6 - h_i
-        q = int(255 * (1 - f))
-        t = int(255 * f)
-        if h_i == 0:
-            r, g, b = 255, t, 0
-        elif h_i == 1:
-            r, g, b = q, 255, 0
-        elif h_i == 2:
-            r, g, b = 0, 255, t
-        elif h_i == 3:
-            r, g, b = 0, q, 255
-        elif h_i == 4:
-            r, g, b = t, 0, 255
-        else:
-            r, g, b = 255, 0, q
-
-        id_to_color[uid_int] = [r, g, b]
-        mask = seg_array == uid
-        color_img[mask] = [r, g, b]
-
-        # Aggregate by prim path (multiple IDs can map to same prim)
-        if prim_path not in color_legend:
-            color_legend[prim_path] = [r, g, b]
-
-    png_bytes = encode_png(color_img)
-    return png_bytes, color_legend
+    image, legend = capture.colour_instances(seg_array, name_of)
+    return encode_png(image), legend
 
 
 # ---------------------------------------------------------------------------
@@ -643,13 +593,15 @@ async def handle_camera_look_at(body: dict) -> dict:
 async def handle_camera_inspect(body: dict) -> dict:
     """Orbit-capture: take screenshots from multiple angles around a prim.
 
-    Auto-fits camera distance so the prim fills the viewport with ~10px margin.
+    Auto-fits camera distance so the prim fills the frame with ~10px margin, at the size asked for.
     Use zoom_offset to adjust: negative=closer, positive=further, 0=auto-fit.
     Use isolate=True to hide all other scene content during capture.
     Optionally includes instance segmentation at each angle.
 
-    Each wait is bounded, and the call has CALL_SECONDS (ovmcp.core.capture), under the server's 120 s: an angle that
-    fails says why, and once the viewport gives no frame or the time runs out, the angles left say "Not captured".
+    Every frame comes from one camera feed of the viewport's camera at that size, made for the call (#51), as the orbit
+    moves the camera. Each wait is bounded, and the call has CALL_SECONDS (ovmcp.core.capture), under the server's
+    120 s: an angle that fails says why, and once the feed gives no frame or the time runs out, the angles left say
+    "Not captured".
     """
     prim_path = body.get("prim_path", "")
     if not prim_path:
@@ -658,7 +610,8 @@ async def handle_camera_inspect(body: dict) -> dict:
         args = inspect_args(body)
     except ValueError as e:
         return {"status": "error", "error": str(e)}
-    width, height, zoom_offset, isolate = args.width, args.height, args.zoom_offset, args.isolate
+    zoom_offset, isolate = args.zoom_offset, args.isolate
+    width, height = args.size or _viewport_size()
 
     stage = _get_stage()
     prim = stage.GetPrimAtPath(prim_path)
@@ -668,7 +621,7 @@ async def handle_camera_inspect(body: dict) -> dict:
     center, dims, _ = world_bbox(prim)
 
     # Auto-fit distance, then zoom_offset: 0=auto-fit, negative=closer, positive=further. The fit refuses an
-    # orthographic camera, and a frame with no room inside its margins, judged on the resolution actually captured.
+    # orthographic camera, and a frame with no room inside its margins, judged on the size captured.
     camera_path = _get_active_camera_path()
     try:
         distance = apply_zoom(_compute_autofit_distance(dims, camera_path, stage, width, height), zoom_offset)
@@ -677,18 +630,25 @@ async def handle_camera_inspect(body: dict) -> dict:
 
     up_axis = UsdGeom.GetStageUpAxis(stage)
 
+    try:
+        feed = _new_feed(camera_path, width, height)
+    except RuntimeError as e:
+        return {"status": "error", "error": str(e)}
     call = capture.Call(capture.CALL_SECONDS)
     # Isolate: hide everything but the prim and the lights, in the session layer, inside the try so it always undoes
     hidden = Hidden(stage.GetSessionLayer())
     isolate_warnings: list[str] = []
     captures = []
+    # A camera move restarts Path Tracing's samples, so each angle waits for them on top of its settle.
+    settle = CAMERA_SETTLE_FRAMES + _settle_frames()
     try:
+        segmentation_problem = _turn_segmentation_on(feed) if args.include_segmentation else None
         if isolate:
             paths, isolate_warnings = prims_to_hide(stage, prim_path)
             hidden.hide(paths)
             isolate_warnings += hidden.warnings
             try:
-                await _settle_viewport(budget=call.budget)
+                await feed.wait_frames(CAMERA_SETTLE_FRAMES, call.budget)
             except capture.CaptureError as e:
                 # No frame with the prims hidden: every angle would wait the same, so none is tried.
                 call.failed(e)
@@ -724,9 +684,9 @@ async def handle_camera_inspect(body: dict) -> dict:
                 _set_camera_xform(camera_path, cam_pos, center)
 
             try:
-                # Wait for camera transform to propagate to renderer
-                await _settle_viewport(budget=call.budget)
-                png_bytes, is_black = await _capture_frame(camera_path, width, height, call.budget)
+                # The feed renders the camera's new place a few frames after the move (#51's E14: 3)
+                await feed.wait_frames(settle, call.budget)
+                png_bytes, is_black = await _capture_frame(feed, call.budget)
                 b64 = base64.b64encode(png_bytes).decode("utf-8")
                 cap_entry = {
                     "angle": angle_name,
@@ -738,7 +698,10 @@ async def handle_camera_inspect(body: dict) -> dict:
                 }
 
                 if args.include_segmentation:
-                    seg_png, legend, seg_error = await _segmentation(_active_viewport(), call.budget)
+                    if segmentation_problem:
+                        seg_png, legend, seg_error = None, {}, segmentation_problem
+                    else:
+                        seg_png, legend, seg_error = await _segmentation(feed, call.budget)
                     if seg_png:
                         cap_entry["segmentation_base64"] = base64.b64encode(seg_png).decode("utf-8")
                         cap_entry["segmentation_legend"] = legend
@@ -756,15 +719,20 @@ async def handle_camera_inspect(body: dict) -> dict:
                     }
                 )
     finally:
-        # Put each hidden prim's session-layer visibility back as it was
-        if len(hidden):
-            hidden.restore()
-            # Under a time of its own, since the call's may be spent; not at all after the viewport gave no frame.
-            if call.settle_after_restore():
-                try:
-                    await _settle_viewport(budget=capture.Budget(capture.CLEANUP_SECONDS))
-                except capture.CaptureError as e:
-                    carb.log_warn(f"[MCP Bridge] inspect_prim: the viewport did not settle after isolate: {e}")
+        try:
+            # Put each hidden prim's session-layer visibility back as it was
+            if len(hidden):
+                hidden.restore()
+                # Under a time of its own, since the call's may be spent; not at all after the feed gave no frame.
+                # The viewport's frames: the user's view is what shows the prims again.
+                if call.settle_after_restore():
+                    try:
+                        await _settle_viewport(budget=capture.Budget(capture.CLEANUP_SECONDS))
+                    except capture.CaptureError as e:
+                        carb.log_warn(f"[MCP Bridge] inspect_prim: the viewport did not settle after isolate: {e}")
+        finally:
+            # Whatever the restore did: the feed's render product and graphs must not outlive the call.
+            await release(feed)
 
     return {
         "status": "success",
@@ -775,6 +743,9 @@ async def handle_camera_inspect(body: dict) -> dict:
             "zoom_offset": zoom_offset,
             "isolate": isolate,
             "isolate_warnings": isolate_warnings,
+            "width": width,
+            "height": height,
+            "camera_path": camera_path,
             "lighting_mode": _get_current_lighting_mode(),
             "captures": captures,
         },
@@ -783,27 +754,44 @@ async def handle_camera_inspect(body: dict) -> dict:
 
 @serial(_viewport)
 async def handle_capture(body: dict) -> dict:
-    width = body.get("width", 1280)
-    height = body.get("height", 720)
-    camera_path = body.get("camera_path", "")
+    """The image, screen boxes and instance segmentation of one frame of `camera_path` (the viewport's camera when
+    empty) at the size asked for (the viewport's when none is), from a camera feed made for the call: all three agree,
+    in the image's pixels, and the user's viewport never changes (#51)."""
+    try:
+        size = capture.capture_size(body)
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
 
     await _next_update()
 
-    if not camera_path:
-        camera_path = _get_active_camera_path()
-
-    camera_path = str(camera_path)
+    camera_path = str(body.get("camera_path") or _get_active_camera_path())
+    problem = camera_error(_get_stage(), camera_path)
+    if problem:
+        return {"status": "error", "error": problem}
+    width, height = size or _viewport_size()
     call = capture.Call(capture.CALL_SECONDS)
 
+    feed = None
     try:
-        # 1. Capture the viewport image
-        png_bytes, is_black = await _capture_frame(camera_path, width, height, call.budget)
+        feed = _new_feed(camera_path, width, height)
+        # Turned on with the feed, so a capture that fails after it still frees its graphs on the way out.
+        segmentation_problem = _turn_segmentation_on(feed)
+        # The bound a viewport frame gets, sized for a renderer's cold start (#27).
+        await feed.first_frame(capture.FRAME_SECONDS)
+        settle = _settle_frames()
+        if settle:
+            await feed.wait_frames(settle, call.budget)
+
+        # 1. The image
+        png_bytes, is_black = await _capture_frame(feed, call.budget)
         b64_image = base64.b64encode(png_bytes).decode("utf-8")
+        # The image's own size: what the boxes are in, and what the server prints.
+        image_width, image_height = png_size(png_bytes) or (width, height)
 
         result = {
             "image_base64": b64_image,
-            "width": width,
-            "height": height,
+            "width": image_width,
+            "height": image_height,
             "camera_path": camera_path,
             "format": "png",
             "is_black": is_black,
@@ -812,16 +800,19 @@ async def handle_capture(body: dict) -> dict:
         if is_black:
             result["has_scene_lights"] = _has_scene_lights()
 
-        # 2. Compute screen-space bounding boxes for visible prims
+        # 2. Screen-space bounding boxes of the visible prims, from the camera and size captured
         try:
-            bboxes = _compute_screen_bboxes(camera_path, width, height)
+            bboxes = _compute_screen_bboxes(feed, image_width, image_height)
             result["screen_bboxes"] = bboxes
         except Exception as e:
             carb.log_warn(f"Screen bbox computation failed: {e}")
             result["screen_bboxes"] = []
 
-        # 3. Capture instance segmentation image: when it gives none, waited for once per stage, not on every call
-        seg_png, color_legend, seg_error = await _segmentation(_active_viewport(), call.budget)
+        # 3. Instance segmentation of the same feed
+        if segmentation_problem:
+            seg_png, color_legend, seg_error = None, {}, segmentation_problem
+        else:
+            seg_png, color_legend, seg_error = await _segmentation(feed, call.budget)
         if seg_png:
             result["segmentation_base64"] = base64.b64encode(seg_png).decode("utf-8")
             result["segmentation_legend"] = color_legend
@@ -834,6 +825,9 @@ async def handle_capture(body: dict) -> dict:
     except Exception as e:
         tb = traceback.format_exc()
         return {"status": "error", "error": str(e), "traceback": tb}
+    finally:
+        if feed is not None:
+            await release(feed)
 
 
 @serial(_viewport)

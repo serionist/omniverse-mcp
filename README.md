@@ -263,8 +263,6 @@ On Isaac Sim 6.2, the only Kit app tested so far:
 
 - **`apply_force` is refused under PhysX's Direct GPU API,** which Isaac Sim turns on for a GPU device: its push
   moves nothing there ([#68](https://github.com/serionist/omniverse-mcp/issues/68)).
-- **`capture_viewport` and `inspect_prim` return the image at the viewport's size,** while their boxes use the size
-  asked for ([#51](https://github.com/serionist/omniverse-mcp/issues/51)).
 
 ## Security
 

@@ -215,3 +215,103 @@ def test_a_captures_files_keep_its_number_while_other_tools_take_numbers(tmp_pat
     # The legend sits beside the segmentation, here outside the working folder, so its path came back absolute (#41).
     (legend,) = (tmp_path / "captures").glob("viewport_*_segmentation_*_legend.txt")
     assert "/World/Cube = [255, 0, 0]" in legend.read_text(encoding="utf-8")
+
+
+def _png_base64(width: int, height: int) -> str:
+    """A PNG's signature and header chunk, base64, as much of an image as the tool reads its size from."""
+    import base64
+    import struct
+    import zlib
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    chunk = struct.pack(">I", len(header)) + b"IHDR" + header + struct.pack(">I", zlib.crc32(b"IHDR" + header))
+    return base64.b64encode(b"\x89PNG\r\n\x1a\n" + chunk).decode()
+
+
+def test_a_png_s_size_is_read_from_its_first_24_bytes():
+    assert camera._png_size(_png_base64(320, 240)) == (320, 240)
+    assert camera._png_size(_png_base64(4096, 1)) == (4096, 1)
+    assert camera._png_size("iVBORw0KGgo=") is None  # the signature alone
+    assert camera._png_size("R0lGODlhAQABAAAAACw=") is None  # a GIF
+    assert camera._png_size("not base64!") is None
+    assert camera._png_size("") is None
+
+
+def _sized_capture(image_size, answer_size):
+    answer = _capture_answer("stage", True)
+    answer["result"].update(is_black=False, image_base64=_png_base64(*image_size))
+    answer["result"]["width"], answer["result"]["height"] = answer_size
+    return answer
+
+
+def test_a_capture_gives_the_image_s_own_size(tmp_path):
+    fns, client = _tools(tmp_path, {"capture_viewport": _sized_capture((320, 240), (320, 240))})
+
+    out = fns["capture_viewport"](width=320, height=240)
+
+    assert client.calls[0][1][:2] == (320, 240)
+    assert re.search(r"^Viewport: 320x240 \(lighting: stage\) -> ", out, re.M), out
+    assert "WARNING" not in out
+
+
+def test_an_older_extension_s_boxes_for_another_size_are_flagged_with_the_fix(tmp_path):
+    # Before #51 the image came at the viewport's size, and its boxes and answer at the size asked for.
+    fns, _ = _tools(tmp_path, {"capture_viewport": _sized_capture((1280, 720), (640, 480))})
+
+    out = fns["capture_viewport"]()
+
+    assert re.search(r"^Viewport: 1280x720 ", out, re.M), out
+    (warning,) = [line for line in out.splitlines() if line.startswith("WARNING")]
+    assert "The image is 1280x720 but its boxes are for 640x480" in warning
+    assert "extension install" in warning
+    assert "restart Kit" in warning
+
+
+def test_an_image_whose_header_can_t_be_read_keeps_the_answer_s_size(tmp_path):
+    answer = _capture_answer("stage", True)
+    answer["result"]["is_black"] = False
+    fns, _ = _tools(tmp_path, {"capture_viewport": answer})
+
+    out = fns["capture_viewport"]()
+
+    assert re.search(r"^Viewport: 1280x720 ", out, re.M), out
+    assert "WARNING" not in out
+
+
+def test_inspect_says_the_size_it_captured_at(tmp_path):
+    fns, _ = _tools(tmp_path, {"camera_inspect": _inspect_answer(width=320, height=240)})
+
+    out = fns["inspect_prim"]("/World/Lamp", width=320, height=240)
+
+    assert out.splitlines()[0] == "Inspect /World/Lamp (dist=5.0m, 320x240)"
+
+
+def test_inspect_from_an_older_extension_says_no_size(tmp_path):
+    # Before #51 the answer had no size, and its images were the viewport's whatever was asked.
+    fns, _ = _tools(tmp_path, {"camera_inspect": _inspect_answer()})
+
+    out = fns["inspect_prim"]("/World/Lamp")
+
+    assert out.splitlines()[0] == "Inspect /World/Lamp (dist=5.0m)"
+
+
+def test_inspect_from_an_older_extension_at_another_size_is_flagged_with_the_fix(tmp_path):
+    answer = _inspect_answer()
+    answer["result"]["captures"][0]["image_base64"] = _png_base64(1280, 720)
+    fns, _ = _tools(tmp_path, {"camera_inspect": answer})
+
+    out = fns["inspect_prim"]("/World/Lamp", width=640, height=480)
+
+    (warning,) = [line for line in out.splitlines() if "WARNING" in line]
+    assert "The images are 1280x720, not the 640x480 asked for" in warning
+    assert "extension install" in warning
+
+
+def test_inspect_from_an_older_extension_at_the_size_asked_for_says_nothing_more(tmp_path):
+    answer = _inspect_answer()
+    answer["result"]["captures"][0]["image_base64"] = _png_base64(640, 480)
+    fns, _ = _tools(tmp_path, {"camera_inspect": answer})
+
+    out = fns["inspect_prim"]("/World/Lamp", width=640, height=480)
+
+    assert "WARNING" not in out

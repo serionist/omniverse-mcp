@@ -124,14 +124,14 @@ What this repo's history already paid for:
 |---|---|---|
 | A handler awaited inside the connection task: "Cannot enter into task", which broke Kit's property widgets and viewport | `ceb6dd9` | Handlers run as their own task (`ensure_future`) |
 | An `isaacsim/__init__.py` of ours shadowed NVIDIA's namespace package | `c6454e6` | A namespace of our own, `ovmcp` |
-| Instance segmentation was empty until a frame had rendered | `d688f31` | Sensor made at startup; enabled again when empty (Kit resets it on every stage open), read each update for up to 5 s, an error when none comes |
+| Instance segmentation was empty until a frame had rendered | `d688f31` | Sensor turned on for each capture's own feed, read each update for up to 5 s, an error when none comes |
 | Kit 105.1+ has no default light, so captures came back black | README | `is_black` check, `viewport_light` |
 | The log buffer's dict changed during a filtered query: `KeyError` | `8d684d6` | Copy before filtering |
 | USD called off the main thread crashes Kit | `misc.py` | Never `run_in_executor` for USD work |
 | A Python `omni.log` consumer of ours deadlocked Kit: a cooking worker logged while the main thread held the GIL | #5 | No Python log hook in the bridge, enforced by `tests/test_logs.py`'s guard; `get_logs` reads Kit's log file |
-| Every capture read one temp path, which Kit 110 writes after it says the capture is done: each image was the previous capture's | #32 | A file per capture, read once the PNG is whole (`capture_viewport_png`) |
+| Every capture read one temp path, which Kit 110 writes after it says the capture is done: each image was the previous capture's | #32 | A file per capture, read once the PNG is whole (`capture_file_png`) |
 | Render waits counted updates (too few on a cold start) or had no bound (a stalled viewport hung the call) | #27, #35 | Waits by time, each bounded, a call limit under the server's 120 s (`ovmcp.core.capture`) |
-| A capture took the next frame Kit delivered, rendered about 3 updates before: a drawing made just before was missing | #57 | `FRESH_FRAMES` frames before `capture_viewport` and `inspect_prim` capture; recording, on its own feed, waits none |
+| A capture took a frame other than the one asked for: the viewport's, rendered about 3 updates before, missing a drawing made just before (#57), and at the viewport's size while its boxes used the size asked for (#51) | #57, #51 | Each capture renders its camera at its size in a feed of its own (`camera_feed.py`), whose first frame comes after the call starts; its segmentation graphs are freed before its render product goes |
 | A live check read a robot's drift against a threshold, so `apply_force` refused links PhysX pushes | #58 | Live force checks compare the change of momentum with the push |
 
 ## Look up APIs before coding against them

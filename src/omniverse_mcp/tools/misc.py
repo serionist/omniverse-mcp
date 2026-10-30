@@ -29,7 +29,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         The `mcp` object provides async access to MCP handlers from within scripts.
         Use `await` to call its methods (the script automatically runs as async):
 
-            viewport = await mcp.capture_viewport(width=1280)
+            viewport = await mcp.capture_viewport(width=1280, height=720)
             tree = await mcp.scene_tree()
             await mcp.set_camera([5, 3, 5], target=[0, 0, 0])
             result = {"tree": tree["result"]}

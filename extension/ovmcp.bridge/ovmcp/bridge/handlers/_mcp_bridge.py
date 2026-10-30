@@ -6,7 +6,7 @@ All methods are async — use `await` in your execute_script code.
 
 Example:
     # In execute_script code:
-    viewport = await mcp.capture_viewport(width=1280)
+    viewport = await mcp.capture_viewport(width=1280, height=720)
     tree = await mcp.scene_tree()
     result = {"image_size": len(viewport["result"]["image_base64"]), "tree": tree["result"]}
 """

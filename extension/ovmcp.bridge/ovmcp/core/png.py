@@ -35,6 +35,14 @@ def encode_png(image: "NDArray[Any]") -> bytes:
     return _SIGNATURE + _chunk(b"IHDR", header) + _chunk(b"IDAT", zlib.compress(raw)) + _chunk(b"IEND", b"")
 
 
+def png_size(data: bytes) -> tuple[int, int] | None:
+    """A PNG's width and height, from its header chunk; None for anything that doesn't start as a PNG does."""
+    if len(data) < 24 or not data.startswith(_SIGNATURE) or data[12:16] != b"IHDR":
+        return None
+    width, height = struct.unpack(">II", data[16:24])
+    return width, height
+
+
 def is_complete_png(data: bytes) -> bool:
     """Whether data is a whole PNG, from its signature to its IEND chunk: a file still being written is not."""
     return data.startswith(_SIGNATURE) and data.endswith(_IEND)

@@ -6,8 +6,10 @@ import asyncio
 import gc
 import inspect
 import re
+import time
 import weakref
 
+import numpy as np
 import pytest
 
 from omniverse_mcp.client import BridgeClient
@@ -77,16 +79,12 @@ class _Kit:
         done=True,
         schedules=True,
         update_seconds=1.0,
-        frame_seconds=0.0,
-        frames_come=True,
     ):
         self.files = list(files)  # what each read gives, the last one again once they run out
         self.result = list(result) if isinstance(result, tuple) else result
         self.done = done
         self.schedules = schedules
         self.update_seconds = update_seconds
-        self.frame_seconds = frame_seconds
-        self.frames_come = frames_come
         self.clock = _Clock()
         self.capture: _KitCapture | None = None
         self.events: list[str] = []
@@ -100,13 +98,6 @@ class _Kit:
         self.capture = _KitCapture(self.result, done=self.done)
         return self.capture
 
-    async def next_frame(self):
-        self.events.append("frame")
-        if not self.frames_come:
-            await asyncio.get_running_loop().create_future()
-        self.clock.now += self.frame_seconds
-        await asyncio.sleep(0)
-
     def read_file(self) -> bytes:
         self.reads += 1
         data = self.files[min(self.reads, len(self.files)) - 1] if self.files else None
@@ -119,11 +110,8 @@ class _Kit:
         self.clock.now += self.update_seconds
         await asyncio.sleep(0)
 
-    async def png(self, budget=None, *, fresh=False):
-        next_frame = self.next_frame if fresh else None
-        return await capture_png(
-            self.schedule, self.read_file, self.next_update, budget, self.clock, next_frame=next_frame
-        )
+    async def png(self, budget=None):
+        return await capture_png(self.schedule, self.read_file, self.next_update, budget, self.clock)
 
 
 def test_a_capture_returns_the_png_once_the_file_is_whole():
@@ -170,74 +158,23 @@ def test_a_frame_that_never_comes_is_no_frame(monkeypatch):
     assert kit.reads == 0
 
 
-def test_fresh_frames_pass_before_the_capture_is_scheduled():
-    # Kit captures the next frame the viewport delivers, which the renderer made about 3 updates earlier: a drawing
-    # made just before was missing from it (#57).
-    assert capture.FRESH_FRAMES == 4
-    kit = _Kit([_WHOLE], frame_seconds=0.25)
-
-    png = _run(kit.png(fresh=True))
-
-    assert kit.events == ["frame"] * 4 + ["schedule"]
-    assert png.fresh_seconds == 1.0
-    assert png.data == _WHOLE
-
-    # Without next_frame, as recording calls it, the capture is scheduled at once.
-    kit = _Kit([_WHOLE])
-    png = _run(kit.png())
-    assert kit.events == ["schedule"]
-    assert png.fresh_seconds == 0.0
-
-
-def test_recording_never_waits_for_fresh_frames():
-    # Fresh frames are the viewport's trail (#57). A recording captures from its own camera feed, whose next frame
-    # already shows the simulation within one update of its tick (#25's E17); waiting would only make each frame
-    # longer, so more ticks go untaken. The handlers import Kit, so the guard reads the source.
+def test_every_capture_takes_its_frame_from_a_feed():
+    # A capture of the viewport took the next frame the viewport delivered, rendered about 3 updates before (#57), and
+    # at the viewport's size (#51). Recording, capture_viewport and inspect_prim each render through a feed of their
+    # own, whose next frame is within one update of the request (#25's E17), and no viewport capture is left to call.
+    # The handlers import Kit, so the guard reads the source.
     handlers = EXTENSION_ROOT / "ovmcp" / "bridge" / "handlers"
 
-    def calls(tree: ast.AST, name: str) -> list[ast.Call]:
-        return [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name
-        ]
+    def called(module: str) -> set[str]:
+        tree = ast.parse((handlers / module).read_text(encoding="utf-8"))
+        return {
+            node.func.id for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
 
-    recording = ast.parse((handlers / "recording.py").read_text(encoding="utf-8"))
-    assert calls(recording, "capture_feed_png"), "recording.py no longer captures from its feed: guard what it calls"
-    assert not calls(recording, "capture_viewport_png")
-    utils = ast.parse((handlers / "_utils.py").read_text(encoding="utf-8"))
-    (feed_png,) = [n for n in ast.walk(utils) if isinstance(n, ast.AsyncFunctionDef) and n.name == "capture_feed_png"]
-    captures = calls(feed_png, "capture_file_png")
-    assert captures
-    for call in captures:
-        assert all(keyword.arg != "next_frame" for keyword in call.keywords), ast.unparse(call)
-
-
-def test_a_viewport_that_renders_nothing_schedules_no_capture(monkeypatch):
-    monkeypatch.setattr(capture, "FRAME_SECONDS", 0.05)
-    kit = _Kit([_WHOLE], frames_come=False)
-
-    with pytest.raises(NoFrameError, match=r"no frame in 0\.05 s"):
-        _run(kit.png(fresh=True))
-
-    assert kit.events == ["frame"]
-    assert kit.capture is None
-
-
-def test_the_budget_caps_the_fresh_frames():
-    # Each frame takes 1 s on the fake clock: a budget of 2.5 s has nothing left for the fourth.
-    kit = _Kit([_WHOLE], frame_seconds=1.0)
-    with pytest.raises(OutOfTimeError):
-        _run(kit.png(Budget(2.5, kit.clock), fresh=True))
-    assert kit.events == ["frame"] * 3
-    assert kit.capture is None
-
-    # Frames that spend all of it start no capture: its file would come after the call.
-    kit = _Kit([_WHOLE], frame_seconds=1.0)
-    with pytest.raises(OutOfTimeError):
-        _run(kit.png(Budget(4, kit.clock), fresh=True))
-    assert kit.events == ["frame"] * 4
-    assert kit.capture is None
+    for module in ("recording.py", "camera.py"):
+        assert "capture_feed_png" in called(module), f"{module} no longer captures from a feed: guard what it calls"
+    for module in sorted(p.name for p in handlers.glob("*.py")):
+        assert "capture_viewport_to_file" not in called(module), module
 
 
 def test_a_file_that_never_comes_fails_after_file_seconds():
@@ -408,18 +345,24 @@ def test_a_call_stops_on_no_frame_and_out_of_time():
     assert call.settle_after_restore()
 
 
-def test_segmentation_waits_once_per_stage_until_data():
+def test_segmentation_waits_briefly_after_a_wait_that_got_nothing_until_data():
     waits = SegmentationWaits()
-    stage, other_stage = (1, "/Render/RenderProduct_Viewport"), (2, "/Render/RenderProduct_Viewport")
+    # A capture's feed is new each time, so its waits are kept by stage, camera and size.
+    here = (1, "/World/Cam", (320, 240))
+    elsewhere = [(1, "/World/Cam", (640, 480)), (1, "/World/Other", (320, 240)), (2, "/World/Cam", (320, 240))]
 
-    assert waits.seconds(stage) == 5
-    waits.failed(stage)
-    assert waits.seconds(stage) == 0
-    assert waits.seconds(other_stage) == 5  # a new or opened stage waits afresh
-    waits.got_data(stage)
-    assert waits.seconds(stage) == 5
-    waits.got_data(other_stage)  # nothing on record there: no error
-    assert waits.seconds(other_stage) == 5
+    assert waits.seconds(here) == 5
+    assert not waits.failed_before(here)
+    waits.failed(here)
+    assert waits.failed_before(here)
+    # Not none: the next feed's sensor needs a frame or two for its first data.
+    assert waits.seconds(here) == capture.SEGMENTATION_RETRY_SECONDS == 1
+    for key in elsewhere:
+        assert waits.seconds(key) == 5  # another size, camera or stage waits afresh
+    waits.got_data(here)
+    assert waits.seconds(here) == 5
+    waits.got_data(elsewhere[2])  # nothing on record there: no error
+    assert waits.seconds(elsewhere[2]) == 5
 
 
 def test_the_waits_read_their_seconds_when_called(monkeypatch):
@@ -437,12 +380,6 @@ def test_the_waits_read_their_seconds_when_called(monkeypatch):
     assert kit.clock.now == 3.0
 
     assert SegmentationWaits().seconds("stage") == 2.0
-
-    # Set to 0, as the live tests do to show the miss there without the wait.
-    monkeypatch.setattr(capture, "FRESH_FRAMES", 0)
-    kit = _Kit([_WHOLE])
-    _run(kit.png(fresh=True))
-    assert kit.events == ["schedule"]
 
 
 @pytest.mark.parametrize(("width", "height"), [(1, 1), (640, 480), (capture.MAX_SIDE, capture.MAX_SIDE)])
@@ -466,6 +403,121 @@ def test_a_frame_size_from_1_to_the_limit_is_taken(width, height):
 def test_a_frame_size_out_of_range_or_not_whole_is_refused_naming_the_value(width, height, named):
     with pytest.raises(ValueError, match=rf"^{named} must be a whole number of pixels from 1 to 4096, got "):
         capture.frame_size(width, height)
+
+
+@pytest.mark.parametrize(
+    ("body", "size"),
+    [
+        ({}, None),
+        ({"width": None, "height": None}, None),
+        ({"width": 320, "height": 240}, (320, 240)),
+        ({"width": capture.MAX_SIDE, "height": capture.MAX_SIDE}, (4096, 4096)),
+    ],
+)
+def test_a_capture_size_is_both_sides_or_neither(body, size):
+    assert capture.capture_size(body) == size
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ({"width": 320}, "only width was given"),
+        ({"height": 240}, "only height was given"),
+        ({"width": capture.MAX_SIDE + 1, "height": 240}, "width must be a whole number of pixels from 1 to 4096"),
+        ({"width": 320, "height": 0}, "height must be"),
+        ({"width": -1, "height": 240}, "width must be"),
+        ({"width": True, "height": 240}, "width must be"),
+        ({"width": 320.5, "height": 240}, "width must be"),
+        ({"width": "1280", "height": 720}, "width must be"),
+    ],
+)
+def test_a_capture_size_out_of_range_or_half_given_is_refused(body, message):
+    with pytest.raises(ValueError, match=message):
+        capture.capture_size(body)
+
+
+@pytest.mark.parametrize(
+    ("mode", "spp", "total", "frames"),
+    [
+        ("PathTracing", 64, 64, 0),  # Isaac Sim's: its first frame has every sample
+        ("PathTracing", 1, 64, 63),
+        ("PathTracing", 4, 10, 2),
+        ("PathTracing", 8, 0, 0),  # no total set: nothing to wait for
+        ("PathTracing", 1, 100_000, capture.MAX_SETTLE_FRAMES),
+        ("PathTracing", None, 3, 2),  # no samples a frame read: one each
+        ("RealTimePathTracing", 1, 64, 0),
+        ("RaytracedLighting", 1, 64, 0),
+        (None, 1, 64, 0),
+    ],
+)
+def test_a_feed_settles_until_path_tracing_has_its_samples(mode, spp, total, frames):
+    assert capture.settle_frames(mode, spp, total) == frames
+
+
+def _colour_loop(ids, name_of):
+    """The bridge's colouring before #51, one mask per id, for the one-pass version to match."""
+    unique = np.unique(ids)
+    image = np.zeros((*ids.shape[:2], 3), dtype=np.uint8)
+    legend = {}
+    for index, uid in enumerate(unique):
+        if int(uid) == 0:
+            continue
+        hue = (index * 0.618033988749895) % 1.0
+        sector = int(hue * 6)
+        fraction = hue * 6 - sector
+        falling, rising = int(255 * (1 - fraction)), int(255 * fraction)
+        colours = [
+            [255, rising, 0],
+            [falling, 255, 0],
+            [0, 255, rising],
+            [0, falling, 255],
+            [rising, 0, 255],
+            [255, 0, falling],
+        ]
+        image[ids == uid] = colours[sector]
+        legend.setdefault(name_of(int(uid)), colours[sector])
+    return image, legend
+
+
+def test_instances_are_coloured_as_before_in_one_pass():
+    ids = np.array([[0, 7, 7, 3], [3, 0, 9, 12], [12, 12, 0, 7]], dtype=np.uint32)
+    names = {3: "/World/A", 7: "/World/B", 9: "/World/B", 12: "/World/C"}  # two ids, one prim
+
+    image, legend = capture.colour_instances(ids, names.__getitem__)
+    expected_image, expected_legend = _colour_loop(ids, names.__getitem__)
+    assert image.dtype == np.uint8
+    assert image.shape == (3, 4, 3)
+    assert np.array_equal(image, expected_image)
+    assert legend == expected_legend
+    assert list(legend) == ["/World/A", "/World/B", "/World/C"]
+    assert not image[ids == 0].any()  # the background stays black
+
+
+def test_an_instance_without_a_name_is_named_by_its_id():
+    _image, legend = capture.colour_instances(np.array([[0, 5]], dtype=np.uint32), lambda _instance: None)
+    assert list(legend) == ["instance_5"]
+
+
+def test_colouring_a_4096_a_side_capture_is_one_pass():
+    ids = (np.arange(4096 * 4096, dtype=np.uint32) % 2000).reshape(4096, 4096)
+    started = time.monotonic()
+    image, legend = capture.colour_instances(ids, lambda instance: f"/World/P{instance}")
+    took = time.monotonic() - started
+    assert image.shape == (4096, 4096, 3)
+    assert len(legend) == 1999
+    # A mask per id would be 2,000 passes over the 16.8 million pixels, minutes on any runner; one lookup takes a few
+    # seconds at most.
+    assert took < 10, f"{took:.1f} s"
+
+
+def test_a_feed_that_renders_nothing_is_named_in_its_error():
+    async def never():
+        await asyncio.sleep(1)
+
+    with pytest.raises(NoFrameError, match=r"^The camera /World/Cam rendered no frame in 0\.05 s$"):
+        _run(bounded(never(), 0.05, None, "The camera /World/Cam"))
+    with pytest.raises(NoFrameError, match=r"^The viewport rendered no frame in 0\.05 s: its updates may be off"):
+        _run(bounded(never(), 0.05, None))
 
 
 def test_a_call_ends_before_the_server_gives_up():
