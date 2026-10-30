@@ -39,6 +39,6 @@ before calling them.
 |---|---|
 | Stale bounds after a variant switch | `compare_prims` and `set_variant_selection` clear the bounds cache; a script must do it too |
 | Edits inside a variant land on the root layer | Usd-level APIs ignore the variant edit context: a script uses the `Sdf` layer API |
-| A layer Kit already holds for a path | never `Clear()` it: if the open stage uses it, the scene empties. A script writes a file from an in-memory layer with `Export`, and `Reload()`s a held layer only when `stage.GetUsedLayers()` lacks it and `layer.dirty` is false; the tools refuse to write a file the open stage has loaded |
+| A layer Kit already holds for a path | never `Clear()` it: if the open stage uses it, the scene empties. A script writes a file from an in-memory layer with `Export`, and calls `Reload(force=True)` on a held layer only when `stage.GetUsedLayers()` lacks it and `layer.dirty` is false (without `force`, a file written in the second it was loaded looks unchanged); the tools refuse to write a file the open stage has loaded |
 | `prim.SetActive()` in a script moves the camera | Kit may frame the prim again: avoid it in scripts |
 | `stage.Flush()` | does not exist in OpenUSD |
