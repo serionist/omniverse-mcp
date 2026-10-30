@@ -1,9 +1,9 @@
 ---
 title: Make a capture wait out the renderer's trail, so what was drawn just before shows
 issue: "#57"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-10-30
 ---
 
 # Make a capture wait out the renderer's trail, so what was drawn just before shows
@@ -198,13 +198,13 @@ updates counted for render progress, with no bound.
 
 | | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 | Should `inspect_prim` pay the 4 frames too, on top of its 20-frame settle per angle? | Yes: one rule for every capture but recording, about 20 ms an angle | |
-| Q2 | `FRESH_FRAMES = 4`? | Yes: the fewest that never missed was 2, synchronous and asynchronous (runs 3 and 4); one more for the longer trail run 1 saw, one of margin; a core constant, not an extension setting | |
-| Q3 | Who runs Kit for the code PR's live runs, since the agents' start of Kit is refused? | As for runs 1 to 4: the coordinating session | |
-| Q4 | Recording gets no wait (round 1, P1)? | Yes | |
-| Q5 | Must a GUI run, or a headless run with async rendering, come before CHANGELOG says Fixed? | The code's headless async run (Tests) is required, as run 4 was for the plan; a GUI run is welcome | |
-| Q6 | The wait listens for the immediate `NEW_FRAME`, which ARCHITECTURE says Kit 110 may send on the renderer thread with async rendering (#5 was a deadlock of that kind): keep it, or listen to another event? | Keep it: run 4 saw every `NEW_FRAME`, immediate and deferred, and every `DRAWABLE_CHANGED` on the main thread, with async rendering on and off; ARCHITECTURE says so, for Isaac Sim 6.2 | |
-| Q7 | Eco Mode, which throttling turns on at stop and pause: does a static scene still give the frames the wait needs? | Nothing to add: Eco Mode was on through run 4, frames kept coming after about 545 static frames, past its 500, and the waited captures held the drawing; the GUI is untried | |
+| Q1 | Should `inspect_prim` pay the 4 frames too, on top of its 20-frame settle per angle? | Yes: one rule for every capture but recording, about 20 ms an angle | As recommended (2026-10-30) |
+| Q2 | `FRESH_FRAMES = 4`? | Yes: the fewest that never missed was 2, synchronous and asynchronous (runs 3 and 4); one more for the longer trail run 1 saw, one of margin; a core constant, not an extension setting | As recommended (2026-10-30) |
+| Q3 | Who runs Kit for the code PR's live runs, since the agents' start of Kit is refused? | As for runs 1 to 4: the coordinating session | As recommended (2026-10-30) |
+| Q4 | Recording gets no wait (round 1, P1)? | Yes | As recommended (2026-10-30) |
+| Q5 | Must a GUI run, or a headless run with async rendering, come before CHANGELOG says Fixed? | The code's headless async run (Tests) is required, as run 4 was for the plan; a GUI run is welcome | As recommended (2026-10-30) |
+| Q6 | The wait listens for the immediate `NEW_FRAME`, which ARCHITECTURE says Kit 110 may send on the renderer thread with async rendering (#5 was a deadlock of that kind): keep it, or listen to another event? | Keep it: run 4 saw every `NEW_FRAME`, immediate and deferred, and every `DRAWABLE_CHANGED` on the main thread, with async rendering on and off; ARCHITECTURE says so, for Isaac Sim 6.2 | As recommended (2026-10-30) |
+| Q7 | Eco Mode, which throttling turns on at stop and pause: does a static scene still give the frames the wait needs? | Nothing to add: Eco Mode was on through run 4, frames kept coming after about 545 static frames, past its 500, and the waited captures held the drawing; the GUI is untried | As recommended (2026-10-30) |
 
 ## Compatibility
 
