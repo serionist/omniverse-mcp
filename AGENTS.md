@@ -35,7 +35,7 @@ extension it talks to.
 | `.agents/skills/` | links to `.claude/skills/<name>` for Codex, written into git's index by `uv run tools/setup.py link` |
 | `AGENTS.md`, `REVIEW.md` | this file; what a review finding is, and the questions every review answers |
 | `.mcp.json` | Context7 over HTTP; `.claude/settings.local.json.example` turns it on |
-| `server.json` | the server's entry in the official MCP registry, at the release's version; the README's `mcp-name:` line names it |
+| `server.json`, `glama.json` | the server's entry in the official MCP registry, at the release's version (the README's `mcp-name:` line names it); the maintainers Glama's listing verifies |
 | `pyproject.toml`, `uv.lock`, `.python-version` | the build (hatchling; the wheel carries the extension), the settings of ruff, basedpyright, pytest, coverage and import-linter, dev tools pinned exactly; the lock; Python 3.12 for development |
 | `.basedpyright/baseline.json` | the type errors of before basedpyright, which only shrink |
 | `.gitleaks.toml` | the secret scan: gitleaks' own rules, and any exception with its reason |
