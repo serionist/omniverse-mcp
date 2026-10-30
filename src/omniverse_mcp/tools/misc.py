@@ -21,10 +21,13 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     def execute_script(
         code: Annotated[str, Field(description="Python to run inside the Kit app; assign to result to return data")],
     ) -> str:
-        """Execute Python inside the running Kit app (Isaac Sim, USD Composer, ...).
+        """Run Python inside the Kit app (Isaac Sim, USD Composer, ...) on its main thread, for what no tool does.
 
-        The script has access to: omni, carb, Usd, UsdGeom, UsdLux, UsdPhysics, Sdf, Gf, mcp.
-        Assign to 'result' to return data. stdout/stderr are captured.
+        Prefer a tool that does the job: it checks its input and bounds its waits. Kit's APIs change between releases,
+        so look one up with Context7 MCP (library: isaac-sim/isaacsim) before using it. The script has omni, carb, Usd,
+        UsdGeom, UsdLux, UsdPhysics, Sdf, Gf and mcp. Assign to 'result' to return JSON-serialisable data (anything else
+        comes back as its str); stdout and stderr come back too, and an exception as an error with the traceback's last
+        lines. A script that blocks freezes Kit: the call gives up after 120 s, and the script runs on.
 
         The `mcp` object provides async access to MCP handlers from within scripts.
         Use `await` to call its methods (the script automatically runs as async):
@@ -51,8 +54,6 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             mcp.get_logs(count, min_level, channel, search)
 
         Each returns the full handler response dict with "status" and "result" keys.
-
-        Use Context7 MCP (library: isaac-sim/isaacsim) to look up the correct API calls.
         """
         resp = bridge_call(client.execute, code)
 
@@ -69,12 +70,26 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
     @mcp.tool(annotations=RUNS)
     def manage_extensions(
-        action: Annotated[Literal["list", "enable", "disable"], Field(description="What to do")] = "list",
-        extension_id: Annotated[str, Field(description="The extension to enable or disable")] = "",
-        search: Annotated[str, Field(description='For "list": only extensions whose name contains this')] = "",
+        action: Annotated[
+            Literal["list", "enable", "disable"],
+            Field(description='"list" reads; "enable" and "disable" change the running app'),
+        ] = "list",
+        extension_id: Annotated[
+            str, Field(description='For "enable" and "disable", required: the extension, e.g. "omni.syntheticdata"')
+        ] = "",
+        search: Annotated[
+            str, Field(description='For "list": only extensions whose name or id contains this, in any case')
+        ] = "",
         enabled_only: Annotated[bool, Field(description='For "list": only enabled extensions')] = False,
     ) -> str:
-        """List, enable, or disable the Kit app's extensions."""
+        """List the Kit app's extensions, or turn one on or off in the running app.
+
+        "list" (the default) only reads: each extension's id, version and whether it is on, the first 50 shown with the
+        total. "enable" and "disable" need extension_id, last until Kit restarts, and answer whether the extension is on
+        afterwards: enabled=False after an enable means it didn't take. Use enable when a tool names an extension it
+        lacks, such as omni.syntheticdata for segmentation. Disabling one that other tools use breaks them, and
+        disabling ovmcp.bridge cuts this server off from Kit.
+        """
         if action == "list":
             resp = bridge_call(client.extensions_list, enabled_only, search)
             r = resp["result"]
@@ -102,11 +117,12 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         channel: Annotated[str, Field(description='Only channels containing this, e.g. "omni.physx"')] = "",
         search: Annotated[str, Field(description="Only messages containing this, in any case")] = "",
     ) -> str:
-        """Get recent entries of the Kit app's log, read from its log file since the bridge extension started.
+        """Get the latest entries of the Kit app's log, read from its log file since the bridge extension started, by
+        level, channel or text.
 
-        Use this to investigate errors: when any tool fails, call get_logs() to see what the Kit app reported. Kit's
-        file holds Info and above by default; verbose lines need Kit started with both --/log/level=verbose and
-        --/log/fileLogLevel=verbose.
+        Use this to investigate errors: when any tool fails, call get_logs(min_level="warn") to see what the Kit app
+        reported. Kit's file holds Info and above by default; verbose lines need Kit started with both
+        --/log/level=verbose and --/log/fileLogLevel=verbose. A long answer is written to a file and its path returned.
         """
         resp = bridge_call(client.get_logs, count, min_level, channel, None, search)
         r = resp["result"]

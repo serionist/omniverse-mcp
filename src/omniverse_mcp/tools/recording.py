@@ -65,8 +65,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Captures a frame every few app updates, about 1/fps seconds, whether or not the simulation plays: play it to
         record motion. Frames stop if the stage changes or the camera is deleted; stop_recording says so. Frames are
-        saved as PNGs in mcp_output/recordings/. Use stop_recording when done, then get_recording_frame to review any
-        frame.
+        saved as PNGs in mcp_output/recordings/, by Kit itself. One recording runs at a time: another start is refused
+        until stop_recording. Use stop_recording when done, then get_recording_frame to review any frame.
 
         Optionally tracks prim state (transforms, properties) alongside video frames.
         State is written to a grep-friendly state.txt in prim-block format.
@@ -101,9 +101,11 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
     @mcp.tool(annotations=EDITS)
     def stop_recording() -> str:
-        """Stop the active recording session.
+        """Stop the running recording: wait for the frames still being written, write metadata.json with each frame's
+        simulation time, and delete the recording's render product.
 
-        Returns session info and frame count. Use get_recording_frame to review frames.
+        Returns the frame count, the duration, the session folder and the state file, with a note when frames stopped
+        early or the cleanup failed in part. An error when no recording runs. Use get_recording_frame to review frames.
         """
         resp = bridge_call(client.recording_stop)
         r = resp["result"]
@@ -117,9 +119,22 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @mcp.tool(annotations=READS)
     def get_recording_frame(
         frame_index: Annotated[int, Field(ge=0, description="The frame's number, from 0")] = 0,
-        session_dir: Annotated[str, Field(description="The session's folder; the last recording when empty")] = "",
+        session_dir: Annotated[
+            str,
+            Field(
+                description="The session folder start_recording named, on Kit's machine; the last recording when empty"
+            ),
+        ] = "",
     ) -> str:
-        """Get a specific frame from a recording session. Saves as PNG file."""
+        """Copy one recorded frame to a new PNG in mcp_output/captures/, and return its path and, once the recording
+        has stopped, the frame's simulation time.
+
+        Frames come from start_recording, which Kit writes itself as frame_00000.png and on in the session folder: with
+        Kit on this machine you can also open them there, and with Kit on another this brings one here. Without
+        session_dir it reads the last recording started since the Kit extension started, the running one included. A
+        frame Kit failed to capture comes back as an empty file; a frame number past the last is an error. For a
+        picture of the scene now, use capture_viewport.
+        """
         resp = bridge_call(client.recording_frame, session_dir, frame_index)
 
         r = resp["result"]

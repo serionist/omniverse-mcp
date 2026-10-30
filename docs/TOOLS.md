@@ -735,6 +735,7 @@ prim the recording renders into, which it deletes at stop.
   advances the simulation as before, so the run takes longer, not differently.
 - **When frames stop:** if the stage changes (`new_scene`, an opened file) or the camera is deleted, since the render
   would show something else then. `get_sim_state` and `stop_recording` say why.
+- **One at a time:** while a recording runs, another start is refused until `stop_recording`.
 - **An extension of 0.2.2 or older** records the active viewport at its own size: the answer then carries a
   `WARNING` line naming the `camera_path`, `width` or `height` it ignores, with the command that installs this
   release's extension.
@@ -772,12 +773,17 @@ frames stopped early or the cleanup failed in part, saying why.
 
 ### `get_recording_frame`
 
-Get a specific frame from a recording session as a PNG.
+Copy one recorded frame to a new PNG in `mcp_output/captures/`, and return its path and, once the recording has
+stopped, the frame's simulation time.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `frame_index` | int | `0` | Frame number (0-based), not negative |
-| `session_dir` | string | `""` | Session directory (uses last recording if empty) |
+| `session_dir` | string | `""` | Session directory on Kit's machine (uses the last recording started since the extension started, the running one included, if empty) |
+
+Kit writes a recording's frames itself, as `frame_00000.png` and on in the session folder: with Kit on this machine you
+can also open them there, and with Kit on another this tool brings one here. A frame Kit failed to capture comes back
+as an empty file; a frame number past the last is an error.
 
 ---
 
@@ -913,16 +919,22 @@ for a capture or the user to see; nothing is added to the stage.
 
 ### `manage_extensions`
 
-List, enable, or disable Omniverse extensions.
+List the Kit app's extensions, or turn one on or off in the running app.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `action` | string | `"list"` | `"list"`, `"enable"`, or `"disable"` |
 | `extension_id` | string | `""` | Required for enable/disable |
-| `search` | string | `""` | Filter extension list by name (for list) |
+| `search` | string | `""` | Filter extension list by name or id, in any case (for list) |
 | `enabled_only` | bool | `false` | Only show enabled extensions (for list) |
 
+- **list** only reads: each extension's id, version and whether it is on, the first 50 shown with the total.
+- **enable** and **disable** last until Kit restarts, and answer whether the extension is on afterwards: `enabled=False`
+  after an enable means it didn't take. Disabling one that other tools use breaks them, and disabling `ovmcp.bridge`
+  cuts the server off from Kit.
+
 **When to use:** Before using features that depend on optional extensions (e.g., Replicator, measurement tools), check if they're enabled and enable them if needed.
+Or when a tool names an extension it lacks, such as `omni.syntheticdata` for segmentation.
 
 ---
 
@@ -930,7 +942,7 @@ List, enable, or disable Omniverse extensions.
 
 ### `get_logs`
 
-Get recent entries of the Kit app's log.
+Get the latest entries of the Kit app's log, by level, channel or text.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -986,7 +998,9 @@ Execute arbitrary Python code inside the running Omniverse application.
 | `Gf` | `pxr.Gf` | Math: vectors, matrices, quaternions |
 | `mcp` | `MCPBridge` | Async access to MCP handlers (see below) |
 
-Set `result = <value>` to return JSON-serialisable data to the AI assistant.
+Set `result = <value>` to return JSON-serialisable data to the AI assistant; anything else comes back as its `str`.
+stdout and stderr come back too, and an exception as an error with the traceback's last lines. The script runs on
+Kit's main thread, so one that blocks freezes Kit: the call gives up after 120 s, and the script runs on.
 
 **Example (sync):**
 ```python
