@@ -60,6 +60,10 @@ class FakeTexture:
         self._log.append(("updates", enabled))
 
 
+class FakeSyntheticDataError(Exception):
+    """omni.syntheticdata's own error, which derives from Exception alone."""
+
+
 class FakeRegistry:
     """omni.syntheticdata's registry of graphs, as a feed's release reads it: graphs by path, and their reset."""
 
@@ -186,6 +190,7 @@ def _fake_kit(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> None:
         sensors=SimpleNamespace(enable_sensors=kit.enable_sensors, disable_sensors=kit.disable_sensors),
         _syntheticdata=SimpleNamespace(SensorType=SimpleNamespace(InstanceSegmentation="InstanceSegmentation")),
         SyntheticData=SimpleNamespace(Get=lambda: kit.registry),
+        SyntheticDataException=FakeSyntheticDataError,
     )
     fakes = {
         "carb": _module("carb", log_info=lambda _m: None, log_warn=lambda _m: None, eventdispatcher=dispatcher),
@@ -420,6 +425,38 @@ def test_a_release_step_that_fails_leaves_the_rest_to_run(feeds, kit):
     feed = _segmented(feeds, kit)
     kit.sensor_error = RuntimeError("the sensor's node is gone")
     asyncio.run(feeds.release(feed))
+    assert kit.log == [("updates", False), ("reset", "this feed's graph", "session layer"), "update", "update"]
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+
+
+def test_omni_syntheticdata_s_own_error_leaves_the_rest_of_the_release_to_run(feeds, kit):
+    feed = _segmented(feeds, kit)
+    kit.sensor_error = FakeSyntheticDataError("invalid USD stage")
+    asyncio.run(feeds.release(feed))  # no error out of it: the capture's answer stands
+    assert kit.log == [("updates", False), ("reset", "this feed's graph", "session layer"), "update", "update"]
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+
+
+def test_with_the_stage_closed_the_sensor_is_left_alone_and_the_feed_still_goes(feeds, kit):
+    feed = _segmented(feeds, kit)
+    # Closed during the capture: omni.syntheticdata would raise without a stage, and reset its graphs as it closed.
+    kit.stage, kit.stage_state = None, "CLOSED"
+    asyncio.run(feeds.release(feed))
+    assert kit.log == [("updates", False), "update", "update"]  # no disable, and no reset without a stage
+    assert kit.registry._nodeGraphs == {PRODUCT_PREFIX + "another/PostRender/SDGPipeline": "another product's graph"}
+    # The next stage carries the render product over (#25's E13); it goes once that stage is open.
+    kit.stage = Usd.Stage.CreateInMemory()
+    _with_product(kit, feed.render_product_path)
+    kit.stage_state = OPENED
+    kit.on_update(None)
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+
+
+def test_an_error_no_step_expects_still_drops_the_feed_and_its_render_product(feeds, kit):
+    feed = _segmented(feeds, kit)
+    kit.sensor_error = OSError("an error none of the steps expect")
+    with pytest.raises(OSError, match="none of the steps expect"):
+        asyncio.run(feeds.release(feed))
     assert kit.log == [("updates", False), ("reset", "this feed's graph", "session layer"), "update", "update"]
     assert not kit.stage.GetPrimAtPath(feed.render_product_path)
 

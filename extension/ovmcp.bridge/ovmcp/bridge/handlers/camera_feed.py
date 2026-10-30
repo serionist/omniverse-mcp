@@ -216,16 +216,29 @@ def enable_segmentation(feed: CameraFeed) -> str | None:
     return None
 
 
+def _release_errors() -> tuple[type[Exception], ...]:
+    """_RELEASE_ERRORS, and omni.syntheticdata's own exception, which derives from Exception alone, where it loads."""
+    try:
+        from omni.syntheticdata import SyntheticDataException
+    except ImportError:
+        return _RELEASE_ERRORS
+    return (*_RELEASE_ERRORS, SyntheticDataException)
+
+
 def _release_step(what: str, step: Callable[[], object]) -> None:
     try:
         step()
-    except _RELEASE_ERRORS as e:
+    except _release_errors() as e:
         carb.log_warn(f"[MCP Bridge] Releasing a camera feed: {what} failed: {e}")
 
 
 def _turn_segmentation_off(feed: CameraFeed) -> None:
+    """Disables the feed's sensor, but not without a stage: omni.syntheticdata then raises rather than deactivates, and
+    it has already reset its graphs as the stage closed."""
     import omni.syntheticdata as syn
 
+    if omni.usd.get_context().get_stage() is None:
+        return
     syn.sensors.disable_sensors(feed, [syn._syntheticdata.SensorType.InstanceSegmentation])
 
 
@@ -254,15 +267,19 @@ async def release(feed: CameraFeed) -> None:
     Replicator also turns USD notice handling off around a deletion, for a render product made again at once; E16's
     teardown, without that, logged nothing and the next capture made its feed as usual, so it isn't copied here.
     """
-    if feed.segmented:
-        _release_step("turning segmentation off", lambda: _turn_segmentation_off(feed))
-    _release_step("dropping the feed", feed.drop)
-    if feed.segmented:
-        _release_step("freeing the segmentation graphs", lambda: _free_segmentation_graphs(feed))
     try:
-        app = omni.kit.app.get_app()
-        for _ in range(2):
-            await app.next_update_async()
+        if feed.segmented:
+            _release_step("turning segmentation off", lambda: _turn_segmentation_off(feed))
     finally:
-        # Even when the call is cancelled during the updates: its render product must not stay.
-        _leftovers.add(feed)
+        # Even after an error no step expected: a feed left rendering would carry its render product onto the next
+        # stage, and the call would answer with its error once the rest has run.
+        try:
+            _release_step("dropping the feed", feed.drop)
+            if feed.segmented:
+                _release_step("freeing the segmentation graphs", lambda: _free_segmentation_graphs(feed))
+            app = omni.kit.app.get_app()
+            for _ in range(2):
+                await app.next_update_async()
+        finally:
+            # Even when the call is cancelled during the updates: its render product must not stay.
+            _leftovers.add(feed)
