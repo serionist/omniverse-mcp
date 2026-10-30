@@ -9,7 +9,7 @@ from pydantic import Field
 
 from omniverse_mcp.client import BridgeClient
 
-from ._annotations import READS, RUNS
+from ._annotations import READS, RUNS, tool
 from ._bridge import bridge_call
 
 if TYPE_CHECKING:
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
-    @mcp.tool(annotations=RUNS)
+    @tool(mcp, RUNS)
     def execute_script(
         code: Annotated[str, Field(description="Python to run inside the Kit app; assign to result to return data")],
     ) -> str:
@@ -30,18 +30,13 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         lines. A script that blocks freezes Kit: the call gives up after 120 s, and the script runs on.
 
         `mcp` calls the tools' handlers from the script, each returning a dict with "status" and "result". Await them,
-        which makes the script async:
-
-            bounds = await mcp.prim_bounds("/World/Cube")
-            await mcp.set_camera([5, 3, 5], target=bounds["result"]["center"])
-            result = bounds["result"]
-
-        Its methods: capture_viewport(width, height, camera_path), set_camera(position, target), look_at(prim_path,
-        distance, azimuth, elevation), inspect(prim_path, angles, width, height, zoom_offset=0.0, isolate=False),
-        scene_tree(root, max_depth), prim_properties(prim_path), prim_bounds(prim_path), set_transform(prim_path,
-        position, rotation, scale), create_prim(prim_path, prim_type, **kwargs), delete_prim(prim_path),
-        set_material(prim_path, color, opacity, roughness, metallic), sim_control(action), sim_state(),
-        get_logs(count, min_level, channel, search).
+        which makes the script async: `bounds = await mcp.prim_bounds("/World/Cube")`, then
+        `result = bounds["result"]`. Its methods: capture_viewport(width, height, camera_path), set_camera(position,
+        target), look_at(prim_path, distance, azimuth, elevation), inspect(prim_path, angles, width, height,
+        zoom_offset=0.0, isolate=False), scene_tree(root, max_depth), prim_properties(prim_path),
+        prim_bounds(prim_path), set_transform(prim_path, position, rotation, scale), create_prim(prim_path, prim_type,
+        **kwargs), delete_prim(prim_path), set_material(prim_path, color, opacity, roughness, metallic),
+        sim_control(action), sim_state(), get_logs(count, min_level, channel, search).
         """
         resp = bridge_call(client.execute, code)
 
@@ -56,7 +51,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         text = "\n".join(parts) or "Script executed successfully (no output)"
         return h.text_response(text, "script")
 
-    @mcp.tool(annotations=RUNS)
+    @tool(mcp, RUNS)
     def manage_extensions(
         action: Annotated[
             Literal["list", "enable", "disable"],
@@ -95,7 +90,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         r = resp["result"]
         return f"Extension {r['extension_id']}: {r['action']}d (enabled={r['enabled']})"
 
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def get_logs(
         count: Annotated[int, Field(ge=1, description="How many of the latest entries; the buffer keeps 2000")] = 50,
         min_level: Annotated[

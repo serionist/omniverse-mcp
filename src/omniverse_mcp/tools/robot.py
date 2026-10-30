@@ -7,7 +7,7 @@ from pydantic import Field
 
 from omniverse_mcp.client import BridgeClient
 
-from ._annotations import EDITS, READS
+from ._annotations import EDITS, READS, tool
 from ._bridge import bridge_call
 from ._params import Position, Rotation
 
@@ -18,7 +18,7 @@ RobotRoot = Annotated[str, Field(description='The robot\'s root prim, e.g. "/Wor
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def create_robot(
         robot_type: Annotated[str, Field(description="A robot's name (franka, g1, spot, ...) or a USD file's path")],
         prim_path: Annotated[str, Field(description="Where to put it; made up from the name when empty")] = "",
@@ -45,7 +45,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
                 parts.append(f"  ... and {len(r['joints']) - 10} more")
         return "\n".join(parts)
 
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def get_robot_info(prim_path: RobotRoot) -> str:
         """Read a robot's structure from USD: whether it is an articulation, its link and DOF counts, and each joint's
         name, type, limits and drive.
@@ -79,7 +79,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         text = "\n".join(lines)
         return h.text_response(text, "robot_info")
 
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def get_joint_states(prim_path: RobotRoot) -> str:
         """Get each joint's position and velocity from physics while the simulation plays or is paused; an error while
         it is stopped, which says to play or step first.
@@ -102,7 +102,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         text = "\n".join(lines)
         return h.text_response(text, "joint_states")
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def set_joint_targets(
         prim_path: RobotRoot,
         targets: Annotated[

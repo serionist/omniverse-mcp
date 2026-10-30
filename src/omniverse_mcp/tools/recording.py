@@ -9,7 +9,7 @@ from pydantic import Field
 from omniverse_mcp.client import BridgeClient
 from omniverse_mcp.kit_extension import install_command
 
-from ._annotations import EDITS, READS
+from ._annotations import EDITS, READS, tool
 from ._bridge import bridge_call
 
 if TYPE_CHECKING:
@@ -40,7 +40,7 @@ def _ignored_warning(camera_path: str, width: int, height: int) -> str | None:
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def start_recording(
         fps: Annotated[int, Field(ge=1, description="Frames a second: 5 captures one every 0.2 s")] = 5,
         width: Annotated[int, Field(ge=1, description="Frame width in pixels, up to 4096")] = DEFAULT_WIDTH,
@@ -99,7 +99,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         msg += "\nCall sim_control('play') to start."
         return msg
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def stop_recording() -> str:
         """Stop the running recording: wait for the frames still being written, write metadata.json with each frame's
         simulation time, and delete the recording's render product.
@@ -116,7 +116,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             msg += f"\nNote: {r['note']}"
         return msg
 
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def get_recording_frame(
         frame_index: Annotated[int, Field(ge=0, description="The frame's number, from 0")] = 0,
         session_dir: Annotated[

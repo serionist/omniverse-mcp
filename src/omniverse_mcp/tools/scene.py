@@ -7,7 +7,7 @@ from pydantic import Field
 
 from omniverse_mcp.client import BridgeClient
 
-from ._annotations import DESTROYS, EDITS, READS
+from ._annotations import DESTROYS, EDITS, READS, tool
 from ._bridge import bridge_call
 from ._params import Position, PrimPath, Rotation, Scale
 
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def get_scene_tree(
         root: Annotated[str, Field(description="Prim path to start from")] = "/",
         max_depth: Annotated[int, Field(ge=0, le=15, description="How many levels below root; 0 for root alone")] = 5,
@@ -33,7 +33,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         text = r["text"]
         return h.text_response(text, "scene_tree")
 
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def dump_scene(
         root: Annotated[str, Field(description="Prim path to start from")] = "/",
         max_depth: Annotated[int, Field(ge=0, description="How many levels below root; 0 for root alone")] = 15,
@@ -66,7 +66,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         r = resp["result"]
         return f"Dumped {r['prim_count']} prims ({r['file_size_bytes']:,} bytes) -> {h.rel(r['file_path'])}"
 
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def get_prim_properties(prim_path: PrimPath) -> str:
         """Get one prim as a prim block: its type, world position and rotation, world bounding box, physics flags, and
         every attribute's value.
@@ -78,7 +78,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         text = resp["result"]["text"]
         return h.text_response(text, f"prim_{prim_path.replace('/', '_')}")
 
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def get_prim_bounds(prim_path: PrimPath) -> str:
         """Get a prim's world-space, axis-aligned bounding box, its descendants included: centre, dimensions, min and
         max corners, and diagonal, in the stage's units.
@@ -98,7 +98,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             f"diagonal = {r['diagonal']:.4f}"
         )
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def set_prim_transform(
         prim_path: PrimPath,
         position: Position = None,
@@ -116,7 +116,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         bridge_call(client.set_transform, prim_path, position, rotation, scale)
         return f"Transform updated for {prim_path}"
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def create_prim(
         prim_path: Annotated[str, Field(description='Where to create it, e.g. "/World/MyCube"')],
         prim_type: Annotated[str, Field(description="USD type name, e.g. Cube, Sphere, Xform, DistantLight")] = "Xform",
@@ -153,7 +153,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         r = resp["result"]
         return f"Created {r['type']} at {r['prim_path']}"
 
-    @mcp.tool(annotations=DESTROYS)
+    @tool(mcp, DESTROYS)
     def delete_prim(prim_path: PrimPath) -> str:
         """Delete a prim and everything under it, by removing what the stage's edit layer holds at that path.
 
@@ -165,7 +165,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         bridge_call(client.delete_prim, prim_path)
         return f"Deleted {prim_path}"
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def set_material(
         prim_path: PrimPath,
         color: Annotated[
@@ -196,7 +196,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         parts.append(f"metallic={r['metallic']}")
         return f"Material {r['material_path']} -> {r['prim_path']} ({', '.join(parts)})"
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def clone_prim(
         source_path: Annotated[str, Field(description='The prim to clone, e.g. "/World/MyCube"')],
         target_path: Annotated[str, Field(description='Where the copy goes, e.g. "/World/MyCube_Copy"')],
@@ -222,7 +222,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             return f"Cloned {source_path} -> {clones[0]}"
         return f"Cloned {source_path} -> {len(clones)} copies:\n" + "\n".join(f"  {c}" for c in clones)
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def set_visibility(
         prim_path: PrimPath,
         visible: Annotated[bool, Field(description="True to show, False to hide")] = True,
@@ -239,7 +239,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         state = "visible" if r["visible"] else "hidden"
         return f"{r['prim_path']} is now {state}"
 
-    @mcp.tool(annotations=DESTROYS)
+    @tool(mcp, DESTROYS)
     def save_scene(
         file_path: Annotated[
             str, Field(description="The USD file to write, on Kit's machine; empty overwrites the stage's own file")
@@ -257,7 +257,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         r = resp["result"]
         return f"Scene saved ({r['action']}) -> {r['file_path']}"
 
-    @mcp.tool(annotations=DESTROYS)
+    @tool(mcp, DESTROYS)
     def new_scene() -> str:
         """Discard the open stage, unsaved changes included, and open an empty one: Y-up, with a /World Xform as its
         default prim.

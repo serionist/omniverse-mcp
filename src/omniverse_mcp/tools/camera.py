@@ -16,7 +16,7 @@ from pydantic import Field
 from omniverse_mcp.client import BridgeClient
 from omniverse_mcp.kit_extension import install_command
 
-from ._annotations import EDITS, READS
+from ._annotations import EDITS, READS, tool
 from ._bridge import bridge_call
 from ._params import PrimPath
 
@@ -96,7 +96,7 @@ def _legend_beside(seg_path: str) -> str:
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def capture_viewport(
         width: Width = 640,
         height: Height = 480,
@@ -198,7 +198,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             ]
         return "\n".join(lines)
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def set_camera(
         position: Annotated[list[float], Field(description="[x, y, z] camera position in world space")],
         target: Annotated[
@@ -220,7 +220,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             msg += f" looking at {r['target']}"
         return msg
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def look_at_prim(
         prim_path: PrimPath,
         distance: Annotated[
@@ -251,7 +251,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             f"Distance: {r['distance']}m, Azimuth: {r['azimuth']}deg, Elevation: {r['elevation']}deg"
         )
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def inspect_prim(
         prim_path: PrimPath,
         angles: Annotated[
@@ -346,7 +346,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
                 lines.append(cap_line)
         return "\n".join(lines)
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def viewport_light(
         action: Annotated[
             Literal["get", "set", "set_camera_light"],
@@ -360,13 +360,12 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Read or set the viewport's lighting mode, which decides how the viewport and its captures are lit, without
         changing the scene.
 
-        Use it when a capture comes back black, then capture again. Actions:
-        - "get" (the default): the mode, the modes on offer, and the stage's lights with their intensity.
-        - "set": a mode "get" lists: "stage" (the stage's own lights), "camera" (a light that follows the camera),
-          "off", or a light rig such as "Default", "Colored Lights" or "Grey Studio". Rigs need Kit's lighting menu,
-          omni.kit.viewport.menubar.lighting; a mode not on offer is an error.
-        - "set_camera_light": the older switch, turning the camera light on or off with enabled.
-        To add a light to the stage itself, use create_prim (DistantLight, DomeLight).
+        Use it when a capture comes back black, then capture again. "get" (the default) answers the mode, the modes on
+        offer, and the stage's lights with their intensity. "set" takes a mode "get" lists: "stage" (the stage's own
+        lights), "camera" (a light that follows the camera), "off", or a light rig such as "Default", "Colored Lights"
+        or "Grey Studio"; rigs need Kit's lighting menu, omni.kit.viewport.menubar.lighting, and a mode not on offer is
+        an error. "set_camera_light" is the older switch, turning the camera light on or off with enabled. To add a
+        light to the stage itself, use create_prim (DistantLight, DomeLight).
         """
         resp = bridge_call(client.viewport_light, action, enabled, mode=mode)
 

@@ -7,7 +7,7 @@ from pydantic import Field
 
 from omniverse_mcp.client import BridgeClient
 
-from ._annotations import DESTROYS, EDITS, READS
+from ._annotations import DESTROYS, EDITS, READS, tool
 from ._bridge import bridge_call
 
 if TYPE_CHECKING:
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def get_mesh_stats(
         prim_path: Annotated[str, Field(description="The prim to measure, its descendant meshes included")],
     ) -> str:
@@ -43,7 +43,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         text = "\n".join(lines)
         return h.text_response(text, "mesh_stats")
 
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def get_prim_face_count_tree(
         root: Annotated[str, Field(description="Prim path to start from")] = "/World",
         max_depth: Annotated[int, Field(ge=0, description="How many levels below root; 0 for root alone")] = 10,
@@ -59,7 +59,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         r = resp["result"]
         return h.text_response(r["text"], "face_count_tree")
 
-    @mcp.tool(annotations=DESTROYS)
+    @tool(mcp, DESTROYS)
     def flatten_usd(
         output_path: Annotated[str, Field(description="The USD file to write, on Kit's machine; overwritten if there")],
         input_path: Annotated[
@@ -82,7 +82,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         r = resp["result"]
         return f"Flattened {r['input_path']} ({r['layer_count']} layers) -> {r['output_path']}"
 
-    @mcp.tool(annotations=DESTROYS)
+    @tool(mcp, DESTROYS)
     def export_prim_as_file(
         prim_path: Annotated[str, Field(description="The root of the subtree to export")],
         output_path: Annotated[
@@ -108,7 +108,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             f"Root: {r['target_root']}, Materials included: {r['materials_included']}, Up: {r['up_axis']}"
         )
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def set_variant_selection(
         prim_path: Annotated[str, Field(description="The prim with the variant set")],
         variant_set: Annotated[str, Field(description='The variant set\'s name, e.g. "model"')],
@@ -129,7 +129,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             f"Available: {r['available_variants']}"
         )
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def create_variant_structure(
         prim_path: Annotated[str, Field(description="The prim to add the variant set to")],
         variant_set_name: Annotated[str, Field(description='The new variant set\'s name, e.g. "model"')],
@@ -152,7 +152,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             f"Default: {r['default_selection']}"
         )
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def compare_prims(
         prim_path_a: Annotated[str, Field(description="Two prims: the first")] = "",
         prim_path_b: Annotated[str, Field(description="Two prims: the second")] = "",
@@ -194,7 +194,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         ]
         return "\n".join(lines)
 
-    @mcp.tool(annotations=DESTROYS)
+    @tool(mcp, DESTROYS)
     def update_material_paths(
         old_prefix: Annotated[
             str, Field(description='The start of the paths to change, matched as text, e.g. "/OldProject/Materials/"')

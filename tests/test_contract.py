@@ -64,6 +64,13 @@ def test_every_tool_and_parameter_is_described(listed):
     assert not bare, f"describe these: {bare}"
 
 
+def test_every_description_starts_each_line_at_the_margin(listed):
+    # The SDK sends a docstring as it is, and Python before 3.13 keeps its source indentation in __doc__.
+    tools, _, _ = listed
+    indented = sorted({t.name for t in tools for line in (t.description or "").splitlines() if line[:1].isspace()})
+    assert not indented, f"these descriptions have an indented line: {indented}"
+
+
 def test_the_tool_reference_has_a_heading_per_tool(found):
     headings = re.findall(r"^### `(\w+)`$", TOOLS_MD.read_text(encoding="utf-8"), re.MULTILINE)
     tools = set(found["tools"])

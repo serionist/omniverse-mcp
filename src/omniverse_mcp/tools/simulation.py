@@ -9,7 +9,7 @@ from pydantic import Field
 from omniverse_mcp.client import BridgeClient
 from omniverse_mcp.kit_extension import carried_version, install_command
 
-from ._annotations import EDITS, READS
+from ._annotations import EDITS, READS, tool
 from ._bridge import bridge_call
 from ._params import PrimPath
 
@@ -23,7 +23,7 @@ def _rounded(values: list[float]) -> list[float]:
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def sim_control(
         action: Annotated[Literal["play", "pause", "stop", "step"], Field(description="What to do")],
     ) -> str:
@@ -38,7 +38,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         r = resp["result"]
         return f"'{r['action']}' executed. Sim is now: {r['current_state']}"
 
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def get_sim_state() -> str:
         """Get the simulation's state and the stage's frame of reference: playing, paused or stopped, the timeline's
         time, the up axis, meters_per_unit, the prim count, and the versions of the Kit extension and this server.
@@ -72,7 +72,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             )
         return "\n".join(lines)
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def set_physics_properties(
         prim_path: PrimPath,
         mass: Annotated[
@@ -101,7 +101,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         r = resp["result"]
         return f"Physics on {r['prim_path']}: {', '.join(r['applied'])}"
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def apply_force(
         prim_path: Annotated[str, Field(description="The rigid body's prim path, a robot's link among them")],
         force: Annotated[
@@ -135,7 +135,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             return f"{text} at {_rounded(r['position'])} ({r['at']})"
         return f"{text} (method: {r.get('method', 'unknown')})"
 
-    @mcp.tool(annotations=READS)
+    @tool(mcp, READS)
     def raycast(
         origin: Annotated[list[float], Field(description="[x, y, z] start point in world space")],
         direction: Annotated[list[float], Field(description="[dx, dy, dz] direction in world space; it is normalised")],
@@ -161,7 +161,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         ]
         return "\n".join(lines)
 
-    @mcp.tool(annotations=EDITS)
+    @tool(mcp, EDITS)
     def draw_debug(
         shape: Annotated[
             Literal["line", "lines", "sphere", "points"],
