@@ -127,6 +127,9 @@ def recording(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
         "omni.kit.app": kit_app,
         "omni.timeline": omni_timeline,
         "omni.usd": usd,
+        # What start checks the app has, before it makes a feed; the feed itself is faked below.
+        "omni.kit.hydra_texture": _module("omni.kit.hydra_texture"),
+        "omni.kit.widget.viewport.capture": _module("omni.kit.widget.viewport.capture"),
         "handlers_under_test": _module("handlers_under_test", __path__=[]),
         "handlers_under_test._utils": _module(
             "handlers_under_test._utils",
@@ -400,6 +403,62 @@ def test_a_forced_start_ends_the_running_recording_first(recording, kit, tmp_pat
     first, second = kit.feeds
     assert kit.discarded == [first]
     assert not second.dropped
+
+
+def test_a_forced_start_with_a_bad_camera_keeps_the_running_recording(recording, kit, tmp_path):
+    async def scenario() -> dict[str, Any]:
+        await _start(recording, tmp_path)
+        return await _start(recording, tmp_path, force=True, camera_path="/World/RedCube")
+
+    r = asyncio.run(scenario())
+    assert r["status"] == "error"
+    assert "not a Camera" in r["error"]
+    assert recording.recording_active()
+    assert kit.discarded == []
+
+
+def test_no_start_slips_in_while_a_forced_start_ends_the_running_recording(recording, kit, tmp_path):
+    async def scenario() -> tuple[dict[str, Any], dict[str, Any]]:
+        await _start(recording, tmp_path)
+        kit.update()
+        kit.update()
+        await _settle()
+        forced = asyncio.ensure_future(_start(recording, tmp_path, force=True))
+        await _settle()  # the forced start waits for the running recording's frame in flight
+        ordinary = await _start(recording, tmp_path)
+        kit.captures[0].set_result(PNG)
+        return await forced, ordinary
+
+    forced, ordinary = asyncio.run(scenario())
+    assert forced["status"] == "success"
+    assert ordinary == {"status": "error", "error": recording.ALREADY_ACTIVE}
+    assert len(kit.feeds) == 2
+
+
+def test_a_start_waiting_for_its_first_frame_fails_once_the_extension_shuts_down(recording, kit, tmp_path):
+    async def scenario() -> dict[str, Any]:
+        kit.first_frame_gate = asyncio.get_running_loop().create_future()
+        start = asyncio.ensure_future(_start(recording, tmp_path))
+        await _settle()
+        recording.shut_down()  # a hot reload, say, while the feed waits
+        kit.first_frame_gate.set_result(None)
+        return await start
+
+    r = asyncio.run(scenario())
+    assert r["status"] == "error"
+    assert "shut down" in r["error"]
+    assert kit.discarded == kit.feeds
+    assert not recording.recording_active()
+
+
+def test_an_app_that_cannot_capture_a_camera_is_refused_before_anything_is_made(recording, kit, tmp_path, monkeypatch):
+    monkeypatch.setitem(sys.modules, "omni.kit.widget.viewport.capture", None)
+    r = asyncio.run(_start(recording, tmp_path))
+    assert r == {
+        "status": "error",
+        "error": "This Kit app can't record from a camera: it has no omni.kit.widget.viewport.capture",
+    }
+    assert kit.feeds == []
 
 
 def test_shutdown_ends_the_frames_and_the_feed_but_deletes_nothing(recording, kit, tmp_path):

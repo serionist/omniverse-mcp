@@ -30,9 +30,9 @@ CLEANUP_SECONDS = 10.0  # the settle after isolate's prims are shown again
 # The server's client gives up after 120 s. A call's 80 s and its cleanup's 10 s leave 30 s for encoding the images
 # and sending them; a unit test holds the sum under the client's timeout.
 
-# A side of any frame the bridge renders at a size it is asked for. One limit for every tool that takes a size: a
-# texture of 4096x4096 rendered and wrote a whole PNG in about a second on Isaac Sim 6.2 (#25), and the GPU's memory,
-# not the schema, is what a larger one would run into.
+# A side of any frame the bridge renders at a size it is asked for: start_recording's, and capture_viewport's and
+# inspect_prim's once #51 lands. A texture of 4096x4096 rendered and wrote a whole PNG in about a second on Isaac Sim
+# 6.2 (#25), and the GPU's memory, not the schema, is what a larger one would run into.
 MAX_SIDE = 4096
 
 Clock = Callable[[], float]

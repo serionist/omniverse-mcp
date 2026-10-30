@@ -703,6 +703,7 @@ def test_start_recording_says_the_camera_and_size_it_records(
 ):
     text = _check(Case("start_recording", args, "/recording/start", answer, args, (says,)), bridge, tmp_path)
     assert "WARNING" not in text
+    assert "\nRenders into /Render/OmniverseKit/HydraTextures/ovmcp_recording_0, deleted at stop\n" in text
 
 
 def test_start_recording_warns_an_older_extension_ignores_the_camera_and_size(bridge: MockIsaacServer, tmp_path: Path):
@@ -791,3 +792,4 @@ def test_start_recording_on_an_older_extension_warns_of_nothing_without_a_camera
     assert not result.is_error, text
     assert text.startswith("Recording rec_1 at 5fps -> ")
     assert "WARNING" not in text
+    assert "Renders into" not in text  # an older extension renders into nothing of its own

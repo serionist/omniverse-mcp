@@ -87,6 +87,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         from_camera = "render_product" in r
         size = f", {r['resolution'][0]}x{r['resolution'][1]} from {r['camera_path']}" if from_camera else ""
         msg = f"Recording {r['session_id']} at {r['fps']}fps{size} -> {h.rel(r['output_dir'])}"
+        if from_camera:
+            msg += f"\nRenders into {r['render_product']}, deleted at stop"
         if r.get("track_prims"):
             tp: list[str] | int = r["track_prims"]
             count = len(tp) if isinstance(tp, list) else tp

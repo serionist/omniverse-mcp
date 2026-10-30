@@ -62,12 +62,14 @@ class _Session:
 
 
 class _State:
-    """The recording running, if any; whether one is starting; the last recording's folder, for its frames."""
+    """The recording running, if any; whether one is starting; the last recording's folder, for its frames; and
+    whether the extension shut down, which a start still waiting for its first frame must see when it resumes."""
 
     def __init__(self):
         self.session: _Session | None = None
         self.starting = False
         self.last_folder = ""
+        self.closed = False
 
 
 _state = _State()
@@ -88,18 +90,15 @@ def recording_note() -> str | None:
 
 
 async def handle_recording_start(body: dict) -> dict:
-    if _state.starting or _state.session is not None:
-        # A start still waiting for its first frame can't be forced aside: it holds no session to end yet.
-        if not body.get("force", False) or _state.starting:
-            return {"status": "error", "error": ALREADY_ACTIVE}
-        carb.log_warn("[MCP Bridge] Force-stopping previous recording")
-        await _end(_state.session, write_metadata=False)
-
+    # A start still waiting for its first frame can't be forced aside: it holds no session to end yet.
+    if _state.starting or (_state.session is not None and not body.get("force", False)):
+        return {"status": "error", "error": ALREADY_ACTIVE}
     try:
         args = recording_args(body)
     except ValueError as e:
         return {"status": "error", "error": str(e)}
 
+    # Marked before anything is awaited, a forced end included, so no other start slips in meanwhile.
     _state.starting = True
     try:
         return await _start(args)
@@ -110,11 +109,25 @@ async def handle_recording_start(body: dict) -> dict:
 
 
 async def _start(args: RecordingArgs) -> dict:
+    from importlib import import_module
+
+    # A Kit app without them can't render a camera into a texture or capture one: said at the start, not per frame.
+    for module in ("omni.kit.hydra_texture", "omni.kit.widget.viewport.capture"):
+        try:
+            import_module(module)
+        except ImportError:
+            return {"status": "error", "error": f"This Kit app can't record from a camera: it has no {module}"}
+
     stage = _get_stage()
     camera_path = args.camera_path or _get_active_camera_path()
     problem = camera_error(stage, camera_path)
     if problem:
         return {"status": "error", "error": problem}
+
+    if _state.session is not None:
+        # Forced, and only now the new recording's request and camera are known good: a bad one keeps the old.
+        carb.log_warn("[MCP Bridge] Force-stopping previous recording")
+        await _end(_state.session, write_metadata=False)
 
     context = omni.usd.get_context()
     stage_id = context.get_stage_id()
@@ -122,6 +135,9 @@ async def _start(args: RecordingArgs) -> dict:
     try:
         # The bound a viewport frame gets, sized for a renderer's cold start (#27).
         await feed.first_frame(capture.FRAME_SECONDS)
+        if _state.closed:
+            # Shut down or hot-reloaded meanwhile: a recording started now would run where nothing could stop it.
+            raise RuntimeError("The extension shut down while the recording started")
         if context.get_stage_id() != stage_id:
             raise RuntimeError("The stage changed while the recording started: start it again")
         session_id = f"rec_{int(time.time())}"
@@ -183,7 +199,7 @@ def _write_state_header(session: _Session) -> None:
     if args.property_filter:
         lines.append(f"# property_filter = {', '.join(args.property_filter)}")
     lines.append(f"# track_roots = {', '.join(args.track_prims)}")
-    (Path(session.folder) / "state.txt").write_text("\n".join(lines) + "\n\n")
+    (Path(session.folder) / "state.txt").write_text("\n".join(lines) + "\n\n", encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +264,7 @@ def _write_state(session: _Session, number: int, sim_time: float) -> None:
         text = format_frame_state(
             prims, frame_index=number, sim_time=sim_time, property_filter=session.args.property_filter
         )
-        with (Path(session.folder) / "state.txt").open("a") as f:
+        with (Path(session.folder) / "state.txt").open("a", encoding="utf-8") as f:
             f.write(text)
             f.write("\n")
     except Exception as e:
@@ -259,7 +275,8 @@ async def _take_frame(session: _Session, feed: CameraFeed, number: int) -> None:
     data = b""
     try:
         data = await capture_feed_png(feed)
-    except capture.CaptureError as e:
+    except Exception as e:
+        # Any failure of one frame, a capture timing out or Kit raising, is that frame's alone.
         carb.log_warn(f"[MCP Recording] Frame {number} not captured: {e}")
     finally:
         # Cancelled too, when frames stop early: the frame is then the empty marker at once.
@@ -340,7 +357,8 @@ async def handle_recording_stop(_body: dict) -> dict:
 
 def shut_down() -> None:
     """At the extension's shutdown: ends a running recording's frames and feed, and deletes nothing, since the stage
-    may be tearing down."""
+    may be tearing down. A start still waiting for its first frame fails when it resumes (_start)."""
+    _state.closed = True
     session, _state.session = _state.session, None
     if session is not None:
         session.subscription = None

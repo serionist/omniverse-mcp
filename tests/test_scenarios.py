@@ -813,7 +813,7 @@ class TestScenarios(unittest.TestCase):
         self._pass()
 
     def test_06_04_frames_follow_the_simulation(self):
-        """Phase 6.4: Frames of a falling cube show it falling, none repeated (#25)"""
+        """Phase 6.4: Frames of a falling cube show it falling, lower in the last than in the first (#25)"""
         self.c.sim_control("stop")
         time.sleep(0.3)
         self.c.set_transform("/World/RedCube", position=_along_up(self._up_axis(), 3))
@@ -842,6 +842,7 @@ class TestScenarios(unittest.TestCase):
 
     def test_06_05_record_from_a_prim_that_isnt_a_camera(self):
         """Phase 6.5: A prim that isn't a camera, or none, is refused, and leaves nothing (#25)"""
+        self._stop_recording_after()  # one that started after all mustn't block the next test
         before = self._run_in_kit(HYDRA_TEXTURES)
         for path, says in (("/World/RedCube", "not a Camera"), ("/World/NoSuchCamera", "No prim at")):
             r = self.c.recording_start(self._recordings("recordings_refused"), camera_path=path)
@@ -873,6 +874,7 @@ class TestScenarios(unittest.TestCase):
 
     def test_06_07_refuses_a_frame_too_large(self):
         """Phase 6.7: A side over 4096 is refused, and nothing starts (#25)"""
+        self._stop_recording_after()  # one that started after all mustn't block the next test
         for width, height in ((4097, 240), (240, 4097)):
             r = self.c.recording_start(self._recordings("recordings_refused"), width=width, height=height)
             self.assertEqual(r["status"], "error", r)
@@ -985,8 +987,8 @@ class TestScenarios(unittest.TestCase):
                 heights.append(float(parts[up].strip()))
 
         self.assertGreater(len(heights), 1, "state.txt should hold the cube in more than one frame")
-        # Down from the first frame to the lowest, not the last: a frame still being captured when 7.1 stops the
-        # recording can be written after 7.1 stops the timeline, which puts the cube back at 3.
+        # Down from the first frame to the lowest, not the last: each frame's state is read at its tick, while 7.1
+        # plays or once it paused, and a cube that landed may bounce, so the last need not be the lowest.
         first, lowest = heights[0], min(heights)
         self.assertGreater(
             first - lowest, 0.1, f"{axis} should fall due to gravity: first={first:.2f}, lowest={lowest:.2f}"

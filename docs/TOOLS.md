@@ -618,7 +618,7 @@ too. A side of more than 4096 pixels is refused. The answer names the camera, th
 prim the recording renders into, which it deletes at stop.
 
 - **When frames come:** every few app updates, about 1/`fps` seconds, whether or not the simulation plays: play it to
-  record motion. A frame shows the simulation of the update before its `sim_time`. Frames asked for faster than they
+  record motion. A frame shows the simulation within one update of its `sim_time`. Frames asked for faster than they
   can be written are skipped, which the frames' `sim_time` in `metadata.json` shows; each frame keeps a number of its
   own.
 - **What it costs:** the extra render runs every update while the recording does, at the frame's size. Headless on

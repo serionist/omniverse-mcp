@@ -186,7 +186,9 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 - Verify: every frame is 160x120 and shows the red cube; `capture_viewport()` still shows the view aimed away,
   with no red, and the viewport's camera and size are as before
 
-### 6.4 to 6.9 What a Recording Refuses, Leaves and Says
+### 6.4 to 6.9 What a Recording Shows, Refuses, Leaves and Says
+- Reset the cube to height 3; `start_recording(fps=10, camera_path="/World/RecCam")`, play ~1.5 s, pause, then
+  `stop_recording()`: the cube is lower in the last frame than in the first (pausing, not stopping, keeps it down)
 - `camera_path="/World/RedCube"` or a path with no prim, and `width=4097`: each an error, and nothing recording
 - While recording, the answer's `render_product` is a prim on the stage; after `stop_recording()` it is gone
 - At `fps=30`, `metadata.json` numbers its frames 0, 1, 2, ... with none repeated, each with its file

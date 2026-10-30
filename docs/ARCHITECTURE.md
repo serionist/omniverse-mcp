@@ -111,7 +111,7 @@ extension come from one release. `omniverse-mcp extension install` (`src/omniver
 | File | Purpose |
 |------|---------|
 | `ovmcp/bridge/extension.py` | Kit lifecycle: makes the token, starts the core's HTTP server with the routes |
-| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `capture.py` (the capture path's waits, each bounded by time, a call's bookkeeping, and the one frame-size limit, 4096 a side), `png.py` (the PNG writer), `logs.py` (Kit's log file read into the log ring, and its query), `force.py` (apply_force's request, its refusals and the point it pushes at), `framing.py`, `isolation.py`, `lighting.py`, `material.py` (set_material's OmniPBR, named by its MDL source), `robot.py` (where create_robot loads a USD file from, and its prim's name; the articulation root get_joint_states reads), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `recording.py` (start_recording's request, the camera check, which updates take a frame and its number, and deleting a camera feed's render product from every layer), `serial.py`, `usd.py` (typed forms of pxr calls the stubs get wrong) |
+| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `capture.py` (the capture path's waits, each bounded by time, a call's bookkeeping, and the frame-size limit, 4096 a side: start_recording's, and capture_viewport's and inspect_prim's once #51 lands), `png.py` (the PNG writer), `logs.py` (Kit's log file read into the log ring, and its query), `force.py` (apply_force's request, its refusals and the point it pushes at), `framing.py`, `isolation.py`, `lighting.py`, `material.py` (set_material's OmniPBR, named by its MDL source), `robot.py` (where create_robot loads a USD file from, and its prim's name; the articulation root get_joint_states reads), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `recording.py` (start_recording's request, the camera check, which updates take a frame and its number, and deleting a camera feed's render product from every layer), `serial.py`, `usd.py` (typed forms of pxr calls the stubs get wrong) |
 | `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, simulation, recording, robot, debug_draw, misc, usd_advanced, logging) with shared utilities in `_utils.py` (among them `enable_extension` and the captures to a file, `capture_viewport_png` and `capture_feed_png`), `camera_feed.py` (a camera rendered at a size in a texture of its own) and `_mcp_bridge.py` |
 | `config/extension.toml` | Extension metadata and default settings |
 
@@ -266,6 +266,10 @@ The format is implemented in `ovmcp/core/formatter.py` with functions for:
    logged waited for the GIL that the main thread held while it waited for the worker, so Kit hung
    ([#5](https://github.com/serionist/omniverse-mcp/issues/5)). `get_logs` reads Kit's log file on the main thread
    instead; `tests/test_logs.py` fails on any Python hook on Kit's logging in the extension
+6. A recording's camera feed (`handlers/camera_feed.py`) hears of each frame through a Python callback on its
+   texture's drawable-changed event. On Kit 110 Kit calls it on the main thread in every timeline state (#25's
+   E16); on Kit 107, whose event stream is another, nobody has measured. So it does no USD work and logs nothing, as
+   #5 asks of a callback Kit may call from another thread: it only hands the frame to the captures waiting for it
 
 This means all handler code runs on the main thread - there are no threading issues with USD access, but long-running handlers will block the simulation for the duration of their execution.
 
@@ -320,7 +324,7 @@ its size never change (#25):
 3. **A frame** is taken as the viewport's are: a `FileCapture` delegate queued on the feed is handed the feed's next
    drawable-changed frame (Events 2.0 since Kit 108.2, an event stream before), and `capture_feed_png` waits for the
    whole PNG (`capture.capture_png`). One that doesn't come in time is written as an empty file, keeping the numbers.
-   Its image shows the simulation of the update before its tick.
+   Its image shows the simulation within one update of its tick.
 4. **Frames stop** when the stage starts to close, another stage opens, or the camera goes: the feed would go on
    rendering something else (white for a deleted camera, the new stage's default camera after a new stage). Frames in
    flight end at once as empty files, and `stop_recording` and `get_sim_state` say why.
