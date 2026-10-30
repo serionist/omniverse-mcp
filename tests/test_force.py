@@ -391,6 +391,29 @@ def test_a_disabled_body_is_static_ground_that_joins_nothing():
     assert joints.articulation_holding("/World/Rig/tip") is None
 
 
+def test_a_fixed_joint_to_a_deleted_prim_holds_nothing_and_one_to_a_scope_holds():
+    # Measured on Isaac Sim 6.2: a cube fixed to a prim that doesn't exist moved as a free one did, so PhysX makes no
+    # joint of it; one fixed to a Scope didn't move, held as by the world. usd-core's parser reads both ends as the
+    # world (""), so this stays out of the parser checks above.
+    stage = Usd.Stage.CreateInMemory()
+    UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")
+    UsdGeom.Scope.Define(stage, "/World/Looks")
+    UsdPhysics.ArticulationRootAPI.Apply(UsdGeom.Xform.Define(stage, "/World/Cart").GetPrim())
+    _body(stage, "/World/Cart/base")
+    _body(stage, "/World/Cart/wheel")
+    _joint(stage, "/World/Cart/axle", "/World/Cart/base", "/World/Cart/wheel")
+    _joint(stage, "/World/Cart/bolt", "/World/Pallet", "/World/Cart/base", fixed=True)  # the pallet was deleted
+    _body(stage, "/World/Crate")
+    _joint(stage, "/World/cratebolt", "/World/Crate", "/World/Pallet", fixed=True)
+    _body(stage, "/World/Badge")
+    _joint(stage, "/World/badgepin", "/World/Looks", "/World/Badge", fixed=True)
+    joints = Joints(stage)
+    assert joints.held_to_world("/World/Cart/base") is None
+    assert joints.held_to_world("/World/Crate") is None
+    assert joints.held_to_world("/World/Badge") == "/World/Badge"
+    assert joints.articulation_holding("/World/Cart/wheel") == "/World/Cart"
+
+
 def test_a_kinematic_mount_holds_what_is_fixed_to_it():
     # A kinematic body moves only by its transform, so a base fixed to one takes a push and doesn't move. It still
     # joins the articulation: UsdPhysics's parser lists it among the articulated bodies.

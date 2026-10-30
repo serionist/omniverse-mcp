@@ -110,7 +110,7 @@ class Joints:
     joint that holds it to the world.
 
     A joint's end is a body's path, or nothing for the world, a static prim or a disabled body, which PhysX holds as
-    static (`_body_of`).
+    static (`_body_of`). A joint whose target doesn't exist counts for nothing, as PhysX makes no joint of it.
     """
 
     def __init__(self, stage: Usd.Stage) -> None:
@@ -125,12 +125,22 @@ class Joints:
                 continue
             joint = UsdPhysics.Joint(prim)
             ends: list[str] = []
+            dangling = False
             for rel in (joint.GetBody0Rel(), joint.GetBody1Rel()):
                 targets: list[Sdf.Path] = rel.GetTargets()
-                # No target holds that end to the world; a target in no body anchors it to a static prim.
-                end = _body_of(stage, targets[0]) if targets else None
+                # No target holds that end to the world; a target in no body anchors it to a static prim; a target
+                # that doesn't exist leaves no joint at all (below).
+                target = stage.GetPrimAtPath(targets[0]) if targets else None
+                if target is not None and not target.IsValid():
+                    dangling = True
+                    break
+                end = None if target is None else _body_of(target)
                 if end is not None:
                     ends.append(end)
+            if dangling:
+                # Measured on Isaac Sim 6.2: a cube fixed to a prim since deleted moves as a free one does, so PhysX
+                # makes no joint of it. usd-core's parser reads that end as the world all the same.
+                continue
             for end in ends:
                 self._joints_at.setdefault(end, []).append(prim)
             two = len(ends) == 2 and ends[0] != ends[1]
@@ -193,11 +203,10 @@ def _reach(graph: dict[str, set[str]], start: str) -> set[str]:
     return joined
 
 
-def _body_of(stage: Usd.Stage, path: Sdf.Path) -> str | None:
+def _body_of(prim: Usd.Prim) -> str | None:
     """The rigid body a joint's target belongs to: the target, or the nearest prim above it with RigidBodyAPI, as a
     joint may name a body's child. None when none is, a static anchor as UsdPhysics reads it, and None for a disabled
     body, which PhysX holds as static and UsdPhysics's parser reads so."""
-    prim = stage.GetPrimAtPath(path)
     while prim.IsValid() and not prim.IsPseudoRoot():
         if has_api(prim, UsdPhysics.RigidBodyAPI):
             if UsdPhysics.RigidBodyAPI(prim).GetRigidBodyEnabledAttr().Get() is False:
