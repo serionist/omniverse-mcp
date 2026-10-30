@@ -1,9 +1,9 @@
 ---
 title: Let apply_force push articulation links again, and refuse a body fixed to the world
 issue: "#58"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-10-30
 ---
 
 # Let apply_force push articulation links again, and refuse a body fixed to the world
@@ -315,7 +315,8 @@ bolted cube and the stock Franka.
 
 **How:** `review-plan`, a fresh reviewer (Claude), 2026-10-30, on `0dd9b60`. The reviewer checked the Findings and
 the reading of #59's log against the runs' raw output and #59's live log.
-**Verdict:** `needs-answers`: no blockers or majors, six minors, eight owner calls open.
+**Verdict:** `needs-answers`: no blockers or majors, six minors, eight owner calls open. `approved` once the
+maintainer answered Q1 to Q8, all as recommended, on 2026-10-30.
 **Now:** the six minors fixed and improvements 1 to 6 taken, in the commit after `0dd9b60`.
 
 | # | Sev | Finding | Status |
@@ -333,14 +334,14 @@ the reading of #59's log against the runs' raw output and #59's live log.
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 | Push links with today's call, or move links to the tensor API as #58 proposed? | Today's call: it pushes links exactly in every mode (E1, E10, E11), with nothing new to depend on | |
-| Q2 | Refuse a body that a fixed joint holds to the world? | Yes. Otherwise a push on the Franka's base answers success and moves nothing (E11) | |
-| Q3 | The Direct GPU API, where no push moves anything (E8): this PR or its own issue? | Its own issue, with this plan's tensor API measurements | |
-| Q4 | #58's title and body state a cause the Findings disprove | A comment from the session linking this plan's Findings, and a title such as "apply_force refuses articulation links that PhysX pushes" | |
-| Q5 | AGENTS.md's Traps row (Docs) fills the file to the gate's 150 lines | Take it: a misread live check is the trap this repo paid for here | |
-| Q6 | A Direct GPU API guard now: dropping the link refusal turns 0.2.2's error for a robot there into a silent success. Refuse while `/physics/suppressReadback` is true, here or as the follow-up's first step? | Here, as a cheap refusal (the reviewer's recommendation) | |
-| Q7 | Isaac Sim 5.x is unmeasured for links (`omni.physx` 107.3): accept and say "measured on 6.2" in TOOLS.md, or keep the link refusal below Kit 110? | Accept, and say so | |
-| Q8 | Should the PR say `Closes #58`, since the fix isn't the tensor API the issue proposed? | Yes, with #58 retitled as Q4 says | |
+| Q1 | Push links with today's call, or move links to the tensor API as #58 proposed? | Today's call: it pushes links exactly in every mode (E1, E10, E11), with nothing new to depend on | As recommended (2026-10-30) |
+| Q2 | Refuse a body that a fixed joint holds to the world? | Yes. Otherwise a push on the Franka's base answers success and moves nothing (E11) | As recommended (2026-10-30) |
+| Q3 | The Direct GPU API, where no push moves anything (E8): this PR or its own issue? | Its own issue, with this plan's tensor API measurements | As recommended (2026-10-30) |
+| Q4 | #58's title and body state a cause the Findings disprove | A comment from the session linking this plan's Findings, and a title such as "apply_force refuses articulation links that PhysX pushes" | As recommended (2026-10-30) |
+| Q5 | AGENTS.md's Traps row (Docs) fills the file to the gate's 150 lines | Take it: a misread live check is the trap this repo paid for here | As recommended (2026-10-30) |
+| Q6 | A Direct GPU API guard now: dropping the link refusal turns 0.2.2's error for a robot there into a silent success. Refuse while `/physics/suppressReadback` is true, here or as the follow-up's first step? | Here, as a cheap refusal (the reviewer's recommendation) | As recommended (2026-10-30) |
+| Q7 | Isaac Sim 5.x is unmeasured for links (`omni.physx` 107.3): accept and say "measured on 6.2" in TOOLS.md, or keep the link refusal below Kit 110? | Accept, and say so | As recommended (2026-10-30) |
+| Q8 | Should the PR say `Closes #58`, since the fix isn't the tensor API the issue proposed? | Yes, with #58 retitled as Q4 says | As recommended (2026-10-30) |
 
 | Improvement | Answer |
 |---|---|
