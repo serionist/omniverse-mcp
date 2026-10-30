@@ -16,6 +16,8 @@
   <a href="https://github.com/serionist/omniverse-mcp/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/serionist/omniverse-mcp/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/serionist/omniverse-mcp/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/serionist/omniverse-mcp/actions/workflows/codeql.yml/badge.svg?branch=main"></a>
   <a href="LICENSE"><img alt="Licence: MIT" src="https://img.shields.io/github/license/serionist/omniverse-mcp?label=licence"></a>
+  <a href="https://glama.ai/mcp/servers/serionist/omniverse-mcp"><img alt="Glama score" src="https://glama.ai/mcp/servers/serionist/omniverse-mcp/badges/score.svg"></a>
+  <a href="https://mcpservers.org/servers/serionist/omniverse-mcp"><img alt="Listed on mcpservers.org" src="https://mcpservers.org/badge.svg"></a>
 </p>
 
 <!-- The official MCP registry trusts the PyPI package by this line, as server.json names it. -->
@@ -259,8 +261,8 @@ More in [SETUP.md](docs/SETUP.md#troubleshooting).
 
 On Isaac Sim 6.2, the only Kit app tested so far:
 
-- **`apply_force` refuses an articulation's links,** such as a robot's: PhysX's push doesn't reach them yet
-  ([#58](https://github.com/serionist/omniverse-mcp/issues/58)).
+- **`apply_force` is refused under PhysX's Direct GPU API,** which Isaac Sim turns on for a GPU device: its push
+  moves nothing there ([#68](https://github.com/serionist/omniverse-mcp/issues/68)).
 - **`capture_viewport` and `inspect_prim` return the image at the viewport's size,** while their boxes use the size
   asked for ([#51](https://github.com/serionist/omniverse-mcp/issues/51)).
 

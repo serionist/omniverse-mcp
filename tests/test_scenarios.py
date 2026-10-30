@@ -199,6 +199,61 @@ def _turn_degrees(q0: list[float], q1: list[float]) -> float:
     return math.degrees(2 * math.acos(min(1.0, dot)))
 
 
+# The bodies' speed along X, from PATHS and FRAMES set before it: played for FRAMES of Kit's updates, then paused, so
+# the window is counted in simulation steps whatever the machine's speed (Kit updates unthrottled here). The speed is
+# their centre of mass's travel over the simulation time between, from PhysX's poses and mass information. With no
+# contact, it changes by a push over the bodies' mass, whatever their joints do.
+_SPEED_ALONG_X = """
+import omni.kit.app
+import omni.timeline
+from omni.physx import get_physx_interface, get_physxunittests_interface
+
+timeline = omni.timeline.get_timeline_interface()
+
+
+def turned(q, v):
+    # v turned by the unit quaternion q, in PhysX's order: x, y, z, w.
+    x, y, z, w = q
+    cx, cy, cz = y * v[2] - z * v[1], z * v[0] - x * v[2], x * v[1] - y * v[0]
+    dx, dy, dz = y * cz - z * cy, z * cx - x * cz, x * cy - y * cx
+    return (v[0] + 2 * (w * cx + dx), v[1] + 2 * (w * cy + dy), v[2] + 2 * (w * cz + dz))
+
+
+def centre_along_x():
+    mass = moment = 0.0
+    for path in PATHS:
+        info = get_physxunittests_interface().get_mass_information(path)
+        pose = get_physx_interface().get_rigidbody_transformation(path)
+        mass += info["mass"]
+        moment += info["mass"] * (pose["position"][0] + turned(pose["rotation"], info["com"])[0])
+    return moment / mass, mass, timeline.get_current_time()
+
+
+timeline.play()
+await omni.kit.app.get_app().next_update_async()
+x0, mass, t0 = centre_along_x()
+for _ in range(FRAMES):
+    await omni.kit.app.get_app().next_update_async()
+x1, _, t1 = centre_along_x()
+timeline.pause()
+await omni.kit.app.get_app().next_update_async()
+result = {"speed": (x1 - x0) / (t1 - t0), "mass": mass, "time": t1}
+"""
+
+# Plays for FRAMES of Kit's updates, then pauses: a window counted in simulation steps.
+_RUN_FRAMES = """
+import omni.kit.app
+import omni.timeline
+
+omni.timeline.get_timeline_interface().play()
+for _ in range(FRAMES + 1):
+    await omni.kit.app.get_app().next_update_async()
+omni.timeline.get_timeline_interface().pause()
+await omni.kit.app.get_app().next_update_async()
+result = omni.timeline.get_timeline_interface().get_current_time()
+"""
+
+
 class TestScenarios(unittest.TestCase):
     """Full scenario tests matching test_project/scenarios.md."""
 
@@ -416,6 +471,74 @@ class TestScenarios(unittest.TestCase):
         )
         self.assertEqual(r["status"], "success", r)
         return r["result"]["return_value"]
+
+    def _start_physics(self) -> None:
+        """Plays, then pauses: physics is loaded and the bodies wait, so a push lands at the next step's start."""
+        self.assertEqual(self.c.sim_control("play")["status"], "success")
+        self.assertEqual(self.c.sim_control("pause")["status"], "success")
+
+    def _speed_along_x_in_kit(self, paths: list[str], frames: int) -> dict:
+        """The bodies' speed along X over `frames` simulation steps, from a pause to a pause (_SPEED_ALONG_X):
+        `speed`, their `mass`, and the simulation `time` of the last sample."""
+        r = self.c.execute(f"PATHS, FRAMES = {paths!r}, {frames}\n" + _SPEED_ALONG_X)
+        self.assertEqual(r["status"], "success", r)
+        return r["result"]["return_value"]
+
+    def _run_frames(self, frames: int) -> None:
+        """Plays for `frames` simulation steps, from a pause to a pause."""
+        r = self.c.execute(f"FRAMES = {frames}\n" + _RUN_FRAMES)
+        self.assertEqual(r["status"], "success", r)
+
+    def _rigid_bodies_under(self, root: str) -> list[str]:
+        r = self.c.execute(
+            f"root = omni.usd.get_context().get_stage().GetPrimAtPath({root!r})\n"
+            "result = [str(p.GetPath()) for p in Usd.PrimRange(root, Usd.TraverseInstanceProxies()) "
+            "if p.HasAPI(UsdPhysics.RigidBodyAPI)]"
+        )
+        self.assertEqual(r["status"], "success", r)
+        return r["result"]["return_value"]
+
+    def _force_pair(self, name: str, *, fixed: bool = False) -> tuple[str, str]:
+        """Two 5 kg cubes of their own on a revolute joint about the up axis, an articulation rooted on their Xform,
+        with the simulation stopped; with `fixed`, a fixed joint holds the first to the world. Gravity is off and they
+        sit away from the scene, so only a push moves them. Deleted after, the simulation stopped first."""
+        root = f"/World/{name}"
+        first, second = f"{root}/First", f"{root}/Second"
+        up = self._up_axis()
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+        self.addCleanup(self.c.delete_prim, root)
+        self.addCleanup(self.c.sim_control, "stop")
+        r = self.c.execute(
+            "from pxr import PhysxSchema\n"
+            "stage = omni.usd.get_context().get_stage()\n"
+            f"root = UsdGeom.Xform.Define(stage, {root!r})\n"
+            f"x, y, z = {_along_up(up, 5, x=-40)!r}\n"
+            f"for path, dx in (({first!r}, 0.0), ({second!r}, 0.4)):\n"
+            "    cube = UsdGeom.Cube.Define(stage, path)\n"
+            "    cube.CreateSizeAttr(0.3)\n"
+            "    UsdGeom.XformCommonAPI(cube).SetTranslate(Gf.Vec3d(x + dx, y, z))\n"
+            "    UsdPhysics.RigidBodyAPI.Apply(cube.GetPrim())\n"
+            "    UsdPhysics.CollisionAPI.Apply(cube.GetPrim())\n"
+            "    UsdPhysics.MassAPI.Apply(cube.GetPrim()).CreateMassAttr(5.0)\n"
+            "    PhysxSchema.PhysxRigidBodyAPI.Apply(cube.GetPrim()).CreateDisableGravityAttr(True)\n"
+            f"hinge = UsdPhysics.RevoluteJoint.Define(stage, {root + '/Hinge'!r})\n"
+            f"hinge.CreateBody0Rel().SetTargets([Sdf.Path({first!r})])\n"
+            f"hinge.CreateBody1Rel().SetTargets([Sdf.Path({second!r})])\n"
+            "hinge.CreateLocalPos0Attr(Gf.Vec3f(0.2, 0, 0))\n"
+            "hinge.CreateLocalPos1Attr(Gf.Vec3f(-0.2, 0, 0))\n"
+            f"hinge.CreateAxisAttr({'XYZ'[up]!r})\n"
+            f"if {fixed}:\n"
+            # The world's end sits where the first cube does, so the joint holds it there.
+            f"    bolt = UsdPhysics.FixedJoint.Define(stage, {root + '/Bolt'!r})\n"
+            f"    bolt.CreateBody1Rel().SetTargets([Sdf.Path({first!r})])\n"
+            "    bolt.CreateLocalPos0Attr(Gf.Vec3f(x, y, z))\n"
+            "UsdPhysics.ArticulationRootAPI.Apply(root.GetPrim())\n"
+            "PhysxSchema.PhysxArticulationAPI.Apply(root.GetPrim()).CreateEnabledSelfCollisionsAttr(False)\n"
+            "result = 'ok'"
+        )
+        self.assertEqual(r["status"], "success", r)
+        return first, second
 
     def _aim_away(self) -> list[list[float]]:
         """Aims the camera along +X from x=20, away from all the suite puts near the origin (the red cube, the ground,
@@ -1543,31 +1666,34 @@ class TestScenarios(unittest.TestCase):
         self._pass()
 
     def test_15_11_apply_force_to_a_robot_link(self):
-        """Phase 15.11: A push on a robot's link is refused: PhysX takes it and moves nothing (#58)"""
-        r = self.c.execute(
-            "root = omni.usd.get_context().get_stage().GetPrimAtPath('/World/G1')\n"
-            "links = [str(p.GetPath()) for p in Usd.PrimRange(root, Usd.TraverseInstanceProxies()) "
-            "if p.HasAPI(UsdPhysics.RigidBodyAPI)]\n"
-            "pelvis = next((p for p in links if p.endswith('/pelvis')), '')\n"
-            "result = [pelvis, next((p for p in links if p != pelvis), '')]"
-        )
-        self.assertEqual(r["status"], "success", r)
-        pelvis, other = r["result"]["return_value"]
-        self.assertTrue(pelvis and other, "No pelvis and other link under /World/G1: test_10_01 loads the G1")
-
+        """Phase 15.11: A push on the G1's pelvis moves the robot by the push: its speed along X changes by the
+        impulse over its mass (#58)"""
+        links = self._rigid_bodies_under("/World/G1")
+        pelvis = next((p for p in links if p.endswith("/pelvis")), "")
+        self.assertTrue(pelvis, "No pelvis under /World/G1: test_10_01 loads the G1")
+        up = self._up_axis()
+        lift = 20.0
         self.c.sim_control("stop")
         time.sleep(0.3)
+        # In the air nothing but the push moves the robot along X, its joints included, until it lands. The cleanups
+        # run last first: stop, then the G1 back where test_10_01 put it.
+        self.addCleanup(self.c.set_transform, "/World/G1", position=_along_up(up, 0.74, x=3))
         self.addCleanup(self.c.sim_control, "stop")
-        self.c.sim_control("play")
-        time.sleep(0.5)
-        # Measured on Isaac Sim 6.2 before the refusal: 100 N s on the pelvis succeeded and moved it no further along
-        # X than gravity alone did. The pelvis holds the G1's ArticulationRootAPI; the other link is its sibling.
-        for link in (pelvis, other):
-            r = self.c.apply_force(link, force=[100, 0, 0], impulse=True)
-            self.assertEqual(r["status"], "error", r)
-            self.assertIn(f"is a link of the articulation at {pelvis}", r["error"])
-            self.assertIn("#58", r["error"])
-            print(f"  Refused on {link}")
+        r = self.c.set_transform("/World/G1", position=_along_up(up, 0.74 + lift, x=3))
+        self.assertEqual(r["status"], "success", r)
+        self._start_physics()
+
+        before = self._speed_along_x_in_kit(links, 12)
+        r = self.c.apply_force(pelvis, force=[100, 0, 0], impulse=True)
+        self.assertEqual(r["status"], "success", r)
+        self.assertEqual(r["result"]["at"], "centre of mass")
+        after = self._speed_along_x_in_kit(links, 12)
+
+        # #59 read drift against a threshold, and refused a push PhysX made: this compares the change with the push.
+        change, expected = after["speed"] - before["speed"], 100 / after["mass"]
+        print(f"  100 N s on the pelvis of {after['mass']:.2f} kg: {change:.4f} units/s along X ({expected:.4f})")
+        self.assertAlmostEqual(change, expected, delta=expected * 0.02)
+        self.assertLess(after["time"], math.sqrt(2 * lift / 9.81), "the G1 landed before the speed was measured")
         self._pass()
 
     def test_15_12_apply_force_to_a_disabled_body(self):
@@ -1579,6 +1705,77 @@ class TestScenarios(unittest.TestCase):
         r = self.c.apply_force(body, force=[1, 0, 0])
         self.assertEqual(r["status"], "error", r)
         self.assertIn("physics:rigidBodyEnabled is false", r["error"])
+        self._pass()
+
+    def test_15_14_apply_force_to_a_link_of_a_free_articulation(self):
+        """Phase 15.14: A push on a link that isn't the root moves its articulation exactly as far as the push"""
+        first, second = self._force_pair("ForcePair")
+        self._start_physics()
+        before = self._speed_along_x_in_kit([first, second], 12)
+        r = self.c.apply_force(second, force=[10, 0, 0], impulse=True)
+        self.assertEqual(r["status"], "success", r)
+        after = self._speed_along_x_in_kit([first, second], 12)
+        change, expected = after["speed"] - before["speed"], 10 / after["mass"]
+        print(f"  10 N s on one cube of {after['mass']:.1f} kg: {change:.4f} units/s along X ({expected:.4f})")
+        self.assertAlmostEqual(change, expected, delta=expected * 0.02)
+        self._pass()
+
+    def test_15_15_apply_force_to_a_body_fixed_to_the_world(self):
+        """Phase 15.15: A body a fixed joint holds to the world is refused, a robot's base or a lone cube; the link its
+        joint lets turn is pushed"""
+        up = self._up_axis()
+        cube = self._force_body("ForceBoltedCube")
+        r = self.c.execute(
+            "stage = omni.usd.get_context().get_stage()\n"
+            f"bolt = UsdPhysics.FixedJoint.Define(stage, {cube + '/Bolt'!r})\n"
+            f"bolt.CreateBody1Rel().SetTargets([Sdf.Path({cube!r})])\n"
+            # The world's end sits where _force_body put the cube, so the joint holds it there.
+            f"bolt.CreateLocalPos0Attr(Gf.Vec3f(*{_along_up(up, 5, x=-30)!r}))\n"
+            "result = 'ok'"
+        )
+        self.assertEqual(r["status"], "success", r)
+        first, second = self._force_pair("ForcePairFixed", fixed=True)
+        root = first.rsplit("/", 1)[0]
+        self._start_physics()
+
+        r = self.c.apply_force(cube, force=[10, 0, 0], impulse=True)
+        self.assertEqual(r["status"], "error", r)
+        self.assertEqual(r["error"], f"{cube} is held to the world by a fixed joint: no force moves it")
+        r = self.c.apply_force(first, force=[10, 0, 0], impulse=True)
+        self.assertEqual(r["status"], "error", r)
+        held = f"{first} is held to the world by a fixed joint, as the base of the articulation at {root}"
+        self.assertIn(held, r["error"])
+
+        before = {p: self._physx_pose(p)["position"] for p in (first, second)}
+        sideways = [0.0, 0.0, 0.0]
+        sideways[3 - up] = 1.0  # neither X nor up: about the hinge
+        r = self.c.apply_force(second, force=sideways, impulse=True)
+        self.assertEqual(r["status"], "success", r)
+        self._run_frames(30)
+        moved = {p: math.dist(before[p], self._physx_pose(p)["position"]) for p in (first, second)}
+        print(f"  In 30 steps the fixed base moved {moved[first]:.2e}, the link it holds {moved[second]:.3f}")
+        self.assertLess(moved[first], 1e-4)
+        self.assertGreater(moved[second], 0.01)
+        self._pass()
+
+    def test_15_16_apply_force_to_a_franka(self):
+        """Phase 15.16: Isaac Sim's own Franka: its base, which a fixed joint holds to the world, is refused; its hand
+        is pushed"""
+        path = "/World/ForceFranka"
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+        self.addCleanup(self.c.delete_prim, path)
+        self.addCleanup(self.c.sim_control, "stop")
+        r = self.c.create_robot("franka", path, position=_along_up(self._up_axis(), 0, x=-50))
+        self.assertEqual(r["status"], "success", r)
+        self._start_physics()
+        base, hand = f"{path}/panda_link0", f"{path}/panda_hand"
+        r = self.c.apply_force(base, force=[100, 0, 0], impulse=True)
+        self.assertEqual(r["status"], "error", r)
+        held = f"{base} is held to the world by a fixed joint, as the base of the articulation at {path}"
+        self.assertIn(held, r["error"])
+        r = self.c.apply_force(hand, force=[0, 0, 5], impulse=True)
+        self.assertEqual(r["status"], "success", r)
         self._pass()
 
     # ===== Phase 16: Raycasting & Debug Draw =====

@@ -693,11 +693,14 @@ Automatically applies the required USD physics APIs (`MassAPI`, `PhysicsMaterial
 ### `apply_force`
 
 Push a rigid body through PhysX, so its mass counts: at `position`, or at its centre of mass when it is left out.
-The simulation must be playing or paused.
+The simulation must be playing or paused. A body can be an articulation's link, such as a robot's: the push moves
+the robot through its joints. A floating robot touching nothing gains the impulse as momentum, so its speed changes
+by the impulse over the whole robot's mass, not the link's. A fixed-base robot's link turns about its joints, and a
+robot on the ground loses some of the push to friction. Measured on Isaac Sim 6.2, on PhysX's CPU pipeline.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `prim_path` | string | required | Rigid body prim |
+| `prim_path` | string | required | Rigid body prim, a robot's link among them |
 | `force` | list[float] | required | `[fx, fy, fz]`: an impulse in N s, or a force in N for one physics step |
 | `position` | list[float] | `null` | World-space point to push at; the body's centre of mass, as PhysX holds it, when omitted |
 | `impulse` | bool | `false` | `true` for an impulse in N s, which changes the velocity at once by `force / mass`; `false` for a force in N for one physics step, which changes it by `force * dt / mass`, `dt` being the physics step (1/60 s by default). One call can't hold a force over many steps: for a sustained push, give an impulse of force times seconds, the same change in velocity at once |
@@ -707,10 +710,11 @@ The simulation must be playing or paused.
 | When | Why |
 |---|---|
 | the simulation is stopped | PhysX holds no bodies then; paused works |
+| PhysX runs with its Direct GPU API (`/physics/suppressReadback` is true, as Isaac Sim sets it for a GPU device) | the push returns and moves nothing, as measured on Isaac Sim 6.2 ([#68](https://github.com/serionist/omniverse-mcp/issues/68)): run physics on the CPU to push a body |
 | the body is disabled (`physics:rigidBodyEnabled` is false) | PhysX holds it as a static body, which no force moves |
 | the body is kinematic (`physics:kinematicEnabled` is true) | PhysX takes the force and moves it only by its transform |
 | PhysX holds no rigid body at `prim_path` | nothing to push; `get_logs(min_level="warn")` may say why |
-| the body is a link of an articulation, such as a robot's | PhysX takes the push and moves nothing, as measured on Isaac Sim 6.2 with the G1 ([#58](https://github.com/serionist/omniverse-mcp/issues/58)). A link is any body joined through joints to the body, joint or prim that carries `ArticulationRootAPI`, as UsdPhysics reads an articulation |
+| a fixed joint holds the body to the world, or welds it to a body one holds | no force moves it, as measured on the Franka's base. That is an enabled `UsdPhysics.FixedJoint` whose other end is the world, a static prim, a disabled body or a kinematic one, excluded from articulations or not. The error names the articulation when the body is a robot's fixed base or welded to one |
 | `position` is left out and PhysX gives the body no mass | no centre of mass to push at: give a `position` |
 
 **Returns:** `position`, the world point pushed at; `at`, `given` or `centre of mass`; `method`, `physx`. A point off
