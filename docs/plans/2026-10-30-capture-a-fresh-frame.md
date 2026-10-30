@@ -70,7 +70,7 @@ whether it holds the lines depends only on whether the trail is 3 or 4 that time
 | Run | Trials | Misses |
 |---|---|---|
 | 1 | 20 | 2 (trials 2 and 3) |
-| 1, every update slowed by 50 ms | 20 | 0: the renderer keeps up within a slow update |
+| 1, every update slowed by 50 ms | 20 | 0: every frame trailed 3 updates (`2 x SWH - 48`), none 4 |
 | 2 | 60 | 0 |
 
 **Drawn, then captured at once,** in one `execute_script` (`draw_debug`'s handler, then `mcp.capture_viewport`):
@@ -128,9 +128,10 @@ does, then repeated run 3's tests (`e57_async.py`, in the order of `e57_sequence
   observes), the deferred one, and hydratexture's `DRAWABLE_CHANGED`, every one of them, synchronous and
   asynchronous: 422, 422 and 363 events in 2 s, then 218, 218 and 218, none on another thread.
 - **Eco Mode (Q7):** it was on from the start of the fresh Kit, with `/rtx/ecoMode/maxFramesWithoutChange` at 500,
-  and `isaacsim.core.throttling` enabled with its async toggle off. After 3 s of a static scene the viewport still
-  gave 217 frames in 2 s; there, with async rendering on, captures with no wait missed 5 of 5, and with k = 4 missed 0
-  of 5 with each extension, each in 0.109 to 0.140 s. A scene static for more than 500 frames was not tried.
+  and `isaacsim.core.throttling` enabled with its async toggle off. The eco step ran about 545 frames with nothing
+  changing (3 s, then 2 s counted, at about 109 frames a second) and still saw 217 frames in the last 2 s: past 500
+  frames, Eco Mode did not pause the viewport headless. There, with async rendering on, captures with no wait missed 5
+  of 5, and with k = 4 missed 0 of 5 with each extension, each in 0.109 to 0.140 s.
 
 ### What the sources show
 
@@ -170,7 +171,8 @@ Without one, it captures at once, as now.
   `NEW_FRAME`, which run 4 saw on the main thread with async rendering too (Q6).
 - **Who waits:** `capture_viewport` and `inspect_prim` (on top of its 20-frame settle): `capture_viewport_png` passes
   `_next_frame` by default. Recording passes none: its ticks would overlap with the longer capture and overwrite
-  frames (What the sources show), and the wait buys it nothing a user asked for.
+  frames (What the sources show), and the wait buys it nothing a user asked for. #25 removes this opt-out once
+  recording takes its frames from its own feed.
 - **Kit's log:** the slow-capture line (over 2 s) also says how long the wait took, and the app's
   `/app/settings/fabricDefaultStageFrameHistoryCount`, the stage history the renderer may trail by, for a later
   look at other apps.
@@ -202,7 +204,7 @@ updates counted for render progress, with no bound.
 | Q4 | Recording gets no wait (round 1, P1)? | Yes | |
 | Q5 | Must a GUI run, or a headless run with async rendering, come before CHANGELOG says Fixed? | The code's headless async run (Tests) is required, as run 4 was for the plan; a GUI run is welcome | |
 | Q6 | The wait listens for the immediate `NEW_FRAME`, which ARCHITECTURE says Kit 110 may send on the renderer thread with async rendering (#5 was a deadlock of that kind): keep it, or listen to another event? | Keep it: run 4 saw every `NEW_FRAME`, immediate and deferred, and every `DRAWABLE_CHANGED` on the main thread, with async rendering on and off; ARCHITECTURE says so, for Isaac Sim 6.2 | |
-| Q7 | Eco Mode, which throttling turns on at stop and pause: does a static scene still give the frames the wait needs? | Nothing to add: Eco Mode was on through run 4, frames kept coming after 3 s of a static scene, and the waited captures held the drawing; a scene static past 500 frames is untried and fails, if it does, as a capture fails today (Risks, 3) | |
+| Q7 | Eco Mode, which throttling turns on at stop and pause: does a static scene still give the frames the wait needs? | Nothing to add: Eco Mode was on through run 4, frames kept coming after about 545 static frames, past its 500, and the waited captures held the drawing; the GUI is untried | |
 
 ## Compatibility
 
@@ -231,15 +233,18 @@ are. `FRESH_FRAMES` is a constant in the core, not an extension setting.
 3. **The bridge.** `_next_frame(viewport)` for `_viewport_frames` and `capture_viewport_png`, with the app-update
    fallback, on the immediate `NEW_FRAME` (Q6); `capture_viewport_png` passes it unless its caller says not to, and
    recording says not to; the slow line says the wait's time and the stage frame history. Proven by the live
-   suites (Step 6), the recording tests (`test_07_*`) among them; a unit test of the bridge's call is out of reach,
-   since the handlers import Kit.
-4. **The live tests.** A helper, `_drawn_then_captured(zigzag, times=5)`: in one `execute_script`, `draw_debug`'s
-   handler (a 1 s drawing), then `mcp.capture_viewport` at once, then wait for the drawing to go; each capture's red
-   pixels, and the time from the draw to the end of its capture. `test_16_08` (with `isaacsim.util.debug_draw`) and
-   `test_16_09` (with `omni.debugdraw`) keep their checks over HTTP and add this one twice:
-   - first with `capture.FRESH_FRAMES` set to 0 through `execute_script` (put back in the test's first cleanup): at
-     least one of the 5 captures misses, so the test shows on its own bridge that the trail is there (Design measured
-     15 and 14 misses of 15 without the wait);
+   suites (Step 6). That recording doesn't wait is shown by no test yet (Tests, Not shown); a unit test of the
+   bridge's call is out of reach, since the handlers import Kit.
+4. **The live tests.** A helper, `_drawn_then_captured(zigzag, times=5, fresh_frames=None)`: in one
+   `execute_script`, `draw_debug`'s handler (a 1 s drawing), then `mcp.capture_viewport` at once, then wait for the
+   drawing to go; each capture's red pixels, and the time from the draw to the end of its capture. Given
+   `fresh_frames`, the same script sets `capture.FRESH_FRAMES` to it and puts the old value back in a `finally`, so
+   the change ends with the script, not with the test (cleanups run only after it); as a backstop it takes
+   `test_integration.py`'s `_SHORTEN` way, a token and a 60 s timed undo, the snippet shared through `conftest.py`.
+   `test_16_08` (with `isaacsim.util.debug_draw`) and `test_16_09` (with `omni.debugdraw`) keep their checks over
+   HTTP and add this one twice:
+   - first with `fresh_frames=0`: at least one of the 5 captures misses, so the test shows on its own bridge that the
+     trail is there (Design measured 15 and 14 misses of 15 without the wait);
    - then as shipped: each of the 5 holds over 100 red pixels;
    - each time, a capture that ended after its drawing's 1 s fails as "Kit was slow", as `test_16_09` does now.
 
@@ -254,9 +259,9 @@ are. `FRESH_FRAMES` is a constant in the core, not an extension setting.
 |---|---|
 | Unit (CI) | `tests/test_capture.py` (Step 2) |
 | Live, `test_scenarios.py` | `test_16_08` and `test_16_09` (Step 4): 5 runs of `-k test_16_0` on `765d51c`'s bridge, each failing; with the fix, 3 cold starts with the full suites first thing, and 3 warm runs, all passing |
-| Live, both suites | the full suites on the 3 cold starts: every capture test (`test_13`, `test_15c` to `test_15f`, `test_22_01`) and recording (`test_07_*`) pass; the suites' time within a few seconds of `765d51c`'s; on the cold starts `test_16_09` runs after the G1 is loaded, the condition of the original misses |
+| Live, both suites | the full suites on the 3 cold starts: every capture test (`test_13`, `test_15c` to `test_15f`, `test_22_01`) and recording (`test_07_*`) pass. Time: the new halves of `test_16_08` and `test_16_09` add about 20 to 25 s (a 1 s drawing waited out 5 times, twice a test, in two tests); without those two tests, the suites' time within a few seconds of `765d51c`'s. On the cold starts `test_16_09` runs after the G1 is loaded, the condition of the original misses |
 | Live, async rendering | `-k test_16_0` with `/app/asyncRendering` and its low-latency twin turned on through `execute_script` before the suite, as run 4 does: required before CHANGELOG says Fixed (Q5) |
-| Not shown | Isaac Sim's GUI itself, unless the maintainer runs it (Q5); Isaac Sim 5.x (5.1 crashes in its own start on the test machine); a Kit app that has only `omni.debugdraw`, such as USD Composer, where the fallback is the default and the renderer's trail may differ |
+| Not shown | Isaac Sim's GUI itself, unless the maintainer runs it (Q5); Isaac Sim 5.x (5.1 crashes in its own start on the test machine); a Kit app that has only `omni.debugdraw`, such as USD Composer, where the fallback is the default and the renderer's trail may differ; whether recording waits: `test_07_*` assert success, a state file and a falling cube, nothing of a frame's timing, until #25's numbered ticks |
 
 ## Docs
 
@@ -265,9 +270,12 @@ are. `FRESH_FRAMES` is a constant in the core, not an extension setting.
   `draw_debug` holds the drawing, however soon; `start_recording`: its frames show the scene a few updates before
   their simulation time.
 - `docs/ARCHITECTURE.md`, Viewport Capture: the renderer's trail, the wait before each capture and why recording has
-  none, a row in the limits table. Threading: the premise corrected, that Isaac Sim's GUI renders asynchronously
-  through `isaacsim.core.throttling` (on at startup and after a stop or pause, off while it plays), and that on
-  Isaac Sim 6.2 run 4 saw the frame events on the main thread with async rendering on too.
+  none, a row in the limits table. Threading (line 264): the premise corrected, that Isaac Sim's GUI renders
+  asynchronously through `isaacsim.core.throttling` (on at startup and after a stop or pause, off while it plays);
+  its clause "and `omni.syntheticdata` does too when it loads" goes, since `SyntheticData.disable_async_rendering`
+  (0.6.17, `SyntheticData.py` line 831) has no caller and run 4 kept async rendering on with the bridge and
+  `omni.syntheticdata` loaded; and on Isaac Sim 6.2 run 4 saw the frame events on the main thread with async
+  rendering on too.
 - `CHANGELOG.md`, Unreleased, Fixed: `capture_viewport` and `inspect_prim` showed the scene about 3 updates before the
   call, so a drawing or a change made just before could be missing, `omni.debugdraw`'s lines most often; the fix is in
   the Kit extension: run `extension install` and restart Kit (#57).
@@ -280,9 +288,9 @@ are. `FRESH_FRAMES` is a constant in the core, not an extension setting.
 
 | Risk | Status |
 |---|---|
-| 1. On a loaded Kit, with async rendering, or in another Kit app, the trail is longer than `FRESH_FRAMES` | Async rendering: resolved, run 4 needed 2 frames, as run 3 did. The rest accepted, with evidence: the cold-start full suites run `test_16_08` and `test_16_09` after the G1 is loaded; two frames of margin over the measured count; a Kit app with a longer trail still gets fresher frames than now |
+| 1. On a loaded Kit, with async rendering, or in another Kit app, the trail is longer than `FRESH_FRAMES` | Async rendering: resolved, run 4 needed 2 frames, as run 3 did. The rest accepted, with evidence: the cold-start full suites run `test_16_08` and `test_16_09` after the G1 is loaded; `FRESH_FRAMES` is one frame over the longest trail measured (3 frames, run 1's third draw); a Kit app with a longer trail still gets fresher frames than now |
 | 2. Captures get slower | Accepted: 4 frames each, about 21 ms headless and 67 ms at 60 frames a second (run 3); `inspect_prim`'s 14 angles stay inside the same 80 s |
-| 3. A paused viewport gives no frame, so the wait fails: Eco Mode on a static scene, which throttling turns on in the GUI at stop and pause | Accepted: Eco Mode was on through run 4 and frames kept coming after 3 s of a static scene (Q7); a scene static past its 500 frames is untried, and there the capture's own frame wait would fail the same way today, after `FRAME_SECONDS` |
+| 3. A paused viewport gives no frame, so the wait fails: Eco Mode on a static scene, which throttling turns on in the GUI at stop and pause | Accepted: Eco Mode was on through run 4 and did not pause the viewport after about 545 static frames, past its 500 (Q7); in the GUI, untried, a paused viewport would fail the capture's own frame wait the same way today, after `FRAME_SECONDS` |
 | 4. A frame event on the renderer thread (async rendering): #5 was a deadlock of that kind | Resolved for Isaac Sim 6.2: run 4 saw every frame event on the main thread, async rendering on and off (Q6); another Kit app is as untested as for the settles since #55 |
 | 5. Recording's ticks overlap and overwrite frames when a capture takes longer | Resolved: recording gets no wait (round 1, P1; Q4) |
 | 6. Agents could not start Kit here: the brief's command was refused twice by the auto mode permission check | Resolved for the plan: the coordinating session ran runs 1 to 4; Step 6's runs need the same (Q3) |
@@ -319,3 +327,30 @@ Improvements:
 | One bridge-side `_next_frame(viewport)` shared with `_viewport_frames` | taken: Design, The fix; Step 3 (#51 may reuse it) |
 | Log `fabricDefaultStageFrameHistoryCount` in the slow-capture line | taken: Design, The fix |
 | Wait for the history count + 1 frames, at least 4 | left: one number is simpler until another app shows a longer history; Alternatives |
+
+### Round 2
+
+- **How:** review-plan, one fresh reviewer agent on Claude, started by the coordinating session, 2026-10-30, on
+  `f656a98`.
+- **Verdict:** approved: P1, P2 and P3 fixed, and every number of run 4 matching its output; three minors, and one
+  finding refuted. The plan waits on the maintainer's answers to Q1 to Q7 (needs-answers).
+- **Now:** the three minors and all four improvements in the commit that records this round.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P4 | | On run 1's run with every update slowed by 50 ms | refuted by the reviewer: at 50 ms every frame is `2 x SWH - 48`, the 3-update trail, and with no wait a capture made at once is delivered at U + 2, which misses. It also showed the plan's reading of that run wrong ("the renderer keeps up within a slow update"): fixed, the run's row now says every frame trailed 3 updates, none 4 |
+| P5 | minor | Step 4: cleanups run only after the test, so the "as shipped" half would run with `FRESH_FRAMES` still 0 | fixed: the helper's own `execute_script` sets it and puts it back in a `finally`; `_SHORTEN`'s token and 60 s timed undo as a backstop, shared through `conftest.py` |
+| P6 | minor | Tests: the new halves add about 20 s (a 1 s drawing waited out 5 times, twice a test, in two tests), which breaks "the suites' time within a few seconds of `765d51c`'s" | fixed: the row names the 20 to 25 s and compares the rest without `test_16_08` and `test_16_09` |
+| P7 | minor | Step 3 and Tests: `test_07_*` can't show whether recording waits; they assert success, a state file and a falling cube | fixed: Step 3 no longer claims it, and Tests' Not shown says so until #25's numbered ticks |
+
+Improvements:
+
+| Improvement | Answer |
+|---|---|
+| Risk 1: one frame over the longest trail measured, not "two frames of margin" | taken |
+| Eco Mode: the eco step ran about 545 static frames and still saw 217 in its last 2 s, so the run went past 500 and Eco Mode didn't pause headless | taken: Design, Q7, Risk 3 |
+| ARCHITECTURE line 264's "omni.syntheticdata does too when it loads" is wrong too: `SyntheticData.disable_async_rendering` (0.6.17, line 831) has no caller, and run 4 kept async rendering on with the bridge loaded | taken: Docs |
+| Say #25 removes `capture_viewport_png`'s opt-out once recording moves to its feed | taken: Design, Who waits |
+
+For #51, passed on by the coordinating session: each retake after a resize pays `FRESH_FRAMES`, and this plan's new
+test halves run through #51's capture.
