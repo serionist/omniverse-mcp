@@ -68,10 +68,6 @@ class _Kit:
         await omni.kit.app.get_app().next_update_async()
 
     def start_open(self, url: str) -> "asyncio.Future[tuple[bool, str]]":
-        start = getattr(self._context, "open_stage_with_callback", None)
-        if start is None:
-            # Unread on Kit 107 (plan R7): open_stage_async, the call Isaac Sim 5.1 makes, starts at its first step.
-            return asyncio.ensure_future(self._context.open_stage_async(url))
         future: asyncio.Future[tuple[bool, str]] = asyncio.get_running_loop().create_future()
 
         def done(ok: bool, error: str) -> None:
@@ -79,8 +75,9 @@ class _Kit:
             if not future.done():
                 future.set_result((bool(ok), str(error or "")))
 
-        # Called, not awaited: Kit's open starts in the same step as the core's last look at the state.
-        if not start(url, done) and not future.done():
+        # Called, not awaited: Kit's open starts in the same step as the core's last look at the state. omni.usd's own
+        # open_stage_async, the call Isaac Sim 5.1 makes, is this same call underneath.
+        if not self._context.open_stage_with_callback(url, done) and not future.done():
             # Kit called back "UsdContext busy" for a second open (#79's E14), but when was not measured.
             done(False, "Kit didn't start the open")
         return future

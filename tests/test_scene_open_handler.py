@@ -181,24 +181,6 @@ def test_a_start_kit_refuses_without_an_answer_fails_at_once(handler, context):
     assert asyncio.run(run()) == (False, "Kit didn't start the open")
 
 
-def test_a_context_without_the_callback_form_opens_through_open_stage_async(handler, context, monkeypatch):
-    calls: list[str] = []
-
-    async def open_stage_async(url: str) -> tuple[bool, str]:
-        calls.append(url)
-        return True, ""
-
-    monkeypatch.delattr(FakeContext, "open_stage_with_callback")
-    context.open_stage_async = open_stage_async  # type: ignore[attr-defined]
-
-    async def run() -> tuple[bool, str]:
-        _kit, future = await _started(handler, "C:/Scenes/Room.usd")
-        return await future
-
-    assert asyncio.run(run()) == (True, "")
-    assert calls == ["C:/Scenes/Room.usd"]
-
-
 def test_the_state_and_the_stat_are_named_as_the_core_reads_them(handler, context, stat_results):
     stat_results["https://example.invalid/missing.usd"] = "ERROR_NOT_FOUND"
     kit = handler._Kit()

@@ -9,9 +9,11 @@ The limits are read when a call runs, never bound as defaults, so a test can sho
 """
 
 import asyncio
+import re
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol, TypeVar
+from urllib.parse import unquote
 
 from pxr import Sdf, Usd, UsdGeom
 
@@ -30,6 +32,10 @@ FOUND = "OK"
 UNSUPPORTED = "ERROR_NOT_SUPPORTED"
 NOT_FOUND = "ERROR_NOT_FOUND"
 UNSAVED = "an unsaved stage"
+# A file: URL as Kit names a stage opened from one, file:/C:/... (#79's E9), or as given, file:///C:/...; a host other
+# than localhost stays in the path, as a UNC path's.
+_FILE_URL = re.compile(r"^file:(?://(?:localhost)?(?=/))?(/.*)$", re.IGNORECASE)
+_DRIVE = re.compile(r"^/[A-Za-z]:")
 
 
 class StageKit(Protocol):
@@ -79,12 +85,22 @@ async def _within(awaitable: Awaitable[T], seconds: float, late: str) -> T:
         raise RefusedError(late) from None
 
 
+def path_of(identifier: str) -> str:
+    """A file: URL's path, which open_scene takes back where it refuses Kit's file:/C:/... spelling; anything else as
+    it is."""
+    match = _FILE_URL.match(identifier)
+    if match is None:
+        return identifier
+    path = unquote(match.group(1))
+    return path[1:] if _DRIVE.match(path) else path
+
+
 def name_of(stage: Usd.Stage | None) -> str | None:
-    """The stage as an answer names it: its root layer's identifier, or an unsaved stage; None for no stage."""
+    """The stage as an answer names it: its root layer's file, or an unsaved stage; None for no stage."""
     if stage is None:
         return None
     identifier = stage.GetRootLayer().identifier
-    return UNSAVED if Sdf.Layer.IsAnonymousLayerIdentifier(identifier) else identifier
+    return UNSAVED if Sdf.Layer.IsAnonymousLayerIdentifier(identifier) else path_of(identifier)
 
 
 def readable(path: str) -> bool:

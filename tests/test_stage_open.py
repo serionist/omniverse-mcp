@@ -3,15 +3,17 @@ stops, waits and opens in, what a failed open says, and the answer read from a r
 
 import asyncio
 import inspect
+import time
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 from pxr import Sdf, Usd, UsdGeom, UsdUtils
 
 from omniverse_mcp.client import BridgeClient
 from ovmcp.core import stage_open
-from ovmcp.core.stage_open import CLOSED, CLOSING, OPENED, OPENING, UNSAVED
+from ovmcp.core.stage_open import CLOSED, CLOSING, OPENED, OPENING, UNSAVED, path_of
 
 ROOT = "https://assets.example.invalid/Assets/Isaac/6.2"
 LIBRARY_ROOM = "/Isaac/Environments/Simple_Room/simple_room.usd"
@@ -39,6 +41,9 @@ class FakeKit:
         self.after_open: tuple[str, Usd.Stage | None] | None = None
         self.is_writable = True
         self.note: str | None = None
+        # The clock open_stage is handed, which the asset-root lookup moves on by root_takes.
+        self.now = 0.0
+        self.root_takes = 0.0
 
     def state(self) -> str:
         self.calls.append("state")
@@ -55,6 +60,7 @@ class FakeKit:
 
     async def assets_root(self) -> str | None:
         self.calls.append("assets_root")
+        self.now += self.root_takes
         if self.root_hangs:
             await asyncio.sleep(10)
         if self.root_error is not None:
@@ -200,6 +206,18 @@ def test_a_stat_kit_doesnt_support_goes_on_under_the_asset_library_s_root(kit):
     assert kit.opened == [ROOT + LIBRARY_ROOM]
 
 
+def test_the_asset_root_and_the_stat_share_one_budget(kit):
+    # The lookup takes all but 0.05 s of STAT_SECONDS on open_stage's clock: the stat gets what is left, not 20 s more.
+    kit.root_takes = stage_open.STAT_SECONDS - 0.05
+    kit.stat_hangs = True
+    started = time.monotonic()
+    r = asyncio.run(stage_open.open_stage(LIBRARY_ROOM, kit, clock=lambda: kit.now))
+    assert time.monotonic() - started < 2.0
+    assert r["status"] == "error"
+    assert f"Kit got no answer about {ROOT + LIBRARY_ROOM}" in r["error"]
+    _nothing_changed(kit)
+
+
 def test_a_stat_that_doesnt_answer_in_time_is_refused(kit, short):
     kit.stat_hangs = True
     assert f"Kit got no answer about {REMOTE}" in _error(kit, REMOTE)
@@ -226,7 +244,7 @@ def test_a_library_path_is_refused_in_a_kit_app_without_the_library(kit):
     _nothing_changed(kit)
 
 
-@pytest.mark.parametrize("name", ["scene.usd", "scene.usdc"])
+@pytest.mark.parametrize("name", ["scene.usd", "scene.usda", "scene.usdc", "scene.usdz"])
 def test_a_git_lfs_pointer_under_a_usd_name_is_refused(kit, tmp_path, name):
     (tmp_path / name).write_text(LFS_POINTER, encoding="utf-8")
     assert "Git LFS pointer" in _error(kit, name)
@@ -356,6 +374,29 @@ def test_an_anonymous_stage_is_replaced_as_an_unsaved_one(kit):
 def test_nothing_is_replaced_when_no_stage_was_open(kit):
     kit.state_now, kit.current = CLOSED, None
     assert _open(kit, REMOTE)["result"]["replaced"] is None
+
+
+def test_a_stage_opened_from_a_file_url_is_named_by_its_path(kit):
+    # Kit names it file:/C:/..., which open_scene refuses (#79's E9): the answer gives the path it takes back.
+    kit.current = cast(Any, SimpleNamespace(GetRootLayer=lambda: SimpleNamespace(identifier="file:/C:/Scenes/a.usda")))
+    assert _open(kit, REMOTE)["result"]["replaced"] == "C:/Scenes/a.usda"
+
+
+@pytest.mark.parametrize(
+    ("identifier", "path"),
+    [
+        ("file:/C:/Scenes/Room.usda", "C:/Scenes/Room.usda"),
+        ("file:///C:/Scenes/Room.usda", "C:/Scenes/Room.usda"),
+        ("file://localhost/C:/Scenes/Room.usda", "C:/Scenes/Room.usda"),
+        ("file:/home/me/Room.usda", "/home/me/Room.usda"),
+        ("file:/C:/My%20Scenes/Room.usda", "C:/My Scenes/Room.usda"),
+        ("file://server/share/Room.usda", "//server/share/Room.usda"),
+        ("C:/Scenes/Room.usda", "C:/Scenes/Room.usda"),
+        (REMOTE, REMOTE),
+    ],
+)
+def test_a_file_url_is_named_by_its_path_and_anything_else_as_it_is(identifier, path):
+    assert path_of(identifier) == path
 
 
 def test_a_file_s_axis_units_and_default_prim_are_answered(kit, tmp_path):
