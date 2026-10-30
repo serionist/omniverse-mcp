@@ -494,6 +494,11 @@ Get robot joint information from USD (no simulation needed).
 | `prim_path` | string | required | Root prim of the robot |
 
 **Returns:** Articulation status, DOF count, link count, and per-joint details (name, type, limits, drive type).
+Limits are as USD holds them: degrees for revolute joints, stage units for prismatic ones. The joints come in the order
+a list of `set_joint_targets` follows, fixed joints included; the DOF count leaves fixed joints out.
+
+**When to use:** before driving a robot, whatever the simulation's state. `get_joint_states` reads where the joints are
+now, from physics.
 
 ---
 
@@ -520,14 +525,17 @@ joints, metres and metres per second for prismatic ones. `set_joint_targets` tak
 
 ### `set_joint_targets`
 
-Set joint drive position targets.
+Set the position targets of a robot's joint drives, which physics drives the joints toward while the simulation plays.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Root prim of the robot |
-| `targets` | dict or list | `null` | `{joint_name: value}` dict or `[v0, v1, ...]` list. Values in degrees (revolute) or metres (prismatic). |
+| `targets` | dict or list | `null` | Required in practice: `{joint_name: value}` dict or `[v0, v1, ...]` list. Values in degrees (revolute) or metres (prismatic). |
 
-Works by setting USD drive target attributes directly - does not require articulation initialisation.
+Works by setting USD drive target attributes directly - does not require articulation initialisation, or physics
+running. A dict sets the joints it names and skips names it doesn't find; a list follows `get_robot_info`'s joint
+order, fixed joints included, not `get_joint_states`'. A joint without a drive gets one, with stiffness 1000 and
+damping 100. The answer counts the targets set.
 
 ---
 
@@ -678,7 +686,10 @@ Control the simulation.
 - **play** - Start or resume physics simulation
 - **pause** - Pause simulation (state preserved)
 - **stop** - Stop simulation and reset to initial state
-- **step** - Advance one physics step
+- **step** - Play for two app updates, then pause
+
+**Returns:** the state the timeline is left in. `get_sim_state` reads it without changing it; `get_joint_states` and
+`apply_force` need the simulation playing or paused.
 
 **A robot's first play** cooks its collision meshes, and the Kit app answers nothing until that ends: the G1 cooked
 from scratch in 0.6 s on Isaac Sim 6.2 with an RTX 5090. Kit keeps what it cooked, so the same meshes cook again
@@ -774,17 +785,26 @@ Get a specific frame from a recording session as a PNG.
 
 ### `set_physics_properties`
 
-Set physics material properties on a prim.
+Set a prim's mass or density, and its friction or restitution, for PhysX; a value left out stays as it is.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Target prim |
 | `mass` | float | `null` | Mass in kg, not negative (applies MassAPI); 0 unsets it, so density decides |
 | `density` | float | `null` | Density in kg/m^3, not negative; 0 unsets it; a mass set wins over it |
-| `friction` | float | `null` | Friction coefficient, not negative (usually 0-1) |
+| `friction` | float | `null` | Friction coefficient, not negative (usually 0-1), set as both static and dynamic friction |
 | `restitution` | float | `null` | Bounciness, 0 (no bounce) to 1 (full bounce) |
 
 Automatically applies the required USD physics APIs (`MassAPI`, `PhysicsMaterialAPI`, etc.) if not already present.
+
+- **Mass or density** makes the prim a rigid body (`RigidBodyAPI`) if it isn't one, so a static collider starts to fall
+  when the simulation plays.
+- **Friction or restitution** adds the Collision API if missing, and sets them on a physics material,
+  `/World/PhysicsMaterials/<prim name>_PhysMat`, bound to the prim for physics only: prims of the same name share it,
+  so setting one changes the rest.
+
+**When to use:** for how a prim behaves in physics. Its look is `set_material`'s; to make a new prim physical in one
+call, use `create_prim` with `enable_physics`.
 
 ---
 
@@ -807,6 +827,7 @@ robot on the ground loses some of the push to friction. Measured on Isaac Sim 6.
 
 | When | Why |
 |---|---|
+| the prim has no `RigidBodyAPI` | it is no rigid body: `set_physics_properties` or `create_prim`'s `enable_physics` makes one |
 | the simulation is stopped | PhysX holds no bodies then; paused works |
 | PhysX runs with its Direct GPU API (`/physics/suppressReadback` is true, as Isaac Sim sets it for a GPU device) | the push returns and moves nothing, as measured on Isaac Sim 6.2 ([#68](https://github.com/serionist/omniverse-mcp/issues/68)): run physics on the CPU to push a body |
 | the body is disabled (`physics:rigidBodyEnabled` is false) | PhysX holds it as a static body, which no force moves |
@@ -826,15 +847,23 @@ an error, never a push at another point. All of this is the Kit extension's: one
 
 ### `raycast`
 
-Cast a ray into the scene and return what it hits.
+Cast a ray through PhysX and return the closest collider it hits.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `origin` | list[float] | required | `[x, y, z]` start point |
-| `direction` | list[float] | required | `[dx, dy, dz]` direction (normalised automatically) |
-| `max_distance` | float | `1000.0` | Maximum ray length, above 0 |
+| `origin` | list[float] | required | `[x, y, z]` start point in world space |
+| `direction` | list[float] | required | `[dx, dy, dz]` direction in world space (normalised automatically) |
+| `max_distance` | float | `1000.0` | Maximum ray length in stage units, above 0 |
 
 **Returns:** Hit prim path, hit position, surface normal, and distance. Returns "No hit" if ray doesn't intersect anything.
+The prim named is the rigid body hit, or a static collider itself.
+
+- **Colliders only:** prims with the Collision API, which `create_prim`'s `enable_physics` adds, are hit; plain meshes
+  are not.
+- **PhysX must know the scene:** play or step the simulation once first, or the ray may find nothing, or fail.
+
+**When to use:** to find what lies along a line, such as the ground under a point; `get_prim_bounds` measures a prim
+you already know.
 
 ---
 
@@ -843,7 +872,8 @@ Cast a ray into the scene and return what it hits.
 ### `draw_debug`
 
 Draw debug lines in the viewport for `duration` seconds: a line, a polyline, a sphere as three crossing lines, or a
-small cross per point. Every line is 2 pixels wide.
+small cross per point. Every line is 2 pixels wide. Use it to mark points, rays or paths, such as a `raycast`'s hit,
+for a capture or the user to see; nothing is added to the stage.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
