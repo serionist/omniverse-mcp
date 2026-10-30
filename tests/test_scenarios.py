@@ -229,7 +229,13 @@ class TestScenarios(unittest.TestCase):
 
     def _a_capture_at_once_holds_the_drawing(self, zigzag: list[list[float]]) -> None:
         """Without fresh frames, a capture made at once misses the drawing at least once in 5 (#57's trail, shown on
-        this bridge); with them, as shipped, every capture holds it."""
+        this bridge); with them, as shipped, every capture holds it.
+
+        The view must not be black without the drawing: a black capture is taken again after a renderer reset, which
+        would let the frames pass that the first half means to skip. test_02_01 lights the stage."""
+        view = self.c.capture_viewport(320, 240)
+        self.assertEqual(view["status"], "success", view)
+        self.assertFalse(view["result"]["is_black"], "the view is black: light the stage first, as test_02_01 does")
         unwaited = self._drawn_then_captured(zigzag, fresh_frames=0)
         print(f"  Captured at once, no fresh frames: red pixels {[red for red, _ in unwaited]}")
         self.assertTrue(
