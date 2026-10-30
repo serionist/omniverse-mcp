@@ -38,6 +38,8 @@ not even a lone cube, while the tensor API pushes there (E8).
 - A body that an enabled fixed joint holds to the world is refused, and so is one welded to it through enabled fixed
   joints, articulated or not. Examples: the Franka's base, a link welded to a fixed base, a cube bolted to the world.
   A link that a joint lets move, such as the Franka's hand, is pushed.
+- Under PhysX's Direct GPU API (`/physics/suppressReadback` true) every push is refused, naming #68, since none
+  moves anything there (E8; Q6).
 - The README's Known issues, the tool's description, TOOLS.md, CHANGELOG and the simulate skill no longer say links
   can't be pushed.
 
@@ -51,7 +53,7 @@ not even a lone cube, while the tensor API pushes there (E8).
 
 - **GPU dynamics with `/physics/suppressReadback`,** the Direct GPU API. Today's call pushes nothing there, lone
   bodies included (E8). It gets its own issue, with E2 to E5 and E8 as the evidence for moving pushes to the tensor
-  API (Design, Alternatives). Whether to refuse there meanwhile is owner call Q6.
+  API (Design, Alternatives); it is #68. Meanwhile this PR refuses a push there (Q6).
 - **A torque, or a force held over many steps.** `apply_force` has neither today.
 - **Newton physics, deformable bodies, point instancers.**
 - **Isaac Sim 5.x live.** It crashes in its own start on this machine (#59), so 5.1 is read from its installed source
@@ -121,8 +123,9 @@ with the same point, mode and answer (E1, E7, E10, E11). Nothing else in the pus
 
 ### What stays refused, and what's new
 
-Today's refusals stay, in today's order: stopped, disabled, kinematic, not held. The fifth changes from "a link" to
-"a body held to the world":
+Today's refusals stay, in today's order: stopped, disabled, kinematic, not held. One comes in after the first, as Q6
+answered: PhysX's Direct GPU API, read as `/physics/suppressReadback` true, where a push moves nothing (E8, #68).
+The last changes from "a link" to "a body held to the world":
 
 - **The rule, one for every body:** a body is refused when an enabled (`physics:jointEnabled`) `UsdPhysics.FixedJoint`
   holds it to the world. That is, the joint's other end is one of:
@@ -148,8 +151,9 @@ Today's refusals stay, in today's order: stopped, disabled, kinematic, not held.
 - **Not refused:**
   - a joint of another type to the world, such as a revolute one, since the body moves about it;
   - a disabled fixed joint, which holds nothing.
-- **`refusal`'s signature:** it takes `fixed_base: str | None` (what `held_to_world` returns) and keeps
-  `articulation: str | None`, now only to name the root in the message.
+- **`refusal`'s signature:** it takes `direct_gpu: bool` and `fixed_base: str | None` (what `held_to_world`
+  returns), and keeps `articulation: str | None`, now only to name the root in the message. The handler reads
+  neither PhysX's pose nor the joints under the Direct GPU API.
 
 ### The server
 
@@ -191,6 +195,8 @@ No one-way door moves.
   - A push on an articulation's link works again, where 0.2.1 and 0.2.2 refused it.
   - A push on a body a fixed joint holds to the world is refused with a message that says why. A link of a fixed
     base was refused before as a link. A lone body bolted to the world answered success and moved nothing.
+  - Under PhysX's Direct GPU API every push is refused, naming #68, where a lone body's answered success and moved
+    nothing (E8).
   - The fix is in the Kit extension: `uvx omniverse-mcp extension install`, then restart Kit. A new server with a
     0.2.2 extension still gets 0.2.2's refusal, passed through as an error.
 - **Kit apps:** as today, any Kit 107+ app with `omni.physx`. Nothing new is needed.
@@ -204,6 +210,7 @@ No one-way door moves.
 4. **The server.** The description. Proved by `tests/test_contract.py`, unchanged, and `tests/test_tools.py`.
 5. **The follow-up issue,** the one the session opens: with the Direct GPU API, `apply_force` moves nothing and
    reports success (E8), with E2 to E5 and E8 as the tensor API's evidence. It comes before the docs, which name it.
+   Done: #68.
 6. **The docs** (Docs), and `test_project/scenarios.md`'s 15.11 and 15.14 to 15.16.
 7. **The gate,** `uv run tools/gate.py full`; both live suites on Isaac Sim 6.2; then `review-code`.
 
@@ -211,7 +218,9 @@ No one-way door moves.
 
 **Unit, in CI** (`tests/test_force.py`):
 
-- **The fifth refusal:**
+- **The Direct GPU API's refusal:** after a stopped timeline, before the rest. Live, nothing toggles the setting:
+  it changes how PhysX runs for the whole Kit.
+- **The last refusal:**
   - each message, held and welded, with the root and without;
   - it comes after "PhysX holds no rigid body";
   - a body that isn't held is pushed;
@@ -288,13 +297,13 @@ bolted cube and the stock Franka.
 
 | File | Change |
 |---|---|
-| `docs/TOOLS.md`, `apply_force` | It pushes a rigid body or an articulation's link. A push on a link moves the whole robot: the robot's momentum changes by the impulse, so its speed changes by impulse / the robot's mass, and the link turns about its joints as well. The refusal table loses the link row and gains the row for a body fixed to the world. It says the push is measured on Isaac Sim 6.2's CPU pipeline, and names the follow-up issue for the Direct GPU API |
-| `README.md`, Known issues | The #58 line goes. A line for the follow-up issue comes in |
-| `CHANGELOG.md`, Unreleased, Fixed | `apply_force` pushes an articulation's links again, such as a robot's. 0.2.1 refused them on a misread measurement: PhysX's push reaches them. A body a fixed joint holds to the world is refused, where a lone one answered success and moved nothing. The fix is in the Kit extension (install line) (#58) |
+| `docs/TOOLS.md`, `apply_force` | It pushes a rigid body or an articulation's link. A push on a link moves the whole robot: the robot's momentum changes by the impulse, so its speed changes by impulse / the robot's mass, and the link turns about its joints as well. The refusal table loses the link row and gains the rows for the Direct GPU API (#68) and for a body fixed to the world. It says the push is measured on Isaac Sim 6.2's CPU pipeline |
+| `README.md`, Known issues | The #58 line goes. A line for #68 comes in: `apply_force` is refused under PhysX's Direct GPU API |
+| `CHANGELOG.md`, Unreleased, Fixed | `apply_force` pushes an articulation's links again, such as a robot's. 0.2.1 refused them on a misread measurement: PhysX's push reaches them. A body a fixed joint holds to the world is refused, where a lone one answered success and moved nothing, and so is every push under PhysX's Direct GPU API, where none moves anything (#68). The fix is in the Kit extension (install line) (#58) |
 | `plugin/skills/simulate/SKILL.md` | The sentence that it can't push links goes. It says a link moves the robot as a whole, and a body fixed to the world is refused |
 | `docs/ARCHITECTURE.md` | `core/force.py`'s entry: "its refusals" names a body fixed to the world |
 | `test_project/scenarios.md` | 15.11 rewritten as `test_15_11`; 15.14 to 15.16 added |
-| `AGENTS.md`, Traps | A row: a live test's threshold read as a measurement refused pushes PhysX makes (#58). The guard: force tests compare the change of momentum with the push. 149 lines become 150, the gate's limit (Q5) |
+| `AGENTS.md`, Traps | A row: a live test's threshold read as a measurement refused pushes PhysX makes (#58). The guard: force tests compare the change of momentum with the push. #57 takes the 150th line, the gate's limit, so the row merges into an existing one or another line is shortened (Q5) |
 
 ## Risks
 
@@ -304,9 +313,9 @@ bolted cube and the stock Franka.
 | A robot's own joints move its momentum after a push, so a tight check on a robot can fail on a correct push | Resolved: the G1's check is on its pelvis, where E1 measured 0.2%; the exact check on another link runs on the two-cube articulation |
 | A live check timed by the wall clock, while Kit updates unthrottled, runs past the robot's fall | Resolved: the measure counts Kit's frames, the push lands while paused, and the test asserts the last sample's simulation time (P1) |
 | The rule differs from what omni.physx does: a fixed joint to a static prim or a disabled body, a breakable one (`physics:breakForce` finite), `ArticulationRootAPI` on the joint | Accepted. E6 and E11 measured a fixed joint to the world, on the Franka and on PairFixed. In the other cases the rule errs towards a refusal, never towards a success that moved nothing; a breakable joint counts as holding |
-| The Direct GPU API: today's call pushes nothing on any body and reports success (E8). With the link refusal gone, 0.2.2's error for a robot there becomes a silent success | Accepted here, pending Q6; the follow-up issue fixes it. TOOLS.md says what was measured |
+| The Direct GPU API: today's call pushes nothing on any body and reports success (E8). With the link refusal gone, 0.2.2's error for a robot there becomes a silent success | Resolved here by the refusal Q6 approved; #68 makes the push work there |
 | A traversal of the whole stage per call grows with the stage | Accepted, as today: `articulation_holding` already traverses it. The shared index keeps it to one traversal |
-| Isaac Sim 5.x untested live for links (`omni.physx` 107.3) | Accepted, pending Q7. The call is the same in 107.3.26's stubs |
+| Isaac Sim 5.x untested live for links (`omni.physx` 107.3) | Accepted (Q7): TOOLS.md says the push is measured on 6.2. The call is the same in 107.3.26's stubs |
 | #59's own error again: a live check that passes or fails for the wrong reason | Resolved by measuring the change of momentum against the push, within 2% |
 
 ## Plan review
