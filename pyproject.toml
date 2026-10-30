@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 [project]
 name = "omniverse-mcp"
 # Equal to extension/ovmcp.bridge/config/extension.toml's version; tests/test_bridge_token.py keeps them equal.
-version = "0.2.2"
+version = "0.2.3"
 description = "MCP server for AI control of NVIDIA Omniverse applications (Isaac Sim 5.x and up, USD Composer, and more)"
 dynamic = ["readme"]
 license = "MIT"
