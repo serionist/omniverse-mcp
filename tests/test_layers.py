@@ -1,12 +1,13 @@
 """flatten_usd and export_prim_as_file never write over a layer the open stage uses, and read a layer again from its
 file only when the open stage doesn't use it and it has no unsaved edits (#81), on usd-core."""
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 from pxr import Sdf, Usd, UsdGeom
 
-from ovmcp.core.layers import open_to_flatten, refresh, refresh_written, write_refusal
+from ovmcp.core import layers
+from ovmcp.core.layers import refresh, refresh_written, write_refusal
 
 
 def _file(path: Path, prim: str, **arcs: str) -> Path:
@@ -107,7 +108,7 @@ def test_a_layers_file_gone_from_disk_is_still_refused_by_another_spelling(
     assert write_refusal(stage, "./sub.usda") is not None
 
 
-def test_a_link_to_the_open_stages_file_is_refused(stage: Usd.Stage, scene: Path):
+def test_a_hard_link_to_the_open_stages_file_is_refused(stage: Usd.Stage, scene: Path):
     link = scene.parent / "linked" / "scene.usda"
     link.parent.mkdir()
     link.hardlink_to(scene)
@@ -116,8 +117,34 @@ def test_a_link_to_the_open_stages_file_is_refused(stage: Usd.Stage, scene: Path
     assert "the open stage's root layer" in refusal
 
 
+@pytest.mark.parametrize("name", ["latest.usda", "sub.usda"])
+def test_a_symlink_to_a_file_of_the_open_stage_is_refused_whatever_its_name(stage: Usd.Stage, scene: Path, name: str):
+    # Export writes through the link, onto the scene's file: the name a link has tells nothing.
+    link = scene.parent / "links" / name
+    link.parent.mkdir()
+    try:
+        link.symlink_to(scene.parent / "sub.usda")
+    except OSError as e:  # Windows makes one only with the privilege or developer mode
+        pytest.skip(f"this account can't make a symlink: {e}")
+    refusal = write_refusal(stage, str(link))
+    assert refusal is not None
+    assert "a sublayer of the open stage" in refusal
+
+
+def test_a_file_url_of_the_open_stages_file_is_refused(stage: Usd.Stage, scene: Path):
+    # file:///C:/... from Python, file:/C:/... as Kit spells it.
+    for url in (scene.as_uri(), f"file:{PurePosixPath('/', scene.as_posix())}"):
+        assert write_refusal(stage, url) is not None, url
+
+
 def test_a_url_nothing_uses_may_be_written(stage: Usd.Stage):
     assert write_refusal(stage, "omniverse://localhost/Projects/scene.usda") is None
+
+
+def test_a_layer_whose_file_is_gone_doesnt_stop_the_check(stage: Usd.Stage, scene: Path):
+    (scene.parent / "pay.usda").unlink()
+    assert write_refusal(stage, str(scene.parent / "other.usda")) is None
+    assert write_refusal(stage, str(scene)) is not None
 
 
 def test_the_open_stages_file_by_another_case_is_refused_where_the_file_system_ignores_case(
@@ -145,6 +172,12 @@ def test_a_layer_held_outside_the_open_stage_with_unsaved_edits_is_refused(stage
 
 
 # ----- open_to_flatten -----
+
+
+def open_to_flatten(stage: Usd.Stage, path: str) -> Usd.Stage:
+    opened = layers.open_to_flatten(stage, path)
+    assert opened is not None, path
+    return opened
 
 
 def test_flattening_the_open_stages_own_file_leaves_the_open_stage_as_it_was(stage: Usd.Stage, scene: Path):
@@ -193,6 +226,14 @@ def test_a_held_layers_unsaved_edits_are_flattened_not_dropped(stage: Usd.Stage,
 def test_a_file_nothing_held_is_read_from_disk(stage: Usd.Stage, scene: Path):
     _rewrite(scene.parent / "other.usda", "/Fresh")
     assert open_to_flatten(stage, str(scene.parent / "other.usda")).GetPrimAtPath("/Fresh")
+
+
+def test_an_input_usd_cant_open_gives_no_stage(stage: Usd.Stage, scene: Path):
+    garbled = scene.parent / "garbled.usda"
+    garbled.write_bytes(b"not a USD file\n")
+    assert layers.open_to_flatten(stage, str(scene.parent / "missing.usda")) is None
+    assert layers.open_to_flatten(stage, str(garbled)) is None
+    assert stage.GetPrimAtPath("/World/R")
 
 
 # ----- refresh_written and refresh -----

@@ -81,10 +81,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         Use it to hand the whole scene to another tool as one file; save_scene keeps the references and writes only the
         root layer, and export_prim_as_file writes one prim's subtree. Leave input_path empty for the open stage, or
         name a USD file: one the open stage has loaded, its own file included, is flattened as Kit holds it, unsaved
-        edits too, and the open stage is left as it is. output_path is overwritten, but one the open stage has loaded
-        (its own file, a sublayer, a referenced or payload file) is an error, since writing it would replace a file the
-        open scene is made of: name another path, or save the open stage with save_scene. Textures and other files the
-        stage points at are not copied.
+        edits too, and the open stage is left as it is; one USD can't open is an error. output_path is overwritten, but
+        one the open stage has loaded (its own file, a sublayer, a referenced or payload file) is an error, since
+        writing it would replace a file the open scene is made of: name another path, or save the open stage with
+        save_scene. Textures and other files the stage points at are not copied.
         """
         resp = bridge_call(client.flatten_usd, output_path, input_path)
         r = resp["result"]

@@ -40,8 +40,8 @@ async def handle_flatten_usd(body: dict) -> dict:
 
     if input_path:
         src_stage = layers.open_to_flatten(stage, input_path)
-        if not src_stage:
-            return {"status": "error", "error": f"Could not open: {input_path}"}
+        if src_stage is None:
+            return {"status": "error", "error": f"Could not open {input_path}: no file there, or none USD reads"}
     else:
         src_stage = stage
         input_path = src_stage.GetRootLayer().realPath or "(current stage)"

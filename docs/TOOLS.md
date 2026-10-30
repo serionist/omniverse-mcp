@@ -346,12 +346,14 @@ Textures and other files the stage points at are not copied.
 - **An `input_path` Kit has loaded** is flattened as Kit holds it, unsaved edits included, and the open stage is left
   as it is: its own file, a sublayer, or a referenced or payload file. A file Kit holds that the open stage doesn't use
   is read again from disk first, unless it has unsaved edits, so a file changed since Kit loaded it is flattened as it
-  is now.
+  is now. One USD can't open, with no file there or none it reads, is an error.
 - **An `output_path` the open stage has loaded is refused** before anything is written: its own file, a sublayer, its
-  session layer, or a referenced or payload file it has loaded (an unloaded payload's file isn't one). Writing it would
-  replace a file under the open scene. Name another path, or use `save_scene` to save the open stage to its own file. A
-  file Kit holds outside the open stage with unsaved edits is refused too, since writing it would lose them; one with
-  none is read again after the write, so the next open gets the new file.
+  session layer, or a referenced or payload file it has loaded (an unloaded payload's file or a muted sublayer's isn't
+  one). Writing it would replace a file under the open scene. The path is taken as USD takes it (relative, `..`, either
+  slash) and, for a file that exists, as the file system does: another case on Windows or a Mac, a link to it under
+  any name, or a `file:` URL. Name another path, or use `save_scene` to save the open stage to its own file. A file Kit
+  holds outside the open stage with unsaved edits is refused too, by its own file name rather than through a link,
+  since writing it would lose them; one with none is read again after the write, so the next open gets the new file.
 
 **When to use:** Before modifying a component (flatten first so all references are resolved), preparing a file for external tools.
 `save_scene` keeps the references and writes only the root layer; `export_prim_as_file` writes one prim's subtree.

@@ -1041,25 +1041,50 @@ class TestFlattenAndExportKeepTheOpenStage(unittest.TestCase):
         print(f"  Flattened {self.scene.name}: the open stage kept {self.CUBE} and its unsaved {self.UNSAVED}")
 
     def test_the_open_stages_own_file_is_refused_as_an_output(self):
+        # Kit resolves a path its own way, so the file is named as given, with forward slashes, and, where the file
+        # system ignores case as Windows' does, in capitals, which Sdf's registry takes for another file.
+        spellings = [str(self.scene), self.scene.as_posix()]
+        shouted = self.scene.with_name(self.scene.name.upper())
+        if shouted.exists():
+            spellings.append(str(shouted))
         before = self.scene.read_bytes()
-        for name, call in (
-            ("export_prim_as_file", lambda: self.client.export_prim(self.CUBE, str(self.scene))),
-            ("flatten_usd", lambda: self.client.flatten_usd(str(self.scene))),
-            ("flatten_usd of itself", lambda: self.client.flatten_usd(str(self.scene), str(self.scene))),
-        ):
-            with self.subTest(name):
-                result = call()
-                self.assertEqual(result["status"], "error", result)
-                self.assertIn("the open stage's root layer", result["error"])
-                self.assertIn("save_scene", result["error"])
-                self._assert_stage_intact(before)
-        print("  export_prim_as_file and flatten_usd refused the open stage's own file; the stage is intact")
+        for spelling in spellings:
+            for name, call in (
+                ("export_prim_as_file", lambda s=spelling: self.client.export_prim(self.CUBE, s)),
+                ("flatten_usd", lambda s=spelling: self.client.flatten_usd(s)),
+                ("flatten_usd of itself", lambda s=spelling: self.client.flatten_usd(s, s)),
+            ):
+                with self.subTest(f"{name}, {spelling}"):
+                    result = call()
+                    self.assertEqual(result["status"], "error", result)
+                    self.assertIn("the open stage's root layer", result["error"])
+                    self.assertIn("save_scene", result["error"])
+                    self._assert_stage_intact(before)
+        print(
+            f"  export_prim_as_file and flatten_usd refused the open stage's own file, {len(spellings)} spellings; "
+            "the stage is intact"
+        )
+
+    def test_an_input_usd_cant_open_is_an_error(self):
+        missing = self.folder / "IntTestMissing.usda"
+        result = self.client.flatten_usd(str(self.folder / "flat.usda"), str(missing))
+        self.assertEqual(result["status"], "error", result)
+        self.assertIn(f"Could not open {missing}", result["error"])
+        self.assertNotIn("traceback", result)
+        self._assert_stage_intact(self.scene.read_bytes())
 
     def test_a_file_kit_holds_outside_the_open_stage_is_written_and_read_again(self):
         # While Kit held a layer for the output path, export_prim_as_file cleared it and then failed: Usd's CreateNew
         # refuses a path the registry holds a layer for. Now the file is written and the held layer read again, unless
-        # it has unsaved edits.
-        out = self.folder / "IntTestHeld.usda"
+        # it has unsaved edits. A held .usdc, export_prim_as_file's default, has its file mapped on Windows, which the
+        # old Clear() let go of before the write.
+        for suffix in (".usda", ".usdc"):
+            with self.subTest(suffix):
+                self._write_a_held_file(self.folder / f"IntTestHeld{suffix}")
+        self._assert_stage_intact(self.scene.read_bytes())
+        print("  A .usda and a .usdc Kit held were written twice and read again each time; with unsaved edits, refused")
+
+    def _write_a_held_file(self, out: Path) -> None:
         self.assertEqual(self.client.export_prim(self.CUBE, str(out))["status"], "success")
         self.addCleanup(self._run, _RELEASE_LAYER)
         self.assertEqual(self._run(_HOLD_LAYER, PATH=str(out), EDIT=False), ["/IntTestFlatCube"])
@@ -1077,13 +1102,11 @@ class TestFlattenAndExportKeepTheOpenStage(unittest.TestCase):
             ("export_prim_as_file", lambda: self.client.export_prim(self.CUBE, str(out))),
             ("flatten_usd", lambda: self.client.flatten_usd(str(out))),
         ):
-            with self.subTest(name):
-                result = call()
-                self.assertEqual(result["status"], "error", result)
-                self.assertIn("unsaved edits", result["error"])
-                self.assertEqual(out.read_bytes(), written)
-        self._assert_stage_intact(self.scene.read_bytes())
-        print("  A file Kit held was written twice and read again each time; with unsaved edits, it was refused")
+            result = call()
+            self.assertEqual(result["status"], "error", f"{name}: {result}")
+            self.assertIn("unsaved edits", result["error"])
+            self.assertEqual(out.read_bytes(), written)
+        self._run(_RELEASE_LAYER)
 
 
 # Spheres of a few thousand vertices under ROOT, each vertex pushed in or out by a jitter drawn from the sphere's own
