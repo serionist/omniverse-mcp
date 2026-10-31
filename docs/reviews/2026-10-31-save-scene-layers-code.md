@@ -68,8 +68,10 @@ Isaac Sim 6.2.0 headless, a fresh Kit at 8212 each time.
   - It printed "save_scene refused the sublayer's file, 3 spellings; the stage and files are intact", "save_scene
     wrote the open stage's own file by two spellings, and without a file_path" and "A file Kit held was saved over and
     read again; with an unsaved edit, refused".
-- **F1's fix and the flatten and export wording, on `a47fe8e`,** re-run with `85-live-class.sh`, which runs
-  `TestSaveSceneKeepsTheOpenStagesLayers` and `TestFlattenAndExportKeepTheOpenStage`: to be filled in.
+- **F1's fix and the flatten and export wording, on `935025e`,** re-run with `85-live-class.sh`, which runs
+  `TestFlattenAndExportKeepTheOpenStage` and `TestSaveSceneKeepsTheOpenStagesLayers`: 7 passed and 16 subtests
+  passed in 3.87 s. #86's refusals still name `save_scene`, since the stage there has a file of its own; the new
+  wording for a stage never saved is unit-tested only.
 
 Not shown: other Kit apps, such as USD Composer, the Isaac Sim GUI, and paths on Nucleus (`omniverse://`).
 
