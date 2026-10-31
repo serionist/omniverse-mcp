@@ -75,6 +75,15 @@ result = {
 }
 """
 
+# execute_script code for the live suites: whether the viewport's own instance segmentation is on, read without
+# turning it on. Captures segment through camera feeds of their own, so nothing of the bridge's turns it on (#76).
+VIEWPORT_SEGMENTATION_ON = """
+from omni.kit.viewport.utility import get_active_viewport
+from omni.syntheticdata import SyntheticData
+name = SyntheticData.convert_sensor_type_to_rendervar("InstanceSegmentation") + "ExportRawArray"
+result = SyntheticData.Get().is_node_template_activated(name, get_active_viewport().render_product_path)
+"""
+
 # execute_script code that puts a limit SET_LIMIT set back, from a test's cleanup.
 RESTORE_LIMIT = """
 from ovmcp.core import capture

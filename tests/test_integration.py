@@ -22,7 +22,7 @@ import pytest
 from omniverse_mcp.client import BridgeClient
 from ovmcp.core import capture
 
-from .conftest import CAMERA_AIM, RESTORE_LIMIT, SET_LIMIT, live_bridge
+from .conftest import CAMERA_AIM, RESTORE_LIMIT, SET_LIMIT, VIEWPORT_SEGMENTATION_ON, live_bridge
 
 pytestmark = pytest.mark.sim
 
@@ -524,6 +524,16 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
             f"  Captured {result['result']['width']}x{result['result']['height']}, "
             f"lighting: {result['result']['lighting_mode']}, base64 size: {img_size}"
         )
+
+    def test_10b_the_viewports_own_segmentation_stays_off(self):
+        """After a capture with its segmentation, the viewport's own sensor is off: captures segment through feeds of
+        their own, and the bridge no longer turns the viewport's on at startup, which copied its instance ids to the
+        host every frame (#76). On a fresh Kit this runs on the stage it started with, where 0.2.3 had turned it on."""
+        result = self.client.capture_viewport(320, 240)
+        self.assertEqual(result["status"], "success", result)
+        self.assertIsNotNone(result["result"]["segmentation_base64"], result["result"].get("segmentation_error"))
+        self.assertFalse(self._kit(VIEWPORT_SEGMENTATION_ON))
+        print("  The capture had its segmentation; the viewport's own sensor is off")
 
     def test_11_camera_set(self):
         result = self.client.camera_set([5, 3, 5], [0, 0, 0])
