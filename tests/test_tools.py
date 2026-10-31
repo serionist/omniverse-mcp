@@ -958,3 +958,19 @@ def test_delete_prim_warns_when_the_extension_made_no_check(
     assert not erred, text
     assert text.startswith("Deleted /World/Cube")
     assert ("check with get_scene_tree" in text) is warns
+
+
+def test_set_material_says_its_opacity_when_it_is_1(bridge: MockIsaacServer, tmp_path: Path):
+    # A recolour now makes a see-through material opaque (#82), and the answer says so.
+    answer = {
+        "prim_path": "/World/Cube",
+        "material_path": "/World/Looks/Cube_Mat",
+        "color": [0, 1, 0],
+        "opacity": 1.0,
+        "roughness": 0.5,
+        "metallic": 0.0,
+    }
+    bridge.set_response("/scene/material", {"status": "success", "result": answer})
+    erred, text, _calls = _call(bridge, tmp_path, "set_material", {"prim_path": "/World/Cube", "color": [0, 1, 0]})
+    assert not erred, text
+    assert "opacity=1.0" in text

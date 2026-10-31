@@ -11,7 +11,7 @@ from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
-from pxr import Gf, Sdf, Usd, UsdGeom
+from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade
 
 from .conftest import EXTENSION_ROOT
 
@@ -362,3 +362,22 @@ def test_the_scene_trees_text_stops_at_max_depth_with_each_prims_count_of_childr
     assert "children = 2 (truncated)" in blocks[1]
     assert "children" not in blocks[2]
     assert r["result"]["prim_count"] == 3
+
+
+# ---- set_material (R4) ----
+
+
+def test_set_material_with_an_opacity_of_1_makes_a_see_through_material_opaque(scene, kit):
+    # 0.2.3 wrote the opacity only below 1 (#82's E8).
+    UsdGeom.Cube.Define(kit.stage, "/World/Cube")
+    shader_path = "/World/Looks/Cube_Mat/Shader"
+
+    assert (
+        _run(scene, "handle_set_material", prim_path="/World/Cube", color=[1, 0, 0], opacity=0.5)["status"] == "success"
+    )
+    r = _run(scene, "handle_set_material", prim_path="/World/Cube", color=[1, 0, 0])
+
+    assert r["status"] == "success", r
+    shader = UsdShade.Shader(kit.stage.GetPrimAtPath(shader_path))
+    assert shader.GetInput("enable_opacity").Get() is False
+    assert shader.GetInput("opacity_constant").Get() == 1.0

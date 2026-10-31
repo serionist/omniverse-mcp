@@ -220,16 +220,18 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Colour a prim with an OmniPBR material: make the material, or update the one at its path, set its colour and
         surface values, and bind it to the prim in place of its binding.
 
-        Without material_path the material is /World/Looks/<prim name>_Mat, so prims of the same name share one and
-        colouring one recolours the rest: give material_path to keep them apart, or to share one on purpose. The binding
-        reaches the prim's children unless they have bindings of their own. For friction and bounce, use
-        set_physics_properties; to repoint bindings after materials move, update_material_paths.
+        opacity, roughness and metallic are set on every call, each to its default when left out, so a call without
+        opacity makes the material opaque. Without material_path the material is /World/Looks/<prim name>_Mat, so prims
+        of the same name share one and colouring one recolours the rest: give material_path to keep them apart, or to
+        share one on purpose. The binding reaches the prim's children unless they have bindings of their own. For
+        friction and bounce, use set_physics_properties; to repoint bindings after materials move,
+        update_material_paths.
         """
         resp = bridge_call(client.set_material, prim_path, color, opacity, roughness, metallic, material_path)
         r = resp["result"]
         parts = [f"color=[{r['color'][0]:.2f},{r['color'][1]:.2f},{r['color'][2]:.2f}]"]
-        if r.get("opacity", 1.0) < 1.0:
-            parts.append(f"opacity={r['opacity']}")
+        # Every call, 1 included: a recolour that makes a see-through material opaque says so.
+        parts.append(f"opacity={r.get('opacity', opacity)}")
         parts.append(f"roughness={r['roughness']}")
         parts.append(f"metallic={r['metallic']}")
         return f"Material {r['material_path']} -> {r['prim_path']} ({', '.join(parts)})"

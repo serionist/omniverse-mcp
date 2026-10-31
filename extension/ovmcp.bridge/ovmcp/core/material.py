@@ -7,10 +7,22 @@ asset, as Kit's own MDL materials do, resolves wherever MDL does (#30).
 Needs pxr, not Kit: the tests run it on usd-core.
 """
 
-from pxr import Sdf, Usd, UsdShade
+from pxr import Gf, Sdf, Usd, UsdShade
 
 MDL_ASSET = "OmniPBR.mdl"
 MDL_NAME = "OmniPBR"
+
+
+def set_surface(
+    shader: UsdShade.Shader, colour: tuple[float, float, float], opacity: float, roughness: float, metallic: float
+) -> None:
+    """Every value set_material sets, on every call, so a call that leaves one out sets its default: opacity 1 makes a
+    see-through material opaque again, where only an opacity below 1 was written (#82)."""
+    shader.CreateInput("diffuse_color_constant", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*colour))
+    shader.CreateInput("reflection_roughness_constant", Sdf.ValueTypeNames.Float).Set(roughness)
+    shader.CreateInput("metallic_constant", Sdf.ValueTypeNames.Float).Set(metallic)
+    shader.CreateInput("enable_opacity", Sdf.ValueTypeNames.Bool).Set(opacity < 1.0)
+    shader.CreateInput("opacity_constant", Sdf.ValueTypeNames.Float).Set(opacity)
 
 
 def ensure_material(stage: Usd.Stage, mat_path: str) -> tuple[UsdShade.Material, UsdShade.Shader]:

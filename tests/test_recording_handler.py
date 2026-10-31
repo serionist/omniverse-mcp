@@ -219,8 +219,22 @@ def test_a_second_start_while_the_first_waits_for_its_first_frame_is_refused(rec
 
     first, second = asyncio.run(scenario())
     assert first["status"] == "success"
-    assert second == {"status": "error", "error": recording.ALREADY_ACTIVE}
+    assert second == {"status": "error", "error": recording.STARTING}
     assert len(kit.feeds) == 1
+
+
+def test_the_refusals_of_a_second_start_name_stop_recording_and_no_force(recording, kit, tmp_path):
+    # start_recording has no force: 0.2.3's "use force=True to override" was a hint no agent could follow (#82).
+    async def scenario() -> dict[str, Any]:
+        first = await _start(recording, tmp_path)
+        assert first["status"] == "success"
+        return await _start(recording, tmp_path)
+
+    second = asyncio.run(scenario())
+    assert second == {"status": "error", "error": recording.ALREADY_ACTIVE}
+    for refusal in (recording.ALREADY_ACTIVE, recording.STARTING):
+        assert "stop_recording" in refusal
+        assert "force" not in refusal
 
 
 def test_a_feed_that_renders_no_first_frame_is_an_error_that_leaves_nothing(recording, kit, tmp_path):
@@ -431,7 +445,7 @@ def test_no_start_slips_in_while_a_forced_start_ends_the_running_recording(recor
 
     forced, ordinary = asyncio.run(scenario())
     assert forced["status"] == "success"
-    assert ordinary == {"status": "error", "error": recording.ALREADY_ACTIVE}
+    assert ordinary == {"status": "error", "error": recording.STARTING}  # the forced start is still under way
     assert len(kit.feeds) == 2
 
 

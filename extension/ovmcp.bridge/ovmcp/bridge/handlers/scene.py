@@ -11,12 +11,12 @@ from typing import Any
 
 import omni.kit.app
 import omni.usd
-from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
+from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
 from ovmcp.core.bounds import world_bbox
 from ovmcp.core.deletion import why_kept
 from ovmcp.core.formatter import format_prim_block, format_scene_dump, format_scene_tree
-from ovmcp.core.material import ensure_material
+from ovmcp.core.material import ensure_material, set_surface
 from ovmcp.core.xform import Parts, check_transform, check_writable, layer_name, position_of, write_transform
 
 from ._utils import (
@@ -387,15 +387,7 @@ async def handle_set_material(body: dict) -> dict:
         mat_path = f"/World/Looks/{prim_name}_Mat"
 
     mat, shader = ensure_material(stage, mat_path)
-
-    # Set PBR properties
-    shader.CreateInput("diffuse_color_constant", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(r, g, b))
-    shader.CreateInput("reflection_roughness_constant", Sdf.ValueTypeNames.Float).Set(roughness)
-    shader.CreateInput("metallic_constant", Sdf.ValueTypeNames.Float).Set(metallic)
-
-    if opacity < 1.0:
-        shader.CreateInput("enable_opacity", Sdf.ValueTypeNames.Bool).Set(True)
-        shader.CreateInput("opacity_constant", Sdf.ValueTypeNames.Float).Set(opacity)
+    set_surface(shader, (r, g, b), opacity, roughness, metallic)
 
     # Bind material to the target prim
     UsdShade.MaterialBindingAPI.Apply(prim)
