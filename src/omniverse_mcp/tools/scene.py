@@ -273,16 +273,22 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @tool(mcp, DESTROYS)
     def save_scene(
         file_path: Annotated[
-            str, Field(description="The USD file to write, on Kit's machine; empty overwrites the stage's own file")
+            str,
+            Field(
+                description="The USD file to write, on Kit's machine, but never another file the open stage has "
+                "loaded; empty overwrites the stage's own file"
+            ),
         ] = "",
     ) -> str:
         """Write the open stage's root layer to a USD file: back to the stage's own file when file_path is empty, or as
         a copy at file_path.
 
         Without file_path it overwrites the file the stage was opened from, and fails for a stage never saved, such as
-        new_scene's. With file_path it overwrites any file there, and the stage stays tied to its own file, or to none.
-        Only the root layer is written: sublayers and referenced files stay as they are, still referenced. For one
-        self-contained file, use flatten_usd; for one prim's subtree, export_prim_as_file.
+        new_scene's. With file_path it overwrites any file there, and the stage stays tied to its own file, or to none;
+        but another file the open stage has loaded (a sublayer, a referenced or payload file) is an error, since
+        writing it would replace a file the open scene is made of: name another path. The stage's own file, by any
+        name, is a save. Only the root layer is written: sublayers and referenced files stay as they are, still
+        referenced. For one self-contained file, use flatten_usd; for one prim's subtree, export_prim_as_file.
         """
         resp = bridge_call(client.save_scene, file_path)
         r = resp["result"]

@@ -1213,6 +1213,170 @@ class TestFlattenAndExportKeepTheOpenStage(unittest.TestCase):
         self._run(_RELEASE_LAYER)
 
 
+# A sublayer's file: a cube under /World, which an over leaves to the stage over it to define.
+_PROPS_USDA = """#usda 1.0
+
+over "World"
+{
+    def Cube "IntTestProp"
+    {
+    }
+}
+"""
+
+# A file Kit is to hold outside the open stage, with a root prim the open stage doesn't have.
+_HELD_USDA = """#usda 1.0
+
+def Xform "IntTestHeldBefore"
+{
+}
+"""
+
+# Gives the USD file PATH the sublayer SUB, a path relative to it, and saves it.
+_ADD_SUBLAYER = """
+from pxr import Sdf
+layer = Sdf.Layer.FindOrOpen(PATH)
+layer.subLayerPaths.append(SUB)
+result = layer.Save()
+"""
+
+# The open stage as Kit holds it: its root layer's file, its sublayers' files, which of PRIMS it has, and whether its
+# root layer has unsaved edits.
+_LAYERED_STAGE_STATE = """
+import omni.usd
+stage = omni.usd.get_context().get_stage()
+root = stage.GetRootLayer()
+result = {
+    "file": root.realPath,
+    "sublayers": [layer.realPath for layer in stage.GetLayerStack(includeSessionLayers=False)[1:]],
+    "prims": [p for p in PRIMS if stage.GetPrimAtPath(p)],
+    "dirty": root.dirty,
+}
+"""
+
+
+class TestSaveSceneKeepsTheOpenStagesLayers(unittest.TestCase):
+    """save_scene with a file_path against the open stage's other layers (#85): it exported the root layer over any
+    file, so a sublayer's file became a copy of the root layer while Kit kept the sublayer as it was, and the stage and
+    its files parted. Each test opens a copy of the stage over a sublayer of its own; a copy of the stage as it was is
+    opened again after, so later tests find it much as it was."""
+
+    PROP = "/World/IntTestProp"
+    UNSAVED = "/World/IntTestSaveUnsaved"
+
+    @classmethod
+    def setUpClass(cls):
+        host, port = live_bridge()
+        # open_scene's calls get the server's own 120 s, as TestIsaacSimIntegration's do.
+        cls.client = BridgeClient(host=host, port=port, timeout=120.0)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.client.close()
+
+    def _run(self, code: str, **names: Any) -> Any:
+        script = "".join(f"{name} = {value!r}\n" for name, value in names.items()) + code
+        result = self.client.execute(script)
+        self.assertEqual(result["status"], "success", result.get("error"))
+        return result["result"]["return_value"]
+
+    def _save(self, path: Path) -> None:
+        result = self.client.save_scene(str(path))
+        self.assertEqual(result["status"], "success", result.get("error"))
+
+    def _open(self, path: Path) -> None:
+        result = self.client.open_scene(str(path))
+        self.assertEqual(result["status"], "success", result.get("error"))
+
+    def setUp(self):
+        self.folder = Path(tempfile.mkdtemp(prefix="ovmcp-save-"))
+        self.addCleanup(shutil.rmtree, self.folder, True)
+        # The stage as it was, opened again after the test, before the folder goes.
+        before = self.folder / "IntTestBefore.usda"
+        self._save(before)
+        self.addCleanup(self._open, before)
+        # A copy over the sublayer IntTestProps.usda, opened from its file, then an edit that isn't saved.
+        self.props = self.folder / "IntTestProps.usda"
+        self.props.write_text(_PROPS_USDA, encoding="utf-8", newline="\n")
+        self.scene = self.folder / "IntTestScene.usda"
+        self._save(self.scene)
+        self.assertTrue(self._run(_ADD_SUBLAYER, PATH=str(self.scene), SUB=f"./{self.props.name}"))
+        self._open(self.scene)
+        self.assertEqual(self.client.create_prim(self.UNSAVED, "Xform")["status"], "success")
+        self._assert_stage_intact()
+
+    def _assert_stage_intact(self, *, unsaved: bool = True) -> None:
+        """The open stage is still the scene's file over the sublayer, with the sublayer's cube and the edit; with
+        unsaved, the edit is still unsaved. After a save, whether the root layer is clean is USD's to say: an Export
+        to its own file leaves it with unsaved edits in usd-core."""
+        state = self._run(_LAYERED_STAGE_STATE, PRIMS=[self.PROP, self.UNSAVED])
+        self.assertTrue(Path(state["file"]).samefile(self.scene), state)
+        self.assertEqual(len(state["sublayers"]), 1, state)
+        self.assertTrue(Path(state["sublayers"][0]).samefile(self.props), state)
+        self.assertEqual(state["prims"], [self.PROP, self.UNSAVED], "the open stage lost its prims")
+        if unsaved:
+            self.assertTrue(state["dirty"], "the open stage lost its unsaved edit")
+
+    def test_a_save_over_the_sublayers_file_is_refused(self):
+        # As in TestFlattenAndExportKeepTheOpenStage: as given, with forward slashes, and in capitals where the file
+        # system ignores case.
+        spellings = [str(self.props), self.props.as_posix()]
+        shouted = self.props.with_name(self.props.name.upper())
+        if shouted.exists():
+            spellings.append(str(shouted))
+        props, scene = self.props.read_bytes(), self.scene.read_bytes()
+        for spelling in spellings:
+            with self.subTest(spelling):
+                result = self.client.save_scene(spelling)
+                self.assertEqual(result["status"], "error", result)
+                self.assertIn("a sublayer of the open stage", result["error"])
+                self.assertIn("save_scene without a file_path", result["error"])
+                self.assertEqual(self.props.read_bytes(), props, "the sublayer's file was written")
+                self.assertEqual(self.scene.read_bytes(), scene, "the open stage's file was written")
+                self._assert_stage_intact()
+        print(f"  save_scene refused the sublayer's file, {len(spellings)} spellings; the stage and files are intact")
+
+    def test_a_save_over_the_open_stages_own_file_writes_it(self):
+        props = self.props.read_bytes()
+        for i, spelling in enumerate((str(self.scene), self.scene.as_posix())):
+            with self.subTest(spelling):
+                saved = f"IntTestSaved{i}"
+                self.assertEqual(self.client.create_prim(f"/World/{saved}", "Xform")["status"], "success")
+                result = self.client.save_scene(spelling)
+                self.assertEqual(result["status"], "success", result.get("error"))
+                self.assertEqual(result["result"]["action"], "save_as")
+                text = self.scene.read_text(encoding="utf-8")
+                self.assertIn(f'"{saved}"', text, "the save didn't write the open stage's file")
+                self.assertIn(self.props.name, text, "the saved file lost its sublayer")
+                self.assertEqual(self.props.read_bytes(), props, "the sublayer's file was written")
+                self._assert_stage_intact(unsaved=False)
+        result = self.client.save_scene()
+        self.assertEqual(result["status"], "success", result.get("error"))
+        self.assertEqual(result["result"]["action"], "save")
+        self.assertTrue(Path(result["result"]["file_path"]).samefile(self.scene), result)
+        print("  save_scene wrote the open stage's own file by two spellings, and without a file_path")
+
+    def test_a_file_kit_holds_outside_the_open_stage_is_read_again_or_refused_with_unsaved_edits(self):
+        out = self.folder / "IntTestHeld.usda"
+        out.write_text(_HELD_USDA, encoding="utf-8", newline="\n")
+        self.addCleanup(self._run, _RELEASE_LAYER)
+        self.assertEqual(self._run(_HOLD_LAYER, PATH=str(out), EDIT=False), ["/IntTestHeldBefore"])
+
+        self._save(out)
+        held = self._run(_HOLD_LAYER, PATH=str(out), EDIT=False)
+        self.assertIn("/World", held, "the held layer wasn't read again")
+        self.assertNotIn("/IntTestHeldBefore", held)
+
+        self._run(_HOLD_LAYER, PATH=str(out), EDIT=True)
+        written = out.read_bytes()
+        result = self.client.save_scene(str(out))
+        self.assertEqual(result["status"], "error", result)
+        self.assertIn("unsaved edits", result["error"])
+        self.assertEqual(out.read_bytes(), written)
+        self._assert_stage_intact()
+        print("  A file Kit held was saved over and read again; with an unsaved edit, refused")
+
+
 # Spheres of a few thousand vertices under ROOT, each vertex pushed in or out by a jitter drawn from the sphere's own
 # seed in SEEDS: meshes no cook cache holds, so every one is cooked, and no cache is cleared to get there. Each is a
 # rigid body with a convex hull. On main's bridge, 8 static colliders played without a hang and 32 rigid bodies hung
