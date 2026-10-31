@@ -72,6 +72,7 @@ Isaac Sim 6.2.0 headless, a fresh Kit at 8212 each time.
   `TestFlattenAndExportKeepTheOpenStage` and `TestSaveSceneKeepsTheOpenStagesLayers`: 7 passed and 16 subtests
   passed in 3.87 s. #86's refusals still name `save_scene`, since the stage there has a file of its own; the new
   wording for a stage never saved is unit-tested only.
+- **The expired-layer fix, on `adfdf75`,** the same script on a fresh Kit: 7 passed and 16 subtests passed in 3.92 s.
 
 Not shown: other Kit apps, such as USD Composer, the Isaac Sim GUI, and paths on Nucleus (`omniverse://`).
 
