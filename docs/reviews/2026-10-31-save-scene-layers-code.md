@@ -16,7 +16,7 @@ fixed, so no second round.
 
 | # | Sev | Where | Finding | Status |
 |---|---|---|---|---|
-| F1 | minor | `core/layers.py`, `write_refusal`, the `saving` branch | The refusal told a stage never saved to save to its own file, which it hasn't got. After `new_scene()` (an anonymous root), `create_prim(..., usd_path="C:/assets/table.usda")` or `create_robot` with a file makes that file a used layer; `save_scene(file_path="C:/assets/table.usda")` is rightly refused, but the error offered "call save_scene without a file_path to save the open stage to its own file", and that call fails with "No file path set. Provide file_path for save-as." (`handle_save_scene`, `if not current_path`) | fixed in `58e569d`: the clause comes only when the root layer has a file (`Sdf.Layer.IsAnonymousLayerIdentifier`, as `refresh` reads it); otherwise the error ends "Save to another path.". `test_saving_a_stage_never_saved_over_its_referenced_file_offers_no_save_to_its_own_file`, an in-memory root over a referenced file, pins the wording and fails without the check. CHANGELOG says the same |
+| F1 | minor | `core/layers.py`, `write_refusal`, the `saving` branch | The refusal told a stage never saved to save to its own file, which it hasn't got. After `new_scene()` (an anonymous root), `create_prim(..., usd_path="C:/assets/table.usda")` or `create_robot` with a file makes that file a used layer; `save_scene(file_path="C:/assets/table.usda")` is rightly refused, but the error offered "call save_scene without a file_path to save the open stage to its own file", and that call fails with "No file path set. Provide file_path for save-as." (`handle_save_scene`, `if not current_path`) | fixed in `58e569d`: the clause comes only when the root layer has a file (`Sdf.Layer.IsAnonymousLayerIdentifier`, as `refresh` reads it); otherwise the error ends "Save to another path.". A test with an in-memory root over a referenced file pins the wording and fails without the check; since `a47fe8e` it is `test_a_stage_never_saved_is_offered_no_save_to_its_own_file`, which covers `flatten_usd` and `export_prim_as_file` too (Improvements). CHANGELOG says the same |
 
 Refuted, each from the code:
 
@@ -48,6 +48,7 @@ Improvements:
 | Improvement | Answer |
 |---|---|
 | `test_a_save_over_the_stages_own_file_by_another_spelling_writes_it` used `scene.as_posix()`, the same spelling as the layer's on Linux and macOS, so CI never took the "another spelling" path | taken in `58e569d`: a relative path under `monkeypatch.chdir`, as `test_layers.py` does; it fails without the root filter |
+| Found by the author while fixing F1, the same class in #81's message: `flatten_usd` and `export_prim_as_file`'s refusal of a file the open stage has loaded told a stage never saved to "use save_scene" to save to its own file, which then fails with "No file path set" | taken in `a47fe8e`: the hint comes only when the root layer has a file, as in F1; otherwise the error ends "Write to another path.". `test_a_stage_never_saved_is_offered_no_save_to_its_own_file` runs both callers and fails without the check; CHANGELOG says so under #85 |
 
 Not covered: the reviewer ran nothing. Sdf's internals (when Export marks a layer clean, `TfSafeOutputFile`'s rename)
 were read from memory; no verdict depends on them.
@@ -67,15 +68,17 @@ Isaac Sim 6.2.0 headless, a fresh Kit at 8212 each time.
   - It printed "save_scene refused the sublayer's file, 3 spellings; the stage and files are intact", "save_scene
     wrote the open stage's own file by two spellings, and without a file_path" and "A file Kit held was saved over and
     read again; with an unsaved edit, refused".
-- **F1's fix, on `58e569d`,** re-run with `85-live.sh class`: to be filled in.
+- **F1's fix and the flatten and export wording, on `a47fe8e`,** re-run with `85-live-class.sh`, which runs
+  `TestSaveSceneKeepsTheOpenStagesLayers` and `TestFlattenAndExportKeepTheOpenStage`: to be filled in.
 
 Not shown: other Kit apps, such as USD Composer, the Isaac Sim GUI, and paths on Nucleus (`omniverse://`).
 
 ## Checks
 
 - **The gate:** `uv run tools/gate.py full` passed on `1aa5052`: 15 checks, 1279 passed and 179 skipped, coverage
-  96.16%. On `58e569d`: 15 checks, 1280 passed and 179 skipped, coverage 96.19%.
+  96.16%. On `58e569d`: 15 checks, 1280 passed and 179 skipped, coverage 96.19%. On `a47fe8e`: 15 checks, 1281
+  passed and 179 skipped, coverage 96.20%.
 - **Each guard has a test that fails without it,** run by hand by removing one guard at a time: the root filter (2
   tests in `test_layers.py` and the handler's own-file test), the used-layer exclusion from the unsaved-edits check (1
-  test in each file), the anonymous-root check (1 test). Against `origin/main`'s `handlers/scene.py`, 3 of the 5 handler tests fail: the
-  sublayer refusal, the read-again and the held layer with unsaved edits.
+  test in each file), the anonymous-root check (1 test for each caller). Against `origin/main`'s `handlers/scene.py`, 3
+  of the 5 handler tests fail: the sublayer refusal, the read-again and the held layer with unsaved edits.
