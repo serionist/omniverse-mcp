@@ -7,7 +7,9 @@ Standalone MCP server that bridges AI assistants to a running NVIDIA Omniverse K
 Design principles:
 - Images are always saved as PNG files, returning paths; capture_viewport(include_image=True) also returns one inline.
 - Scene/prim data uses grep-friendly prim-block text format.
-- Any response > FILE_THRESHOLD chars is written to a file, returning its path (Helpers.rel).
+- Any response > FILE_THRESHOLD chars is written to a file, returning its path (Helpers.rel); get_mesh_stats and
+  get_robot_info write only their long part, the tree, or the Joints list and the joint states that don't fit, and
+  keep the rest inline.
 - Small responses are returned inline as text.
 
 Usage:
