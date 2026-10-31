@@ -16,11 +16,11 @@ from .xform import layer_name
 
 _DEFINING = (Sdf.SpecifierDef, Sdf.SpecifierClass)
 _ARC_NAMES: dict[object, str] = {
-    Pcp.ArcTypeReference: "reference",
-    Pcp.ArcTypePayload: "payload",
-    Pcp.ArcTypeInherit: "inherit",
-    Pcp.ArcTypeSpecialize: "specialize",
-    Pcp.ArcTypeVariant: "variant",
+    Pcp.ArcTypeReference: "a reference",
+    Pcp.ArcTypePayload: "a payload",
+    Pcp.ArcTypeInherit: "an inherit",
+    Pcp.ArcTypeSpecialize: "a specialize",
+    Pcp.ArcTypeVariant: "a variant",
 }
 _HIDE = "set_visibility hides it"
 
@@ -60,10 +60,10 @@ def why_kept(prim: Usd.Prim, edit_layer: Sdf.Layer) -> str | None:
             if others:
                 return f"{path} is not deleted: {layer_name(stage, others[0])} defines it too. {_HIDE}"
             continue
-        what = _ARC_NAMES.get(kind, str(kind))
+        what = _ARC_NAMES.get(kind, f"a {kind}")
         source = layer_name(stage, defining[0])
         if arc.IsAncestral():
-            return f"{path} is not deleted: it comes through a {what} on {stage_prim_of(arc)} ({source}). {_HIDE}"
+            return f"{path} is not deleted: it comes through {what} on {stage_prim_of(arc)} ({source}). {_HIDE}"
         # An arc the referenced file itself authors goes with the reference the edit layer holds, so only arcs of the
         # stage's own layer stack count.
         if not arc.IsIntroducedInRootLayerStack():
@@ -71,7 +71,7 @@ def why_kept(prim: Usd.Prim, edit_layer: Sdf.Layer) -> str | None:
         introducing = arc.GetIntroducingLayer()
         if introducing is not None and introducing.identifier != edit_layer.identifier:
             return (
-                f"{path} is not deleted: {layer_name(stage, introducing)} gives it a {what} to {source}, which "
+                f"{path} is not deleted: {layer_name(stage, introducing)} gives it {what} to {source}, which "
                 f"defines it. {_HIDE}"
             )
     return None

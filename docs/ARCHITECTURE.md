@@ -262,7 +262,8 @@ The format is implemented in `ovmcp/core/formatter.py` with functions for:
 - `format_prim_block()` - Format a single prim as a text block
 - `format_scene_dump()` - Recursively format an entire scene tree, with the number of prims written
 - `format_scene_tree()` - get_scene_tree's text: path, type and position down to max_depth, a prim there with its count
-  of children - `format_frame_state()` - Format a snapshot for recording
+  of children
+- `format_frame_state()` - Format a snapshot for recording
 
 ## Threading Model
 

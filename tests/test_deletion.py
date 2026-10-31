@@ -128,7 +128,8 @@ def test_a_prim_the_root_layer_defines_and_a_sublayer_overrides_goes(stage):
 
 
 def _asset_with_own_arc(kind: str) -> Sdf.Layer:
-    """A file whose /Robot has a reference, a payload or an inherit of its own, the way a robot made of parts does."""
+    """A file whose /Robot has an arc of its own, the way a robot made of parts does: a reference, a payload, an
+    inherit, a variant, or a reference to the file with the reference, three files deep."""
     layer = Sdf.Layer.CreateAnonymous(f"robot_{kind}.usda")
     held = Usd.Stage.Open(layer)
     robot = UsdGeom.Xform.Define(held, "/Robot").GetPrim()
@@ -136,19 +137,39 @@ def _asset_with_own_arc(kind: str) -> Sdf.Layer:
         robot.GetReferences().AddReference(ASSET.identifier, "/Bot")
     elif kind == "payload":
         robot.GetPayloads().AddPayload(ASSET.identifier, "/Bot")
-    else:
+    elif kind == "inherit":
         held.CreateClassPrim("/_class_Robot")
         UsdGeom.Cube.Define(held, "/_class_Robot/Body")
         robot.GetInherits().AddInherit("/_class_Robot")
+    elif kind == "variant":
+        parts = robot.GetVariantSets().AddVariantSet("parts")
+        parts.AddVariant("full")
+        parts.SetVariantSelection("full")
+        with parts.GetVariantEditContext():
+            UsdGeom.Cube.Define(held, "/Robot/Link")
+    else:
+        robot.GetReferences().AddReference(NESTED["reference"].identifier, "/Robot")
     return layer
 
 
-NESTED = {kind: _asset_with_own_arc(kind) for kind in ("reference", "payload", "inherit")}
+# Built in order, since the deepest file references the reference's; held for the module, as ASSET is.
+NESTED: dict[str, Sdf.Layer] = {}
+for _kind in ("reference", "payload", "inherit", "variant", "three deep"):
+    NESTED[_kind] = _asset_with_own_arc(_kind)
+
+# The part each file's arc brings, and the arc the refusal names.
+PART = {
+    "reference": ("Link", "a reference"),
+    "payload": ("Link", "a payload"),
+    "inherit": ("Body", "an inherit"),
+    "variant": ("Link", "a variant"),
+    "three deep": ("Link", "a reference"),
+}
 
 
 @pytest.mark.parametrize("kind", NESTED)
 def test_a_prim_whose_file_has_arcs_of_its_own_goes_with_its_reference(stage, kind):
-    # The file's reference, payload or inherit goes with the reference the root layer holds.
+    # The file's own arcs go with the reference the root layer holds.
     stage.DefinePrim("/World/Robot").GetReferences().AddReference(NESTED[kind].identifier, "/Robot")
 
     assert _kept(stage, "/World/Robot") is None
@@ -157,9 +178,8 @@ def test_a_prim_whose_file_has_arcs_of_its_own_goes_with_its_reference(stage, ki
 @pytest.mark.parametrize("kind", NESTED)
 def test_a_part_a_files_own_arc_brings_names_the_stage_prim(stage, kind):
     stage.DefinePrim("/World/Robot").GetReferences().AddReference(NESTED[kind].identifier, "/Robot")
-    child = "Body" if kind == "inherit" else "Link"
+    child, arc = PART[kind]
 
     why = _kept(stage, f"/World/Robot/{child}") or ""
 
-    assert why.startswith(f"/World/Robot/{child} is not deleted: it comes through a ")
-    assert " on /World/Robot (" in why
+    assert why.startswith(f"/World/Robot/{child} is not deleted: it comes through {arc} on /World/Robot ("), why
