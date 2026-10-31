@@ -73,10 +73,10 @@ on, after #58's E1 to E11:
 - `tensor_centre_of_mass(transform7, com7) -> Vec3`: the world point of the centre of mass from the two rows (S3), by
   `world_point` with the row's quaternion, already in x, y, z, w order.
 - `step_seconds(stage)`: the step's length from the stage's physics scene, `1 / physxScene:timeStepsPerSecond`, read by
-  the attribute's name (the core imports only `pxr`), 60 steps a second when it is unset or there is no scene, as
-  PhysX defaults and Isaac Sim's own `PhysicsScene.get_dt()` does; the first scene in stage order when there are
-  several, which the answer names. A step that isn't a positive finite number is a ValueError, which the handler
-  answers as an error. U2 confirms this is the step PhysX takes, substeps included.
+  the attribute's name (the core imports only `pxr`, and `PhysxSchema` is Kit's), 60 steps a second when it is unset
+  or there is no scene, as PhysX defaults; the first scene in stage order when there are several, which the answer
+  names. A step that isn't a positive finite number is a ValueError. U2 confirms this is the step PhysX takes,
+  substeps included.
 - `refusal`'s order stays: the stopped timeline, then `gpu_unavailable`, then the body's own attributes, then `held`.
 
 ### The handler, `handlers/simulation.py`
@@ -84,20 +84,23 @@ on, after #58's E1 to E11:
 Under the Direct GPU API `handle_apply_force` takes a path of its own, after the same checks of the request, the prim,
 the timeline, the body's own attributes and the stage's fixed joints:
 
-1. Import `omni.physics.tensors` and `warp`; either missing refuses with the reason (Q3).
+1. Import `omni.physics.tensors` and `warp`; either missing refuses with the reason (Q3). Read the step,
+   `step_seconds(stage)`, here, before any tensor call: a ValueError from it answers "the physics scene's step
+   can't be used: <why>", not as PhysX's.
 2. `create_simulation_view("warp", stage_id)`, then `create_rigid_body_view(prim_path)`. A view whose count isn't 1,
    or whose `prim_paths[0]` isn't the prim, refuses as "PhysX holds no rigid body", as today's pose check does.
 3. The point: the given one, or `tensor_centre_of_mass` from `get_transforms` and `get_coms`, both read to the host
    (`.numpy()`): `get_coms` lives on the parameters' device, the CPU, and `get_transforms` on the simulation's.
-4. The force: `one_step_force` with `step_seconds(stage)`.
+4. The force: `one_step_force` with step 1's step.
 5. `apply_forces_and_torques_at_position(force, None, point, indices, is_global=True)`: the force and the point as
    `(1, 3)` float32 and the indices `[0]` as uint32, made on `view.device`.
 6. `invalidate()` on the view in a `finally`, as E5 measured harmless.
 
 The tensor API raises a bare `Exception` ("Failed to create simulation view", "Failed to get rigid body transforms",
 "Failed to apply forces and torques at pos in backend"), and `create_rigid_body_view` may raise where nothing matches.
-So the path catches `Exception` around steps 2 to 5 only, and answers "PhysX's tensor API could not push <path>:
-<why>"; the CPU path's catch stays as it is.
+So the path catches `Exception` around steps 2 to 5 only, answers "PhysX's tensor API could not push <path>:
+<why>", and logs the traceback, since the same catch would hide a slip of ours in the arrays or the point; the CPU
+path's catch stays as it is.
 
 Which path a push takes: the tensor path when `/physics/suppressReadback` is true, a CPU scene included if U5 shows the
 push lands there (Q7). If U4 shows today's call moves nothing under GPU dynamics with readback on too, the condition
@@ -141,8 +144,9 @@ stays. The route's body is unchanged; its answer's `method` can now be `"tensor"
 
 ## Steps
 
-1. **Probe** U1 to U4 live (a scratch script through `execute_script`, run by the maintainer's session on its own
-   Kit), and write E1 on into this plan. A result that breaks the design comes back to the maintainer first.
+1. **Probe** U1 to U6 live in one Kit session (a scratch script through `execute_script`, run by the maintainer's
+   session on its own Kit), and write E12 on into this plan. A result that breaks the design comes back to the
+   maintainer first.
 2. **The core:** `one_step_force`, `tensor_centre_of_mass`, `step_seconds` and the new `refusal`, with unit tests in
    `tests/test_force.py`.
 3. **The handler's GPU path,** with a new `tests/test_force_handler.py` that loads `handlers/simulation.py` from its
@@ -151,13 +155,23 @@ stays. The route's body is unchanged; its answer's `method` can now be `"tensor"
    (`"method": "physx"`, its refusals) before the handler splits. The GPU path: the push's arrays, their dtypes and
    device, the point, the step, the view invalidated after a failure, view creation that raises, a view of the wrong
    count, each refusal.
-4. **The live test,** a module of its own, `tests/test_gpu_force.py`, marked `sim` and skipped unless
-   `OMNIVERSE_MCP_GPU=1` too (`tests/conftest.py`'s collection hook) (Q6):
-   - first, in Kit, `warp.get_cuda_device_count()` and `SimulationManager`'s import: none skips the module before any
+4. **The live test,** a module of its own, `tests/test_gpu_force.py`, marked `gpu` and `sim` (Q6):
+   - `tests/conftest.py`'s collection hook is reordered so the rule for `gpu` holds whatever `OMNIVERSE_MCP_SIM` is:
+     a `gpu` test runs only with `OMNIVERSE_MCP_SIM=1` and `OMNIVERSE_MCP_GPU=1`, and with `OMNIVERSE_MCP_GPU=1`
+     every other live test skips, so a GPU run has its Kit to itself; `gpu` joins `pyproject.toml`'s markers, as
+     `strict_markers` asks. The branch takes `main` first, for #94's guard in the same file: being marked `sim`, the
+     module is covered by it, and a Kit the switch leaves unanswering ends the run at its first timeout;
+   - its first test checks the Kit is on the CPU pipeline (`/physics/suppressReadback` false), so a Kit left on the
+     GPU by an earlier run fails at once, with what to do;
+   - then, in Kit, `warp.get_cuda_device_count()` and `SimulationManager`'s import: none skips the module before any
      setting changes;
    - then `set_device("cuda:0")`, a lone cube and a two-body articulation built in the module, a force and an
      impulse, at a point and at the centre of mass, each checked by its momentum change, measured as
-     `test_scenarios.py`'s phase 15 does, with its helpers moved to `tests/conftest.py`;
+     `test_scenarios.py`'s phase 15 does. Its helpers are `TestScenarios`' methods (`_force_body`, `_force_pair`,
+     `_physx_pose`, `_speed_along_x`, `_physics_step`, `_start_physics`, `_run_frames` and the rest, with
+     `_SPEED_ALONG_X` and `_RUN_FRAMES`), so they move to a mixin, `PhysicsChecks` in a new `tests/physics_checks.py`,
+     which both classes inherit; the scenarios' 31 calls stay as they are. `_physics_step` stays the live check's
+     own, apart from the `step_seconds` it checks;
    - its cleanup stops the timeline and calls `set_device("cpu")`; CONTRIBUTING says to restart Kit after it (U6).
 5. **Docs,** below.
 6. **finish-work:** `uv run tools/gate.py full`, `review-code` until clean, the live runs above, the PR.
@@ -175,7 +189,8 @@ stays. The route's body is unchanged; its answer's `method` can now be `"tensor"
 - `src/omniverse_mcp/tools/simulation.py`: the description's sentence on the Direct GPU API.
 - `docs/TOOLS.md`: the refusals table loses its Direct GPU row; `apply_force`'s section says how it pushes there; its
   Returns line names `method` `tensor` beside `physx`; the `dt` row says where the step's length comes from.
-- `CONTRIBUTING.md`: `OMNIVERSE_MCP_GPU=1`, and to restart Kit after it.
+- `CONTRIBUTING.md`: `OMNIVERSE_MCP_GPU=1`, which runs the GPU module alone, and to restart Kit after it.
+- `AGENTS.md`'s table: `tests/physics_checks.py`, within its 150 lines.
 - `README.md`: the known limit goes.
 - `plugin/skills/simulate/SKILL.md`: the line on the Direct GPU API.
 - `docs/ARCHITECTURE.md`: the module list's `force.py` entry.
@@ -226,3 +241,30 @@ Improvements:
 | Record the view's `device_ordinal` in step 1's probe, which settles U4 and U5 in the same run | taken |
 | Number the probe's results after #58's E1 to E11 | taken: E12 on |
 | A unit test that `refusal`'s order stays the same with `gpu_unavailable` | taken, in step 2 |
+
+### Round 2
+
+**How:** one fresh reviewer on Claude Sonnet, 2026-10-31, on `b1451f2`, reading the plan against round 1's table,
+`tests/conftest.py` on the branch and on `main` (with #94), `tests/test_scenarios.py`, `pyproject.toml` and Isaac Sim's
+`simulation_manager.py` and `physics_scene.py`. **Verdict:** needs-fixes (minors only), then needs-answers once they
+are folded in. **Now:** P9 to P12 folded in; no further round, as none is a blocker or a major.
+
+P1 to P8 settled as written, P1 pending Q6: the design no longer depends on `set_device("cpu")` undoing anything.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P9 | minor | The collection hook returns early when `OMNIVERSE_MCP_SIM=1`, so a `GPU` rule after it never runs: a plain `uv run pytest` with `SIM=1` would collect the GPU module and switch the maintainer's Kit to the GPU. A new marker needs `pyproject.toml`'s list under `strict_markers` | fixed: a `gpu` marker, the hook reordered so its rule holds whatever `SIM` is, `GPU=1` running the GPU module alone; the marker listed in `pyproject.toml`; the branch takes `main` first for #94's guard, which covers the module through `sim` |
+| P10 | minor | A bad step from `step_seconds` fell inside the tensor block's catch and read as PhysX's failure | fixed: the step is read before any tensor call, with its own message; the catch logs the traceback |
+| P11 | minor | Isaac Sim's `PhysicsScene.get_dt()` gives 60 only with `PhysxSceneAPI` applied and the attribute unset, and 1/1000 without the API, so "as Isaac Sim's own get_dt does" was wrong | fixed: dropped; the attribute's name and PhysX's default of 60 stand |
+| P12 | minor | Phase 15's helpers are `TestScenarios`' methods, with 31 calls, not functions to move to `tests/conftest.py` | fixed: a `PhysicsChecks` mixin in `tests/physics_checks.py` that both classes inherit; `_physics_step` stays the live check's own |
+
+Refuted: reading `physxScene:timeStepsPerSecond` by name or its default of 60 being wrong; `set_device("cpu")`
+leaving `suppressReadback` on; the catch of `Exception` hiding a cancellation, which is a `BaseException`;
+`from .<module> import` failing in the tests' package; `strict_markers` refusing a module marked only `sim`.
+
+Improvements:
+
+| Improvement | Answer |
+|---|---|
+| The GPU module's first test checks the Kit is on the CPU pipeline, so a Kit left on the GPU fails clearly | taken, in step 4 |
+| U6 in the same probe session as U1 to U5 | taken, in step 1 |
