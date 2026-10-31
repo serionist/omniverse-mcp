@@ -202,7 +202,12 @@ and answer its `ValueError` as an error.
   `create_robot("franka", rotation=[0, 90])` would otherwise make the prim, refuse, and refuse the retry as taken
   (round 1, P5).
 - **A refusal found only after the prim exists,** such as an animated root op in the referenced file, removes what the
-  call made (a prim it created, never one that was there) and says why.
+  call made (a prim it created, never one that was there) and says why. Built so: with the missing parents
+  `DefinePrim` made for it, found before by `_first_missing` in `handlers/_utils.py`.
+- **Built so,** the entry points: `check_transform` checks the values and gives `Parts`; `write_transform(prim, parts,
+  layer)` writes them and `check_writable` plans without writing; `set_local_transform` is the two in one. `clone_prim`
+  also takes its copies away when one copy's move is refused after the source passed, since a copy composes apart from
+  its source ("Nothing was copied"), where the plan checked only the source.
 
 | Alternative | Why not |
 |---|---|
@@ -228,7 +233,10 @@ One helper in `handlers/camera.py`, `_aim_camera(camera_path, eye, target)`, whi
    about 3.4e38 (E5); `inspect_prim`'s top and bottom may leave a near-singular scale of about 1.7e6 with the direction
    right, which only the scale shows (round 1, P1); and with no viewport it moves nothing (K2).
 3. **The USD look-at,** `aim`: `look_at(eye, target, up_axis)`, `_set_camera_xform`'s math (right = world up x back;
-   the X axis when looking straight along the up axis), taken into the camera's parent space, or none for a camera
+   the X axis when looking straight along the up axis; built so: within 2.5 degrees of the up axis, minus the front
+   axis stands in for the up, which keeps the matrix orthonormal, where the old right vector was skewed near
+   vertical, and keeps the view continuous with an aim from the front: the X axis on a Y-up stage, -X on a Z-up one),
+   taken into the camera's parent space, or none for a camera
    with `!resetXformStack!`, and written by `set_local_transform` as a position and a quaternion into the camera's own
    ops: Kit's camera keeps `[translate, rotateXYZ, scale]`, as Kit's own call keeps it (E1, E2).
    - **The layer:** the strongest of the stage's own layers that holds an opinion on the camera's `xformOpOrder`, when
@@ -390,7 +398,7 @@ Each step builds and passes `uv run tools/gate.py quick`; the PR ends with `fini
 | 6 | `core/deletion.py` and `handle_delete_prim` (R1); `delete_prim`'s line for an older extension (Q9) | `tests/test_deletion.py`, `tests/test_scene_handler.py`, `tests/test_tools.py` |
 | 7 | `core/formatter.py`: the tree's text and the dump's count, and their handlers (R5, R11) | `tests/test_formatter.py`, `tests/test_scene_handler.py` |
 | 8 | `core/material.py`'s `set_surface` and the answer's opacity (R4); the recording refusals (R6) | `tests/test_material.py`, `tests/test_scene_handler.py`, `tests/test_tools.py`, `tests/test_recording_handler.py` |
-| 9 | The live tests below | Run by the session on Isaac Sim 6.2 headless |
+| 9 | The live tests below | Run by the session on Isaac Sim 6.2 headless: `82-live.sh` in its scratchpad runs the new and changed integration tests alone on a fresh Kit, both suites whole, then the integration tests again on the Y-up stage the suites leave. The scenario checks run within the whole suites only, since they need its earlier phases (built so) |
 | 10 | The docs | `tests/test_contract.py` unchanged; the gate's AGENTS.md and skill checks |
 | 11 | `finish-work`: the gate in full, both live suites in full, `review-code` | No live failure beyond `main`'s on the same Kit |
 
@@ -414,7 +422,8 @@ Each row's fix has a test that fails at `f26642c`, named first below.
 | `tests/test_material.py` | `set_surface` |
 | `tests/test_contract.py` | Unchanged: the golden file stays |
 
-**Live,** on Isaac Sim 6.2 headless at port 8212, run by the session:
+**Live,** on Isaac Sim 6.2 headless at port 8212, run by the session. Built so: the camera probe both suites use is
+`CAMERA_AIM` in `tests/conftest.py`, beside the suites' other shared Kit code:
 
 | Test | What |
 |---|---|
