@@ -76,17 +76,22 @@ def write_refusal(stage: Usd.Stage, path: str, *, saving: bool = False) -> str |
     to the scene's file under another name would land on it. Held layers outside the stage are compared by name only,
     where a miss leaves one stale rather than writing over the scene.
 
-    With saving, the root layer is what is written, so its own file may be, by any name: that is a save, and the open
-    scene and its file agree after it (#85)."""
+    With saving, the root layer is what is written, so its own file may be, by any name: that is a save (#85)."""
     in_use = stage.GetUsedLayers()
     used = _layers_at(path, in_use, any_name=True)
     if saving:
-        used = [layer for layer in used if layer != stage.GetRootLayer()]
+        root = stage.GetRootLayer()
+        used = [layer for layer in used if layer != root]
         if used:
+            # A stage never saved, such as new_scene's, has no file of its own for save_scene without a path to write.
+            own_file = (
+                ""
+                if Sdf.Layer.IsAnonymousLayerIdentifier(root.identifier)
+                else ", or call save_scene without a file_path to save the open stage to its own file"
+            )
             return (
                 f"{path} is {_role(stage, used[0])}: saving the root layer there would overwrite a file the open scene "
-                "is made of. Save to another path, or call save_scene without a file_path to save the open stage to "
-                "its own file."
+                f"is made of. Save to another path{own_file}."
             )
     if used:
         return (

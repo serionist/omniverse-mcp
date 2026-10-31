@@ -11,9 +11,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   layer over any file, so a `file_path` naming a sublayer, a referenced or a payload file replaced that file on disk
   while Kit kept the layer as it was, and the scene and its files no longer agreed. Such a path is now refused before
   anything is written, as `flatten_usd` and `export_prim_as_file` refuse it, with an error that says to name another
-  path or call `save_scene` without one; the stage's own file, by any name, is still saved. A file Kit holds outside
-  the open stage with unsaved edits is refused too; one without is read again after the write, so the next open gets
-  the new file. The fix is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#85).
+  path, or to call `save_scene` without one when the stage has a file of its own; the stage's own file, by any name,
+  is still saved. A file Kit holds outside the open stage with unsaved edits is refused too; one without is read again
+  after the write, so the next open gets the new file. The fix is in the Kit extension: run `uvx omniverse-mcp
+  extension install`, then restart Kit (#85).
 
 ## 0.2.3 (2026-10-30)
 

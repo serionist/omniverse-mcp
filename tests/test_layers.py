@@ -191,6 +191,17 @@ def test_saving_over_another_layer_of_the_open_stage_is_refused(stage: Usd.Stage
     assert "save_scene without a file_path" in refusal
 
 
+def test_saving_a_stage_never_saved_over_its_referenced_file_offers_no_save_to_its_own_file(scene: Path):
+    # new_scene's stage, then a prim referencing a file: save_scene without a file_path fails, with no file to save.
+    stage = Usd.Stage.CreateInMemory()
+    stage.DefinePrim("/World/Table").GetReferences().AddReference(str(scene.parent / "ref.usda"))
+    refusal = write_refusal(stage, str(scene.parent / "ref.usda"), saving=True)
+    assert refusal is not None
+    assert "a layer the open stage references or pays in" in refusal
+    assert refusal.endswith("Save to another path.")
+    assert "without a file_path" not in refusal
+
+
 def test_saving_over_the_open_stages_own_file_is_a_save_by_any_spelling(
     stage: Usd.Stage, scene: Path, monkeypatch: pytest.MonkeyPatch
 ):

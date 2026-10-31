@@ -102,8 +102,12 @@ def test_a_save_over_a_sublayer_is_refused_and_writes_nothing(handler, stage: Us
     assert stage.GetRootLayer().dirty, "the open stage lost its unsaved edit"
 
 
-def test_a_save_over_the_stages_own_file_by_another_spelling_writes_it(handler, stage: Usd.Stage, scene: Path):
-    r = _save(handler, scene.as_posix())
+def test_a_save_over_the_stages_own_file_by_another_spelling_writes_it(
+    handler, stage: Usd.Stage, scene: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # Relative, so another spelling than the layer's on every system: forward slashes are the same one on Linux.
+    monkeypatch.chdir(scene.parent)
+    r = _save(handler, scene.name)
     assert r["status"] == "success", r
     assert r["result"]["action"] == "save_as"
     assert Sdf.Layer.OpenAsAnonymous(str(scene)).GetPrimAtPath("/World/Unsaved")
