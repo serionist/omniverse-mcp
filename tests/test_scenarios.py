@@ -21,7 +21,7 @@ import pytest
 
 from omniverse_mcp.client import BridgeClient
 
-from .conftest import CAMERA_AIM, live_bridge
+from .conftest import CAMERA_AIM, VIEWPORT_SEGMENTATION_ON, live_bridge
 
 pytestmark = pytest.mark.scenario
 
@@ -1991,16 +1991,13 @@ class TestScenarios(unittest.TestCase):
     SEGMENTATION_TARGET = "/World/SegmentationCube"
 
     def test_17_04_segmentation_after_a_new_stage(self):
-        """Phase 17.4: Segmentation on the new stage. omni.syntheticdata drops its sensors on every stage open, so the
-        bridge enables instance segmentation again and waits for its first data (#27): the suite's first segmentation
-        on a new stage, and on a cold start the one whose timing Kit's log records."""
-        empty = self.c.execute(
-            "import omni.syntheticdata as syn\n"
-            "from omni.kit.viewport.utility import get_active_viewport\n"
-            "result = int(syn.sensors.get_instance_segmentation(get_active_viewport()).size)"
-        )
-        self.assertEqual(empty["status"], "success", empty)
-        self.assertEqual(empty["result"]["return_value"], 0, "17.3's new stage still had segmentation data")
+        """Phase 17.4: Segmentation on the new stage. omni.syntheticdata drops its graphs on every stage open; each
+        capture turns segmentation on for its own feed and waits for its first data (#27, #51), and nothing turns the
+        viewport's own sensor on again (#76): the suite's first segmentation on a new stage, and on a cold start the
+        one whose timing Kit's log records."""
+        off = self.c.execute(VIEWPORT_SEGMENTATION_ON)
+        self.assertEqual(off["status"], "success", off)
+        self.assertFalse(off["result"]["return_value"], "the viewport's own segmentation is on on the new stage")
 
         cube = self.SEGMENTATION_TARGET
         self.addCleanup(self.c.delete_prim, cube)
