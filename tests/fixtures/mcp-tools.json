@@ -756,6 +756,11 @@
       },
       "input": {
         "properties": {
+          "max_depth": {
+            "default": 2,
+            "minimum": 0,
+            "type": "integer"
+          },
           "prim_path": {
             "type": "string"
           }
@@ -791,37 +796,6 @@
         "required": [
           "prim_path"
         ],
-        "type": "object"
-      },
-      "output": {
-        "properties": {
-          "result": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "result"
-        ],
-        "type": "object"
-      }
-    },
-    "get_prim_face_count_tree": {
-      "annotations": {
-        "openWorldHint": false,
-        "readOnlyHint": true
-      },
-      "input": {
-        "properties": {
-          "max_depth": {
-            "default": 10,
-            "minimum": 0,
-            "type": "integer"
-          },
-          "root": {
-            "default": "/World",
-            "type": "string"
-          }
-        },
         "type": "object"
       },
       "output": {

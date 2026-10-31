@@ -52,7 +52,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Use it to find prim paths before acting on them: it is the lightest look at a scene. A prim at max_depth that
         has children says how many, as children = N (truncated), and nothing below it is listed. The prims inside an
-        instanceable prim are not listed (get_prim_face_count_tree looks inside). For properties, use
+        instanceable prim are not listed (get_mesh_stats looks inside). For properties, use
         get_prim_properties on one prim, or dump_scene for many at once, written to a file to grep.
         """
         resp = bridge_call(client.scene_tree, root, max_depth, fmt="text")

@@ -57,7 +57,7 @@ passes it through `inspect.cleandoc`; `tests/test_contract.py` fails on a descri
 | `robot.py` | Robot: create, info with the joint states, joint targets |
 | `simulation.py` | Sim control, state, physics properties, apply force, raycast, debug draw |
 | `recording.py` | Recording: start, stop, get frame |
-| `usd_advanced.py` | Mesh stats, face count tree, flatten, export, variants, compare, material paths |
+| `usd_advanced.py` | Mesh stats with the face count tree, flatten, export, variants, compare, material paths |
 | `misc.py` | execute_script, manage_extensions, get_logs |
 
 ### Output management

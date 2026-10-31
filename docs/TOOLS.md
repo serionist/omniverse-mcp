@@ -25,7 +25,7 @@ Reference for every tool the MCP server provides.
 | add a robot, read and move its joints | `create_robot`, `get_robot_info`, `set_joint_targets` |
 | record a run and look back at it | `start_recording`, `stop_recording`, `get_recording_frame` |
 | set mass or friction, push, or probe | `set_physics_properties`, `apply_force`, `raycast` |
-| count faces, or compare two prims or variants | `get_mesh_stats`, `get_prim_face_count_tree`, `compare_prims` |
+| count faces and find where they are, or compare two prims or variants | `get_mesh_stats`, `compare_prims` |
 | make or switch variants | `create_variant_structure`, `set_variant_selection` |
 | write USD files | `save_scene`, `flatten_usd`, `export_prim_as_file`; `update_material_paths` after files move |
 | open a USD file as the stage, or start an empty one | `open_scene`, `new_scene` |
@@ -37,7 +37,7 @@ it runs one; they are hints, never security (the bridge's token is what keeps ot
 
 | Hints | What they mean | Tools |
 |---|---|---|
-| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs, and leaves Kit's unsaved-edits flag set) | `get_scene_tree`, `dump_scene`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_prim_face_count_tree`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
+| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs, and leaves Kit's unsaved-edits flag set) | `get_scene_tree`, `dump_scene`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
 | not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `inspect_prim`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug` |
 | destructive | Deletes or overwrites prims, the whole stage, or USD files on disk | `delete_prim`, `save_scene`, `open_scene`, `new_scene`, `flatten_usd`, `export_prim_as_file`, `update_material_paths` |
 | destructive, open world | Runs Python or loads extensions inside the Kit app: anything can happen | `execute_script`, `manage_extensions` |
@@ -47,7 +47,7 @@ A value out of a parameter's range, or not one of its choices, is refused before
 ## Table of Contents
 
 - [Scene Tools](#scene-tools) (12 tools)
-- [Geometry & Mesh Tools](#geometry--mesh-tools) (3 tools)
+- [Geometry & Mesh Tools](#geometry--mesh-tools) (2 tools)
 - [USD Operations](#usd-operations) (2 tools)
 - [Variant Tools](#variant-tools) (2 tools)
 - [Material Tools](#material-tools) (2 tools)
@@ -79,7 +79,7 @@ List the stage's prims under `root` as prim blocks: each one's path, type and wo
 A prim at `max_depth` that has children says how many, as `children = N (truncated)`, and nothing below it is listed.
 An extension of 0.2.3 or older lists instead the next level's prims that have children, and leaves out the rest of
 that level. The prims inside an instanceable prim, as Isaac Sim's robot assets often are, are not listed:
-`get_prim_face_count_tree` looks inside.
+`get_mesh_stats` looks inside.
 
 **When to use:** to find prim paths before acting on them; it is the lightest look at a scene. For properties, use
 `get_prim_properties` on one prim, or `dump_scene` for many at once, written to a file to grep.
@@ -352,35 +352,41 @@ No parameters.
 
 ### `get_mesh_stats`
 
-Count the faces, vertices and triangles of every mesh at or under a prim.
+Count the faces, vertices and triangles of every mesh at or under a prim: the totals, then the prims under it to
+`max_depth`, each mesh with its counts and each prim above meshes with `subtree_faces`.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Prim to analyse (includes all descendant meshes) |
+| `max_depth` | int | `2` | Levels of the tree below `prim_path` to list, 0 up; 0 for `prim_path` alone |
 
-**Returns:** Totals (faces, vertices, triangles, mesh count), and each mesh's own counts when there are 20 or fewer.
-Written to file if long. Only `UsdGeom.Mesh` prims count, inside instances too: implicit shapes such as `Cube` and
-`Sphere` have no faces.
+**Returns:** the totals, then the tree:
 
-**When to use:** Checking a geometry budget, or what a simplification saved. `get_prim_face_count_tree` shows where
-the faces are across a whole tree, and `compare_prims` puts two prims or variants side by side.
+```text
+[/World/Franka]
+meshes = 25
+total_faces = 120000
+total_vertices = 60000
+total_triangles = 240000
 
----
+# face_count_tree root=/World/Franka
+[/World/Franka]
+type = Xform
+subtree_faces = 120000
+...
+```
 
-### `get_prim_face_count_tree`
+- **The totals** count every mesh at or under `prim_path`, and always come inline.
+- **The tree** lists `prim_path`, its children and theirs to `max_depth`: each mesh with `faces`, `vertices` and
+  `triangles`, each prim above meshes with `subtree_faces`. Prims below `max_depth` aren't listed, but count in the
+  totals and in their ancestors' `subtree_faces`; a deeper call costs Kit no more, since the whole subtree is counted
+  at any depth. When the whole answer passes 1,000 characters, the tree goes to
+  `mcp_output/responses/mesh_stats_NNNN.txt`, a line giving its path, and the totals stay inline.
+- **Only `UsdGeom.Mesh` prims count,** inside instances too, which `get_scene_tree` doesn't list: implicit shapes such
+  as `Cube` and `Sphere` have no faces. A mesh without face data is in the tree with 0 faces, and not in the totals.
 
-Get scene tree with face counts per mesh and subtree totals.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `root` | string | `"/World"` | Starting prim path |
-| `max_depth` | int | `10` | Max traversal depth; 0 for root alone |
-
-**Returns:** Prim-block text where each mesh shows `faces`, `vertices`, `triangles` and each group shows `subtree_faces` total.
-Unlike `get_scene_tree`, it looks inside instanceable prims. Prims below `max_depth` are left out of the list but still
-count in their ancestors' `subtree_faces`.
-
-**When to use:** Quick overview of where geometry budget is spent in a scene, without needing individual `get_mesh_stats` calls.
+**When to use:** checking a geometry budget, what a simplification saved, or where the faces are: a heavy subtree is
+the next call's `prim_path`. `compare_prims` puts two prims or variants side by side.
 
 ---
 

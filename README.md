@@ -158,7 +158,7 @@ Something else? See [Troubleshooting](#troubleshooting).
 | **Physics** | `set_physics_properties`, `apply_force`, `raycast` | Mass, friction and bounce; push an object; cast a ray |
 | **Robots** | `create_robot`, `get_robot_info`, `set_joint_targets` | Add a robot from Isaac Sim's library (Franka, UR10, G1, Spot and more), read its joints and where they are, set joint targets |
 | **Recording** | `start_recording`, `stop_recording`, `get_recording_frame` | Record frames from any camera at any size, and objects' state, while physics plays, then look back at any frame |
-| **Geometry** | `get_mesh_stats`, `get_prim_face_count_tree`, `compare_prims` | Count faces and vertices, find the heaviest parts, compare two objects or variants |
+| **Geometry** | `get_mesh_stats`, `compare_prims` | Count faces and vertices and find the heaviest parts, compare two objects or variants |
 | **USD files and variants** | `flatten_usd`, `export_prim_as_file`, `create_variant_structure`, `set_variant_selection` | Write a stage as one file, export an object, make and switch variant sets |
 | **Kit** | `get_logs`, `manage_extensions`, `draw_debug` | Read Kit's log, turn Kit extensions on and off, draw lines and points in the viewport |
 | **Scripts** | `execute_script` | Run Python inside Kit for anything the other tools don't do |

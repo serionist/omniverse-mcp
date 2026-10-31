@@ -6,8 +6,8 @@ description: >-
   flattening references, exporting a prim as its own file, or fixing material paths after a copy.
 allowed-tools: >-
   mcp__plugin_omniverse-mcp_omniverse__get_sim_state mcp__plugin_omniverse-mcp_omniverse__get_mesh_stats
-  mcp__plugin_omniverse-mcp_omniverse__get_prim_face_count_tree mcp__plugin_omniverse-mcp_omniverse__get_prim_bounds
-  mcp__plugin_omniverse-mcp_omniverse__get_prim_properties mcp__plugin_omniverse-mcp_omniverse__capture_viewport
+  mcp__plugin_omniverse-mcp_omniverse__get_prim_bounds mcp__plugin_omniverse-mcp_omniverse__get_prim_properties
+  mcp__plugin_omniverse-mcp_omniverse__capture_viewport
 ---
 
 # Analyse and prepare geometry
@@ -17,9 +17,10 @@ before calling them.
 
 ## Steps
 
-1. **Where the faces are.** `get_prim_face_count_tree` from the root down shows which subtrees cost most;
-   `get_mesh_stats` breaks one down per mesh (faces, vertices, triangles). Implicit shapes (`Cube`, `Sphere`) count
-   0: only `UsdGeom.Mesh` has faces.
+1. **Where the faces are.** `get_mesh_stats` gives a prim's totals, then the tree under it to `max_depth` (2 unless
+   given): each mesh's faces, vertices and triangles, and each prim's `subtree_faces`, which show the subtrees that
+   cost most. Call it again on a heavy subtree, or with a larger `max_depth`, to break it down to its meshes. Implicit
+   shapes (`Cube`, `Sphere`) count 0: only `UsdGeom.Mesh` has faces.
 2. **Compare.** `compare_prims` with two paths compares geometry, bounds and materials; with one path, a variant set
    and two variant names, it compares the variants, switching and restoring the selection itself.
 3. **Variants.** `create_variant_structure` makes a set with named variants; fill each, then

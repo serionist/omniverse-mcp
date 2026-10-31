@@ -18,6 +18,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   - **`get_joint_states` is `get_robot_info`,** which reads each joint's position and velocity from physics with the
     robot's structure. Stopped, or in a Kit app without Isaac Sim, the answer gives the structure and says why there
     are no positions, where `get_joint_states` failed.
+  - **`get_prim_face_count_tree(root, max_depth)` is `get_mesh_stats(prim_path, max_depth)`:** the totals of every
+    mesh under the prim, then the prims to `max_depth`, 2 when left out where the tree took 10, each mesh with its
+    counts and each prim above meshes with `subtree_faces`. `get_mesh_stats`' list of each mesh, for 20 or fewer, is
+    now that tree.
 
 ### Fixed
 

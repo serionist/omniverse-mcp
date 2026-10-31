@@ -13,51 +13,52 @@ from ._bridge import bridge_call
 if TYPE_CHECKING:
     from omniverse_mcp.server import Helpers
 
+# How /scene/face_count_tree's text ends: the faces and meshes it listed, within max_depth only.
+TREE_TOTAL = "# total:"
+
+
+def _without_total(tree: str) -> str:
+    """The face count tree's text without its last line when that starts TREE_TOTAL. That line counts only the meshes
+    within max_depth, and counts a mesh without face data that /scene/mesh_stats skips, so beside the totals it would
+    contradict them; a tree that ends otherwise is kept whole."""
+    lines = tree.rstrip().split("\n")
+    if lines[-1].startswith(TREE_TOTAL):
+        lines.pop()
+    return "\n".join(lines).rstrip()
+
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @tool(mcp, READS)
     def get_mesh_stats(
         prim_path: Annotated[str, Field(description="The prim to measure, its descendant meshes included")],
+        max_depth: Annotated[
+            int, Field(ge=0, description="How many levels of the tree below prim_path to list; 0 for prim_path alone")
+        ] = 2,
     ) -> str:
-        """Count the faces, vertices and triangles of every mesh at or under a prim: totals, and each mesh's own counts
-        when there are 20 or fewer.
+        """Count the faces, vertices and triangles of every mesh at or under a prim: the totals, then the prims under it
+        to max_depth, each mesh with its counts and each prim above meshes with subtree_faces.
 
-        Use it for one subtree's geometry budget, or what a simplification saved; get_prim_face_count_tree shows where
-        the faces are across a whole tree, and compare_prims puts two prims or variants side by side. Only UsdGeom.Mesh
-        prims count, inside instances too: implicit shapes such as Cube and Sphere have no faces.
+        Use it for a geometry budget, what a simplification saved, or the heavy subtrees: a heavy one is the next
+        call's prim_path. compare_prims puts two prims or variants side by side. Only UsdGeom.Mesh prims count, inside
+        instances too, which get_scene_tree doesn't list: implicit shapes such as Cube and Sphere have no faces. Prims
+        below max_depth aren't listed, but count in the totals and in their ancestors' subtree_faces. The totals always
+        come inline; a tree too long to give with them goes to a file, its path in the answer.
         """
-        resp = bridge_call(client.mesh_stats, prim_path)
-        r = resp["result"]
-        lines = [
-            f"[{r['prim_path']}]",
-            f"meshes = {r['mesh_count']}",
-            f"total_faces = {r['total_faces']}",
-            f"total_vertices = {r['total_vertices']}",
-            f"total_triangles = {r['total_triangles']}",
-        ]
-        if r["mesh_count"] <= 20:
-            lines.append("")
-            for m in r["meshes"]:
-                lines.append(f"[{m['path']}]")
-                lines.append(f"faces = {m['faces']}, vertices = {m['vertices']}, triangles = {m['triangles']}")
-        text = "\n".join(lines)
-        return h.text_response(text, "mesh_stats")
-
-    @tool(mcp, READS)
-    def get_prim_face_count_tree(
-        root: Annotated[str, Field(description="Prim path to start from")] = "/World",
-        max_depth: Annotated[int, Field(ge=0, description="How many levels below root; 0 for root alone")] = 10,
-    ) -> str:
-        """List the prims under root with their geometry: faces, vertices and triangles on each mesh, and subtree_faces
-        on each prim above meshes, to find where a scene's faces are.
-
-        Use it to find the heavy subtrees, then get_mesh_stats for one subtree's totals or compare_prims for two.
-        Unlike get_scene_tree, it looks inside instanceable prims. Prims below max_depth are left out of the list but
-        still count in their ancestors' subtree_faces.
-        """
-        resp = bridge_call(client.face_count_tree, root, max_depth)
-        r = resp["result"]
-        return h.text_response(r["text"], "face_count_tree")
+        r = bridge_call(client.mesh_stats, prim_path)["result"]
+        totals = "\n".join(
+            [
+                f"[{r['prim_path']}]",
+                f"meshes = {r['mesh_count']}",
+                f"total_faces = {r['total_faces']}",
+                f"total_vertices = {r['total_vertices']}",
+                f"total_triangles = {r['total_triangles']}",
+            ]
+        )
+        tree = _without_total(bridge_call(client.face_count_tree, prim_path, max_depth)["result"]["text"])
+        whole = f"{totals}\n\n{tree}"
+        if h.fits(whole):
+            return whole
+        return f"{totals}\n\n{h.write_response(tree, 'mesh_stats', f'the face count tree to depth {max_depth}')}"
 
     @tool(mcp, DESTROYS)
     def flatten_usd(

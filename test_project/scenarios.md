@@ -600,12 +600,13 @@ Each step waits for its drawings to expire before the next.
 - `get_mesh_stats("/World/Nonexistent")` → error
 
 ### 18.4 Face Count Tree
-- `get_prim_face_count_tree("/World")`
-- Verify: hierarchical tree showing Franka with subtree_faces > 0, TestCube with 0
+- `get_mesh_stats("/World", max_depth=10)`
+- Verify: the totals, then a hierarchical tree showing Franka with subtree_faces > 0, TestCube with 0, and no
+  `# total:` line
 
 ### 18.5 Face Count Tree with Depth Limit
-- `get_prim_face_count_tree("/World", max_depth=1)`
-- Verify: only top-level children shown, no deeper nesting
+- `get_mesh_stats("/World", max_depth=1)`
+- Verify: the same totals as 18.4, and only top-level children shown, no deeper nesting
 
 ---
 

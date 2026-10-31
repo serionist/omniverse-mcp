@@ -26,6 +26,11 @@ HANDSHAKE = {"status": "success", "result": {"protocol": 1, "extension_version":
 PNG = "iVBORw0KGgo="
 # Stands for the server's output folder in what a case expects sent: each test has its own.
 OUTPUT = "<output>"
+# /scene/face_count_tree's text for a robot of one mesh, as the extension writes it, its `# total:` line last.
+TREE = (
+    "# face_count_tree root=/World/Robot\n\n[/World/Robot]\ntype = Xform\nsubtree_faces = 6\n\n"
+    "[/World/Robot/Body]\ntype = Mesh\nfaces = 6\nvertices = 8\ntriangles = 12\n\n# total: 6 faces in 1 meshes"
+)
 
 
 @dataclass(frozen=True)
@@ -173,26 +178,23 @@ CASES = [
     # Geometry and USD
     Case(
         "get_mesh_stats",
-        {"prim_path": "/World/Mesh"},
+        {"prim_path": "/World/Robot"},
         "/scene/mesh_stats",
         {
-            "prim_path": "/World/Mesh",
+            "prim_path": "/World/Robot",
             "mesh_count": 1,
             "total_faces": 6,
             "total_vertices": 8,
             "total_triangles": 12,
-            "meshes": [{"path": "/World/Mesh", "faces": 6, "vertices": 8, "triangles": 12}],
+            "meshes": [{"path": "/World/Robot/Body", "faces": 6, "vertices": 8, "triangles": 12}],
         },
-        {"prim_path": "/World/Mesh"},
-        ("total_faces = 6", "faces = 6, vertices = 8, triangles = 12"),
-    ),
-    Case(
-        "get_prim_face_count_tree",
-        {"root": "/World", "max_depth": 0},
-        "/scene/face_count_tree",
-        {"text": "[/World]\nsubtree_faces = 6\n"},
-        {"root": "/World", "max_depth": 0},
-        ("subtree_faces = 6",),
+        {"prim_path": "/World/Robot"},
+        (
+            "[/World/Robot]\nmeshes = 1\ntotal_faces = 6\ntotal_vertices = 8\ntotal_triangles = 12\n\n"
+            "# face_count_tree root=/World/Robot\n\n[/World/Robot]\ntype = Xform\nsubtree_faces = 6\n\n"
+            "[/World/Robot/Body]\ntype = Mesh\nfaces = 6\nvertices = 8\ntriangles = 12",
+        ),
+        more=(("/scene/face_count_tree", {"text": TREE, "total_faces": 6, "mesh_count": 1}),),
     ),
     Case(
         "compare_prims",
@@ -1131,6 +1133,63 @@ def test_joint_states_too_long_to_answer_inline_go_to_the_file_after_the_joints(
     assert written.startswith("Joints (12):\n")
     assert "\n  panda_tcp_joint (PhysicsFixedJoint)\nJoint states (43 DOF, " in written
     assert written.endswith("\n  invented_joint42: pos=0.5000 vel=0.0000")
+
+
+MESH_TOTALS = {
+    "prim_path": "/World/Robot",
+    "mesh_count": 1,
+    "total_faces": 6,
+    "total_vertices": 8,
+    "total_triangles": 12,
+}
+
+
+def _mesh_stats(bridge: MockIsaacServer, tmp_path: Path, tree: str, args: dict[str, Any]) -> tuple[str, list]:
+    bridge.set_response("/scene/mesh_stats", {"status": "success", "result": MESH_TOTALS})
+    bridge.set_response("/scene/face_count_tree", {"status": "success", "result": {"text": tree}})
+    erred, text, calls = _call(bridge, tmp_path, "get_mesh_stats", {"prim_path": "/World/Robot", **args})
+    assert not erred, text
+    return text, calls
+
+
+@pytest.mark.parametrize(("args", "depth"), [({}, 2), ({"max_depth": 0}, 0), ({"max_depth": 20}, 20)])
+def test_get_mesh_stats_asks_the_totals_then_the_tree_from_its_prim(
+    args: dict[str, Any], depth: int, bridge: MockIsaacServer, tmp_path: Path
+):
+    # The tree's route takes the prim as its root, 2 levels when max_depth is left out, where the tree's tool took 10.
+    text, calls = _mesh_stats(bridge, tmp_path, TREE, args)
+    assert calls == [
+        ("/scene/mesh_stats", {"prim_path": "/World/Robot"}),
+        ("/scene/face_count_tree", {"root": "/World/Robot", "max_depth": depth}),
+    ]
+    # The tree's total counts only the meshes within max_depth, and would contradict the totals above it.
+    assert "# total:" not in text
+    assert text.endswith("\ntriangles = 12")
+
+
+@pytest.mark.parametrize(
+    "tree",
+    [
+        "[/World/Robot]\ntype = Xform\nsubtree_faces = 6",
+        "[/World/Robot]\ntype = Xform\n# total: 6 faces, a line that isn't the last\nsubtree_faces = 6\n",
+    ],
+)
+def test_get_mesh_stats_keeps_a_tree_that_doesnt_end_with_its_total(tree: str, bridge: MockIsaacServer, tmp_path: Path):
+    text, _calls = _mesh_stats(bridge, tmp_path, tree, {})
+    assert text.endswith(f"\n\n{tree.rstrip()}")
+
+
+def test_get_mesh_stats_writes_a_tree_too_long_to_give_with_the_totals(bridge: MockIsaacServer, tmp_path: Path):
+    # Under 1,000 characters alone, over them with the totals: the tree goes to a file, the totals stay inline.
+    tree = "\n\n".join(f"[/World/Robot/Part{n:02d}]\ntype = Mesh\nfaces = 6" for n in range(21))
+    assert 900 < len(tree) <= 1000
+    text, _calls = _mesh_stats(bridge, tmp_path, f"{tree}\n\n# total: 126 faces in 21 meshes", {})
+    totals, wrote = text.split("\n\n")
+    assert totals == "[/World/Robot]\nmeshes = 1\ntotal_faces = 6\ntotal_vertices = 8\ntotal_triangles = 12"
+    assert wrote.startswith("Wrote the face count tree to depth 2 (")
+    (path,) = (tmp_path / "responses").glob("mesh_stats_*.txt")
+    assert wrote.endswith(path.name)
+    assert path.read_text(encoding="utf-8") == tree
 
 
 @pytest.mark.parametrize(
