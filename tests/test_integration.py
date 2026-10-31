@@ -770,6 +770,43 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
     def _isaac_calls(self, reset: bool = False) -> int:
         return self._kit(f"COUNT = {0 if reset else 1}\n{_ISAAC_CALLS}")
 
+    def test_12g_a_prim_behind_the_camera_gets_no_screen_box(self):
+        """A prim behind the camera has no screen box, and one across the camera's plane is boxed by its part in front.
+        0.2.3 divided the corners behind the camera by their depth, which mirrored them onto the screen: a box near the
+        image's middle for a prim it couldn't show (#90)."""
+        up = self.client.sim_state()["result"]["up_axis"]
+
+        def at(a: float, h: float, b: float) -> list[float]:
+            return [float(a), float(h), float(b)] if up == "Y" else [float(a), float(b), float(h)]
+
+        # Swapping y and z mirrors the scene, so the camera's right is +x on a Y-up stage and -x on a Z-up one.
+        right = 1.5 if up == "Y" else -1.5
+        root = "/World/IntTestBehind"
+        ahead, behind, across = f"{root}/Ahead", f"{root}/Behind", f"{root}/Across"
+        self.addCleanup(self.client.delete_prim, root)
+        for path, position, scale in (
+            (ahead, at(0, 0.5, 0), at(0.5, 0.5, 0.5)),
+            (behind, at(0, 0.5, 8), at(0.5, 0.5, 0.5)),
+            # 0.2 by 8 along the view, to the right: it reaches from 4 in front of the camera to 4 behind it.
+            (across, at(right, 0.5, 5), at(0.1, 0.1, 4)),
+        ):
+            made = self.client.create_prim(path, "Cube", position=position, scale=scale)
+            self.assertEqual(made["status"], "success", made)
+        aimed = self.client.camera_set(at(0, 0.5, 5), at(0, 0.5, 0))
+        self.assertEqual(aimed["status"], "success", aimed)
+
+        result = self.client.capture_viewport(320, 240)
+
+        self.assertEqual(result["status"], "success", result)
+        boxes = {b["prim_path"]: b["screen_bbox"] for b in result["result"]["screen_bboxes"]}
+        self.assertNotIn(behind, boxes)
+        self.assertLess(abs((boxes[ahead][0] + boxes[ahead][2]) / 2 - 160), 16, boxes[ahead])
+        # Its part in front is all right of the middle, running off the right edge where the near plane cuts it; its
+        # mirrored corners reached into the left half.
+        self.assertGreater(boxes[across][0], 160, boxes[across])
+        self.assertEqual(boxes[across][2], 320.0, boxes[across])
+        print(f"  ahead {boxes[ahead]}, across {boxes[across]}, behind none")
+
     def test_13_camera_inspect_auto_fit(self):
         """Inspect with auto-fit distance (no zoom_offset)."""
         result = self.client.camera_inspect("/World/IntTestCube", angles=["front", "right"])

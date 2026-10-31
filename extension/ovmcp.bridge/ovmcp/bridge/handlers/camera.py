@@ -13,7 +13,7 @@ import omni.usd
 from pxr import Gf, Usd, UsdGeom
 
 from ovmcp.core import capture
-from ovmcp.core.bounds import box_corners, center_and_size, screen_box, world_bbox
+from ovmcp.core.bounds import box_corners, center_and_size, project_in_front, screen_box, world_bbox
 from ovmcp.core.framing import apply_zoom, bounding_radius, fit_distance, inspect_args, require_perspective
 from ovmcp.core.isolation import LIGHT_TYPES, Hidden, is_light, prims_to_hide
 from ovmcp.core.lighting import camera_light_switch, current_mode
@@ -316,6 +316,11 @@ def _compute_screen_bboxes(view, img_width: int, img_height: int):
     vp_params = syn.helpers.get_view_params(view)
     vp_w = vp_params["width"]
     vp_h = vp_params["height"]
+    # A pinhole camera's corners are projected here, not by world_to_image, which divides a corner behind the camera
+    # by its depth and mirrors it onto the screen (#90). A fisheye camera keeps Kit's own projection.
+    pinhole = vp_params["projection_type"] in ("pinhole", None)
+    view_proj = syn.helpers.get_view_proj_mat(vp_params) if pinhole else None
+    near = float(vp_params["clipping_range"][0])
 
     stage = _get_stage()
     bbox_cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), ["default", "render"])
@@ -356,9 +361,15 @@ def _compute_screen_bboxes(view, img_width: int, img_height: int):
         max_pt = box.GetMax()
 
         pts = np.array(box_corners(min_pt, max_pt), dtype=np.float64)
-        # (8, 3): x and y as fractions of the viewport, then depth
-        projected = syn.helpers.world_to_image(pts, view, vp_params)
-        screen_bbox = screen_box(projected.tolist(), (vp_w, vp_h), (img_width, img_height))
+        if view_proj is not None:
+            clip = np.pad(pts, ((0, 0), (0, 1)), constant_values=1.0) @ view_proj
+            points = project_in_front(clip.tolist(), near)
+            if not points:
+                continue  # wholly behind the camera
+        else:
+            # (8, 3): x and y as fractions of the viewport, then depth
+            points = syn.helpers.world_to_image(pts, view, vp_params).tolist()
+        screen_bbox = screen_box(points, (vp_w, vp_h), (img_width, img_height))
         if screen_bbox is None:
             continue
 

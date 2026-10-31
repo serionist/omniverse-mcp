@@ -56,6 +56,9 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   after the write, so the next open gets the new file. The refusals of `flatten_usd` and `export_prim_as_file` no
   longer tell a stage never saved, such as `new_scene`'s, to use `save_scene` to save to its own file, which it hasn't
   got. The fix is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#85).
+- **`capture_viewport`'s boxes leave out a prim behind the camera,** where it got a box mirrored onto the image, near
+  its middle, though the image couldn't show it. A prim across the camera's plane is boxed by its part in front. The
+  fix is in the Kit extension (#90).
 
 ### Changed
 
