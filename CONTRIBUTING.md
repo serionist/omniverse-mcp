@@ -83,8 +83,16 @@ USD write-back off), so it runs only when asked, alone, on an Isaac Sim of its o
 OMNIVERSE_MCP_SIM=1 OMNIVERSE_MCP_GPU=1 uv run pytest tests/test_gpu_force.py
 ```
 
-In PowerShell, set `$env:OMNIVERSE_MCP_GPU = "1"` as well. With it every other live test skips; without it the
-module skips. Restart Kit after it, before any other run.
+In bash the two variables last for that one command. In PowerShell a variable lasts the session, so set it, run the
+module and remove it in one line:
+
+```
+$env:OMNIVERSE_MCP_SIM = "1"; $env:OMNIVERSE_MCP_GPU = "1"; uv run pytest tests/test_gpu_force.py; Remove-Item Env:OMNIVERSE_MCP_GPU
+```
+
+Without `OMNIVERSE_MCP_GPU=1` the module skips. With it, every other live test fails at setup, before it reaches Kit,
+saying to unset it, so a variable left set can't pass a run of the live suites that skipped them all. Restart Kit
+after the module, before any other run.
 
 Kit has hung inside NVIDIA's code during these suites (#54). A call that times out while `/health` gets no answer
 either ends the run there, with the command for a thread dump: take it before you end Kit, and add it to #54.

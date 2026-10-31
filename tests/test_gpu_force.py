@@ -7,7 +7,8 @@ Run alone, on a Kit app of its own with a CUDA GPU (Isaac Sim 6.2 headless is th
 
 It switches the Kit app to the GPU pipeline with Isaac Sim's SimulationManager.set_device("cuda:0"), which
 set_device("cpu") doesn't fully undo: Fabric stays on and USD write-back off, so a pose read through USD goes stale
-(#68's E17). With OMNIVERSE_MCP_GPU=1 every other live test skips, and without it this module does (tests/conftest.py).
+(#68's E17). Without OMNIVERSE_MCP_GPU=1 this module skips; with it every other live test fails at setup, before it
+reaches Kit, so a variable left set can't pass a run of the live suites that skipped them all (tests/conftest.py).
 
 The tests run in the order of their numbers: the first two check the Kit app is fit to switch, the third switches it,
 and each push skips unless the third passed. Momentum is read through a tensor view of the test's own, as #68's probe

@@ -58,9 +58,9 @@ PowerShell unless a PowerShell form stands beside it.
 | the tool contract | `uv run tools/golden.py` after a deliberate change to a tool's name, parameters, bounds or hints, with its CHANGELOG line |
 | live suites | `OMNIVERSE_MCP_SIM=1 uv run pytest tests/test_integration.py tests/test_scenarios.py`; PowerShell: `$env:OMNIVERSE_MCP_SIM = "1"`, then `uv run pytest ...` |
 
-- **Live suites** need a Kit app running `ovmcp.bridge` (Kit's extension search path pointed at `extension/`), at
-  `OMNIVERSE_MCP_HOST` and `OMNIVERSE_MCP_PORT` (127.0.0.1:8211 by default), as the server finds it.
-  Without `OMNIVERSE_MCP_SIM=1` they skip, even with a Kit app running; with it they run, and fail when no Kit answers.
+- **Live suites** need a Kit app running `ovmcp.bridge` (Kit's extension search path on `extension/`), where the server
+  finds it: `OMNIVERSE_MCP_HOST` and `OMNIVERSE_MCP_PORT`, 127.0.0.1:8211 by default. Without `OMNIVERSE_MCP_SIM=1` they
+  skip, even with Kit running; with it they run, and fail when no Kit answers or `OMNIVERSE_MCP_GPU=1` is set.
 - **A headless Isaac Sim** needs `OMNI_KIT_ACCEPT_EULA=YES` (PowerShell: `$env:OMNI_KIT_ACCEPT_EULA = "YES"`), set
   by the person who accepts NVIDIA's EULA. An agent never sets it on its own.
 - **Hosted CI never runs Kit:** a change to the extension, the client or a tool says in its PR whether the live

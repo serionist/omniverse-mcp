@@ -187,7 +187,8 @@ stays. The route's body is unchanged; its answer's `method` can now be `"tensor"
 4. **The live test,** a module of its own, `tests/test_gpu_force.py`, marked `gpu` and `sim` (Q6):
    - `tests/conftest.py`'s collection hook is reordered so the rule for `gpu` holds whatever `OMNIVERSE_MCP_SIM` is:
      a `gpu` test runs only with `OMNIVERSE_MCP_SIM=1` and `OMNIVERSE_MCP_GPU=1`, and with `OMNIVERSE_MCP_GPU=1`
-     every other live test skips, so a GPU run has its Kit to itself; `gpu` joins `pyproject.toml`'s markers, as
+     every other live test skips (fails at setup since the code review's F5, so a variable left set can't pass the
+     live suites skipped), so a GPU run has its Kit to itself; `gpu` joins `pyproject.toml`'s markers, as
      `strict_markers` asks. The branch takes `main` first, for #94's guard in the same file: being marked `sim`, the
      module is covered by it, and a Kit the switch leaves unanswering ends the run at its first timeout;
    - its first test checks the Kit is on the CPU pipeline (`/physics/suppressReadback` false), so a Kit left on the
