@@ -1,5 +1,5 @@
-"""apply_force's handler against a fake Kit (#68): today's call through IPhysxSimulation, which PhysX takes everywhere
-but under the Direct GPU API, and the push through PhysX's tensor API there.
+"""apply_force's handler against a fake Kit (#68): IPhysxSimulation.apply_force_at_pos with /physics/suppressReadback
+off, and the push through PhysX's tensor API with it on, as PhysX's Direct GPU API has it.
 
 handlers/simulation.py is loaded from its file with Kit's modules, omni.physx, omni.physics.tensors and warp faked in
 sys.modules, as tests/test_recording_handler.py loads its handler. The stage is a real usd-core one, and the Kit-free
@@ -19,6 +19,8 @@ import numpy as np
 import pxr
 import pytest
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics
+
+from ovmcp.core import force
 
 from .conftest import EXTENSION_ROOT
 
@@ -242,7 +244,7 @@ def _push(simulation: Any, **extra: Any) -> dict[str, Any]:
     return asyncio.run(simulation.handle_apply_force(body))
 
 
-# ----- today's path: IPhysxSimulation.apply_force_at_pos -----
+# ----- readback on: IPhysxSimulation.apply_force_at_pos -----
 
 
 def test_the_cpu_pipeline_pushes_through_physx_at_the_centre_of_mass(simulation, kit):
@@ -300,6 +302,24 @@ def test_with_the_setting_on_every_scene_takes_the_tensor_path(simulation, kit, 
     assert r["result"]["method"] == "tensor"
     assert len(kit.tensor_pushes) == 1
     assert not kit.physx_pushes
+
+
+@pytest.mark.parametrize(("suppress", "walks"), [(False, 0), (True, 1)])
+def test_a_push_looks_for_the_physics_scene_once_at_most(simulation, kit, monkeypatch, suppress, walks):
+    # Each look walks the whole stage: only the tensor path needs the scene, for its step, and it looks once.
+    looked: list[Usd.Stage] = []
+    first_scene = force._first_scene
+
+    def counted(stage: Usd.Stage) -> Usd.Prim | None:
+        looked.append(stage)
+        return first_scene(stage)
+
+    monkeypatch.setattr(force, "_first_scene", counted)
+    kit.suppress = suppress
+    _scene(kit, "gpu")
+    r = _push(simulation, impulse=True)
+    assert r["result"]["method"] == ("tensor" if suppress else "physx"), r
+    assert len(looked) == walks
 
 
 @pytest.mark.parametrize(
@@ -375,7 +395,7 @@ def test_under_the_direct_gpu_api_the_body_is_pushed_through_the_tensor_api(simu
         "impulse": False,
         "method": "tensor",
     }
-    assert not kit.physx_pushes, "today's call moves nothing there"
+    assert not kit.physx_pushes, "apply_force_at_pos moves nothing there"
     assert kit.view_frontends == [("warp", 7)]
     ((forces, torques, points, indices, is_global),) = kit.tensor_pushes
     assert forces.data.tolist() == [[10.0, 0.0, 0.0]]

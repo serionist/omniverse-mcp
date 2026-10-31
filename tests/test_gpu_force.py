@@ -198,7 +198,9 @@ class TestGpuForce(PhysicsChecks):
             position[self._up_axis()] += above
         r = self.c.apply_force(body, force=[force, 0.0, 0.0], position=position, impulse=impulse)
         self.assertEqual(r["status"], "success", r)
-        self.assertEqual(r["result"]["method"], "tensor", f"today's call moves nothing under the Direct GPU API: {r}")
+        self.assertEqual(
+            r["result"]["method"], "tensor", f"apply_force_at_pos moves nothing under the Direct GPU API: {r}"
+        )
         self._run_frames(FRAMES)
         after = self._state(paths)
         change = [a - b for a, b in zip(after["momentum"], before["momentum"], strict=True)]
