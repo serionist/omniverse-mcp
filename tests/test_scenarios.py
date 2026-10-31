@@ -10,6 +10,7 @@ import itertools
 import json
 import math
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -21,7 +22,7 @@ import pytest
 
 from omniverse_mcp.client import BridgeClient
 
-from .conftest import CAMERA_AIM, VIEWPORT_SEGMENTATION_ON, live_bridge
+from .conftest import CAMERA_AIM, VIEWPORT_SEGMENTATION_ON, call_tool, live_bridge
 from .physics_checks import PhysicsChecks, _along_up, _turn_degrees
 
 pytestmark = pytest.mark.scenario
@@ -1299,6 +1300,51 @@ class TestScenarios(PhysicsChecks):
         r = self.c.get_joint_states("/World/G1")
         self.assertEqual(r["status"], "error")
         self.assertIn("play or step the simulation first", r["error"])
+        self._pass()
+
+    def _robot_info(self, out: str) -> str:
+        """get_robot_info on the G1 through the MCP server, with the file its answer names, if any, after it."""
+        erred, text = call_tool("get_robot_info", {"prim_path": "/World/G1"}, out)
+        self.assertFalse(erred, text)
+        self.assertTrue(text.startswith("Robot: /World/G1\nArticulation: True\nDOF: "), text)
+        wrote = re.search(r"^Wrote .+ -> (.+)$", text, re.MULTILINE)
+        if wrote is None:
+            return text
+        # The answer gives the file relative to the working folder when it is under it, else absolute.
+        return f"{text}\n{Path(wrote[1]).read_text(encoding='utf-8')}"
+
+    def test_14_05_get_robot_info_reads_the_joint_states_through_the_server(self):
+        """Phase 14.4 through the MCP server (#77): get_robot_info answers the G1's structure with its joint states
+        while paused, and with a line saying why there are none once stopped, where get_joint_states failed. 14_04
+        leaves the G1 stopped, so this plays and pauses it itself."""
+        out = tempfile.mkdtemp(prefix="ovmcp-scenario-")
+        self.addCleanup(shutil.rmtree, out, True)
+        try:
+            r = self.c.sim_control("play")
+            self.assertEqual(r["status"], "success", f"Play failed: {r.get('error', '')}")
+            time.sleep(0.5)
+            self.assertEqual(self.c.sim_control("pause")["status"], "success")
+
+            paused = self._robot_info(out)
+        finally:
+            self.c.sim_control("stop")
+
+        self.assertRegex(paused, r"(?m)^Joints \(\d+\):$")
+        header = re.search(r"(?m)^Joint states \((\d+) DOF, from physics: .+\):$", paused)
+        self.assertIsNotNone(header, paused)
+        assert header is not None
+        dof = int(header[1])
+        self.assertGreater(dof, 0)
+        states = paused[header.end() :].lstrip("\n").splitlines()[:dof]
+        for line in states:
+            self.assertRegex(line, r"^  \S+: pos=-?\d+\.\d{4} vel=-?\d+\.\d{4}$")
+        self.assertEqual(len(states), dof)
+
+        stopped = self._robot_info(out)
+        self.assertRegex(stopped, r"(?m)^Joints \(\d+\):$")
+        self.assertRegex(stopped, r"(?m)^Joint states: not read: .*play or step the simulation first")
+        self.assertNotIn("pos=", stopped)
+        print(f"  Paused: {dof} DOF read through the server; stopped: the structure, and why there are no states")
         self._pass()
 
     # ===== Phase 15: Physics Properties & Forces =====

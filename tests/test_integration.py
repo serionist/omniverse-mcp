@@ -8,6 +8,7 @@ Usage, with Kit running: OMNIVERSE_MCP_SIM=1 uv run pytest -m sim
 
 import base64
 import json
+import re
 import secrets
 import shutil
 import tempfile
@@ -22,7 +23,7 @@ import pytest
 from omniverse_mcp.client import BridgeClient
 from ovmcp.core import capture
 
-from .conftest import CAMERA_AIM, RESTORE_LIMIT, SET_LIMIT, VIEWPORT_SEGMENTATION_ON, live_bridge
+from .conftest import CAMERA_AIM, RESTORE_LIMIT, SET_LIMIT, VIEWPORT_SEGMENTATION_ON, call_tool, live_bridge
 
 pytestmark = pytest.mark.sim
 
@@ -382,6 +383,51 @@ class TestIsaacSimIntegration(unittest.TestCase):
         self.assertEqual([line for line in lines if line.startswith("[")], [f"[{root}]", f"[{root}/A]", f"[{root}/B]"])
         self.assertIn("children = 1 (truncated)", lines)
         print("  A tree at depth 0 and 1: the next level's children counted, not listed")
+
+    def _output_folder(self) -> str:
+        """A folder of the test's own for the server's files and Kit's, gone when the test ends."""
+        folder = tempfile.mkdtemp(prefix="ovmcp-IntTest-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        return folder
+
+    def test_03c_scene_tree_lists_or_dumps_through_the_server(self):
+        """get_scene_tree through the MCP server (#77): the list without values, Kit's file with include_properties,
+        whose prim count is the file's blocks, and a max_depth over the list's old cap of 15."""
+        root, out = "/World/IntTestServerTree", self._output_folder()
+        self.addCleanup(self.client.delete_prim, root)
+        paths = (root, f"{root}/A", f"{root}/B", f"{root}/A/Deep")
+        for path in paths:
+            made = self.client.create_prim(path, "Xform")
+            self.assertEqual(made["status"], "success", made)
+
+        erred, text = call_tool("get_scene_tree", {"root": root, "max_depth": 1}, out)
+        self.assertFalse(erred, text)
+        lines = text.splitlines()
+        self.assertEqual([line for line in lines if line.startswith("[")], [f"[{p}]" for p in paths[:3]])
+        self.assertIn("children = 1 (truncated)", lines)
+
+        erred, text = call_tool("get_scene_tree", {"root": root, "include_properties": True}, out)
+        self.assertFalse(erred, text)
+        dumped = re.fullmatch(
+            rf"Dumped (\d+) prims under {re.escape(root)}, to depth 15 \([\d,]+ bytes\) -> (.+)", text
+        )
+        self.assertIsNotNone(dumped, text)
+        assert dumped is not None
+        dump = Path(out) / "scene_dump.txt"
+        self.assertEqual(Path(dumped[2]).resolve(), dump.resolve())
+        written = dump.read_text(encoding="utf-8")
+        blocks = [line for line in written.splitlines() if line.startswith("[/")]
+        self.assertEqual(sorted(blocks), sorted(f"[{p}]" for p in paths))
+        self.assertEqual(int(dumped[1]), len(blocks))
+        self.assertIn("\nvisibility = ", written)  # the attribute values include_properties asks for
+
+        erred, text = call_tool("get_scene_tree", {"root": root, "max_depth": 20}, out)
+        self.assertFalse(erred, text)
+        self.assertEqual(
+            sorted(line for line in text.splitlines() if line.startswith("[")), sorted(f"[{p}]" for p in paths)
+        )
+        self.assertNotIn("truncated", text)
+        print(f"  Listed to depth 1, dumped {len(blocks)} prims to {dump.name}, listed to depth 20")
 
     # ===== Script execution =====
 
@@ -808,6 +854,45 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(boxes[across][2], 320.0, boxes[across])
         print(f"  ahead {boxes[ahead]}, across {boxes[across]}, behind none")
 
+    def test_12h_set_camera_aims_at_a_point_or_a_prim_through_the_server(self):
+        """set_camera through the MCP server (#77): a point without a target, which the answer now says is the world
+        origin; a prim, framed by the route the prim form picks; and the two forms mixed, refused before the camera
+        moves."""
+        out = self._output_folder()
+        prim = "/World/IntTestServerAim"
+        self.addCleanup(self.client.delete_prim, prim)
+        made = self.client.create_prim(prim, "Cube", position=[1.0, 2.0, 0.5], scale=0.5)
+        self.assertEqual(made["status"], "success", made)
+
+        erred, text = call_tool("set_camera", {"position": [5, 3, 5]}, out)
+        self.assertFalse(erred, text)
+        self.assertTrue(text.endswith(" looking at [0, 0, 0], the world origin: no target was given"), text)
+        aim = self._camera_aim([0, 0, 0])
+        self.assertLess(aim["degrees"], 0.5, aim)
+
+        erred, text = call_tool("set_camera", {"prim_path": prim, "azimuth": 30, "elevation": 20}, out)
+        self.assertFalse(erred, text)
+        framed = re.search(rf"looking at the centre of {re.escape(prim)}, \[([^\]]+)\]\nDistance: ", text)
+        self.assertIsNotNone(framed, text)
+        assert framed is not None
+        centre = [float(v) for v in framed[1].split(",")]
+        bounds = self.client.prim_bounds(prim)
+        self.assertEqual(bounds["status"], "success", bounds)
+        for got, want in zip(centre, bounds["result"]["center"], strict=True):
+            self.assertAlmostEqual(got, want, places=4)
+        self.assertIn("Azimuth: 30.0deg, Elevation: 20.0deg", text)
+        aim = self._camera_aim(centre)
+        self.assertLess(aim["degrees"], 0.5, aim)
+
+        erred, text = call_tool("set_camera", {"prim_path": prim, "position": [5, 3, 5]}, out)
+        self.assertTrue(erred, text)
+        self.assertIn("leave position and target out", text)
+        unmoved = self._camera_aim(centre)
+        for got, want in zip(unmoved["eye"], aim["eye"], strict=True):
+            self.assertAlmostEqual(got, want, places=4)
+        self.assertLess(unmoved["degrees"], 0.5, unmoved)
+        print(f"  At a point, around {prim} at {centre}, and the mix refused with the camera where it was")
+
     def test_13_camera_inspect_auto_fit(self):
         """Inspect with auto-fit distance (no zoom_offset)."""
         result = self.client.camera_inspect("/World/IntTestCube", angles=["front", "right"])
@@ -1218,6 +1303,35 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         # Procedural Cube has no UsdGeom.Mesh, so 0 faces expected
         self.assertEqual(result["result"]["total_faces"], 0)
         print(f"  Procedural cube: {result['result']['total_faces']} faces (expected 0)")
+
+    def test_23b_mesh_stats_gives_totals_and_the_tree_through_the_server(self):
+        """get_mesh_stats through the MCP server (#77): a mesh under an Xform, its totals inline, then the face count
+        tree from the prim, with the mesh's counts and its parent's subtree_faces, and no `# total:` line."""
+        root = "/World/IntTestServerMesh"
+        self.addCleanup(self.client.delete_prim, root)
+        # Two quads side by side: 2 faces, 6 points, 4 triangles.
+        made = self._kit(
+            "from pxr import Gf\n"
+            "stage = omni.usd.get_context().get_stage()\n"
+            f"UsdGeom.Xform.Define(stage, {root!r})\n"
+            f"mesh = UsdGeom.Mesh.Define(stage, {root + '/Quads'!r})\n"
+            "mesh.CreatePointsAttr([Gf.Vec3f(x, y, 0) for y in (0, 1) for x in (0, 1, 2)])\n"
+            "mesh.CreateFaceVertexCountsAttr([4, 4])\n"
+            "mesh.CreateFaceVertexIndicesAttr([0, 1, 4, 3, 1, 2, 5, 4])\n"
+            "result = str(mesh.GetPath())"
+        )
+        self.assertEqual(made, f"{root}/Quads")
+
+        erred, text = call_tool("get_mesh_stats", {"prim_path": root}, self._output_folder())
+
+        self.assertFalse(erred, text)
+        totals, tree = text.split("\n\n", 1)
+        self.assertEqual(totals, f"[{root}]\nmeshes = 1\ntotal_faces = 2\ntotal_vertices = 6\ntotal_triangles = 4")
+        self.assertTrue(tree.startswith(f"# face_count_tree root={root}\n"), tree)
+        self.assertIn(f"[{root}]\ntype = Xform\nsubtree_faces = 2", tree)
+        self.assertIn(f"[{root}/Quads]\ntype = Mesh\nfaces = 2\nvertices = 6\ntriangles = 4", tree)
+        self.assertNotIn("# total:", tree)
+        print(f"  {root}: the totals, then its tree of {tree.count('[/')} prims")
 
     # ===== Logs =====
 
