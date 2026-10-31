@@ -59,6 +59,9 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ### Changed
 
+- **The Kit extension no longer turns on the viewport's instance segmentation at startup,** which copied the
+  viewport's instance ids to the host every frame for nothing: since 0.2.3 each capture segments through a camera
+  feed of its own (#76).
 - **`set_prim_transform`, `create_prim` and `create_robot` refuse what they can't show:** a rotation that isn't 3 or 4
   numbers, which they ignored; a zero quaternion; an xform op with animation, whose value they set where the animation
   hid it or froze it; ops a stronger layer holds, such as Kit's viewport camera's, where they failed with a USD error;

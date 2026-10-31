@@ -491,7 +491,7 @@ stage waits 1 s, until a read gets data, so `capture_viewport` doesn't pay 5 s o
 
 ## Extension Lifecycle
 
-- **on_startup**: Creates the HTTP server, binds to configured host:port, registers all routes. Enables the `omni.syntheticdata` instance segmentation sensor on the viewport once it exists; captures, which render through feeds of their own since #51, turn it on for each feed instead ([Viewport Capture](#viewport-capture))
+- **on_startup**: Creates the HTTP server, binds to configured host:port, registers all routes. It turns on no sensor of the viewport's: captures render through feeds of their own and turn instance segmentation on for each feed ([Viewport Capture](#viewport-capture)), so the viewport's own sensor, which copied its instance ids to the host every frame, is left off (#76)
 - **on_shutdown**: Stops any active recording, cancelling its frames and dropping its camera feed, and drops the debug
   drawing subscription and its book (deleting and clearing nothing: the stage may be tearing down; a recording's
   render product stays on a stage that outlives the extension), clears caches, closes the HTTP server

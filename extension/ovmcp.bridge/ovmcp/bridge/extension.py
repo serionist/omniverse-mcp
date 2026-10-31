@@ -152,7 +152,6 @@ class Extension(omni.ext.IExt):
         self._token_port = None
         self._server = BridgeServer(routes, self._token, self._host, self._port, log=_CarbLog())
         _get_event_loop().create_task(self._start_server())
-        _get_event_loop().create_task(self._init_sensors())
         carb.log_info(f"[MCP Bridge] Starting on {self._host}:{self._port}")
 
     def on_shutdown(self):
@@ -174,29 +173,6 @@ class Extension(omni.ext.IExt):
             self._server = None
         if self._token_port is not None:
             remove_token(self._token_port, self._token)
-
-    async def _init_sensors(self):
-        """Pre-initialize syntheticdata sensors so capture_viewport works on first call."""
-        try:
-            import omni.syntheticdata as syn
-            from omni.kit.viewport.utility import get_active_viewport
-
-            # Wait for viewport to be ready
-            for _ in range(30):
-                await asyncio.sleep(0.5)
-                vp = get_active_viewport()
-                if vp is not None:
-                    break
-
-            if vp is None:
-                carb.log_warn("[MCP Bridge] No viewport found, segmentation won't be available")
-                return
-
-            syn.sensors.create_or_retrieve_sensor(vp, syn._syntheticdata.SensorType.InstanceSegmentation)
-            syn.sensors.enable_sensors(vp, [syn._syntheticdata.SensorType.InstanceSegmentation])
-            carb.log_info("[MCP Bridge] Instance segmentation sensor initialized")
-        except Exception as e:
-            carb.log_warn(f"[MCP Bridge] Sensor init failed (non-fatal): {e}")
 
     async def _start_server(self):
         server = self._server
