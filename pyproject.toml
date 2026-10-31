@@ -115,7 +115,8 @@ include = [
 
 # Strict from the start (plan S6): an unknown marker or setting, an xfail that passes, a repeated parametrize id and
 # any warning are errors. Each by name rather than `strict`, so a newer pytest can't turn on more unseen. The live
-# suites carry the markers sim and scenario, and run only with OMNIVERSE_MCP_SIM=1 (tests/conftest.py, plan D11).
+# suites carry the markers sim and scenario, and run only with OMNIVERSE_MCP_SIM=1 (tests/conftest.py, plan D11); gpu
+# is the GPU module's, which also needs OMNIVERSE_MCP_GPU=1.
 [tool.pytest]
 addopts = ["--import-mode=importlib", "-ra"]
 testpaths = ["tests"]
@@ -127,6 +128,7 @@ filterwarnings = ["error"]
 markers = [
     "sim: needs a Kit app running ovmcp.bridge (tests/test_integration.py)",
     "scenario: the scenario suite, against a Kit app running ovmcp.bridge (tests/test_scenarios.py)",
+    "gpu: switches the Kit app to the GPU pipeline; needs OMNIVERSE_MCP_GPU=1 too (tests/test_gpu_force.py)",
 ]
 
 # Coverage of the server and the extension's core, lines and branches; the Kit-bound modules only run inside Kit. The

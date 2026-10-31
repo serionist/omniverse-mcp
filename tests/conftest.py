@@ -20,13 +20,29 @@ sys.path.insert(0, str(REPO_ROOT / "tools"))
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """The live suites run only with OMNIVERSE_MCP_SIM=1 (plan D11). A Kit app that happens to answer on the bridge's
-    port is someone's open stage, which the scenarios change, and the coverage floor must not depend on one."""
-    if os.environ.get("OMNIVERSE_MCP_SIM") == "1":
-        return
-    skip = pytest.mark.skip(reason="a live suite: set OMNIVERSE_MCP_SIM=1, with a Kit app running ovmcp.bridge")
+    port is someone's open stage, which the scenarios change, and the coverage floor must not depend on one.
+
+    The GPU module (marker `gpu`, #68) switches the Kit app to the GPU pipeline, which a switch back doesn't fully undo
+    (Fabric stays on, USD write-back off): it runs only with OMNIVERSE_MCP_SIM=1 and OMNIVERSE_MCP_GPU=1, and then
+    alone, so no other live test reads the Kit app it changed. Its rule is read first and holds whatever SIM is.
+    """
+    sim = os.environ.get("OMNIVERSE_MCP_SIM") == "1"
+    gpu = os.environ.get("OMNIVERSE_MCP_GPU") == "1"
+    no_sim = pytest.mark.skip(reason="a live suite: set OMNIVERSE_MCP_SIM=1, with a Kit app running ovmcp.bridge")
+    no_gpu = pytest.mark.skip(
+        reason="the GPU module switches Kit to the GPU pipeline: set OMNIVERSE_MCP_SIM=1 and OMNIVERSE_MCP_GPU=1, "
+        "on a Kit app of its own"
+    )
+    gpu_alone = pytest.mark.skip(reason="OMNIVERSE_MCP_GPU=1 runs the GPU module alone, on a Kit app of its own")
     for item in items:
-        if item.get_closest_marker("sim") or item.get_closest_marker("scenario"):
-            item.add_marker(skip)
+        if item.get_closest_marker("gpu"):
+            if not (sim and gpu):
+                item.add_marker(no_gpu)
+        elif item.get_closest_marker("sim") or item.get_closest_marker("scenario"):
+            if not sim:
+                item.add_marker(no_sim)
+            elif gpu:
+                item.add_marker(gpu_alone)
 
 
 # How long /health may take when a live call has timed out, before Kit counts as hung: a handler that runs long on
