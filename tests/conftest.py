@@ -29,9 +29,12 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             item.add_marker(skip)
 
 
-# How long /health may take when a live call has timed out, before Kit counts as hung.
-PROBE_SECONDS = 10.0
+# How long /health may take when a live call has timed out, before Kit counts as hung: a handler that runs long on
+# Kit's loop holds /health back too, so it gets twice the scenarios' usual timeout.
+PROBE_SECONDS = 20.0
 Request = Callable[..., dict[str, Any]]
+# BridgeClient.request as the client defines it, before the session's guard wraps it.
+UNGUARDED: Request = BridgeClient.request
 
 
 def health_answers(request: Request, host: str, port: int) -> bool:
@@ -40,7 +43,9 @@ def health_answers(request: Request, host: str, port: int) -> bool:
     probe = BridgeClient(host=host, port=port, timeout=PROBE_SECONDS)
     try:
         return request(probe, "/health", {}, "GET").get("status") == "success"
-    except (OSError, BridgeError):
+    except BridgeError:
+        return True  # a refused token is an answer: Kit is running, perhaps restarted with another token
+    except OSError:
         return False
     finally:
         probe.close()
@@ -82,7 +87,7 @@ HUNG = HungKit()
 @pytest.fixture(autouse=True, scope="session")
 def _stop_at_a_hung_kit() -> Iterator[None]:
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(BridgeClient, "request", HUNG.guard(BridgeClient.request))
+        patch.setattr(BridgeClient, "request", HUNG.guard(UNGUARDED))
         yield
 
 
