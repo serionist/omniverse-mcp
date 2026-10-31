@@ -33,7 +33,9 @@ before play, so pause to look at a moment in the middle.
    mass, while a fixed robot's link turns about its joints and friction on the ground takes some of the push. A body
    a fixed joint holds to the world, such as a fixed robot's base, is refused. With `/physics/suppressReadback` on,
    as Isaac Sim's GPU device sets it for PhysX's Direct GPU API, the push goes through PhysX's tensor API and its
-   answer says `method: tensor`. `raycast` needs the simulation to have played.
+   answer says `method: tensor`; there a second push on a body before the next physics step replaces the first, so
+   push once per body per step, combining pushes into one, while pushes on different bodies each land. `raycast`
+   needs the simulation to have played.
 5. **Record what happens.** `start_recording` with `track_prims`, play, then `stop_recording`: each frame's image and
    the tracked prims' state land in `mcp_output/recordings/<session>/`. `get_recording_frame` reads one frame back.
    Frames come from `camera_path` (the viewport's camera when empty) at `width` x `height`, 640x480 unless given,

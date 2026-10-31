@@ -62,8 +62,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 - **`apply_force` pushes under PhysX's Direct GPU API,** which Isaac Sim turns on for a GPU device
   (`SimulationManager.set_device("cuda:0")`), where it was refused: PhysX's own push moves nothing there, so whenever
   `/physics/suppressReadback` is on the call goes through PhysX's tensor API, with the same refusals, and its answer
-  says `method: tensor`. That takes in a scene on the CPU with the setting on, which was refused too. The fix is in the
-  Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#68).
+  says `method: tensor`. That takes in a scene on the CPU with the setting on, which was refused too. Under the Direct
+  GPU API a second push on a body before the next physics step replaces the first, so push once per body per step,
+  combining pushes into one; pushes on different bodies each land. The fix is in the Kit extension: run
+  `uvx omniverse-mcp extension install`, then restart Kit (#68).
 
 ### Changed
 

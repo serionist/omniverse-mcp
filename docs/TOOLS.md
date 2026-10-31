@@ -935,6 +935,11 @@ GPU dynamics: the tensor API pushes on a CPU scene with the setting on too. With
 included, the call keeps PhysX's own push, which moves the body there. The tensor API has no impulse, so an impulse
 goes in as the force that gives it over one physics step.
 
+Under the Direct GPU API a second push on a body before the next physics step replaces the first, where on the CPU
+pipeline the two add: two impulses of 10 N s on one body while paused change its momentum by 10, not 20, as measured
+on Isaac Sim 6.2. So push once per body per step, combining pushes into one, such as one impulse of 20 N s. Pushes on
+different bodies each land.
+
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Rigid body prim, a robot's link among them |
