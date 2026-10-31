@@ -1,9 +1,9 @@
 ---
 title: Make twelve tools do what their answers say
 issue: "#82"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-10-31
 ---
 
 # Make twelve tools do what their answers say
@@ -21,7 +21,7 @@ When this is done, with this release's Kit extension:
 |---|---|---|---|
 | R1 | `delete_prim` | A prim it can't remove (another layer defines it, or a reference or payload on a prim above brings it) is refused, naming why, with nothing changed; a prim it deletes is gone | `test_deletion.py`, `test_scene_handler.py`; live `test_07b` |
 | R2 | `set_camera`, `look_at_prim`, and `inspect_prim` (E4) | They aim in every Kit app: through Isaac Sim's `set_camera_view` where it loads, through the camera's own ops, in the layer that holds them, elsewhere; nothing is left in the stage's root layer; `look_at_prim` no longer wipes a camera's rotation | `test_camera_handler.py`, `test_xform.py`; live `test_12f` (the fallback forced), `test_11`, `test_12` |
-| R3 | `set_camera` | Without a target, the answer says it looks at the world origin; a target equal to the position is an error | `test_tools.py` |
+| R3 | `set_camera` | A position equal to the target it aims at, the world origin when none is given, is an error. What the answer says without a target is left to #77's merged camera tool (Q2) | `test_tools.py` |
 | R4 | `set_material` | `opacity=1` makes a material opaque again | `test_material.py`, `test_scene_handler.py`; scenario `12_04` |
 | R5 | `dump_scene` | "Dumped N prims" and the file's header count the prim blocks written | `test_formatter.py`, `test_scene_handler.py`; scenario `08_01` |
 | R6 | `start_recording` | A second start says to call `stop_recording`, not to pass `force=True` | `test_recording_handler.py`; scenario `11_04` |
@@ -249,9 +249,9 @@ fallback calls `ViewportCameraState` where it loads.
 
 - **`set_camera`:** `except (ImportError, Exception)` goes: an exception in Isaac's call is an error, where 0.2.3 fell
   back to `_apply_xform`.
-- **R3, in the server:** with no `target`, the answer says `looking at the world origin [0, 0, 0] (no target given)`
-  (Q2); a `position` equal to the target it aims at, the origin when none is given, is refused before any request.
-  Both hold with any extension; `_aim_camera` and `look_at` refuse the same point too.
+- **R3, in the server:** a `position` equal to the target it aims at, the origin when none is given, is refused before
+  any request; it holds with any extension, and `_aim_camera` and `look_at` refuse the same point too. The answer
+  without a target stays as it is: #77's merged camera tool settles what it says (Q2).
 - **`look_at_prim`:** its own fallback goes.
 - **`inspect_prim`:** an angle whose aim fails says why, as an angle whose capture fails does. Its fallback in 0.2.3
   is the `_set_camera_xform` call that moved nothing on Kit's camera in E4, so outside Isaac Sim every angle showed the
@@ -323,21 +323,21 @@ nothing wrong. The other tools don't warn per call (Q9).
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 | `start_recording`'s refusal: expose a `force` parameter (a schema change, a one-way door), or say `call stop_recording first`? | The message: `stop_recording` ends the recording and writes its metadata, where `force` drops it unwritten; the route keeps `force` for HTTP callers | |
-| Q2 | `set_camera` without a target: aim at the origin and say so, or keep the camera's direction and only move it? | Say so: the description has said "the origin when omitted" since #83, and the other would change what a call does for anyone who relies on it | |
-| Q3 | `set_material` without `opacity`: opaque, as `roughness` and `metallic` take their defaults on every call, or keep the material's opacity (a `None` default: a schema change)? | Opaque: one rule for the three values and no contract change; the description says a recolour sets all three | |
-| Q4 | `delete_prim` on a prim USD can't remove: refuse, naming why, with nothing changed; deactivate it instead; or remove it from every local layer, as Kit's delete does? | Refuse: the call does what its name says or nothing, and the error names `set_visibility` | |
-| Q5 | `set_prim_transform`'s rotation into a rotate op of another kind: convert it into that op, or replace the op in its place by the kind given? | Convert: every op stays as authored, which is #82's point; `get_prim_properties` gives the world rotation as a quaternion either way | |
-| Q6 | An op with time samples (restated in round 1, P4). Samples in the written layer or a stronger one hide the default value the tool writes; samples only in a weaker layer, such as an animated asset's, are overridden by it, which freezes the animation. Refuse both, saying which by layer, or write in the second case and say the animation is frozen? | Refuse both, with the reason by layer: success with nothing visible, or an animation silently stopped, is the kind of bug #82 is about | |
-| Q7 | After Isaac Sim's `set_camera_view`, check that the camera aims at the target, and take the USD look-at when it doesn't? | Yes, the more so after E5: straight down a Y-up stage's up axis, Isaac's call answered success with the camera at the origin, 64 degrees off. It changes Isaac Sim's behaviour only where the camera was left unaimed | |
-| Q8 | `get_recording_frame`: read a relative `session_dir` from the server's working folder, where Kit read it from its own? | Yes: it is the form `start_recording` and `stop_recording` print, and no tool writes a recording under Kit's folder | |
-| Q9 | An older extension (restated in round 1, P14). `delete_prim`, which destroys work: one added line to its answer when the extension made no check ("this Kit extension, older than the server, answers deleted for a prim another layer keeps: check with get_scene_tree"). The other tools: no warning per call, as for #74 and #84, with `docs/TOOLS.md` and `CHANGELOG.md` saying which fixes need this release's extension? | Yes to both. A plugin update moves the server ahead of the extension, so a new description over an old `delete_prim` would say "refused" while the prim stays. The line keys on the answer's `checked` marker, not the handshake's version, so a later server on an older extension that has the check says nothing wrong. The other fixes are a few lines each, and `get_sim_state`'s note names the install command | |
-| Q10 | One PR for the twelve rows, or the transforms and the camera (R2, R7, R8) apart from the rest? | One: the issue asks for it, the docs move once, and one live run covers all; the Steps keep the transform core in commits of its own, so a split stays possible | |
-| Q11 | The script skill's trap row says neither a USD write nor `ViewportCameraState` moves the viewport camera reliably (from `8d684d6`, in March). E4: `ViewportCameraState` moved it exactly; a `UsdGeom.Xformable` write moved nothing because it lands in the edit target's layer, which the session layer, holding Kit's camera, outranks. Correct the row in this PR? | Yes, through `write-skill`: "a write in the stage's edit layer doesn't move Kit's viewport camera, whose ops the session layer holds: `await mcp.set_camera()` or `mcp.look_at()`, or `ViewportCameraState`" | |
-| Q12 | The extras found reading the rows: `raycast`'s `m`, `set_camera`'s target equal to its position, a rotation that isn't 3 or 4 numbers, the camera fallback's parent space and `!resetXformStack!`, the centre of interest after either path (E5). In this PR? | Yes: the same kind of bug, a few lines each, each with its test | |
-| Q13 | `raycast` (R10): Isaac Sim 6.2's PhysX scales the direction itself, so today's answers are right (E6), and only the description, "a unit vector: PhysX takes it as given", is wrong. Keep the server's scaling, or fix only the description? | Keep it, with the description fixed: two lines that make "any length but zero" true on every PhysX build, Kit 107's untried among them, and a zero direction an error of ours, where E6 didn't try what PhysX does with it | |
-| Q14 | Write Kit's own cameras in the session layer, where Kit writes them (E2, E4), and refuse any transform write a stronger layer of the stage would hide, naming it, such as `set_prim_transform` on Kit's camera, whose code, `_apply_xform`, failed there with a USD error (E3)? | Yes: a session-layer edit isn't saved with the file, as Kit's own camera moves aren't, and the refusal turns E3's error and E4's silent no-op into an answer that says why | |
-| Q15 | A rotation into several unsuffixed single-axis rotate ops, such as the `[rotateZ, rotateY, rotateX]` Kit's `TransformPrimCommand` writes (round 1, P2): write the rotation decomposed into Kit's triple, or replace the three together with one rotateXYZ? | Kit's triple: every op stays as authored, as Q5 has it for a single rotate op | |
+| Q1 | `start_recording`'s refusal: expose a `force` parameter (a schema change, a one-way door), or say `call stop_recording first`? | The message: `stop_recording` ends the recording and writes its metadata, where `force` drops it unwritten; the route keeps `force` for HTTP callers | As recommended (2026-10-31) |
+| Q2 | `set_camera` without a target: aim at the origin and say so, or keep the camera's direction and only move it? | Say so: the description has said "the origin when omitted" since #83, and the other would change what a call does for anyone who relies on it | Dropped (2026-10-31): the answer without a target stays as it is; #77's merged camera tool settles it |
+| Q3 | `set_material` without `opacity`: opaque, as `roughness` and `metallic` take their defaults on every call, or keep the material's opacity (a `None` default: a schema change)? | Opaque: one rule for the three values and no contract change; the description says a recolour sets all three | As recommended (2026-10-31) |
+| Q4 | `delete_prim` on a prim USD can't remove: refuse, naming why, with nothing changed; deactivate it instead; or remove it from every local layer, as Kit's delete does? | Refuse: the call does what its name says or nothing, and the error names `set_visibility` | As recommended (2026-10-31) |
+| Q5 | `set_prim_transform`'s rotation into a rotate op of another kind: convert it into that op, or replace the op in its place by the kind given? | Convert: every op stays as authored, which is #82's point; `get_prim_properties` gives the world rotation as a quaternion either way | As recommended (2026-10-31) |
+| Q6 | An op with time samples (restated in round 1, P4). Samples in the written layer or a stronger one hide the default value the tool writes; samples only in a weaker layer, such as an animated asset's, are overridden by it, which freezes the animation. Refuse both, saying which by layer, or write in the second case and say the animation is frozen? | Refuse both, with the reason by layer: success with nothing visible, or an animation silently stopped, is the kind of bug #82 is about | As recommended (2026-10-31) |
+| Q7 | After Isaac Sim's `set_camera_view`, check that the camera aims at the target, and take the USD look-at when it doesn't? | Yes, the more so after E5: straight down a Y-up stage's up axis, Isaac's call answered success with the camera at the origin, 64 degrees off. It changes Isaac Sim's behaviour only where the camera was left unaimed | As recommended (2026-10-31) |
+| Q8 | `get_recording_frame`: read a relative `session_dir` from the server's working folder, where Kit read it from its own? | Yes: it is the form `start_recording` and `stop_recording` print, and no tool writes a recording under Kit's folder | As recommended (2026-10-31) |
+| Q9 | An older extension (restated in round 1, P14). `delete_prim`, which destroys work: one added line to its answer when the extension made no check ("this Kit extension, older than the server, answers deleted for a prim another layer keeps: check with get_scene_tree"). The other tools: no warning per call, as for #74 and #84, with `docs/TOOLS.md` and `CHANGELOG.md` saying which fixes need this release's extension? | Yes to both. A plugin update moves the server ahead of the extension, so a new description over an old `delete_prim` would say "refused" while the prim stays. The line keys on the answer's `checked` marker, not the handshake's version, so a later server on an older extension that has the check says nothing wrong. The other fixes are a few lines each, and `get_sim_state`'s note names the install command | As recommended (2026-10-31) |
+| Q10 | One PR for the twelve rows, or the transforms and the camera (R2, R7, R8) apart from the rest? | One: the issue asks for it, the docs move once, and one live run covers all; the Steps keep the transform core in commits of its own, so a split stays possible | As recommended (2026-10-31) |
+| Q11 | The script skill's trap row says neither a USD write nor `ViewportCameraState` moves the viewport camera reliably (from `8d684d6`, in March). E4: `ViewportCameraState` moved it exactly; a `UsdGeom.Xformable` write moved nothing because it lands in the edit target's layer, which the session layer, holding Kit's camera, outranks. Correct the row in this PR? | Yes, through `write-skill`: "a write in the stage's edit layer doesn't move Kit's viewport camera, whose ops the session layer holds: `await mcp.set_camera()` or `mcp.look_at()`, or `ViewportCameraState`" | As recommended (2026-10-31) |
+| Q12 | The extras found reading the rows: `raycast`'s `m`, `set_camera`'s target equal to its position, a rotation that isn't 3 or 4 numbers, the camera fallback's parent space and `!resetXformStack!`, the centre of interest after either path (E5). In this PR? | Yes: the same kind of bug, a few lines each, each with its test | As recommended (2026-10-31) |
+| Q13 | `raycast` (R10): Isaac Sim 6.2's PhysX scales the direction itself, so today's answers are right (E6), and only the description, "a unit vector: PhysX takes it as given", is wrong. Keep the server's scaling, or fix only the description? | Keep it, with the description fixed: two lines that make "any length but zero" true on every PhysX build, Kit 107's untried among them, and a zero direction an error of ours, where E6 didn't try what PhysX does with it | As recommended (2026-10-31) |
+| Q14 | Write Kit's own cameras in the session layer, where Kit writes them (E2, E4), and refuse any transform write a stronger layer of the stage would hide, naming it, such as `set_prim_transform` on Kit's camera, whose code, `_apply_xform`, failed there with a USD error (E3)? | Yes: a session-layer edit isn't saved with the file, as Kit's own camera moves aren't, and the refusal turns E3's error and E4's silent no-op into an answer that says why | As recommended (2026-10-31) |
+| Q15 | A rotation into several unsuffixed single-axis rotate ops, such as the `[rotateZ, rotateY, rotateX]` Kit's `TransformPrimCommand` writes (round 1, P2): write the rotation decomposed into Kit's triple, or replace the three together with one rotateXYZ? | Kit's triple: every op stays as authored, as Q5 has it for a single rotate op | As recommended (2026-10-31) |
 
 ## Compatibility
 
@@ -358,7 +358,7 @@ What users notice:
 | Outside Isaac Sim, `set_camera` and `look_at_prim` failed with a USD error on Kit's own camera and left an override of it in the root layer (E3), and moved a scene camera without aiming it, `look_at_prim` resetting its rotation; `inspect_prim` captured every angle from where Kit's camera stood (E4) | Aimed in every Kit app, Kit's own camera in the session layer, as Kit does |
 | In Isaac Sim, straight down a Y-up stage's up axis, `set_camera` put the camera at the origin and answered success (E5) | Aimed |
 | `set_prim_transform` on a prim whose ops a stronger layer holds, such as Kit's camera, failed with a USD error | Refused, naming the layer (Q14) |
-| `set_camera` without a target named only the position | Says it looks at the world origin; a target equal to the position is an error |
+| `set_camera` with a position equal to the point it looks at answered success with nothing to look at | An error |
 | A material made see-through stayed so at `opacity=1` | Opaque; a call that leaves `opacity` out makes it opaque too (Q3) |
 | "Dumped N prims" counted the stage | The prims written |
 | A second `start_recording` said to pass `force=True` | Says to call `stop_recording` |
@@ -406,7 +406,7 @@ Each row's fix has a test that fails at `f26642c`, named first below.
 | `tests/test_robot_handler.py` (new) | `handlers/robot.py` loaded the same way: `create_robot` from a file places the robot through the core, and a malformed rotation makes no prim (P5) |
 | `tests/test_camera_handler.py` | The harness has no `isaacsim`, so the fallback runs; its camera is defined in the stage's session layer with Kit's ops, as E1 found Kit's. R2: `set_camera` and `look_at_prim` leave the camera's -Z on the target within 0.5 degrees, written in the session layer, the root layer holding no spec of it (fail at `f26642c` with E3's `AddXformOp` error); `inspect_prim`'s angles too (unmoved at `f26642c`, E4); a scene camera under a moved parent; a fake `set_camera_view` that writes what Kit wrote in E5, translate 0 and a scale of FLT_MAX, is followed by the snapshot put back and the USD look-at, the scale 1 again (Q7, P1); a fake that aims right but leaves a scale of 1.7e6 is caught by the scale; the centre of interest after either path; a position equal to the target is refused with the camera unchanged and the fake never called (P7) |
 | `tests/test_recording_handler.py` | R6: the refusal while one runs, and while one starts, names `stop_recording` and not `force` |
-| `tests/test_tools.py` | R3: no target gives `the world origin`; a target equal to the position, and `position=[0, 0, 0]` with no target, are errors with no request sent (P7). R9: a relative `session_dir` is sent absolute; `C:\rec`, `\\host\share\rec` and `/home/rec` go as given. R10: `[0, 0, -2]` is sent as `[0, 0, -1]`; zero is an error with no request sent. R12: the three distances' text, one spelling. R1: an answer without `checked` gets the older extension's line, one with it doesn't (Q9). R4: `opacity=1.0` is printed |
+| `tests/test_tools.py` | R3: a target equal to the position, and `position=[0, 0, 0]` with no target, are errors with no request sent (P7). R9: a relative `session_dir` is sent absolute; `C:\rec`, `\\host\share\rec` and `/home/rec` go as given. R10: `[0, 0, -2]` is sent as `[0, 0, -1]`; zero is an error with no request sent. R12: the three distances' text, one spelling. R1: an answer without `checked` gets the older extension's line, one with it doesn't (Q9). R4: `opacity=1.0` is printed |
 | `tests/test_tools_camera.py` | `:286` and `:295`'s `dist=5.0m` become stage units (R12) |
 | `tests/test_xform.py` (new) | Every case of the transform writer: no ops; `[translate, orient, scale]`; `[translate, rotateXYZ, scale]`; XformCommonAPI's pivot stack; each Euler order and orient from either input, checked by matrix (U4); `[0, 120, 0]` into rotateXYZ and a quaternion into orient read back as given (P3); Kit's `[rotateZ, rotateY, rotateX]` triple (Q15); a single-axis op, and another mix of rotate ops, replaced in the first one's place; half, float and double; an attribute out of the order with another precision (U5); a matrix-only prim's position, rotation and scale; a matrix among other ops taking the part with no op of its own; a singular matrix refusing a rotation and a scale but taking a position (P9); a new op before a `:unitsResolve` op; `!resetXformStack!`; each refusal, with nothing written: a session layer's `xformOpOrder` over a root-layer write (Q14), samples in the written layer, in a stronger one and only in a weaker one, each with its reason (P4), an instance proxy naming its instance, a layer named by path and the session layer as Kit's; `check_transform`; `position_of`; `look_at` on Y-up and Z-up, straight along the up axis, and refusing the same point (P7); `aim` under a moved parent, with `!resetXformStack!`, with a centre of interest, and on a camera the session layer holds, which it writes there (E1, E4); `aim_error`'s position, direction and scale, a float translate far from the origin passing |
 | `tests/test_deletion.py` (new) | U1's four cases; a `def` in the session layer, named as Kit's session layer; a variant on a prim above; a reference authored in a sublayer; an instance proxy, naming its instance (P11). Still deleted (P10): a root-layer `def` under a referenced prim, such as `/World/Franka/panda_hand/Cam`; a root-layer `def` with a sublayer's `over` |
@@ -444,13 +444,17 @@ Each row's fix has a test that fails at `f26642c`, named first below.
   reliably, goes with the function.
 - **`test_project/scenarios.md`:** 3.2, 3.3, 8.1, 11.4, 12.4 and 13.5 verify what their twins in `test_scenarios.py`
   check (P13).
+- **The eight tools #77 merges in pairs** (`set_camera` and `look_at_prim`, `get_scene_tree` and `dump_scene`,
+  `get_robot_info` and `get_joint_states`, `get_mesh_stats` and `get_prim_face_count_tree`): their descriptions and
+  `docs/TOOLS.md` sections change only by the sentence each fix needs, since #77 rewrites them (the maintainer,
+  2026-10-31).
 - **`CHANGELOG.md`,** under Unreleased, below.
 
 | Row | Description and `docs/TOOLS.md` |
 |---|---|
 | R1 | Replace "USD keeps a prim ... though the answer says deleted, so check with get_scene_tree" with: a prim another layer defines too, or one a reference or payload on a prim above brings, such as a part of a referenced asset, is refused, naming why, and nothing changes; `set_visibility` hides it, or its instance for a prim inside one. TOOLS.md: with an older extension, the answer's added line (Q9) |
 | R2 | Drop "Aiming needs Isaac Sim: other Kit apps only move the camera, without aiming it". TOOLS.md: Isaac Sim's `isaacsim.core.utils.viewports` where it loads, and the camera's own ops elsewhere, in the layer that holds them (the session layer, for Kit's own cameras); `inspect_prim`'s section says the same of its angles |
-| R3 | `set_camera`: the answer says when it looks at the origin; an error for a target equal to the position |
+| R3 | `set_camera`: an error for a position equal to the point it looks at, its target or the origin |
 | R4 | `set_material`: `opacity`, `roughness` and `metallic` are set on every call, each to its default when left out, so a call without `opacity` makes the material opaque; the answer gives all three |
 | R5 | `dump_scene`: returns the file's path and how many prims it wrote |
 | R6 | `start_recording`: TOOLS.md's "One at a time" bullet gains the older extension's `force=True` line |
@@ -478,8 +482,8 @@ Each row's fix has a test that fails at `f26642c`, named first below.
   layer. A scene camera moved without turning, and `look_at_prim` reset its rotation. They now aim the camera in the
   layer that holds it, as Kit does. In Isaac Sim, a camera looking straight down a Y-up stage's up axis, which Isaac's
   call left at the origin, is aimed too. The fix is in the Kit extension (#82).
-- **`set_camera` without a `target` says it looks at the world origin,** where its answer named only the position. A
-  `target` equal to `position` is an error, where it answered success with nothing to look at (#82).
+- **`set_camera` refuses a `position` equal to the point it looks at,** its `target` or the world origin when none
+  is given, where it answered success with nothing to look at (#82).
 - **`set_material` makes a material opaque again with `opacity=1`:** it wrote the opacity only below 1, so a material
   made see-through stayed so. A call that leaves `opacity` out now makes the material opaque, as one that leaves out
   `roughness` or `metallic` sets theirs, and the answer gives the opacity every time. The fix is in the Kit extension
@@ -541,9 +545,9 @@ Each row's fix has a test that fails at `f26642c`, named first below.
 camera rows, B on the other rows, compatibility, tests and docs. Each read `AGENTS.md`, `REVIEW.md`, `lenses.md`, the
 plan, #82 and the files the plan names. Nothing was run.
 
-**Verdict:** `needs-answers`: each reviewer approved their scope, with no blocker or major; fourteen minors, all fixed;
-owner calls Q1 to Q15 open, Q6 and Q9 restated and Q15 added in this round. `approved` once the maintainer answers
-them. No round 2.
+**Verdict:** `approved`: each reviewer approved their scope, with no blocker or major; fourteen minors, all fixed;
+Q6 and Q9 restated and Q15 added in this round. The maintainer answered Q1 to Q15 on 2026-10-31: as recommended,
+but Q2, dropped with R3's line for a call without a target, which #77's merged camera tool settles. No round 2.
 
 **Now:** P1 to P14 fixed in the commit after `8601a05`; eight improvements taken, one left.
 
@@ -597,9 +601,9 @@ them. No round 2.
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q6 | Restated (P4): samples in the written or a stronger layer hide the write; samples only in a weaker layer are overridden, freezing the animation. Refuse both, by layer, or write in the second case and say so? | Refuse both, with the reason by layer | |
-| Q9 | Restated (P14): one added line to `delete_prim`'s answer when the extension made no check; no warning per call for the other tools? | Yes to both | |
-| Q15 | New (P2): Kit's `[rotateZ, rotateY, rotateX]` triple: write the rotation decomposed into it, or replace the three with one rotateXYZ? | Kit's triple | |
+| Q6 | Restated (P4): samples in the written or a stronger layer hide the write; samples only in a weaker layer are overridden, freezing the animation. Refuse both, by layer, or write in the second case and say so? | Refuse both, with the reason by layer | As recommended (2026-10-31) |
+| Q9 | Restated (P14): one added line to `delete_prim`'s answer when the extension made no check; no warning per call for the other tools? | Yes to both | As recommended (2026-10-31) |
+| Q15 | New (P2): Kit's `[rotateZ, rotateY, rotateX]` triple: write the rotation decomposed into it, or replace the three with one rotateXYZ? | Kit's triple | As recommended (2026-10-31) |
 
 **Improvements:**
 
