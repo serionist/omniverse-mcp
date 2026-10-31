@@ -101,8 +101,8 @@ scene. The code review's F1 (`docs/reviews/2026-10-31-gpu-apply-force-code.md`) 
 - `step_seconds(stage)`: the step's length from the stage's physics scene, `1 / physxScene:timeStepsPerSecond`, read by
   the attribute's name (the core imports only `pxr`, and `PhysxSchema` is Kit's), 60 steps a second when it is unset
   or there is no scene, as PhysX defaults; the first scene in stage order when there are several, which the error
-  names when its step can't be used. A step that isn't a positive finite number is a ValueError. U2 confirms this is the step PhysX takes,
-  substeps included.
+  names when its step can't be used. A step that isn't a positive finite number is a ValueError. U2 confirms this is
+  the step PhysX takes, substeps included.
 - `refusal`'s order stays: the stopped timeline, then `gpu_unavailable`, then the body's own attributes, then `held`.
 
 ### The handler, `handlers/simulation.py`
