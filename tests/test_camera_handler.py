@@ -213,7 +213,8 @@ def test_an_inspection_whose_isolate_restore_raises_still_lets_its_feed_go(handl
 # ---- aiming the camera (#82) ----
 
 KIT_CAMERA = "/OmniverseKit_Persp"
-EYE, TARGET = Gf.Vec3d(6, 3, 5), Gf.Vec3d(2, 0.5, -1)
+EYE_AT, TARGET_AT = [6.0, 3.0, 5.0], [2.0, 0.5, -1.0]
+EYE, TARGET = Gf.Vec3d(*EYE_AT), Gf.Vec3d(*TARGET_AT)
 UNIT = (1.0, 1.0, 1.0)
 
 
@@ -271,7 +272,7 @@ def test_set_camera_aims_kits_camera_without_isaac_sim_in_the_session_layer(hand
     # 0.2.3 wrote the root layer, under the session layer's ops: a USD error, and nothing moved (#82's E3).
     camera = _kit_camera(kit)
 
-    r = _set_camera(handler, list(EYE), list(TARGET))
+    r = _set_camera(handler, EYE_AT, TARGET_AT)
 
     assert r["status"] == "success", r
     assert aim_error(camera, EYE, TARGET, UNIT) is None
@@ -352,7 +353,7 @@ def test_an_aim_isaac_sims_call_leaves_scaled_is_caught_by_its_scale(handler, ki
 
     _isaac(monkeypatch, kit, aimed_but_scaled)
 
-    r = _set_camera(handler, list(EYE), list(TARGET))
+    r = _set_camera(handler, EYE_AT, TARGET_AT)
 
     assert r["status"] == "success", r
     assert aim_error(camera, EYE, TARGET, UNIT) is None
@@ -368,7 +369,7 @@ def test_the_centre_of_interest_is_set_after_isaac_sims_call_too(handler, kit, m
 
     calls = _isaac(monkeypatch, kit, aimed_with_a_stale_centre)
 
-    r = _set_camera(handler, list(EYE), list(TARGET))
+    r = _set_camera(handler, EYE_AT, TARGET_AT)
 
     assert r["status"] == "success", r
     assert len(calls) == 1
