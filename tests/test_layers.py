@@ -1,5 +1,6 @@
-"""flatten_usd and export_prim_as_file never write over a layer the open stage uses, and read a layer again from its
-file only when the open stage doesn't use it and it has no unsaved edits (#81), on usd-core."""
+"""flatten_usd, export_prim_as_file and save_scene never write over a layer the open stage uses, save_scene's own root
+layer apart, and read a layer again from its file only when the open stage doesn't use it and it has no unsaved edits
+(#81, #85), on usd-core."""
 
 from pathlib import Path, PurePosixPath
 
@@ -167,6 +168,65 @@ def test_a_layer_held_outside_the_open_stage_with_unsaved_edits_is_refused(stage
     assert write_refusal(stage, str(other)) is None
     Sdf.CreatePrimInLayer(held, "/Edit")
     refusal = write_refusal(stage, str(other))
+    assert refusal is not None
+    assert "unsaved edits" in refusal
+
+
+# ----- write_refusal for save_scene, which writes the root layer -----
+
+
+@pytest.mark.parametrize(
+    ("name", "role"),
+    [
+        ("sub.usda", "a sublayer of the open stage"),
+        ("ref.usda", "a layer the open stage references or pays in"),
+        ("pay.usda", "a layer the open stage references or pays in"),
+    ],
+)
+def test_saving_over_another_layer_of_the_open_stage_is_refused(stage: Usd.Stage, scene: Path, name: str, role: str):
+    refusal = write_refusal(stage, str(scene.parent / name), saving=True)
+    assert refusal is not None
+    assert role in refusal
+    assert "saving the root layer there" in refusal
+    assert "save_scene without a file_path" in refusal
+
+
+def test_saving_over_the_open_stages_own_file_is_a_save_by_any_spelling(
+    stage: Usd.Stage, scene: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # Unsaved edits, as a save has: they are the open stage's, not a layer held outside it.
+    stage.DefinePrim("/World/Unsaved")
+    link = scene.parent / "linked" / "scene.usda"
+    link.parent.mkdir()
+    link.hardlink_to(scene)
+    monkeypatch.chdir(scene.parent)
+    spellings = ["scene.usda", "./nowhere/../scene.usda", scene.as_posix(), str(scene), scene.as_uri(), str(link)]
+    shouted = scene.with_name("SCENE.USDA")
+    if shouted.exists():
+        spellings.append(str(shouted))
+    for spelling in spellings:
+        assert write_refusal(stage, spelling, saving=True) is None, spelling
+
+
+def test_saving_onto_a_layer_held_outside_the_open_stage_with_unsaved_edits_is_refused(stage: Usd.Stage, scene: Path):
+    other = scene.parent / "other.usda"
+    held = Sdf.Layer.FindOrOpen(str(other))
+    assert write_refusal(stage, str(other), saving=True) is None
+    Sdf.CreatePrimInLayer(held, "/Edit")
+    refusal = write_refusal(stage, str(other), saving=True)
+    assert refusal is not None
+    assert "unsaved edits" in refusal
+
+
+def test_saving_over_the_open_stages_file_is_refused_when_kit_holds_it_apart_with_unsaved_edits(
+    stage: Usd.Stage, scene: Path
+):
+    # The same file opened with arguments is a layer of its own, outside the open stage: its edits aren't the save's.
+    apart = Sdf.Layer.FindOrOpen(str(scene), {"ovmcp": "apart"})
+    assert apart is not None
+    assert apart != stage.GetRootLayer()
+    Sdf.CreatePrimInLayer(apart, "/Apart")
+    refusal = write_refusal(stage, str(scene), saving=True)
     assert refusal is not None
     assert "unsaved edits" in refusal
 

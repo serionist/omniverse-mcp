@@ -13,6 +13,7 @@ import omni.kit.app
 import omni.usd
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
+from ovmcp.core import layers
 from ovmcp.core.bounds import world_bbox
 from ovmcp.core.formatter import format_prim_block, format_scene_dump, format_value
 from ovmcp.core.material import ensure_material
@@ -516,7 +517,14 @@ async def handle_save_scene(body: dict) -> dict:
     stage = _get_stage()
 
     if file_path:
-        stage.GetRootLayer().Export(file_path)
+        # Export overwrites whatever file is there, another layer of the open stage too, under the layer Kit holds for
+        # it (#85).
+        refusal = layers.write_refusal(stage, file_path, saving=True)
+        if refusal:
+            return {"status": "error", "error": refusal}
+        if not stage.GetRootLayer().Export(file_path):
+            return {"status": "error", "error": f"Failed to save the stage to: {file_path}"}
+        layers.refresh_written(stage, file_path)
         return {"status": "success", "result": {"file_path": file_path, "action": "save_as"}}
 
     current_path = stage.GetRootLayer().realPath
