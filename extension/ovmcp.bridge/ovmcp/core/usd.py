@@ -10,12 +10,16 @@
 - Sdf.Layer.Find is typed with a dict of unknowns and as always finding a layer; it gives None when the registry holds
   none for the path.
 - Sdf.FileFormat.FindByExtension is typed as always finding a format; it gives None for an extension none reads.
+- Xformable.GetOrderedXformOps is typed as a bare list; it gives XformOps.
+- An op type is typed as a Tf.Type by the XformOp constants and GetOpType, and as XformOp.Type by AddXformOp; they
+  are the same enum.
+- Matrix4d.Factor is typed as a bare tuple; its first item says whether the matrix could be factored.
 """
 
 from collections.abc import Callable
 from typing import Protocol, cast
 
-from pxr import Sdf, Tf, Usd
+from pxr import Gf, Sdf, Tf, Usd, UsdGeom
 
 
 class Vec(Protocol):
@@ -79,6 +83,37 @@ def has_unsaved_edits(layer: Sdf.Layer) -> bool:
 def find_layer(path: str) -> Sdf.Layer | None:
     """The layer Sdf's registry holds for path, or None."""
     return cast("_Registry", Sdf.Layer).Find(path)
+
+
+class _Ordered(Protocol):
+    GetOrderedXformOps: Callable[[], list[UsdGeom.XformOp]]
+
+
+class _Factors(Protocol):
+    Factor: Callable[[], tuple[bool, ...]]
+
+
+def xform_ops(xformable: UsdGeom.Xformable) -> list[UsdGeom.XformOp]:
+    """The xformable's ops in their order, outermost first."""
+    return cast("_Ordered", xformable).GetOrderedXformOps()
+
+
+def add_xform_op(
+    xformable: UsdGeom.Xformable, op_type: Tf.Type, precision: UsdGeom.XformOp.Precision
+) -> UsdGeom.XformOp:
+    """AddXformOp with an op type as the XformOp constants are typed."""
+    return xformable.AddXformOp(cast("UsdGeom.XformOp.Type", op_type), precision)
+
+
+def factors(matrix: Gf.Matrix4d) -> bool:
+    """Whether the matrix factors into a rotation, a scale and a translation: a singular one doesn't."""
+    return bool(cast("_Factors", matrix).Factor()[0])
+
+
+def attribute_has_default(spec: Sdf.PropertySpec) -> bool:
+    """Whether a property spec holds a default value: an attribute's when one is authored, a relationship's never.
+    A property stack is typed as PropertySpecs; its attributes' specs are AttributeSpecs."""
+    return isinstance(spec, Sdf.AttributeSpec) and spec.HasDefaultValue()
 
 
 def format_of(path: str) -> Sdf.FileFormat | None:
