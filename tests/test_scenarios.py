@@ -21,7 +21,7 @@ import pytest
 
 from omniverse_mcp.client import BridgeClient
 
-from .conftest import live_bridge
+from .conftest import CAMERA_AIM, live_bridge
 
 pytestmark = pytest.mark.scenario
 
@@ -701,6 +701,8 @@ class TestScenarios(unittest.TestCase):
         """Phase 3.2: Camera Positioning"""
         r = self.c.camera_set([5, 3, 5], [0, 0, 0])
         self.assertEqual(r["status"], "success")
+        aim = self._run_in_kit(CAMERA_AIM, TARGET=[0, 0, 0])
+        self.assertLess(aim["degrees"], 0.5, aim)  # aimed, not only moved (#82)
         cap = self.c.capture_viewport(640, 480)
         self.assertEqual(cap["status"], "success")
         print("  Camera set + captured")
@@ -710,6 +712,8 @@ class TestScenarios(unittest.TestCase):
         """Phase 3.3: Look At Prim"""
         r = self.c.camera_look_at("/World/RedCube", azimuth=0, elevation=20)
         self.assertEqual(r["status"], "success")
+        aim = self._run_in_kit(CAMERA_AIM, TARGET=r["result"]["target"])
+        self.assertLess(aim["degrees"], 0.5, aim)  # aimed at the cube's centre, its rotation not wiped (#82)
         time.sleep(0.3)  # Let viewport settle after camera move
         cap = self.c.capture_viewport(640, 480)
         self.assertEqual(cap["status"], "success")
@@ -1175,6 +1179,9 @@ class TestScenarios(unittest.TestCase):
         self.assertIn("=== SCENE", content)
         self.assertIn("[/World/RedCube]", content)
         self.assertIn("type = Cube", content)
+        # The prims written, where it counted the whole stage (#82).
+        blocks = sum(line.startswith("[") for line in content.splitlines())
+        self.assertEqual(r["result"]["prim_count"], blocks)
         print(f"  Dump: {r['result']['file_size_bytes']} bytes, {r['result']['prim_count']} prims")
         self._pass()
 
@@ -1281,6 +1288,9 @@ class TestScenarios(unittest.TestCase):
 
         r2 = self.c.recording_start(output_dir, fps=5)
         self.assertEqual(r2["status"], "error")
+        # What the tool can follow: it takes no force (#82).
+        self.assertIn("stop_recording", r2["error"])
+        self.assertNotIn("force", r2["error"])
 
         self.c.recording_stop()
         self._pass()
@@ -1332,8 +1342,16 @@ class TestScenarios(unittest.TestCase):
         self.assertEqual(r["status"], "success")
         self.assertAlmostEqual(r["result"]["opacity"], 0.5)
         print("  Opacity=0.5")
-        # Restore full opacity
-        self.c.set_material("/World/RedCube", color=[1, 0, 0], opacity=1.0)
+        # Restore full opacity: 0.2.3 wrote only an opacity below 1, so the cube stayed see-through (#82's E8).
+        restored = self.c.set_material("/World/RedCube", color=[1, 0, 0], opacity=1.0)
+        self.assertEqual(restored["status"], "success", restored)
+        shader = self._run_in_kit(
+            "from pxr import UsdShade\n"
+            "shader = UsdShade.Shader(omni.usd.get_context().get_stage().GetPrimAtPath(PATH))\n"
+            "result = [shader.GetInput('enable_opacity').Get(), shader.GetInput('opacity_constant').Get()]",
+            PATH=restored["result"]["material_path"] + "/Shader",
+        )
+        self.assertEqual(shader, [False, 1.0])
         self._pass()
 
     def test_12_05_set_material_custom_path(self):
@@ -1416,6 +1434,20 @@ class TestScenarios(unittest.TestCase):
         self.assertEqual(len(clones), 3)
         # Verify 3-digit suffix format
         self.assertIn("/World/CloneBatch_001", clones)
+        # Copy n sits n offsets from the cube, in the parent's space (#82).
+        where = self._run_in_kit(
+            "from pxr import Usd, UsdGeom\n"
+            "stage = omni.usd.get_context().get_stage()\n"
+            "def at(path):\n"
+            "    t = UsdGeom.Xformable(stage.GetPrimAtPath(path)).ComputeLocalToWorldTransform(Usd.TimeCode.Default())\n"
+            "    return list(t.ExtractTranslation())\n"
+            "result = [at(p) for p in PATHS]",
+            PATHS=["/World/RedCube", *clones],
+        )
+        cube = where[0]
+        for n, copy in enumerate(where[1:]):
+            for got, want in zip(copy, [cube[0] + 2 * n, cube[1], cube[2]], strict=True):
+                self.assertAlmostEqual(got, want, places=4)
         print(f"  Batch cloned: {clones}")
         self._pass()
 

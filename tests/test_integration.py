@@ -22,7 +22,7 @@ import pytest
 from omniverse_mcp.client import BridgeClient
 from ovmcp.core import capture
 
-from .conftest import RESTORE_LIMIT, SET_LIMIT, live_bridge
+from .conftest import CAMERA_AIM, RESTORE_LIMIT, SET_LIMIT, live_bridge
 
 pytestmark = pytest.mark.sim
 
@@ -161,6 +161,98 @@ result = PATH
 """
 
 
+# The centre of the red pixels in the viewport's own frame, as fractions of its size off the middle; None when there
+# are none. What the user sees, where a capture renders a feed of its own (#82's E4).
+_VIEWPORT_RED = """
+import io
+import numpy as np
+from PIL import Image
+from omni.kit.viewport.utility import capture_viewport_to_file, get_active_viewport
+from ovmcp.bridge.handlers._utils import _settle_viewport, capture_file_png
+viewport = get_active_viewport()
+await _settle_viewport(frames=30)
+png = await capture_file_png(lambda path: capture_viewport_to_file(viewport, file_path=path))
+rgb = np.asarray(Image.open(io.BytesIO(png)).convert("RGB")).astype(int)
+ys, xs = np.nonzero((rgb[..., 0] > 120) & (rgb[..., 1] < 80) & (rgb[..., 2] < 80))
+height, width = rgb.shape[:2]
+result = None if xs.size == 0 else [float(xs.mean()) / width - 0.5, float(ys.mean()) / height - 0.5]
+"""
+
+# isaacsim.core.utils.viewports made unimportable, as in a Kit app without Isaac Sim (#82's E3), until the cleanup's
+# _ISAAC_BACK, or Kit's loop after 60 s, and only while it is still this run's own.
+_NO_ISAAC = """
+import asyncio
+import sys
+NAME = "isaacsim.core.utils.viewports"
+token = object()
+sys._ovmcp_test_isaac = (sys.modules.get(NAME), token)
+sys.modules[NAME] = None
+
+
+def undo():
+    held = getattr(sys, "_ovmcp_test_isaac", None)
+    if held is not None and held[1] is token:
+        if held[0] is None:
+            sys.modules.pop(NAME, None)
+        else:
+            sys.modules[NAME] = held[0]
+        sys._ovmcp_test_isaac = None
+
+
+sys._ovmcp_test_isaac_undo = undo
+asyncio.get_running_loop().call_later(60, undo)
+result = "forced"
+"""
+
+_ISAAC_BACK = """
+import sys
+undo = getattr(sys, "_ovmcp_test_isaac_undo", None)
+if undo is not None:
+    undo()
+result = sys.modules.get("isaacsim.core.utils.viewports") is not None
+"""
+
+# How many times set_camera_view's recorder (test_12f) was called; COUNT = 0 starts the count afresh.
+_ISAAC_CALLS = """
+import isaacsim.core.utils.viewports as viewports
+if COUNT == 0:
+    viewports._ovmcp_test_calls = 0
+result = getattr(viewports, "_ovmcp_test_calls", 0)
+"""
+
+# The ops and their values of the prims under ROOT, by path, and each one's world position, read in Kit.
+_XFORMS = """
+from pxr import Usd, UsdGeom
+stage = omni.usd.get_context().get_stage()
+result = {}
+for prim in Usd.PrimRange(stage.GetPrimAtPath(ROOT)):
+    xformable = UsdGeom.Xformable(prim)
+    if not xformable:
+        continue
+    ops = {op.GetOpName(): repr(op.Get()) for op in xformable.GetOrderedXformOps()}
+    where = xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default()).ExtractTranslation()
+    result[str(prim.GetPath())] = {"ops": list(ops), "values": ops, "world": [where[0], where[1], where[2]]}
+"""
+
+# A prim placed about a pivot and one placed by a matrix, under /World/IntTestXforms: imported assets carry both.
+_PLACED = """
+from pxr import Gf, UsdGeom
+stage = omni.usd.get_context().get_stage()
+UsdGeom.Xform.Define(stage, "/World/IntTestXforms")
+pivoted = UsdGeom.XformCommonAPI(UsdGeom.Xform.Define(stage, "/World/IntTestXforms/Pivoted"))
+pivoted.SetTranslate(Gf.Vec3d(1, 0, 0))
+pivoted.SetPivot(Gf.Vec3f(0, 0.5, 0))
+pivoted.SetRotate(Gf.Vec3f(0, 0, 90))
+placed = UsdGeom.Xform.Define(stage, "/World/IntTestXforms/Matrix")
+turned = Gf.Matrix4d().SetRotate(Gf.Rotation(Gf.Vec3d.ZAxis(), 30))
+placed.AddTransformOp().Set(turned * Gf.Matrix4d().SetTranslate(Gf.Vec3d(1, 2, 3)))
+box = UsdGeom.Cube.Define(stage, "/World/IntTestXforms/Matrix/Box")
+box.CreateSizeAttr(0.2)
+box.AddTranslateOp().Set(Gf.Vec3d(1, 0, 0))
+result = "placed"
+"""
+
+
 def _png_size(image_base64: str) -> tuple[int, int]:
     """A base64 PNG's width and height, from its header."""
     head = base64.b64decode(image_base64[:32])
@@ -269,6 +361,18 @@ class TestIsaacSimIntegration(unittest.TestCase):
             for child in result["result"]["children"][:5]:
                 print(f"    {child['path']} ({child['type']})")
 
+    def test_03b_scene_tree_text_stops_at_max_depth(self):
+        """The text listed the next level's prims that had children and left out the rest, so a childless prim there
+        looked absent; it stops at max_depth now, with the prim's count of children (#82)."""
+        result = self.client.scene_tree("/World", 0, fmt="text")
+        self.assertEqual(result["status"], "success", result)
+        lines = result["result"]["text"].splitlines()
+        self.assertEqual([line for line in lines if line.startswith("[")], ["[/World]"])
+        children = self._kit("result = len(omni.usd.get_context().get_stage().GetPrimAtPath('/World').GetChildren())")
+        if children:
+            self.assertIn(f"children = {children} (truncated)", lines)
+        print(f"  /World at depth 0: {children} children counted, none listed")
+
     # ===== Script execution =====
 
     def test_04_execute_script_stdout(self):
@@ -311,6 +415,29 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(result["status"], "success")
         print("  Deleted: /World/MCPTestCube")
 
+    def test_07b_a_part_of_a_referenced_file_is_not_deleted(self):
+        """delete_prim answered "Deleted" for a part of a referenced file and left it there, its root-layer override
+        gone; it is refused now, naming the reference, and the override stays (#82)."""
+        usd = Path(tempfile.mkdtemp(prefix="ovmcp-ref-")) / "IntTestBot.usda"
+        self.addCleanup(shutil.rmtree, usd.parent, True)
+        usd.write_text(_ROBOT_USDA, encoding="utf-8")
+        self.addCleanup(self.client.delete_prim, "/World/IntTestRef")
+        made = self.client.create_prim("/World/IntTestRef", usd_path=str(usd))
+        self.assertEqual(made["status"], "success", made)
+        moved = self.client.set_transform("/World/IntTestRef/Body", position=[0, 1, 0])
+        self.assertEqual(moved["status"], "success", moved)
+
+        result = self.client.delete_prim("/World/IntTestRef/Body")
+
+        self.assertEqual(result["status"], "error", result)
+        self.assertIn("comes through a reference on /World/IntTestRef", result["error"])
+        body = self._kit(_XFORMS.replace("ROOT", repr("/World/IntTestRef/Body")))["/World/IntTestRef/Body"]
+        self.assertEqual(body["world"], [0.0, 1.0, 0.0])  # the root layer's override, kept
+        deleted = self.client.delete_prim("/World/IntTestRef")  # the referencing prim goes, with its reference
+        self.assertEqual(deleted["status"], "success", deleted)
+        self.assertTrue(deleted["result"]["checked"])
+        print(f"  Refused: {result['error']}")
+
     def test_08_set_transform(self):
         # Create a test prim
         self.client.create_prim("/World/MCPTestXform", "Xform")
@@ -327,6 +454,33 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
 
         # Clean up
         self.client.delete_prim("/World/MCPTestXform")
+
+    def test_08b_set_transform_keeps_a_pivot_and_a_matrix(self):
+        """set_prim_transform rewrote a prim's ops as translate, rotate and scale: a pivot went, could be read as the
+        position, and a matrix-placed prim lost its placement (#82)."""
+        self.addCleanup(self.client.delete_prim, "/World/IntTestXforms")
+        self._kit(_PLACED)
+        read = _XFORMS.replace("ROOT", repr("/World/IntTestXforms"))
+        before = self._kit(read)
+
+        for result in (
+            self.client.set_transform("/World/IntTestXforms/Pivoted", position=[4.0, 0.0, 0.0]),
+            self.client.set_transform(
+                "/World/IntTestXforms/Matrix", position=[5.0, 6.0, 7.0], rotation=[0.0, 0.0, 90.0]
+            ),
+        ):
+            self.assertEqual(result["status"], "success", result)
+        after = self._kit(read)
+
+        pivoted, was = after["/World/IntTestXforms/Pivoted"], before["/World/IntTestXforms/Pivoted"]
+        self.assertEqual(pivoted["ops"], was["ops"])
+        self.assertEqual(pivoted["values"]["xformOp:translate"], "Gf.Vec3d(4.0, 0.0, 0.0)")
+        self.assertEqual(pivoted["values"]["xformOp:translate:pivot"], was["values"]["xformOp:translate:pivot"])
+        self.assertEqual(after["/World/IntTestXforms/Matrix"]["ops"], ["xformOp:transform"])
+        # The box sits one unit along the matrix's own X, which now points along world Y.
+        for got, want in zip(after["/World/IntTestXforms/Matrix/Box"]["world"], [5, 7, 7], strict=True):
+            self.assertAlmostEqual(got, want, places=4)
+        print(f"  Pivot kept: {pivoted['ops']}; the matrix moved and turned in place")
 
     # ===== Simulation =====
 
@@ -365,7 +519,48 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         result = self.client.camera_set([5, 3, 5], [0, 0, 0])
         self.assertEqual(result["status"], "success")
         self.assertIn("position", result["result"])
-        print(f"  Camera at {result['result']['position']}")
+        aim = self._camera_aim([0, 0, 0])
+        self.assertLess(aim["degrees"], 0.5, aim)
+        print(f"  Camera at {result['result']['position']}, {aim['degrees']:.3f} degrees off the origin")
+        self._straight_down_a_y_up_stage()
+
+    def _straight_down_a_y_up_stage(self):
+        """Straight down a Y-up stage's up axis, where Isaac Sim's call alone left the camera at the origin with a
+        scale of about 3.4e38 (#82's E5): the check after it puts the camera's ops back and aims it through USD."""
+        up = self.client.sim_state()["result"]["up_axis"]
+        if up != "Y":
+            set_axis = (
+                "from pxr import UsdGeom\nUsdGeom.SetStageUpAxis(omni.usd.get_context().get_stage(), {!r})\nresult = 1"
+            )
+            self._kit(set_axis.format("Y"))
+            self.addCleanup(self._kit, set_axis.format(up))
+        target, eye = [0.0, 0.5, 0.0], [0.0, 8.0, 0.0]
+        self.addCleanup(self.client.delete_prim, "/World/IntTestDown")
+        self.client.create_prim("/World/IntTestDown", "Cube", position=target, scale=0.2)
+
+        result = self.client.camera_set(eye, target)
+
+        self.assertEqual(result["status"], "success", result)
+        aim = self._camera_aim(target)
+        self.assertLess(aim["degrees"], 0.5, aim)
+        for got, want in zip(aim["eye"], eye, strict=True):
+            self.assertAlmostEqual(got, want, places=3)
+        for scale in aim["scale"]:
+            self.assertAlmostEqual(scale, 1.0, places=3)
+        self._assert_centred_in_a_capture("/World/IntTestDown")
+        print(f"  Straight down a Y-up stage: {aim['degrees']:.3f} degrees off, scale {aim['scale']}")
+
+    def _camera_aim(self, target: list[float]) -> dict:
+        """CAMERA_AIM for target, read in Kit."""
+        return self._kit(f"TARGET = {list(target)!r}\n{CAMERA_AIM}")
+
+    def _assert_centred_in_a_capture(self, prim: str) -> None:
+        """The prim's box sits within 5% of a 320x240 capture's middle."""
+        capture = self.client.capture_viewport(320, 240)
+        self.assertEqual(capture["status"], "success", capture)
+        (box,) = [b["screen_bbox"] for b in capture["result"]["screen_bboxes"] if b["prim_path"] == prim]
+        self.assertLess(abs((box[0] + box[2]) / 2 - 160), 16, box)
+        self.assertLess(abs((box[1] + box[3]) / 2 - 120), 12, box)
 
     def test_12_camera_look_at(self):
         # Create something to look at
@@ -373,7 +568,9 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         result = self.client.camera_look_at("/World/IntTestCube", azimuth=45, elevation=30)
         self.assertEqual(result["status"], "success")
         self.assertGreater(result["result"]["distance"], 0)
-        print(f"  Looking at IntTestCube, dist={result['result']['distance']:.2f}m")
+        aim = self._camera_aim(result["result"]["target"])
+        self.assertLess(aim["degrees"], 0.5, aim)
+        print(f"  Looking at IntTestCube, dist={result['result']['distance']:.2f}, {aim['degrees']:.3f} degrees off")
 
     # ===== Captures at the size asked for, through a feed of their own (#51) =====
 
@@ -484,6 +681,73 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
             self.assertEqual(result["status"], "error", result)
             self.assertIn("from 1 to 4096", result["error"])
         self.assertEqual(self._traces(), before)
+
+    # ===== The camera aimed through USD, in the session layer (#82) =====
+
+    def test_12f_the_camera_aims_without_isaac_sim(self):
+        """set_camera, look_at_prim and inspect_prim aim the viewport's camera through USD, in the session layer that
+        holds Kit's camera: once with Isaac Sim's call recorded but left undone, so the check after it must find the
+        camera unaimed, and once without Isaac Sim at all. 0.2.3's fallback answered a USD error or moved nothing
+        (#82's E3, E4)."""
+        up = self.client.sim_state()["result"]["up_axis"]
+
+        def at(a: float, h: float, b: float) -> list[float]:
+            return [float(a), float(h), float(b)] if up == "Y" else [float(a), float(b), float(h)]
+
+        target, prim = at(2, 0.5, -1), "/World/IntTestAim/Target"
+        self.addCleanup(self.client.delete_prim, "/World/IntTestAim")
+        self.client.create_prim("/World/IntTestAim", "Xform")
+        made = self.client.create_prim(prim, "Cube", position=target, scale=0.5)
+        self.assertEqual(made["status"], "success", made)
+        red = self.client.set_material(prim, color=[1, 0, 0], material_path="/World/IntTestAim/Looks/Red_Mat")
+        self.assertEqual(red["status"], "success", red)
+        lighting = self.client.viewport_light("get")["result"]["lighting_mode"]
+        self.addCleanup(self.client.viewport_light, "set", mode=lighting)
+        self.client.viewport_light("set", mode="camera")
+
+        # Isaac's call, recorded and left undone: the check after it must aim the camera (plan Q7).
+        self._wrap(
+            "import isaacsim.core.utils.viewports as target",
+            "set_camera_view",
+            """
+            def wrapper(*args, **kwargs):
+                target._ovmcp_test_calls = getattr(target, "_ovmcp_test_calls", 0) + 1
+            """,
+        )
+        self._isaac_calls(reset=True)
+        self._aims(at(6, 3, 5), target, prim)
+        self.assertEqual(self._isaac_calls(), 1)
+
+        # Without Isaac Sim: its module unimportable, as in USD Composer. Undone first, before the wrap is.
+        self._kit(_NO_ISAAC)
+        self.addCleanup(self._kit, _ISAAC_BACK)
+        self._aims(at(-5, 2, 4), target, prim)
+        looked = self.client.camera_look_at(prim, azimuth=200, elevation=25)
+        self.assertEqual(looked["status"], "success", looked)
+        self.assertLess(self._camera_aim(looked["result"]["target"])["degrees"], 0.5)
+        inspected = self.client.camera_inspect(prim, angles=["front"], width=64, height=48)
+        self.assertEqual(inspected["status"], "success", inspected)
+        (front,) = inspected["result"]["captures"]
+        self.assertIn("image_base64", front, front)
+        self.assertLess(self._camera_aim(inspected["result"]["center"])["degrees"], 0.5)
+        self.assertEqual(self._isaac_calls(), 1)  # none without Isaac Sim
+        print("  Aimed through USD with Isaac's call left undone, and without Isaac Sim")
+
+    def _aims(self, eye: list[float], target: list[float], prim: str) -> None:
+        """set_camera from eye: the camera looks at target, Kit's camera keeps its ops in the session layer, and the
+        prim is in the middle of a capture and of the viewport's own frame (#82's E4)."""
+        result = self.client.camera_set(eye, target)
+        self.assertEqual(result["status"], "success", result)
+        aim = self._camera_aim(target)
+        self.assertLess(aim["degrees"], 0.5, aim)
+        self.assertEqual(aim["root_xform"], [], aim)
+        self._assert_centred_in_a_capture(prim)
+        centre = self._kit(_VIEWPORT_RED)
+        self.assertIsNotNone(centre, "no red in the viewport's own frame")
+        self.assertLess(max(abs(centre[0]), abs(centre[1])), 0.05, centre)
+
+    def _isaac_calls(self, reset: bool = False) -> int:
+        return self._kit(f"COUNT = {0 if reset else 1}\n{_ISAAC_CALLS}")
 
     def test_13_camera_inspect_auto_fit(self):
         """Inspect with auto-fit distance (no zoom_offset)."""
@@ -859,6 +1123,25 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         print(f"  Cloned to {result['result'].get('clones', ['?'])[0]}")
         # Clean up
         self.client.delete_prim("/World/IntTestClone")
+
+    def test_21b_clone_offset_keeps_each_copy_s_placement(self):
+        """clone_prim's offset rewrote each copy's ops, so a matrix-placed source's copies lost their placement; copy n
+        now moves n offsets from the source through its own matrix (#82)."""
+        self.addCleanup(self.client.delete_prim, "/World/IntTestXforms")
+        self._kit(_PLACED)
+
+        result = self.client.clone_prim(
+            "/World/IntTestXforms/Matrix", "/World/IntTestXforms/Row", count=3, offset=[2, 0, 0]
+        )
+
+        self.assertEqual(result["status"], "success", result)
+        after = self._kit(_XFORMS.replace("ROOT", repr("/World/IntTestXforms")))
+        source = after["/World/IntTestXforms/Matrix/Box"]["world"]
+        for n, path in enumerate(result["result"]["clones"]):
+            self.assertEqual(after[path]["ops"], ["xformOp:transform"])
+            for got, want in zip(after[f"{path}/Box"]["world"], [source[0] + 2 * n, source[1], source[2]], strict=True):
+                self.assertAlmostEqual(got, want, places=4)
+        print(f"  {len(result['result']['clones'])} copies, each its matrix kept and moved by its offsets")
 
     # ===== Bounds & Mesh =====
 
