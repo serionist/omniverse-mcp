@@ -118,7 +118,8 @@ def layer_name(stage: Usd.Stage, layer: Sdf.Layer) -> str:
         return "Kit's session layer"
     if layer.identifier == stage.GetRootLayer().identifier:
         return f"the stage's root layer ({layer.realPath})" if layer.realPath else "the stage's root layer"
-    return layer.realPath or layer.identifier
+    # An anonymous layer's display name is the tag it was made with, such as asset.usda.
+    return layer.realPath or layer.GetDisplayName() or layer.identifier
 
 
 def _rank(stage: Usd.Stage) -> dict[str, int]:

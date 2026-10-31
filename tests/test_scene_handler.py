@@ -280,3 +280,51 @@ def test_clone_prim_refuses_a_malformed_offset(scene, kit):
     r = _run(scene, "handle_clone_prim", source_path="/World/A", target_path="/World/Row", count=2, offset=[1, 2])
     assert r["status"] == "error"
     assert "offset must be" in r["error"]
+
+
+# ---- delete_prim (R1) ----
+
+
+@pytest.fixture
+def asset() -> Sdf.Layer:
+    """A robot's file, held for the test: an anonymous layer goes when its last handle does."""
+    layer = Sdf.Layer.CreateAnonymous("bot.usda")
+    held = Usd.Stage.Open(layer)
+    UsdGeom.Xform.Define(held, "/Bot")
+    UsdGeom.Cube.Define(held, "/Bot/Link")
+    return layer
+
+
+def test_delete_prim_refuses_a_part_of_a_referenced_file_and_keeps_its_override(scene, kit, asset):
+    # 0.2.3 removed the root layer's over and answered "Prim deleted"; the part stayed, its override gone.
+    kit.stage.DefinePrim("/World/Ref").GetReferences().AddReference(asset.identifier, "/Bot")
+    kit.stage.OverridePrim("/World/Ref/Link").CreateAttribute("note", Sdf.ValueTypeNames.String).Set("mine")
+
+    r = _run(scene, "handle_delete_prim", prim_path="/World/Ref/Link")
+
+    assert r["status"] == "error"
+    assert "comes through a reference on /World/Ref" in r["error"]
+    assert kit.stage.GetPrimAtPath("/World/Ref/Link").GetAttribute("note").Get() == "mine"
+
+
+def test_delete_prim_refuses_a_prim_a_sublayer_defines(scene, kit):
+    sub = Sdf.Layer.CreateAnonymous("props.usda")
+    kit.stage.GetRootLayer().subLayerPaths.append(sub.identifier)
+    with Usd.EditContext(kit.stage, sub):
+        UsdGeom.Sphere.Define(kit.stage, "/World/FromSub")
+
+    r = _run(scene, "handle_delete_prim", prim_path="/World/FromSub")
+
+    assert r["status"] == "error"
+    assert "props.usda defines it too" in r["error"]
+    assert kit.stage.GetPrimAtPath("/World/FromSub").IsDefined()
+
+
+def test_delete_prim_deletes_a_prim_that_references_a_file_and_says_it_checked(scene, kit, asset):
+    kit.stage.DefinePrim("/World/Ref").GetReferences().AddReference(asset.identifier, "/Bot")
+
+    r = _run(scene, "handle_delete_prim", prim_path="/World/Ref")
+
+    assert r["status"] == "success", r
+    assert r["result"]["checked"] is True
+    assert not kit.stage.GetPrimAtPath("/World/Ref").IsValid()

@@ -14,9 +14,12 @@
 - An op type is typed as a Tf.Type by the XformOp constants and GetOpType, and as XformOp.Type by AddXformOp; they
   are the same enum.
 - Matrix4d.Factor is typed as a bare tuple; its first item says whether the matrix could be factored.
+- PrimCompositionQuery.GetCompositionArcs is typed with a class pxr doesn't have (CompositionArc at run time), whose
+  GetIntroducingLayer is None for the root arc; a Pcp node's layerStack is untyped.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from operator import attrgetter
 from typing import Protocol, cast
 
 from pxr import Gf, Sdf, Tf, Usd, UsdGeom
@@ -108,6 +111,39 @@ def add_xform_op(
 def factors(matrix: Gf.Matrix4d) -> bool:
     """Whether the matrix factors into a rotation, a scale and a translation: a singular one doesn't."""
     return bool(cast("_Factors", matrix).Factor()[0])
+
+
+class ArcNode(Protocol):
+    """A composition arc's target: a prim path in a layer stack."""
+
+    path: Sdf.Path
+
+
+class CompositionArc(Protocol):
+    """What delete_prim reads of a prim's composition arc."""
+
+    GetArcType: Callable[[], object]
+    GetTargetNode: Callable[[], ArcNode]
+    GetIntroducingLayer: Callable[[], Sdf.Layer | None]
+    GetIntroducingPrimPath: Callable[[], Sdf.Path]
+    IsAncestral: Callable[[], bool]
+
+
+class _Query(Protocol):
+    GetCompositionArcs: Callable[[], list[CompositionArc]]
+
+
+_node_layers = attrgetter("layerStack.layers")
+
+
+def composition_arcs(prim: Usd.Prim) -> list[CompositionArc]:
+    """Every arc that composes the prim, strongest first, the root arc (its own layer stack) among them."""
+    return cast("_Query", Usd.PrimCompositionQuery(prim)).GetCompositionArcs()
+
+
+def node_layers(node: ArcNode) -> list[Sdf.Layer]:
+    """The layers of the stack an arc's node reads, strongest first."""
+    return list(cast("Sequence[Sdf.Layer]", _node_layers(node)))
 
 
 def attribute_has_default(spec: Sdf.PropertySpec) -> bool:

@@ -100,7 +100,7 @@ CASES = [
         "delete_prim",
         {"prim_path": "/World/Cube"},
         "/scene/delete",
-        {},
+        {"prim_path": "/World/Cube", "message": "Prim deleted", "checked": True},
         {"prim_path": "/World/Cube"},
         ("Deleted /World/Cube",),
     ),
@@ -946,3 +946,15 @@ def test_raycast_refuses_a_direction_it_cant_cast_along(
     assert erred
     assert "direction" in text
     assert calls == []
+
+
+@pytest.mark.parametrize(("answer", "warns"), [({"checked": True}, False), ({"message": "Prim deleted"}, True)])
+def test_delete_prim_warns_when_the_extension_made_no_check(
+    answer: dict[str, Any], warns: bool, bridge: MockIsaacServer, tmp_path: Path
+):
+    # A 0.2.3 extension answers "deleted" for a prim another layer keeps, and the plugin updates the server first.
+    bridge.set_response("/scene/delete", {"status": "success", "result": {"prim_path": "/World/Cube", **answer}})
+    erred, text, _calls = _call(bridge, tmp_path, "delete_prim", {"prim_path": "/World/Cube"})
+    assert not erred, text
+    assert text.startswith("Deleted /World/Cube")
+    assert ("check with get_scene_tree" in text) is warns

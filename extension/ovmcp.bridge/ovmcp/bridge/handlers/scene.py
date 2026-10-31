@@ -14,9 +14,10 @@ import omni.usd
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
 from ovmcp.core.bounds import world_bbox
+from ovmcp.core.deletion import why_kept
 from ovmcp.core.formatter import format_prim_block, format_scene_dump, format_value
 from ovmcp.core.material import ensure_material
-from ovmcp.core.xform import Parts, check_transform, check_writable, position_of, write_transform
+from ovmcp.core.xform import Parts, check_transform, check_writable, layer_name, position_of, write_transform
 
 from ._utils import (
     _compute_mesh_stats,
@@ -356,10 +357,23 @@ async def handle_delete_prim(body: dict) -> dict:
     if not prim.IsValid():
         return {"status": "error", "error": f"Prim not found: {prim_path}"}
 
-    stage.RemovePrim(prim_path)
+    # RemovePrim takes only the edit layer's specs: what another layer or an arc above defines would stay, with the
+    # edit layer's overrides of it gone, so that is refused before anything changes.
+    edit_layer = stage.GetEditTarget().GetLayer()
+    why = why_kept(prim, edit_layer)
+    if why:
+        return {"status": "error", "error": why}
+    where = layer_name(stage, edit_layer)
+    if not stage.RemovePrim(prim_path):
+        return {"status": "error", "error": f"{prim_path} is not deleted: {where}, where edits go, holds nothing there"}
+    after = stage.GetPrimAtPath(prim_path)
+    if after.IsValid() and after.IsDefined():
+        # The check above should have said why; this answers the truth if it missed a case.
+        return {"status": "error", "error": f"{prim_path} is still on the stage after what {where} held of it went"}
     return {
         "status": "success",
-        "result": {"prim_path": prim_path, "message": "Prim deleted"},
+        # checked: this extension refuses a prim it can't remove, so the server needn't warn of one that stayed.
+        "result": {"prim_path": prim_path, "message": "Prim deleted", "checked": True},
     }
 
 

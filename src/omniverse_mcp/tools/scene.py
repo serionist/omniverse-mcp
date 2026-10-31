@@ -185,13 +185,21 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     def delete_prim(prim_path: PrimPath) -> str:
         """Delete a prim and everything under it, by removing what the stage's edit layer holds at that path.
 
-        USD keeps a prim that another layer defines too, or that comes in through a reference or payload, such as a
-        part of a referenced asset: it stays, though the answer says deleted, so check with get_scene_tree. To hide a
-        prim and keep it, use set_visibility. Kit's undo doesn't record the delete, and the file on disk keeps the prim
-        until save_scene. An error when no prim is there.
+        A prim another layer defines too, or one a reference or payload on a prim above brings, such as a part of a
+        referenced asset, can't be deleted this way: the call is refused, saying why, and nothing changes;
+        set_visibility hides such a prim, or its instance for a prim inside one. To hide a prim and keep it, use
+        set_visibility. Kit's undo doesn't record the delete, and the file on disk keeps the prim until save_scene. An
+        error when no prim is there.
         """
-        bridge_call(client.delete_prim, prim_path)
-        return f"Deleted {prim_path}"
+        resp = bridge_call(client.delete_prim, prim_path)
+        if resp["result"].get("checked"):
+            return f"Deleted {prim_path}"
+        # An extension from before the check answers "deleted" for a prim another layer keeps, and the plugin updates
+        # the server ahead of the extension.
+        return (
+            f"Deleted {prim_path}\nThis Kit extension, older than the server, answers deleted for a prim another layer "
+            "keeps: check with get_scene_tree"
+        )
 
     @tool(mcp, EDITS)
     def set_material(
