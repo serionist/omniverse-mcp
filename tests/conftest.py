@@ -18,15 +18,54 @@ sys.path.insert(0, str(EXTENSION_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
 
+NO_SIM = "a live suite: set OMNIVERSE_MCP_SIM=1, with a Kit app running ovmcp.bridge"
+NO_GPU = (
+    "the GPU module switches Kit to the GPU pipeline: set OMNIVERSE_MCP_SIM=1 and OMNIVERSE_MCP_GPU=1, on a Kit app of "
+    "its own"
+)
+GPU_ALONE = "OMNIVERSE_MCP_GPU=1 is set: it runs the GPU module alone; unset it to run the live suites"
+
+
+def live_rule(item: pytest.Item) -> tuple[str, str] | None:
+    """What becomes of a test for OMNIVERSE_MCP_SIM and OMNIVERSE_MCP_GPU: ("skip", why), ("fail", why), or None when
+    it runs.
+
+    The live suites run only with OMNIVERSE_MCP_SIM=1 (plan D11). A Kit app that happens to answer on the bridge's
+    port is someone's open stage, which the scenarios change, and the coverage floor must not depend on one.
+
+    The GPU module (marker `gpu`, #68) switches the Kit app to the GPU pipeline, which a switch back doesn't fully undo
+    (Fabric stays on, USD write-back off): it runs only with OMNIVERSE_MCP_SIM=1 and OMNIVERSE_MCP_GPU=1, and then
+    alone, so no other live test reads the Kit app it changed. Its rule is read first and holds whatever SIM is. Under
+    both, every other live test fails rather than skips: a PowerShell variable lasts the session, and one left set
+    after a GPU run would otherwise pass the next run of the live suites with every test skipped.
+    """
+    sim = os.environ.get("OMNIVERSE_MCP_SIM") == "1"
+    gpu = os.environ.get("OMNIVERSE_MCP_GPU") == "1"
+    if item.get_closest_marker("gpu"):
+        return None if sim and gpu else ("skip", NO_GPU)
+    if item.get_closest_marker("sim") or item.get_closest_marker("scenario"):
+        if not sim:
+            return "skip", NO_SIM
+        if gpu:
+            return "fail", GPU_ALONE
+    return None
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """The live suites run only with OMNIVERSE_MCP_SIM=1 (plan D11). A Kit app that happens to answer on the bridge's
-    port is someone's open stage, which the scenarios change, and the coverage floor must not depend on one."""
-    if os.environ.get("OMNIVERSE_MCP_SIM") == "1":
-        return
-    skip = pytest.mark.skip(reason="a live suite: set OMNIVERSE_MCP_SIM=1, with a Kit app running ovmcp.bridge")
+    """The live tests that skip, by live_rule."""
     for item in items:
-        if item.get_closest_marker("sim") or item.get_closest_marker("scenario"):
-            item.add_marker(skip)
+        rule = live_rule(item)
+        if rule is not None and rule[0] == "skip":
+            item.add_marker(pytest.mark.skip(reason=rule[1]))
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    """The live tests that fail, by live_rule: at setup, before any fixture, so a unittest class's setUpClass never
+    reaches Kit."""
+    rule = live_rule(item)
+    if rule is not None and rule[0] == "fail":
+        pytest.fail(rule[1], pytrace=False)
 
 
 # How long /health may take when a live call has timed out, before Kit counts as hung: a handler that runs long on

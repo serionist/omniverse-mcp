@@ -4,6 +4,8 @@ Simulation and physics handlers.
 Handles sim control, sim state, physics properties, apply force, and raycast.
 """
 
+import traceback
+
 import carb
 import omni.kit.app
 import omni.usd
@@ -16,7 +18,10 @@ from ovmcp.core.force import (
     centre_of_mass,
     fixed_refusal,
     force_args,
+    one_step_force,
     refusal,
+    step_seconds,
+    tensor_centre_of_mass,
     world_point,
 )
 
@@ -178,9 +183,14 @@ async def handle_apply_force(body: dict) -> dict:
     """Apply a force or impulse to a rigid body or an articulation's link through PhysX, at a world point or at its
     centre of mass.
 
-    Refused where PhysX would move nothing: the timeline stopped, PhysX's Direct GPU API (#68), a disabled or kinematic
-    body, a prim PhysX holds no body for, a body a fixed joint holds to the world. A PhysX failure is an error;
-    nothing else moves the body in its place.
+    Two paths. With /physics/suppressReadback on, as PhysX's Direct GPU API has it (Isaac Sim's
+    SimulationManager.set_device("cuda:N") turns both on), IPhysxSimulation.apply_force_at_pos returns and moves nothing
+    on a GPU scene, so the push goes through the tensor API, which pushes on a CPU scene too (#68). With the setting
+    off it is apply_force_at_pos (#25, #58).
+
+    Refused where PhysX would move nothing: the timeline stopped, a disabled or kinematic body, a prim PhysX holds no
+    body for, a body a fixed joint holds to the world. A PhysX failure is an error; nothing else moves the body in its
+    place.
     """
     try:
         args = force_args(body)
@@ -197,36 +207,70 @@ async def handle_apply_force(body: dict) -> dict:
     await _next_update()
 
     # From here to the push nothing awaits, so the pose, the centre of mass and the push are all of one update.
+    stopped = omni.timeline.get_timeline_interface().is_stopped()
+    # The setting alone picks the path. apply_force_at_pos moves nothing with it on a GPU scene, and the tensor API
+    # pushes with it on a CPU scene as well, so the tensor path is right either way. What the stage says of GPU
+    # dynamics would be a worse guide: a scene without PhysxSceneAPI, or no scene, doesn't say what PhysX runs.
+    if carb.settings.get_settings().get_as_bool("/physics/suppressReadback"):
+        return _push_with_tensors(args, stage, prim, stopped)
+    return _push_with_physx(args, stage, prim, stopped)
+
+
+def _body_flags(prim) -> tuple[bool, bool]:
+    """Whether the rigid body is enabled, and whether it is kinematic."""
+    body_api = UsdPhysics.RigidBodyAPI(prim)
+    # Both attributes have fallbacks (enabled, not kinematic); only an authored false disables the body.
+    return body_api.GetRigidBodyEnabledAttr().Get() is not False, bool(body_api.GetKinematicEnabledAttr().Get())
+
+
+def _refused(args, stage, **facts) -> str | None:
+    """Why the push is refused: the cheap facts first, then the stage's joints, which take a traversal of the whole
+    stage and are read only once the rest lets the push by."""
+    refused = refusal(args.prim_path, **facts)
+    if refused is not None:
+        return refused
+    joints = Joints(stage)
+    fixed_base = joints.held_to_world(args.prim_path)
+    if fixed_base is None:
+        return None
+    return fixed_refusal(args.prim_path, fixed_base, joints.articulation_holding(args.prim_path))
+
+
+def _answer(args, point, at: str, method: str) -> dict:
+    return {
+        "status": "success",
+        "result": {
+            "prim_path": args.prim_path,
+            "force": list(args.force),
+            "position": list(point),
+            "at": at,
+            "impulse": args.impulse,
+            "method": method,
+        },
+    }
+
+
+def _push_with_physx(args, stage, prim, stopped: bool) -> dict:
+    """The push through IPhysxSimulation.apply_force_at_pos, with /physics/suppressReadback off: exact on the CPU
+    pipeline and with GPU dynamics alike."""
     try:
         from omni.physx import get_physx_interface, get_physx_simulation_interface
         from pxr import PhysicsSchemaTools
     except ImportError as e:
         return {"status": "error", "error": f"PhysX (omni.physx) is not loaded in this Kit app: {e}"}
 
-    stopped = omni.timeline.get_timeline_interface().is_stopped()
-    # With the Direct GPU API, PhysX keeps its bodies on the GPU, and the push below returns and moves nothing (#68).
-    direct_gpu = carb.settings.get_settings().get_as_bool("/physics/suppressReadback")
-    body_api = UsdPhysics.RigidBodyAPI(prim)
-    # Both attributes have fallbacks (enabled, not kinematic); only an authored false disables the body.
-    enabled = body_api.GetRigidBodyEnabledAttr().Get() is not False
-    kinematic = bool(body_api.GetKinematicEnabledAttr().Get())
+    enabled, kinematic = _body_flags(prim)
     try:
-        live = not stopped and not direct_gpu
-        pose = get_physx_interface().get_rigidbody_transformation(args.prim_path) if live else {}
-        refused = refusal(
-            args.prim_path,
+        pose = {} if stopped else get_physx_interface().get_rigidbody_transformation(args.prim_path)
+        refused = _refused(
+            args,
+            stage,
             stopped=stopped,
-            direct_gpu=direct_gpu,
+            gpu_unavailable=None,
             enabled=enabled,
             kinematic=kinematic,
             held=bool(pose.get("ret_val")),
         )
-        if refused is None:
-            # The joints take a traversal of the whole stage, so they are read only once the rest lets the push by.
-            joints = Joints(stage)
-            fixed_base = joints.held_to_world(args.prim_path)
-            if fixed_base is not None:
-                refused = fixed_refusal(args.prim_path, fixed_base, joints.articulation_holding(args.prim_path))
         if refused:
             return {"status": "error", "error": refused}
 
@@ -263,17 +307,98 @@ async def handle_apply_force(body: dict) -> dict:
     except (AttributeError, RuntimeError, TypeError, KeyError) as e:
         return {"status": "error", "error": f"PhysX could not push {args.prim_path}: {e}"}
 
-    return {
-        "status": "success",
-        "result": {
-            "prim_path": args.prim_path,
-            "force": list(args.force),
-            "position": list(point),
-            "at": at,
-            "impulse": args.impulse,
-            "method": "physx",
-        },
-    }
+    return _answer(args, point, at, "physx")
+
+
+def _push_with_tensors(args, stage, prim, stopped: bool) -> dict:
+    """The push through PhysX's tensor API, a RigidBodyView of our own, while /physics/suppressReadback is on.
+
+    The tensor API has no impulse mode, so an impulse is the force that delivers it over one step.
+    """
+    tensors = wp = None
+    gpu_unavailable = None
+    if not stopped:
+        try:
+            import warp as wp
+            from omni.physics import tensors
+        except ImportError as e:
+            # With readback on, apply_force_at_pos pushes, GPU dynamics included (measured on Isaac Sim 6.2), and
+            # PhysX reads the setting when the simulation starts, hence the stop.
+            gpu_unavailable = (
+                "/physics/suppressReadback is true, as PhysX's Direct GPU API has it, where a push goes through "
+                f"omni.physics.tensors and warp, and this Kit app lacks one ({e}) (#68). Turn the missing one on with "
+                "manage_extensions (omni.physics.tensors, or omni.warp.core for warp), or push with readback on, "
+                "where PhysX's own push moves the body: stop the simulation, run "
+                "carb.settings.get_settings().set_bool('/physics/suppressReadback', False) with execute_script, and "
+                "play again"
+            )
+    enabled, kinematic = _body_flags(prim)
+    # Whether PhysX holds the body is the view's count, below; here the body is taken as held.
+    refused = _refused(
+        args, stage, stopped=stopped, gpu_unavailable=gpu_unavailable, enabled=enabled, kinematic=kinematic, held=True
+    )
+    if refused:
+        return {"status": "error", "error": refused}
+
+    # The step before any tensor call, so a scene with an unusable one is said so and not taken for PhysX's failure.
+    try:
+        force = one_step_force(args.force, args.impulse, step_seconds(stage).seconds)
+    except ValueError as e:
+        return {"status": "error", "error": f"the physics scene's step can't be used: {e}"}
+
+    import numpy as np  # Kit ships it; only this path needs it
+
+    view = None
+    try:
+        view = tensors.create_simulation_view("warp", omni.usd.get_context().get_stage_id())
+        bodies = view.create_rigid_body_view(args.prim_path)
+        # The prim's own path can match more than the prim: the view takes a plain last name at any depth under its
+        # parent (/physics/tensors/recursiveLeafPatternMatch, on by default in omni.physics.tensors 110.4), so
+        # /World/Cube brings /World/Table/Cube with it. The body is its own row of the view, and only that row moves.
+        paths = list(bodies.prim_paths)
+        if args.prim_path not in paths:
+            not_held = refusal(
+                args.prim_path, stopped=False, gpu_unavailable=None, enabled=True, kinematic=False, held=False
+            )
+            return {"status": "error", "error": not_held}
+        count, row = bodies.count, paths.index(args.prim_path)
+
+        if args.position is not None:
+            point, at = args.position, AT_GIVEN
+        else:
+            # Both rows to the host: get_coms lives on the parameters' device, the CPU, and get_transforms on the
+            # simulation's.
+            transform = bodies.get_transforms().numpy().reshape(count, 7)[row]
+            com = bodies.get_coms().numpy().reshape(count, 7)[row]
+            point, at = tensor_centre_of_mass(transform.tolist(), com.tolist()), AT_CENTRE_OF_MASS
+
+        # A row for each body of the view, as the call takes them, zero but the body's; the indices name its row alone.
+        force_rows = np.zeros((count, 3), np.float32)
+        force_rows[row] = force
+        point_rows = np.zeros((count, 3), np.float32)
+        point_rows[row] = point
+        # The warp frontend takes float32 data and 32-bit indices only, and the backend reads each array on the device
+        # it was made on, so all three are made on the view's own device: the GPU under the Direct GPU API.
+        device = view.device
+        forces = wp.array(force_rows, dtype=wp.float32, device=device)
+        points = wp.array(point_rows, dtype=wp.float32, device=device)
+        indices = wp.array(np.array([row], np.uint32), dtype=wp.uint32, device=device)
+        bodies.apply_forces_and_torques_at_position(forces, None, points, indices, True)
+    except Exception as e:
+        # The tensor API raises a bare Exception for each of its failures, so nothing narrower catches them; the same
+        # catch would hide a slip of ours in the arrays or the point, hence the traceback in Kit's log.
+        carb.log_error(f"apply_force through the tensor API failed for {args.prim_path}:\n{traceback.format_exc()}")
+        return {"status": "error", "error": f"PhysX's tensor API could not push {args.prim_path}: {e}"}
+    finally:
+        if view is not None:
+            # The view is ours alone: invalidating it leaves Isaac Sim's own view valid, as measured on Isaac Sim 6.2. A
+            # failing invalidate must not replace the answer.
+            try:
+                view.invalidate()
+            except Exception as e:
+                carb.log_warn(f"apply_force could not invalidate its tensor view: {e}")
+
+    return _answer(args, point, at, "tensor")
 
 
 # ---------------------------------------------------------------------------

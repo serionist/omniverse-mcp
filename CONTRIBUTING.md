@@ -75,6 +75,25 @@ machine, as some write a file for Kit to read, or read one Kit wrote. CI never r
 changes the extension, the client or a tool says whether they ran and on which Kit app. Without a Kit app, say so
 in the PR.
 
+`tests/test_gpu_force.py` checks `apply_force` under PhysX's Direct GPU API (#68). It switches the Kit app to the GPU
+with Isaac Sim's `SimulationManager.set_device("cuda:0")`, which a switch back doesn't fully undo (Fabric stays on,
+USD write-back off), so it runs only when asked, alone, on an Isaac Sim of its own with a CUDA GPU:
+
+```
+OMNIVERSE_MCP_SIM=1 OMNIVERSE_MCP_GPU=1 uv run pytest tests/test_gpu_force.py
+```
+
+In bash the two variables last for that one command. In PowerShell a variable lasts the session, so set it, run the
+module and remove it in one line:
+
+```
+$env:OMNIVERSE_MCP_SIM = "1"; $env:OMNIVERSE_MCP_GPU = "1"; uv run pytest tests/test_gpu_force.py; Remove-Item Env:OMNIVERSE_MCP_GPU
+```
+
+Without `OMNIVERSE_MCP_GPU=1` the module skips. With it, every other live test fails at setup, before it reaches Kit,
+saying to unset it, so a variable left set can't pass a run of the live suites that skipped them all. Restart Kit
+after the module, before any other run.
+
 Kit has hung inside NVIDIA's code during these suites (#54). A call that times out while `/health` gets no answer
 either ends the run there, with the command for a thread dump: take it before you end Kit, and add it to #54.
 
