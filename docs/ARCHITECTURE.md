@@ -52,7 +52,7 @@ passes it through `inspect.cleandoc`; `tests/test_contract.py` fails on a descri
 
 | Module | Tools |
 |--------|-------|
-| `scene.py` | Scene graph: tree, dump, properties, bounds, transform, create, delete, material, clone, visibility, save, open, new |
+| `scene.py` | Scene graph: tree (listed, or dumped by Kit to a file), properties, bounds, transform, create, delete, material, clone, visibility, save, open, new |
 | `camera.py` | Viewport: capture, set camera (at a point or a prim), inspect (orbit), viewport light |
 | `robot.py` | Robot: create, info with the joint states, joint targets |
 | `simulation.py` | Sim control, state, physics properties, apply force, raycast, debug draw |
@@ -260,7 +260,8 @@ JSON is hard to search with standard tools. With prim-block format:
 The format is implemented in `ovmcp/core/formatter.py` with functions for:
 - `format_value()` - Convert USD values (Vec3f, Quatd, Matrix4d, etc.) to readable strings
 - `format_prim_block()` - Format a single prim as a text block
-- `format_scene_dump()` - Recursively format an entire scene tree, with the number of prims written
+- `format_scene_dump()` - get_scene_tree's dump, with properties or a filter: a scene subtree's blocks to max_depth,
+  with the number of prims written
 - `format_scene_tree()` - get_scene_tree's text: path, type and position down to max_depth, a prim there with its count
   of children
 - `format_frame_state()` - Format a snapshot for recording

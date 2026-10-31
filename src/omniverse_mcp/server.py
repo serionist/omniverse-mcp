@@ -48,8 +48,8 @@ INSTRUCTIONS = """\
 Drives an NVIDIA Omniverse Kit app (Isaac Sim, USD Composer, ...): its USD stage, simulation, viewport and robots.
 
 - Call get_sim_state first: the up axis (Y or Z), the stage's units, and whether physics is running.
-- Look before you act: get_scene_tree or dump_scene for what is there, capture_viewport or inspect_prim for how it
-  looks, and again after a change.
+- Look before you act: get_scene_tree for what is there, capture_viewport or inspect_prim for how it looks, and
+  again after a change.
 - Images and long text are written to files, and their paths returned, relative to the working directory or absolute:
   open them with your file tool. Only capture_viewport(include_image=True) returns an image inline, at a cost in
   context.
@@ -177,8 +177,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.command == "extension":
         sys.exit(kit_extension.main(args.action))
     # Output dir defaults to ./mcp_output relative to CWD. It is made by the first file written there, by the server or
-    # by Kit (dump_scene, recordings), not here: a client's health check starts the server and calls no tool. A relative
-    # one is made whole here, since Kit would read it against its own working folder.
+    # by Kit (get_scene_tree's dump, recordings), not here: a client's health check starts the server and calls no
+    # tool. A relative one is made whole here, since Kit would read it against its own working folder.
     output_dir = str(Path(args.output_dir).absolute()) if args.output_dir else os.path.join(os.getcwd(), "mcp_output")
     create_server(args.host, args.port, output_dir).run()
 

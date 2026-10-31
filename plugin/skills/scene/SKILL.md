@@ -6,9 +6,8 @@ description: >-
   before acting, reading the captures, spatial reasoning with bounds, and the verification loop.
 allowed-tools: >-
   mcp__plugin_omniverse-mcp_omniverse__get_sim_state mcp__plugin_omniverse-mcp_omniverse__get_scene_tree
-  mcp__plugin_omniverse-mcp_omniverse__dump_scene mcp__plugin_omniverse-mcp_omniverse__get_prim_properties
-  mcp__plugin_omniverse-mcp_omniverse__get_prim_bounds mcp__plugin_omniverse-mcp_omniverse__capture_viewport
-  mcp__plugin_omniverse-mcp_omniverse__get_logs
+  mcp__plugin_omniverse-mcp_omniverse__get_prim_properties mcp__plugin_omniverse-mcp_omniverse__get_prim_bounds
+  mcp__plugin_omniverse-mcp_omniverse__capture_viewport mcp__plugin_omniverse-mcp_omniverse__get_logs
 ---
 
 # Work on a scene
@@ -22,8 +21,9 @@ while physics plays. Never edit blind: look, change, look again.
    scale of every number, and whether physics is playing. To work on a scene from a file, `open_scene` it, after
    `save_scene` when the open stage should be kept: it goes without a prompt. Its answer gives the same axis and units.
 2. **Find what is there.**
-   - `get_scene_tree` for the hierarchy of a small scene; `dump_scene` writes a large one to a file, with properties
-     filtered by type or name, to grep.
+   - `get_scene_tree` lists the hierarchy, each prim's path, type and position; with `include_properties`, or
+     `filter_types` or `property_filter` to keep some types or properties, Kit writes the prims' values to a file
+     instead, to grep.
    - `get_prim_properties` for one prim's attributes; `get_prim_bounds` for its world box.
 3. **Look.** `capture_viewport` writes three files to `mcp_output/captures/`: the image, the bounding boxes (each
    visible prim's screen box, world centre and size) and the instance segmentation (a colour per prim, with a legend).

@@ -52,19 +52,11 @@ CASES = [
     # Scene
     Case(
         "get_scene_tree",
-        {"root": "/World", "max_depth": 2},
+        {"root": "/World"},
         "/scene/tree",
         {"text": "[/World]\ntype = Xform\n"},
-        {"root": "/World", "max_depth": 2, "format": "text"},
+        {"root": "/World", "max_depth": 5, "format": "text"},
         ("[/World]", "type = Xform"),
-    ),
-    Case(
-        "dump_scene",
-        {"filter_types": ["Mesh"], "property_filter": ["joint"]},
-        "/scene/dump",
-        {"prim_count": 12, "file_size_bytes": 4096, "file_path": "scene_dump.txt"},
-        {"output_dir": OUTPUT, "filter_types": ["Mesh"], "property_filter": ["joint"], "include_properties": True},
-        ("Dumped 12 prims (4,096 bytes)",),
     ),
     Case(
         "get_prim_properties",
@@ -1133,6 +1125,68 @@ def test_joint_states_too_long_to_answer_inline_go_to_the_file_after_the_joints(
     assert written.startswith("Joints (12):\n")
     assert "\n  panda_tcp_joint (PhysicsFixedJoint)\nJoint states (43 DOF, " in written
     assert written.endswith("\n  invented_joint42: pos=0.5000 vel=0.0000")
+
+
+DUMPED = {"prim_count": 12, "file_size_bytes": 4096, "file_path": "scene_dump.txt", "root": "/World"}
+
+
+def test_get_scene_tree_with_properties_has_kit_write_them_to_a_file(bridge: MockIsaacServer, tmp_path: Path):
+    # The dump's job, merged into get_scene_tree (#77): 15 levels when max_depth is left out, as the dump took.
+    _check(
+        Case(
+            "get_scene_tree",
+            {"root": "/World", "include_properties": True},
+            "/scene/dump",
+            DUMPED,
+            {"output_dir": OUTPUT, "root": "/World", "max_depth": 15, "include_properties": True},
+            ("Dumped 12 prims under /World, to depth 15 (4,096 bytes) -> ",),
+        ),
+        bridge,
+        tmp_path,
+    )
+
+
+@pytest.mark.parametrize(
+    ("args", "sent"),
+    [
+        # A filter alone writes the file too; only values asked for bring the attributes.
+        ({"filter_types": ["Mesh"]}, {"filter_types": ["Mesh"], "include_properties": False}),
+        ({"property_filter": ["joint"]}, {"property_filter": ["joint"], "include_properties": True}),
+        (
+            {"filter_types": ["Mesh"], "property_filter": ["joint"], "max_depth": 3},
+            {"filter_types": ["Mesh"], "property_filter": ["joint"], "include_properties": True, "max_depth": 3},
+        ),
+    ],
+)
+def test_get_scene_tree_with_a_filter_has_kit_write_the_file(
+    args: dict[str, Any], sent: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path
+):
+    _check(
+        Case("get_scene_tree", args, "/scene/dump", DUMPED, sent, ("Dumped 12 prims under /, to depth ",)),
+        bridge,
+        tmp_path,
+    )
+
+
+@pytest.mark.parametrize(
+    "args",
+    [{"filter_types": []}, {"property_filter": []}, {"include_properties": False, "filter_types": [], "max_depth": 5}],
+)
+def test_get_scene_tree_with_an_empty_filter_lists(args: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path):
+    # An empty list asks for nothing, so the answer is the list, not a file.
+    _check(
+        Case("get_scene_tree", args, "/scene/tree", {"text": "[/]\n"}, {"max_depth": 5, "format": "text"}, ("[/]",)),
+        bridge,
+        tmp_path,
+    )
+
+
+@pytest.mark.parametrize("route", ["/scene/tree", "/scene/dump"])
+def test_get_scene_tree_takes_any_depth(route: str, bridge: MockIsaacServer, tmp_path: Path):
+    # The list refused a max_depth over 15, the old server's quiet cap made a bound; the dump took any (#77).
+    args: dict[str, Any] = {"max_depth": 20, **({"include_properties": True} if route == "/scene/dump" else {})}
+    answer = DUMPED if route == "/scene/dump" else {"text": "[/]\n"}
+    _check(Case("get_scene_tree", args, route, answer, {"max_depth": 20}, ()), bridge, tmp_path)
 
 
 MESH_TOTALS = {

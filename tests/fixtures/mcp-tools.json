@@ -544,69 +544,6 @@
         "type": "object"
       }
     },
-    "dump_scene": {
-      "annotations": {
-        "openWorldHint": false,
-        "readOnlyHint": true
-      },
-      "input": {
-        "properties": {
-          "filter_types": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          },
-          "include_properties": {
-            "default": true,
-            "type": "boolean"
-          },
-          "max_depth": {
-            "default": 15,
-            "minimum": 0,
-            "type": "integer"
-          },
-          "property_filter": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          },
-          "root": {
-            "default": "/",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "output": {
-        "properties": {
-          "result": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "result"
-        ],
-        "type": "object"
-      }
-    },
     "execute_script": {
       "annotations": {
         "destructiveHint": true,
@@ -904,11 +841,49 @@
       },
       "input": {
         "properties": {
+          "filter_types": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "include_properties": {
+            "default": false,
+            "type": "boolean"
+          },
           "max_depth": {
-            "default": 5,
-            "maximum": 15,
-            "minimum": 0,
-            "type": "integer"
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "property_filter": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "root": {
             "default": "/",

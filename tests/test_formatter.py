@@ -1,4 +1,4 @@
-"""The prim-block text of dump_scene, get_prim_properties (text) and recording frames, on usd-core."""
+"""The prim-block text of /scene/dump, get_prim_properties (text) and recording frames, on usd-core."""
 
 import pytest
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics

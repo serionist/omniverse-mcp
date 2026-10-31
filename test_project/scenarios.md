@@ -229,7 +229,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 ## Phase 8: Scene Dump (Prim-Block Format)
 
 ### 8.1 Full Scene Dump
-- `dump_scene(root="/World", include_properties=True)`
+- `get_scene_tree(root="/World", include_properties=True)`
+- Verify: the answer says how many prims it wrote, to depth 15, and where the file is
 - Read the file — verify prim-block format:
   - Header: `# Omniverse MCP Scene Dump`
   - Scene marker: `=== SCENE root=/World prims=N ===`
@@ -237,16 +238,16 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
   - N, and the answer's "Dumped N prims", equal the number of `[/path]` blocks in the file
 
 ### 8.2 Filtered by Type
-- `dump_scene(root="/World", filter_types=["Cube"])`
-- Read: only Cube prims should appear
+- `get_scene_tree(root="/World", filter_types=["Cube"], include_properties=True)`
+- Read: only Cube prims should appear, each with its attributes
 
 ### 8.3 Filtered by Property
-- `dump_scene(root="/World", property_filter=["physics", "collision"])`
+- `get_scene_tree(root="/World", property_filter=["physics", "collision"])`
 - Read: only physics/collision properties in each block
 
-### 8.4 Dump without Properties
-- `dump_scene(root="/World", include_properties=False)`
-- Read: prim blocks should show type and position but NO property listings
+### 8.4 Dump without Attribute Values
+- `get_scene_tree(root="/World", filter_types=["Cube"])`
+- Read: Cube blocks with type, position, rotation and box, but NO attribute listing
 
 ### 8.5 Grep-Friendly Check
 - The file from 8.1 should be grep-able:

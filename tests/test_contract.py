@@ -22,7 +22,7 @@ HINTS = [h.model_dump(by_alias=True, exclude_none=True) for h in (READS, EDITS, 
 HINT_ROWS = ("read-only", "not destructive", "destructive", "destructive, open world")
 # Tools merged into another (#77). A call to one is an unknown tool, so a description, the server's instructions or a
 # plugin skill that still names one sends an agent after a tool the server doesn't list.
-REMOVED = frozenset({"look_at_prim", "get_joint_states", "get_prim_face_count_tree"})
+REMOVED = frozenset({"look_at_prim", "get_joint_states", "get_prim_face_count_tree", "dump_scene"})
 
 
 @pytest.fixture(scope="module")

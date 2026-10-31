@@ -3,9 +3,10 @@
 Reference for every tool the MCP server provides.
 
 - **Where answers go:** a text answer over 1,000 characters is written to `mcp_output/responses/` and the tool
-  returns its path; images go to `mcp_output/captures/`, recordings to `mcp_output/recordings/`, and a scene dump to
-  `mcp_output/scene_dump.txt`, which the next dump replaces. A file under the server's working folder is given by
-  its relative path, any other by its absolute path. Open them with your client's file tool.
+  returns its path; images go to `mcp_output/captures/`, recordings to `mcp_output/recordings/`, and
+  `get_scene_tree`'s dump, with properties or a filter, to `mcp_output/scene_dump.txt`, which the next dump replaces.
+  A file under the server's working folder is given by its relative path, any other by its absolute path. Open them
+  with your client's file tool.
 - **Prim blocks:** text about prims comes as a `[/prim/path]` header, then `key = value` lines, so you can grep for a
   path or a property.
 - **Known issues** on Isaac Sim 6.2 are in the [README](../README.md#known-issues).
@@ -14,7 +15,7 @@ Reference for every tool the MCP server provides.
 
 | To | Use |
 |---|---|
-| see what is in the scene | `get_scene_tree`, or `dump_scene` for a large one |
+| see what is in the scene | `get_scene_tree`; with `include_properties` or a filter, a file of many prims' values |
 | see how it looks | `capture_viewport`; `inspect_prim` for one object from several sides |
 | read a prim's properties, size or place | `get_prim_properties`, `get_prim_bounds` |
 | create, move, copy, hide or delete prims | `create_prim`, `set_prim_transform`, `clone_prim`, `set_visibility`, `delete_prim` |
@@ -37,7 +38,7 @@ it runs one; they are hints, never security (the bridge's token is what keeps ot
 
 | Hints | What they mean | Tools |
 |---|---|---|
-| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs, and leaves Kit's unsaved-edits flag set) | `get_scene_tree`, `dump_scene`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
+| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs, and leaves Kit's unsaved-edits flag set) | `get_scene_tree`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
 | not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `inspect_prim`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug` |
 | destructive | Deletes or overwrites prims, the whole stage, or USD files on disk | `delete_prim`, `save_scene`, `open_scene`, `new_scene`, `flatten_usd`, `export_prim_as_file`, `update_material_paths` |
 | destructive, open world | Runs Python or loads extensions inside the Kit app: anything can happen | `execute_script`, `manage_extensions` |
@@ -46,7 +47,7 @@ A value out of a parameter's range, or not one of its choices, is refused before
 
 ## Table of Contents
 
-- [Scene Tools](#scene-tools) (12 tools)
+- [Scene Tools](#scene-tools) (11 tools)
 - [Geometry & Mesh Tools](#geometry--mesh-tools) (2 tools)
 - [USD Operations](#usd-operations) (2 tools)
 - [Variant Tools](#variant-tools) (2 tools)
@@ -68,45 +69,42 @@ A value out of a parameter's range, or not one of its choices, is refused before
 
 ### `get_scene_tree`
 
-List the stage's prims under `root` as prim blocks: each one's path, type and world position.
+List the stage's prims under `root` as prim blocks: each one's path, type and world position, to `max_depth`. With
+`include_properties`, `filter_types` or `property_filter`, Kit writes the blocks to a file instead, with each prim's
+values.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `root` | string | `"/"` | Starting prim path |
-| `max_depth` | int | `5` | Levels below `root` to list, 0 to 15; a prim on the last level says how many children it has |
+| `max_depth` | int | `null` | Levels below `root`, 0 up: 5 when left out, or 15 with properties or a filter |
+| `include_properties` | bool | `false` | Each prim's rotation, world box and attribute values, written by Kit to `mcp_output/scene_dump.txt` |
+| `filter_types` | list[string] | `null` | Only prims of these types (e.g., `["Mesh", "Xform"]`), written to the file; the others' children are still walked |
+| `property_filter` | list[string] | `null` | Only properties whose names hold one of these (e.g., `["joint"]`), written to the file; it takes the properties with it |
 
-**Returns:** Prim-block text showing each prim's path, type, and world position. Written to file if output exceeds 1000 characters.
-A prim at `max_depth` that has children says how many, as `children = N (truncated)`, and nothing below it is listed.
-An extension of 0.2.3 or older lists instead the next level's prims that have children, and leaves out the rest of
-that level. The prims inside an instanceable prim, as Isaac Sim's robot assets often are, are not listed:
-`get_mesh_stats` looks inside.
+**The list,** when none of `include_properties`, `filter_types` or `property_filter` is given (an empty list counts as
+not given): each prim's path, type and world position, answered inline, or written to
+`mcp_output/responses/scene_tree_NNNN.txt` when over 1,000 characters. A prim at `max_depth` that has children says
+how many, as `children = N (truncated)`, and nothing below it is listed. An extension of 0.2.3 or older lists instead
+the next level's prims that have children, and leaves out the rest of that level.
 
-**When to use:** to find prim paths before acting on them; it is the lightest look at a scene. For properties, use
-`get_prim_properties` on one prim, or `dump_scene` for many at once, written to a file to grep.
+**The file,** with `include_properties`, or a `filter_types` or `property_filter` that isn't empty: Kit writes the
+blocks to `mcp_output/scene_dump.txt`, replacing the last, and the answer gives its path, how many prim blocks it
+holds, which the file's header says too, and how deep it went: `Dumped 120 prims under /World, to depth 15 (48,213
+bytes) -> mcp_output/scene_dump.txt`. Its blocks don't mark a prim whose children were left out.
 
----
+- Each block holds the prim's type, world position, rotation, world box and physics flags, and every attribute's
+  value with `include_properties`, or those `property_filter` names.
+- `filter_types` alone writes those flags and boxes for the types it names, without attribute values. Over every type
+  that form has no call of its own: `include_properties=True` gives the full blocks, `get_prim_bounds` one prim's box.
+- Kit writes the file itself, so with Kit on another machine it lands there. An extension of 0.2.3 or older counts
+  every prim on the stage.
+- The output is in prim-block format: grep for prim paths or property names, or read it in parts.
 
-### `dump_scene`
+Neither lists the prims inside an instanceable prim, as Isaac Sim's robot assets often are: `get_mesh_stats` looks
+inside.
 
-Write the prims under `root`, with their properties, to `mcp_output/scene_dump.txt` as prim blocks, and return the
-file's path. Each block holds the prim's type, world position, rotation and bounding box, and every attribute's value
-unless `include_properties` is false.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `root` | string | `"/"` | Starting prim path |
-| `max_depth` | int | `15` | Max traversal depth; 0 for root alone |
-| `include_properties` | bool | `true` | Include all USD properties per prim |
-| `filter_types` | list[string] | `null` | Only include prims of these types (e.g., `["Mesh", "Xform"]`); the others' children are still walked |
-| `property_filter` | list[string] | `null` | Only include properties containing these substrings |
-
-**Returns:** File path to the dump, its size, and how many prim blocks it holds, which the file's header says too; an
-extension of 0.2.3 or older counts every prim on the stage. Use your file reading tool to examine specific parts. Each
-call replaces the last dump. Kit writes the file itself, so with Kit on another machine it lands there. Like
-`get_scene_tree`, it doesn't list the prims inside an instanceable prim.
-
-**When to use:** for many prims' values at once, or for depths beyond `get_scene_tree`'s 15. The output is in
-prim-block format - grep for prim paths or property names. `get_prim_properties` reads one prim inline.
+**When to use:** to find prim paths before acting on them; the list is the lightest look at a scene. The file is for
+many prims' values at once; `get_prim_properties` reads one prim inline.
 
 ---
 
@@ -122,8 +120,8 @@ attribute's value.
 **Returns:** Prim type, position, bounding box, and all USD properties. Relationships, such as a material binding, are
 named without their targets.
 
-**When to use:** to read one prim. `get_prim_bounds` when only its size and place matter, `dump_scene` for many prims
-at once, `get_scene_tree` to find paths.
+**When to use:** to read one prim. `get_prim_bounds` when only its size and place matter, `get_scene_tree` to find
+paths, and with `include_properties` for many prims at once, written to a file.
 
 ---
 
