@@ -137,10 +137,12 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Use it to move, turn or size a prim; to aim the viewport camera, use set_camera or look_at_prim, and to push a
         rigid body while physics runs, apply_force. Values are in the parent's space, not world space:
-        get_prim_properties gives a prim's world position. It rewrites the prim's xform ops as translate, rotateXYZ
-        (orient for a quaternion) and scale, and drops any other op, so a prim placed by a matrix (xformOp:transform),
-        as imported assets often are, loses that placement. An error when the prim doesn't exist or can't be
-        transformed.
+        get_prim_properties gives a prim's world position. It writes into the prim's own xform ops: the position into
+        its translate op, the rotation into its rotate or orient ops in their kind, the scale into its scale op, adding
+        an op it lacks; other ops, a pivot among them, stay. A part with no op of its own goes into the prim's matrix
+        (xformOp:transform) when it has one, as imported assets often do. An error when the prim doesn't exist or can't
+        be transformed, for an animated op, for ops a stronger layer holds, such as a Kit camera's, and for a rotation
+        or scale on a matrix that can't be factored.
         """
         bridge_call(client.set_transform, prim_path, position, rotation, scale)
         return f"Transform updated for {prim_path}"
@@ -162,7 +164,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         prim_type is a USD type name: Cube, Sphere, Cylinder, Cone, Capsule, Xform, Camera, DistantLight, DomeLight,
         SphereLight and the rest. Missing parents are made as typeless prims. A prim already at prim_path keeps its
-        type: one of another type is refused, one of the same type takes the new transform. usd_path adds its reference
+        type: one of another type is refused, one of the same type takes the new transform, written as
+        set_prim_transform writes it. A transform it can't write makes nothing. usd_path adds its reference
         to a prim already there. enable_physics puts the RigidBody and Collision APIs on the prim itself, so a shape
         falls and collides while the simulation plays; the meshes under an Xform or a referenced file's root get no
         Collision API of their own. To copy a prim, use clone_prim; for a robot, create_robot.
@@ -251,12 +254,12 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Copy a prim with everything under it to a new path, once or as a row of count copies.
 
         The first copy sits on the source and each next one moves by offset from the one before, so a single copy is
-        never moved: move it with set_prim_transform. With offset, the copies it places, and a single copy, get their
-        xform ops rewritten as set_prim_transform does, counted from the source's translate (the origin without one):
-        copies of a prim placed by a matrix lose that placement. It copies what the stage's root layer holds at
-        source_path, its references included, so a prim from a sublayer, or from inside a referenced asset, can't be
-        copied whole. A target path that already holds a prim is refused before anything is copied. For a new prim,
-        use create_prim.
+        never moved: move it with set_prim_transform. With offset, copy n moves n times offset from the source in the
+        parent's space, through its own translate op or matrix, its other ops and placement kept; the first copy, and a
+        single copy, are left as copied. A source whose position can't be written copies nothing. It copies what the
+        stage's root layer holds at source_path, its references included, so a prim from a sublayer, or from inside a
+        referenced asset, can't be copied whole. A target path that already holds a prim is refused before anything is
+        copied. For a new prim, use create_prim.
         """
         resp = bridge_call(client.clone_prim, source_path, target_path, count, offset)
         r = resp["result"]

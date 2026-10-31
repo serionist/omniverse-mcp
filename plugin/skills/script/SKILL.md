@@ -39,7 +39,7 @@ using it, never guess.
 | Trap | What to do |
 |---|---|
 | Backslashes in a Windows path | raw strings (`r"D:\3d\a.usda"`) or forward slashes |
-| Moving the viewport camera through `UsdGeom.Xformable` or `ViewportCameraState` | neither moves it reliably: `await mcp.set_camera()` or `await mcp.look_at()` |
+| Moving Kit's viewport camera with `UsdGeom.Xformable` in the stage's edit layer | nothing moves: Kit keeps its own cameras' ops in the session layer, which outranks the edit layer, and the edit stays in the user's file. `await mcp.set_camera()` or `await mcp.look_at()`, or `ViewportCameraState` |
 | Switching a variant in a script | the viewport keeps the old geometry: `set_variant_selection` |
 | USD called from a thread | crashes Kit: stay on the script's own task |
 | `stage.Flush()` | does not exist in OpenUSD; `stage.Reload()` reloads layers from disk |

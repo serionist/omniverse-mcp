@@ -5,6 +5,57 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Fixed
+
+- **`delete_prim` refuses a prim it can't remove, where it answered "Deleted" and the prim stayed:** one another layer
+  defines too, or one a reference or payload on a prim above brings, such as a part of a referenced robot. The error
+  says which, nothing changes, and `set_visibility` hides such a prim. The fix is in the Kit extension: run
+  `uvx omniverse-mcp extension install`, then restart Kit. Until then, `delete_prim`'s answer says to check with
+  `get_scene_tree` (#82).
+- **`set_camera`, `look_at_prim` and `inspect_prim` aim the camera in every Kit app.** Without Isaac Sim's
+  `isaacsim.core.utils.viewports` they wrote the camera's transform into the stage's root layer, which Kit's own
+  viewport camera, held in the session layer, ignores: `set_camera` and `look_at_prim` failed with a USD error,
+  `inspect_prim` took every angle from where the camera stood, and each left an override of the camera in the root
+  layer. A scene camera moved without turning, and `look_at_prim` reset its rotation. They now aim the camera in the
+  layer that holds it, as Kit does. In Isaac Sim, a camera looking straight down a Y-up stage's up axis, which Isaac's
+  call left at the origin, is aimed too. The fix is in the Kit extension (#82).
+- **`set_camera` refuses a `position` equal to the point it looks at,** its `target` or the world origin when none
+  is given, where it answered success with nothing to look at (#82).
+- **`set_material` makes a material opaque again with `opacity=1`:** it wrote the opacity only below 1, so a material
+  made see-through stayed so. A call that leaves `opacity` out now makes the material opaque, as one that leaves out
+  `roughness` or `metallic` sets theirs, and the answer gives the opacity every time. The fix is in the Kit extension
+  (#82).
+- **`dump_scene` counts the prims it wrote,** where "Dumped N prims" counted the whole stage and the file's
+  `prim_count` the whole subtree, past `max_depth` and `filter_types`. The fix is in the Kit extension (#82).
+- **A second `start_recording` says to call `stop_recording`,** where it said to pass `force=True`, which the tool
+  doesn't take. The fix is in the Kit extension (#82).
+- **`set_prim_transform` keeps a prim's other xform ops:** it rewrote them as translate, rotate and scale and dropped
+  the rest, so a pivot went, a pivot could be read as the position, and a prim placed by a matrix (`xformOp:transform`),
+  as imported assets often are, lost that placement. The position, rotation and scale now go into the prim's own ops,
+  the rotation in its op's kind, and a matrix is changed in place; `create_prim` and `create_robot` place a prim the
+  same way. The fix is in the Kit extension (#82).
+- **`clone_prim` with `offset` keeps each copy's placement,** moving copy n by n times the offset from the source:
+  copies of a source placed by a matrix or about a pivot lost that placement, and a single copy had its ops rewritten.
+  The fix is in the Kit extension (#82).
+- **`get_recording_frame` reads the folder `start_recording` and `stop_recording` print,** relative to the server's
+  working folder, where Kit read a relative `session_dir` from its own folder and answered "Frame not found" (#82).
+- **`raycast` takes a `direction` of any length but zero,** where its description asked for a unit vector and said
+  PhysX takes it as given: Isaac Sim 6.2's PhysX scales it itself, and the server now does so before sending it, for
+  any other. A zero direction is an error (#82).
+- **`get_scene_tree` stops at `max_depth`, and a prim there says how many children it has,** where the text listed the
+  next level's prims that had children and left out the rest, so a childless prim there looked absent. The fix is in
+  the Kit extension (#82).
+- **`look_at_prim`, `inspect_prim` and `raycast` give distances in stage units,** where they printed `m`: on a stage in
+  centimetres, centimetres labelled metres (#82).
+
+### Changed
+
+- **`set_prim_transform`, `create_prim` and `create_robot` refuse what they can't show:** a rotation that isn't 3 or 4
+  numbers, which they ignored; a zero quaternion; an xform op with animation, whose value they set where the animation
+  hid it or froze it; ops a stronger layer holds, such as Kit's viewport camera's, where they failed with a USD error;
+  and a rotation or scale on a matrix that can't be factored, which lost the rotation. `create_prim` and
+  `create_robot` refuse before making the prim. The fix is in the Kit extension (#82).
+
 ## 0.2.3 (2026-10-30)
 
 A new tool, `open_scene`. Captures, recording, `apply_force`, `flatten_usd` and `export_prim_as_file` are fixed, and
