@@ -140,9 +140,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Push a rigid body through PhysX with a force or an impulse, so its mass counts. The simulation must be
         playing or paused. A push on an articulation's link, such as a robot's, moves the robot through its joints: a
         floating robot touching nothing changes speed by the impulse over its whole mass; a fixed robot's link turns
-        about its joints, and on the ground friction takes some of the push. Refused for a prim without RigidBodyAPI, a
-        disabled or kinematic body, one a fixed joint holds to the world (a fixed robot's base), and under PhysX's
-        Direct GPU API. To place a body rather than push it, use set_prim_transform."""
+        about its joints, and on the ground friction takes some of the push. Under PhysX's Direct GPU API, as Isaac Sim
+        runs on a GPU device, the push goes through PhysX's tensor API. Refused for a prim without RigidBodyAPI, a
+        disabled or kinematic body, and one a fixed joint holds to the world (a fixed robot's base). To place a body
+        rather than push it, use set_prim_transform."""
         resp = bridge_call(client.apply_force, prim_path, force, position, impulse)
         r = resp["result"]
         mode = "impulse" if r.get("impulse") else "force"

@@ -259,10 +259,8 @@ More in [SETUP.md](docs/SETUP.md#troubleshooting).
 
 ## Known issues
 
-On Isaac Sim 6.2, the only Kit app tested so far:
-
-- **`apply_force` is refused under PhysX's Direct GPU API,** which Isaac Sim turns on for a GPU device: its push
-  moves nothing there ([#68](https://github.com/serionist/omniverse-mcp/issues/68)).
+None open on Isaac Sim 6.2, the only Kit app tested so far. Report one as an
+[issue](https://github.com/serionist/omniverse-mcp/issues).
 
 ## Security
 
