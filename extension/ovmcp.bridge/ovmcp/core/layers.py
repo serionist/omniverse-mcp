@@ -79,24 +79,22 @@ def write_refusal(stage: Usd.Stage, path: str, *, saving: bool = False) -> str |
     With saving, the root layer is what is written, so its own file may be, by any name: that is a save (#85)."""
     in_use = stage.GetUsedLayers()
     used = _layers_at(path, in_use, any_name=True)
+    root = stage.GetRootLayer()
+    # A stage never saved, such as new_scene's, has no file of its own: save_scene without a path fails for it.
+    has_file = not Sdf.Layer.IsAnonymousLayerIdentifier(root.identifier)
     if saving:
-        root = stage.GetRootLayer()
         used = [layer for layer in used if layer != root]
         if used:
-            # A stage never saved, such as new_scene's, has no file of its own for save_scene without a path to write.
-            own_file = (
-                ""
-                if Sdf.Layer.IsAnonymousLayerIdentifier(root.identifier)
-                else ", or call save_scene without a file_path to save the open stage to its own file"
-            )
+            own_file = ", or call save_scene without a file_path to save the open stage to its own file"
             return (
                 f"{path} is {_role(stage, used[0])}: saving the root layer there would overwrite a file the open scene "
-                f"is made of. Save to another path{own_file}."
+                f"is made of. Save to another path{own_file if has_file else ''}."
             )
     if used:
+        own_file = "; to save the open stage to its own file, use save_scene"
         return (
             f"{path} is {_role(stage, used[0])}: writing it would overwrite a file the open scene is made of. "
-            "Write to another path; to save the open stage to its own file, use save_scene."
+            f"Write to another path{own_file if has_file else ''}."
         )
     # Only layers outside the open stage: a save lets the root layer through, and its unsaved edits are what it writes.
     held = [layer for layer in _layers_at(path, Sdf.Layer.GetLoadedLayers()) if layer not in in_use]

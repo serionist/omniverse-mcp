@@ -13,8 +13,9 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   anything is written, as `flatten_usd` and `export_prim_as_file` refuse it, with an error that says to name another
   path, or to call `save_scene` without one when the stage has a file of its own; the stage's own file, by any name,
   is still saved. A file Kit holds outside the open stage with unsaved edits is refused too; one without is read again
-  after the write, so the next open gets the new file. The fix is in the Kit extension: run `uvx omniverse-mcp
-  extension install`, then restart Kit (#85).
+  after the write, so the next open gets the new file. The refusals of `flatten_usd` and `export_prim_as_file` no
+  longer tell a stage never saved, such as `new_scene`'s, to use `save_scene` to save to its own file, which it hasn't
+  got. The fix is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#85).
 
 ## 0.2.3 (2026-10-30)
 
