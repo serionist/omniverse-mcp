@@ -35,7 +35,8 @@ what to drop.
 | The four merges: the server's tools, their descriptions, the tool contract, `docs/TOOLS.md`, the READMEs, the plugin's skills, `test_project/scenarios.md`, CHANGELOG's Breaking changes | The renames (`sim_control`, `viewport_light`, `raycast`, `manage_extensions`) and `create_variant_structure` with `set_variant_selection` (the maintainer, 2026-10-31) |
 | `set_camera`'s answer without a target, which #82 left to this merge (Q2) | Going down to 25 tools: multi-mode tools |
 | The extension's one error text that names a removed tool, and comments that do (Q11) | Merging the routes (Q9); the `mcp` helper inside `execute_script`, which calls the handlers and keeps its names |
-| The face count tree's depth for a root of `/`, found reading the code (Q12) | Joint positions in degrees (Q5): its own issue |
+| | Joint positions in degrees (Q5): its own issue |
+| | The face count tree listing nothing at depth 0 under `/`, found reading the code (Q12): a possible follow-up |
 | | The release: 0.3.0's release PR follows this one (`docs/releasing.md`, Q14) |
 
 ## What the code says
@@ -70,9 +71,9 @@ written by `tools/golden.py`.
 | C3 | `look_at_prim`: the prim's world box, a distance of 2.5 times its largest side when none is given, a point on a sphere around the box's centre by azimuth and elevation for the stage's up axis, aimed at that centre | `handlers/camera.py:536-567` |
 | C4 | `/robot/info` reads USD only, in any state of the simulation; its joints come in the order `set_joint_targets`' list follows | `handlers/robot.py:134-204`; `tools/robot.py:110-114` |
 | C5 | `/robot/joint_states` reads the first articulation root at or under `prim_path`, and errs with no articulation there, without Isaac Sim (a message that names `get_joint_states`), stopped ("play or step the simulation first"), or on a failure in Isaac's API | `handlers/robot.py:229-269`; `core/robot.py:28-35` |
-| C6 | That route makes a new Isaac Sim `Articulation` on each call, stopped too, as today's `get_joint_states` does. Isaac Sim 6.2 registers its callbacks through `weakref.proxy`, drops them when the object is collected, and sets up its physics view only when a simulation view already exists (`_physics_sim_view__warp`), never loading one itself | Isaac Sim 6.2's `isaacsim.core.experimental.prims`, `impl/prim.py:85-96`, `:297-300`, `impl/articulation.py:173-188`; `isaacsim.core.simulation_manager`, `impl/simulation_manager.py:1163-1260` |
+| C6 | That route makes a new Isaac Sim `Articulation` on each call, stopped too, as today's `get_joint_states` does. Isaac Sim 6.2 registers its callbacks through `weakref.proxy`, drops them when the object is collected, and sets up its physics view only when a simulation view already exists (`_physics_sim_view__warp`), never loading one itself. Isaac Sim 5.1 matches: its `register_callback` wraps a bound method in `weakref.proxy`, its `_on_stop` drops the view, and `Articulation.__init__` makes a physics view only when one exists (read by round 1's reviewer) | Isaac Sim 6.2's `isaacsim.core.experimental.prims`, `impl/prim.py:85-96`, `:297-300`, `impl/articulation.py:173-188`; `isaacsim.core.simulation_manager`, `impl/simulation_manager.py:1163-1260`; the same extensions in Isaac Sim 5.1 |
 | C7 | `/scene/mesh_stats` skips a mesh without `faceVertexCounts`; `/scene/face_count_tree` counts it with 0 faces, and its last line, `# total:`, counts only the meshes within `max_depth` | `handlers/_utils.py:280-281`; `handlers/scene.py:619`, `:651-652`, `:675` |
-| C8 | `/scene/face_count_tree` with a root of `/` lists one level fewer than asked, and nothing at `max_depth` 0: the pseudo-root counts as depth 1 (E1) | `handlers/scene.py:644-652` |
+| C8 | `/scene/face_count_tree` with a root of `/` lists nothing at `max_depth` 0, where `/` itself is due: the pseudo-root counts as depth 1. Every other prim's depth is right, so from 1 on it lists what a correct rule does (E1) | `handlers/scene.py:644-652` |
 | C9 | `/scene/tree`'s text holds each prim's path, type and position, and `children = N (truncated)` at `max_depth`; the server writes an answer over 1,000 characters to `responses/scene_tree_NNNN.txt` | `handlers/scene.py:48-51`; `core/formatter.py:207-246`; `server.py:128-135` |
 | C10 | `/scene/dump`: Kit writes `<output_dir>/scene_dump.txt`, each block with rotation, world box, physics flags and the attributes; `property_filter` applies only with `include_properties`; `filter_types` still walks the other prims' children | `handlers/scene.py:97-140`; `core/formatter.py:129-133`, `:170-174` |
 | C11 | `get_scene_tree`'s cap of 15 was the old server's quiet clamp, which #24 made a bound | `CHANGELOG.md:291` |
@@ -90,7 +91,7 @@ Kit (`probe_sdk.py` and `probe_root.py` in the session's scratchpad, not kept):
 |---|---|---|
 | S1 | A call to a name the server doesn't list is an error result, `Unknown tool: <name>`, not a protocol error | SDK docs, "Calling a tool"; probe |
 | S2 | An argument a tool doesn't take is dropped without a word; a required one left out is a validation error | `mcp/server/mcpserver/utilities/func_metadata.py:112`, no `extra="forbid"`; probe: `get_mesh_stats(prim_path, root)` reached the bridge, `get_mesh_stats(root)` was refused for `prim_path` |
-| E1 | `handle_face_count_tree`'s depth rule on usd-core: root `/` lists nothing at `max_depth` 0, and `/` with `/World` at 1; root `/World` lists itself at 0, and `/World/M` too at 1 | `probe_root.py` |
+| E1 | `handle_face_count_tree`'s depth rule on usd-core: root `/` lists nothing at `max_depth` 0, and at 1 to 3 the same prims as a rule that counts `/` as depth 0; root `/World` lists the same under both rules (corrected in round 1, P1: the first reading said one level fewer at every depth) | `probe_root.py`; round 1's `depth.py`, on `/World/Robot/Body` and `/Env` |
 
 ## Design
 
@@ -118,7 +119,7 @@ without a prim from one left out: given alone, it would be dropped without a wor
 | The call | What happens |
 |---|---|
 | `prim_path` with `position` or `target` | Error: `prim_path frames the prim from distance, azimuth and elevation: leave position and target out, or leave prim_path out to aim from a position (get_prim_bounds gives a prim's centre)` (Q3) |
-| `distance`, `azimuth` or `elevation` without `prim_path` | Error: `distance, azimuth and elevation place the camera around prim_path: give prim_path, or position and target` |
+| `distance`, `azimuth` or `elevation` without `prim_path` | Error: `distance, azimuth and elevation place the camera around prim_path: give prim_path to frame a prim, or leave them out to aim from position` (round 1, P4) |
 | neither `position` nor `prim_path` | Error: `give position, where the camera stands, with target, the point it looks at; or prim_path, a prim to frame` |
 | `position`, equal to the point it looks at | Error, as #82 made it: `position [0, 0, 0] is the world origin, which it looks at without a target: ...` |
 | `position` | `/camera/set` with `position` and `target`, as `set_camera` sends them today |
@@ -180,8 +181,21 @@ second; set_joint_targets takes degrees):
 ```
 
 Stopped, without Isaac Sim, or with no articulation: `Joint states: not read: <the route's error>`, such as
-`No physics view of /World/Franka: play or step the simulation first; ...`. Long answers go to
-`responses/robot_info_NNNN.txt`, as today's `get_robot_info` does.
+`No physics view of /World/Franka: play or step the simulation first; ...`.
+
+**What stays inline** (round 1, P3): for a Franka the whole answer is about 1,020 characters stopped and 1,300
+playing, over `FILE_THRESHOLD`, where each old tool's answer was inline (797 and 395 characters). So, as
+`get_mesh_stats` keeps its totals inline:
+
+| Part | Where |
+|---|---|
+| The header lines (`Robot`, `Articulation`, `DOF`, `Links`) | Inline always |
+| The joint states block, or its `not read` line | Inline when it fits in 1,000 characters with the header; otherwise in the file, after the Joints list: a G1's, some 40 lines, pass 1,000 alone, and today's `get_joint_states` wrote them to a file too |
+| The Joints list | Inline when the whole answer fits in 1,000 characters; otherwise in `responses/robot_info_NNNN.txt`, a line giving its path |
+
+`get_robot_info` and `get_mesh_stats` write a part through one new `Helpers` method, `text_response`'s file half,
+which always writes and returns the `Wrote ... ->` line: `text_response` would keep a part under 1,000 characters
+inline though the whole answer is over.
 
 The two lists stay apart: the Joints list is in the order `set_joint_targets`' list follows, fixed joints included,
 and the states in physics' own order of degrees of freedom. Lines joined per joint would need each DOF matched to a
@@ -212,7 +226,8 @@ default): how many levels of the tree to list.
 **Two requests:** `/scene/mesh_stats` for the totals, then `/scene/face_count_tree` with `prim_path` as its `root`.
 
 **The answer:** the totals, inline always, then the tree, inline when the whole answer is 1,000 characters or less,
-otherwise written to `responses/mesh_stats_NNNN.txt` with its path in the answer:
+otherwise written to `responses/mesh_stats_NNNN.txt` with its path in the answer, through the `Helpers` method
+`get_robot_info` uses:
 
 ```text
 [/World/Franka]
@@ -267,12 +282,19 @@ ancestors' `subtree_faces`.
 
 | The call | Route | Answer |
 |---|---|---|
-| none of `include_properties`, `filter_types`, `property_filter` | `/scene/tree`, text, as today | The blocks, inline, or in `responses/scene_tree_NNNN.txt` when over 1,000 characters, as today |
-| any of them | `/scene/dump`, with `include_properties` true when it or `property_filter` is given | `Dumped 120 prims under /World, to depth 15 (48,213 bytes) -> mcp_output/scene_dump.txt` |
+| `include_properties` false, and `filter_types` and `property_filter` left out or empty | `/scene/tree`, text, as today | The blocks, inline, or in `responses/scene_tree_NNNN.txt` when over 1,000 characters, as today |
+| `include_properties` true, or a non-empty `filter_types` or `property_filter` | `/scene/dump`, with `include_properties` true when it is, or `property_filter` isn't empty | `Dumped 120 prims under /World, to depth 15 (48,213 bytes) -> mcp_output/scene_dump.txt` |
 
-The depth is new in the file's answer: the dump's blocks don't mark a prim whose children were left out, so the
-answer says how deep it went. `include_properties` is false when left out, where `dump_scene` took true: the light list
-stays the default, and `dump_scene(root)` becomes `get_scene_tree(root, include_properties=True)`.
+An empty list asks for nothing, so `filter_types=[]` gives the list (round 1, I2). The depth is new in the file's
+answer: the dump's blocks don't mark a prim whose children were left out, so the answer says how deep it went.
+`include_properties` is false when left out, where `dump_scene` took true: the light list stays the default, and
+`dump_scene(root)` becomes `get_scene_tree(root, include_properties=True)`.
+
+**One old form has no equivalent** (round 1, P2; Q15): `dump_scene(include_properties=False)` with no filter, each
+prim's block with its rotation, world box and physics flags but no attribute values (`format_prim_block`). Here that
+call is the list, path, type and position. A filter keeps that form for the types it names; for every type, the full
+blocks (`include_properties=True`) or `get_prim_bounds` on a prim cover it. Bringing it back whole would take a
+switch, which this plan rules out.
 
 **The description:** "List the stage's prims under `root` as prim blocks: each one's path, type and world position,
 to `max_depth`." Then today's sentences on `children = N (truncated)` and instances (`get_mesh_stats` looks inside),
@@ -293,7 +315,8 @@ lands there." `get_prim_properties` reads one prim inline.
 The merged tools call the eight routes as they are, through the client's methods as they are.
 
 - **No wire change:** paths, bodies and answers stay; `PROTOCOL` stays 1.
-- **Any extension of 0.2.x** answers the four merged tools: every route they call is in 0.2.0's extension.
+- **Any extension of 0.2.x** answers the four merged tools: every route they call is in 0.2.0's extension. Joint
+  states need 0.2.1's or later, where `/robot/joint_states` first read them (#50); before it, its error is the line.
 - **The `mcp` helper** in `execute_script` (`mcp.set_camera`, `mcp.look_at`, `mcp.scene_tree`) calls the handlers and
   keeps its names (C12), so the script skill's trap row stays true.
 - **The live suites** call the routes (C13) and stay; new live tests go through the server (Tests).
@@ -315,22 +338,27 @@ Moved with this change, so nothing in the repo but its dated plans and reviews n
 plugin's skills (their `allowed-tools`, which the gate checks against the contract, C15, and their text),
 `test_project/scenarios.md`, the server's instructions, every description, doc and code comment that names one, and
 the docstrings of the route tests (Docs). The route tests' own names, such as `test_03_03_look_at_prim`, stay: they
-follow the scenarios' numbering and test routes that stay. Users' own prompts and notes move by CHANGELOG's Breaking
-changes, which maps each.
+follow the scenarios' numbering and test routes that stay. A contract test keeps it so (round 1, I1): a `REMOVED` set
+in `tests/test_contract.py`, which each pair's step adds its name to, and a test that no tool's description, the
+server's `INSTRUCTIONS` or a plugin skill names one as a word. Users' own prompts and notes move by CHANGELOG's
+Breaking changes, which maps each.
 
-### The extension's text, and the tree's root (Q11, Q12)
+### The extension's text (Q11), and the tree's root left as it is (Q12)
 
-Nothing the merge needs, but the merged tools show them:
+Nothing the merge needs, but the merged tools show it:
 
 - **`handlers/robot.py:241`:** `get_joint_states needs Isaac Sim's isaacsim.core.experimental.prims extension: ...`
   becomes `Joint states need Isaac Sim's ...`, since `get_robot_info` now shows it as its line. Comments and a log
   label that name a removed tool: `core/formatter.py:14`, `core/robot.py:1`, `core/xform.py:451`, and
   `handlers/camera.py:572`'s `_settle_or_log("look_at_prim")`, which Kit's log shows, as `set_camera`.
-- **`handlers/scene.py:644-652`:** the depth is `p.GetPath().pathElementCount - root.GetPath().pathElementCount`, so
-  a root of `/` lists `/` at 0 and `/World` at 1 (E1). `get_mesh_stats` takes any `prim_path`, `/` the likeliest for
-  the whole stage, where the tree's default was `/World`.
 
-Both need this release's extension; an older one keeps the old text and depth, and the merged tools work on it.
+It needs this release's extension; an older one keeps the old text, and the merged tools work on it.
+
+**The tree under `/` stays as it is (Q12).** With a root of `/`, `/scene/face_count_tree` lists nothing at
+`max_depth` 0, where `/` is due, and from 1 on what a correct rule lists (C8, E1). `get_mesh_stats("/", max_depth=0)`
+still answers the totals inline, which is what depth 0 asks; a tree of `/` alone would add only its `subtree_faces`,
+the totals' faces again. A fix is one line in the handler, `pathElementCount` against the root's, and a possible
+follow-up issue; this PR leaves the extension's tree alone.
 
 ## Compatibility
 
@@ -359,15 +387,28 @@ What users notice:
 | `get_prim_face_count_tree(root, max_depth=10)` | `get_mesh_stats(prim_path=root, max_depth=...)`: the totals, then the tree, 2 levels by default |
 | `get_mesh_stats` listed each mesh when there were 20 or fewer | The tree lists the meshes within `max_depth` |
 | `dump_scene(root, ...)`, properties included by default | `get_scene_tree(root, include_properties=True, ...)`: the same file, 15 levels by default |
+| `dump_scene(root, include_properties=False)` with no filter: each prim's rotation, world box and physics flags, without attribute values | No form of its own (Q15): `get_scene_tree(root)` lists path, type and position; a filter keeps those blocks for the types it names; `include_properties=True` gives the full blocks, `get_prim_bounds` one prim's box |
 | `get_scene_tree` refused a `max_depth` over 15 | Any depth |
 | A call to a removed tool | `Unknown tool: <name>` |
 
 - **Mixed releases:** a 0.3.0 server on any 0.2.x extension runs the four merged tools, since 0.2.0's extension has
-  every route they call; Q11's text and Q12's depth need the new extension, as #82's fixes do, and the other tools
-  are as before. A 0.2.x server on the 0.3.0 extension runs its 42 tools: the routes and `PROTOCOL` are the same.
-- **The plugin:** its skills and its pinned server move together at the release. The marketplace serves `main`, so
-  between this merge and 0.3.0 a plugin user gets the new skills over a 0.2.3 server, whose `set_camera` has no
-  `prim_path` (Q14).
+  every route they call; joint states need 0.2.1's or later (#50), Q11's text the new extension, as #82's fixes do,
+  and the other tools are as before. A 0.2.x server on the 0.3.0 extension runs its 42 tools: the routes and
+  `PROTOCOL` are the same.
+- **The plugin** (round 1, P5): its skills and the server it pins (`uvx omniverse-mcp==<version>`) move together only
+  at a release's version bump.
+  - Existing installs keep their cached 0.2.3 skills: the plugin's `version` is pinned, so nothing changes for them
+    until 0.3.0.
+  - Installs made between #77's merge and the release copy `main`'s new skills with `plugin.json` still at 0.2.3, so
+    they run the new skills over a 0.2.3 server. Auto-update is off by default for a third-party marketplace, so they
+    stay so until the user updates after 0.3.0 is on PyPI.
+  - On 0.2.3 such a skill fails loudly where it says `set_camera(prim_path=...)`: `position` is required. It fails
+    silently where it says `get_scene_tree(include_properties=True)` or `get_mesh_stats(max_depth=...)`: the SDK drops
+    the argument (S2), so the answer is the list, or the totals alone. And its `allowed-tools` no longer name
+    `get_joint_states`, `dump_scene` and `get_prim_face_count_tree`, which 0.2.3 still needs, so those calls ask the
+    user first.
+  - What opens the window: #77's merge, for installs after it. What closes it: 0.3.0's release PR, whose version bump
+    pins the new server, and that user's update once PyPI has 0.3.0 (Q14).
 - **Kit apps:** the routes are unchanged, so nothing changes per Kit app. The live tests run on Isaac Sim 6.2.
 
 ## Decisions for the maintainer
@@ -381,29 +422,32 @@ What users notice:
 | Q5 | The joint states' units: radians, as the route gives them, named in the block's header; or revolute positions in degrees, to match the limits and `set_joint_targets`? | Radians, named in the header: degrees need each DOF's type, from the extension (Isaac's `dof_types`) or matched by name to USD's joints, and change what the numbers mean. Its own issue | |
 | Q6 | The face count: keep `get_mesh_stats`, `prim_path` required, `max_depth` 2 by default, the totals inline always and the tree inline or in a file, the per-mesh list and the tree's `# total:` line dropped? | Yes: today's `get_mesh_stats` calls stay valid; 2 levels read inline and say where the faces are, at the same cost in Kit as 10; the dropped lines repeat the tree or contradict the totals | |
 | Q7 | The scene: keep `get_scene_tree`; `include_properties`, `filter_types` or `property_filter` write Kit's `scene_dump.txt`, `property_filter` taking the properties with it; `include_properties` false by default? | Yes: the parameters that ask for values choose the file, where a `to_file` switch could disagree with them; the light list stays the default call | |
-| Q8 | The scene's `max_depth`: left out, 5 for the list and 15 with properties or a filter, and no upper bound; or one default? | Two defaults by form, no bound: each old tool's calls keep their depth, and the file's answer says the depth it used. One default of 5 cuts dumps short without a mark; 15 makes the lightest look heavy | |
-| Q9 | Server only, the merged tools calling today's routes; or merge the routes too? | Server only: no wire change, every 0.2.x extension works, the `mcp` helper and the live suites stay; merged routes would give agents nothing more | |
+| Q8 | The scene's `max_depth`: left out, 5 for the list and 15 with properties or a filter, and no upper bound; or one default? | Two defaults by form, no bound: every old call that has a form in the merged tool keeps its depth, and the file's answer says the depth it used; a dump without values or a filter becomes the list, at 5 (Q15). One default of 5 cuts dumps short without a mark; 15 makes the lightest look heavy | |
+| Q9 | Server only, the merged tools calling today's routes; or merge the routes too? | Server only: no wire change, every 0.2.x extension answers the merged tools (joint states from 0.2.1's), the `mcp` helper and the live suites stay; merged routes would give agents nothing more | |
 | Q10 | A removed tool's name: gone, `Unknown tool`; or a stub that errs with a pointer to the merged tool? | Gone: a stub is listed beside the merged tool, the overlap this removes, and every listing client already shows the merged tool | |
 | Q11 | The extension's `get_joint_states needs Isaac Sim's ...`, which `get_robot_info` now shows, and the comments and log label naming removed tools: reword in this PR? | Yes: a line naming a tool that isn't there sends an agent after it; a few lines, with a handler test for the message | |
-| Q12 | The face count tree with a root of `/` lists one level fewer, and nothing at depth 0 (C8, E1), which `get_mesh_stats("/")` now reaches: fix in this PR, or its own issue? | In this PR: one line in the handler, with a handler test, and the merge makes `/` a likely `prim_path` | |
+| Q12 (restated in round 1, P1) | The face count tree with a root of `/` lists nothing at `max_depth` 0, where `/` is due, and from 1 on what a correct rule lists (C8, E1). `get_mesh_stats("/", max_depth=0)` now reaches it. Fix it in this PR, or leave it? | Leave it out of this PR: at depth 0 the merged answer's totals already say what a tree of `/` alone would, and the PR stays clear of the extension's tree. A possible follow-up issue, one line with a handler test | |
 | Q13 | CHANGELOG's Unreleased lines from #82 that name `look_at_prim` and `dump_scene`: leave them, or reword them to the merged tools? | Leave them: they say what 0.2.3's tools did, by the names 0.2.3's users know, and Breaking changes, first in the release, says where each went | |
-| Q14 | The release: 0.3.0's release PR right after this merges, since `main`'s skills reach plugin users whose server stays 0.2.3 until then? | Yes, the next PR after this one: the window is skills ahead of their server, as for any change to the skills, but here `set_camera`'s `prim_path` errors on 0.2.3 | |
+| Q14 (restated in round 1, P5) | The release: 0.3.0's release PR right after this merges? Plugin installs made between the two run `main`'s new skills over a 0.2.3 server until their user updates after 0.3.0 (Compatibility): `set_camera(prim_path=...)` errs there, `include_properties` and `max_depth` are dropped without a word, and the three removed read tools ask first | Yes, the next PR after this one: existing installs keep their 0.2.3 skills, and the release's version bump closes the window for new ones, each user's update then bringing the skills and the server together | |
+| Q15 (round 1, P2) | Accept that `dump_scene(include_properties=False)` with no filter, each prim's rotation, world box and physics flags without attribute values, has no equivalent in the merged `get_scene_tree`? | Yes: bringing it back needs a switch the plan rules out; the full blocks (`include_properties=True`), a filter for the types wanted, or `get_prim_bounds` cover it | |
 
 ## Steps
 
-Each step builds and passes `uv run tools/gate.py full`: a step that removes a tool regenerates the contract
-(`uv run tools/golden.py`), and moves in the same commit everything that names that tool, since
-`tests/test_contract.py` checks `docs/TOOLS.md`'s headings and hints rows and the gate checks the skills'
-`allowed-tools` (C15). Skills change through `write-skill`.
+Each step builds and passes `uv run tools/gate.py full`. A step that removes a tool regenerates the contract
+(`uv run tools/golden.py`), adds the tool to `REMOVED` (I1), and moves in the same commit what names it on the server's
+side: its descriptions, `docs/TOOLS.md`, the other docs, the skills, the scenarios and the route tests' docstrings.
+`tests/test_contract.py` checks `docs/TOOLS.md`'s headings and hints rows, the gate the skills' `allowed-tools` (C15),
+and `REMOVED` the descriptions, instructions and skills. The extension's text and comments, which no test or gate
+check reads, move together in step 6 (round 1, I4). Skills change through `write-skill`.
 
 | Step | What | Proven by |
 |---|---|---|
 | 1 | This plan, the branch's first commit | `review-plan`, then the maintainer |
-| 2 | `set_camera` takes `look_at_prim`'s job (Q1 to Q3): `tools/camera.py`, `CAMERA_LIGHT_ON_ADVICE`, `capture_viewport`'s and `set_prim_transform`'s descriptions; the contract; `docs/TOOLS.md`; `README.md`'s Camera row; `docs/ARCHITECTURE.md`'s module table and `:474`; the scene skill's step 3; `test_project/scenarios.md` 3.2, 3.3, 3.4, 12.8, 17.6, 26.2; CHANGELOG's Breaking changes, its first line and the camera's | `tests/test_tools.py`, `tests/test_tools_camera.py`, `tests/test_contract.py` |
-| 3 | `get_robot_info` takes `get_joint_states`' job (Q4, Q5): `tools/robot.py` (with `create_robot`'s and `set_joint_targets`' descriptions), `sim_control`'s description in `tools/simulation.py`; `Case` takes further routes (Tests); the contract; `docs/TOOLS.md`; `README.md`'s Robots row and `:255`; `docs/ARCHITECTURE.md`'s Robot System and core list; the simulate skill's `allowed-tools`, steps 3 and 6 and trap row; scenarios 14.4; CHANGELOG | `tests/test_tools.py`, `tests/test_contract.py` |
+| 2 | `set_camera` takes `look_at_prim`'s job (Q1 to Q3): `tools/camera.py`, `CAMERA_LIGHT_ON_ADVICE`, `capture_viewport`'s and `set_prim_transform`'s descriptions; the contract; `REMOVED` and its test (I1); `docs/TOOLS.md`; `README.md`'s Camera row; `docs/ARCHITECTURE.md`'s module table and `:474`; the scene skill's step 3; `test_project/scenarios.md` 3.2, 3.3, 3.4, 12.8, 17.6, 26.2; CHANGELOG's Breaking changes, its first line and the camera's | `tests/test_tools.py`, `tests/test_tools_camera.py`, `tests/test_contract.py` |
+| 3 | `get_robot_info` takes `get_joint_states`' job (Q4, Q5): `tools/robot.py` (with `create_robot`'s and `set_joint_targets`' descriptions), `sim_control`'s description in `tools/simulation.py`; `Case` takes further routes (Tests); the `Helpers` method that writes a part to `responses/` (P3); the contract; `docs/TOOLS.md`; `README.md`'s Robots row and `:255`; `docs/ARCHITECTURE.md`'s Robot System and core list; the simulate skill's `allowed-tools`, steps 3 and 6 and trap row; scenarios 14.4; CHANGELOG | `tests/test_tools.py`, `tests/test_contract.py` |
 | 4 | `get_mesh_stats` takes `get_prim_face_count_tree`'s job (Q6): `tools/usd_advanced.py`, `get_scene_tree`'s description; the contract; `docs/TOOLS.md`; `README.md`'s Geometry row; `docs/ARCHITECTURE.md`'s module table; the geometry skill's `allowed-tools` and step 1; scenarios 18.4, 18.5; CHANGELOG | `tests/test_tools.py`, `tests/test_contract.py` |
-| 5 | `get_scene_tree` takes `dump_scene`'s job (Q7, Q8): `tools/scene.py` (with `get_prim_properties`' description), `server.py`'s instructions and comment; the contract; `docs/TOOLS.md`, its "Where answers go" too; `README.md`'s Scene row; `docs/AI_GUIDE.md`; `docs/ARCHITECTURE.md`; `docs/SETUP.md`; the scene skill's `allowed-tools` and step 2; scenarios 8.1 to 8.4; CHANGELOG | `tests/test_tools.py`, `tests/test_server.py`, `tests/test_contract.py` |
-| 6 | The extension (Q11, Q12): the joint states' message, the log label, the comments; `handle_face_count_tree`'s depth; `docs/TOOLS.md`'s line for an older extension's depth; CHANGELOG's Fixed line for Q12 | `tests/test_robot_handler.py`, `tests/test_scene_handler.py` |
+| 5 | `get_scene_tree` takes `dump_scene`'s job (Q7, Q8): `tools/scene.py` (with `get_prim_properties`' description), `server.py`'s instructions and comment; the contract; `docs/TOOLS.md`, its "Where answers go" too; `README.md`'s Scene row; `docs/AI_GUIDE.md`; `docs/ARCHITECTURE.md`; `docs/SETUP.md`; the scene skill's `allowed-tools` and step 2; scenarios 8.1 to 8.4; CHANGELOG, with Q15's sentence | `tests/test_tools.py`, `tests/test_server.py`, `tests/test_contract.py` |
+| 6 | The extension's text (Q11): the joint states' message, the log label, the comments | `tests/test_robot_handler.py` |
 | 7 | The live tests below: `call_tool` in `tests/conftest.py`, the through-the-server tests | Run by the session on Isaac Sim 6.2 headless at port 8212 with the branch's extension: the new tests alone, then both suites whole |
 | 8 | `finish-work`: the docs, the gate in full, both live suites in full, `review-code`, the PR, titled as this plan | No live failure beyond `main`'s on the same Kit |
 
@@ -415,12 +459,11 @@ Each merged tool's new behaviour has a test that fails at `fd3fabf`.
 
 | File | What |
 |---|---|
-| `tests/test_tools.py` | `Case` gains `more`, the routes a tool calls after its first, each with its answer, and `_check` holds the routes in order (C14). Cases: `set_camera` with a target (`/camera/set`), without one (the answer names the world origin), and with `prim_path` (`/camera/look_at`, 45 and 30 sent for the angles left out, the answer naming the prim); `get_robot_info` (`/robot/info` then `/robot/joint_states`, both blocks); `get_mesh_stats` (the totals, then the tree, its `# total:` line gone, `max_depth` 2 sent); `get_scene_tree` (`/scene/tree`, 5 sent) and with `include_properties` (`/scene/dump`, 15 sent, the answer's depth). `test_every_tool_has_a_case` holds 38. New tests: `set_camera`'s three refusals send no request; `get_robot_info` with the states route erring gives the structure and the line, no tool error; with `/robot/info` erring, a tool error and no second request; `get_mesh_stats`' tree over 1,000 characters goes to `responses/` with the totals inline; `get_scene_tree` with `filter_types` alone sends `include_properties` false, with `property_filter` alone true, and `max_depth` 20 is accepted |
+| `tests/test_tools.py` | `Case` gains `more`, the routes a tool calls after its first, each with its answer, and `_check` holds the routes in order (C14). Cases: `set_camera` with a target (`/camera/set`), without one (the answer names the world origin), and with `prim_path` (`/camera/look_at`, 45 and 30 sent for the angles left out, the answer naming the prim); `get_robot_info` (`/robot/info` then `/robot/joint_states`, both blocks); `get_mesh_stats` (the totals, then the tree, its `# total:` line gone, `max_depth` 2 sent); `get_scene_tree` (`/scene/tree`, 5 sent) and with `include_properties` (`/scene/dump`, 15 sent, the answer's depth). `test_every_tool_has_a_case` holds 38. New tests: `set_camera`'s three refusals send no request; `get_robot_info` with the states route erring gives the structure and the line, no tool error; with `/robot/info` erring, a tool error and no second request; `get_mesh_stats`' tree goes to `responses/` with the totals inline when the whole answer passes 1,000 characters, a tree under 1,000 on its own too; `get_robot_info` for a Franka-sized robot (12 joints, 9 DOF; round 1's sizes), stopped and playing, keeps the header and the `not read` line or the joint states inline and writes the Joints list to `responses/`, a small robot is inline whole, and joint states that pass 1,000 with the header go to the file after the Joints list (P3); `get_scene_tree` with `filter_types` alone sends `include_properties` false, with `property_filter` alone true, with `filter_types=[]` calls `/scene/tree` (I2), and `max_depth` 20 is accepted |
 | `tests/test_tools_camera.py` | `:145-157`: the black-capture advice names `set_camera`'s `prim_path`, not `look_at_prim` |
 | `tests/test_server.py` | `:93-101`: the bound refused before the bridge is `max_depth` -1, since 16 is now accepted |
-| `tests/test_contract.py` | Unchanged code; the golden file holds 38 tools, `docs/TOOLS.md` a heading and a hints entry for each |
+| `tests/test_contract.py` | The golden file holds 38 tools, `docs/TOOLS.md` a heading and a hints entry for each. New: `REMOVED`, the four names, and a test that no tool's description, `INSTRUCTIONS` or `plugin/skills/*/SKILL.md` names one as a word (I1); it fails at `fd3fabf` once a name is in the set |
 | `tests/test_robot_handler.py` | Without `isaacsim`, as in CI, `handle_get_joint_states` on an articulation root errs with `Joint states need Isaac Sim's`, and no tool's name (Q11) |
-| `tests/test_scene_handler.py` | `handle_face_count_tree` with a root of `/`: `/` alone at depth 0, `/World` too at 1 (Q12, E1) |
 | The route tests | Unchanged: `tests/test_client.py`, `tests/test_camera_handler.py`, `tests/test_formatter.py` and the rest test routes, which stay |
 
 **Live,** on Isaac Sim 6.2 headless at port 8212, run by the session. The live suites drive routes (C13), so the
@@ -432,8 +475,8 @@ the server on a `BridgeClient` at `live_bridge()` and calls the tool through the
 |---|---|
 | `test_integration.py` `test_12h_set_camera_aims_at_a_point_or_a_prim_through_the_server` | A point without a target: the answer names the world origin, and `CAMERA_AIM` reads the camera within 0.5 degrees of it; a prim: the answer names the prim, and the camera aims at its centre; `prim_path` with `position`: an error, the camera unmoved |
 | `test_03c_scene_tree_lists_or_dumps_through_the_server` | Its own prims: the list inline with `children = N (truncated)`; `include_properties=True` writes `scene_dump.txt` in the test's output folder, its block count the answer's; `max_depth` 20 accepted |
-| `test_23b_mesh_stats_gives_totals_and_the_tree_through_the_server` | A `UsdGeom.Mesh` made by `execute_script` under an Xform: the totals inline, the tree with the mesh's counts and its parent's `subtree_faces`, no `# total:` line; `prim_path` `/` with `max_depth` 1 lists `/World` (with this branch's extension) |
-| `test_scenarios.py` `test_14_05_get_robot_info_reads_the_joint_states_through_the_server` | After `14_04`, the G1 paused: the Joints list and a joint states block with `dof_count` lines; stopped: the structure and `Joint states: not read: ... play or step the simulation first` |
+| `test_23b_mesh_stats_gives_totals_and_the_tree_through_the_server` | A `UsdGeom.Mesh` made by `execute_script` under an Xform: the totals inline, the tree with the mesh's counts and its parent's `subtree_faces`, no `# total:` line |
+| `test_scenarios.py` `test_14_05_get_robot_info_reads_the_joint_states_through_the_server` | The G1, which `14_04` leaves stopped: the test plays and pauses it itself (I5), then the header, the Joints list or its file, and a joint states block with `dof_count` lines; it stops it, then the structure and `Joint states: not read: ... play or step the simulation first` |
 
 **What neither shows:** USD Composer, which isn't on this machine, where `get_robot_info`'s line names Isaac Sim;
 Kit 107, since Isaac Sim 5.1 doesn't start here (#25); a real MCP client listing 38 tools with the plugin's skills on
@@ -444,7 +487,7 @@ which nothing here measures.
 
 | File | What changes |
 |---|---|
-| `docs/TOOLS.md` | "Where answers go": the dump is `get_scene_tree`'s with properties or a filter. "Find a tool": four rows name the merged tools. The hints table loses the four names. The contents' counts: Scene 11, Geometry 2, Robot 3, Camera 4. The sections of `look_at_prim`, `get_joint_states`, `get_prim_face_count_tree` and `dump_scene` go; those of `set_camera`, `get_robot_info`, `get_mesh_stats` and `get_scene_tree` say the Design's parameters, forms and answers. Lines that name a removed tool: `get_prim_properties`, `set_prim_transform`, `set_joint_targets`, `capture_viewport`, `sim_control`. `get_mesh_stats`' section says an extension of 0.2.3 or older lists one level fewer under `/` (Q12). The `mcp` helper's table stays |
+| `docs/TOOLS.md` | "Where answers go": the dump is `get_scene_tree`'s with properties or a filter. "Find a tool": four rows name the merged tools. The hints table loses the four names. The contents' counts: Scene 11, Geometry 2, Robot 3, Camera 4. The sections of `look_at_prim`, `get_joint_states`, `get_prim_face_count_tree` and `dump_scene` go; those of `set_camera`, `get_robot_info`, `get_mesh_stats` and `get_scene_tree` say the Design's parameters, forms and answers. Lines that name a removed tool: `get_prim_properties`, `set_prim_transform`, `set_joint_targets`, `capture_viewport`, `sim_control`. `get_robot_info`'s says which parts stay inline (P3), `get_scene_tree`'s that a dump without values over every type has no form (Q15). The `mcp` helper's table stays |
 | The tools' descriptions | As the Design says, in `src/omniverse_mcp/tools/` |
 | `src/omniverse_mcp/server.py` | `INSTRUCTIONS`: "get_scene_tree for what is there"; the comment at `:169`: "Kit (get_scene_tree's dump, recordings)" |
 | `README.md` | The tool table's Scene, Camera, Robots and Geometry rows; `:255`: "`get_robot_info` reads joint positions while physics plays or is paused" |
@@ -453,7 +496,7 @@ which nothing here measures.
 | `docs/SETUP.md` | `:136`: "`get_scene_tree`'s dump and recordings are written by Kit itself" |
 | `docs/images/README.md` | None: its `set_camera(position, target)` call stands |
 | `plugin/skills/` | Through `write-skill`. `scene`: `allowed-tools` loses `dump_scene`; step 2, `get_scene_tree`, with `include_properties` or a filter for a file to grep; step 3, `set_camera` with a point or `prim_path`. `simulate`: `allowed-tools` loses `get_joint_states`; steps 3 and 6 and the trap row say `get_robot_info`'s joint states. `geometry`: `allowed-tools` loses `get_prim_face_count_tree`; step 1, `get_mesh_stats` with `max_depth`. `script`: none, its `mcp.set_camera` and `mcp.look_at` are the helper's |
-| `test_project/scenarios.md` | 3.3, 3.4, 12.8, 17.6, 26.2: `set_camera(prim_path=...)`; 3.2: a call without a target, whose answer names the origin; 8.1 to 8.4: `get_scene_tree` with properties or filters; 14.4: `get_robot_info`, paused then stopped; 18.4, 18.5: `get_mesh_stats` with `max_depth` |
+| `test_project/scenarios.md` | 3.3, 3.4, 12.8, 17.6, 26.2: `set_camera(prim_path=...)`; 3.2: a call without a target, whose answer names the origin; 8.1 to 8.3: `get_scene_tree` with properties or filters, 8.2 as `filter_types=["Cube"], include_properties=True`; 8.4, "a dump without attribute values", becomes `get_scene_tree(root="/World", filter_types=["Cube"])`: Cube blocks with type, position, rotation and box, no attribute listing (P2); 14.4: `get_robot_info`, paused then stopped; 18.4, 18.5: `get_mesh_stats` with `max_depth` |
 | The extension | `core/formatter.py:14`, `core/robot.py:1`, `core/xform.py:451`, `handlers/camera.py:572`, `handlers/robot.py:241` (Q11) |
 | Test docstrings and comments | `tests/test_camera_handler.py:5`, `tests/test_integration.py:708`, `tests/test_formatter.py:1`, `tests/test_robot.py:1`, `tests/test_scene_handler.py:364`, `tests/test_server.py:213`: the merged tool, or the route, where they name a removed tool; each in the step of its pair |
 | `AGENTS.md` | None: it names no tool |
@@ -464,7 +507,8 @@ which nothing here measures.
 
 - **Four pairs of tools that did one job are one tool each, 42 tools to 38,** so an agent no longer chooses between
   two tools for one question. A call to a removed tool's name is an error, `Unknown tool`. The merged tools send the
-  Kit extension the requests the old ones sent, so they work with any 0.2.x extension (#77).
+  Kit extension the requests the old ones sent, so they work with any 0.2.x extension, joint states with 0.2.1's or
+  later (#77).
   - **`look_at_prim` is `set_camera` with `prim_path`,** with the same `distance`, `azimuth` and `elevation`.
     `set_camera`'s `position` is needed only without `prim_path`. A `prim_path` with a `position` or `target`, or
     `distance`, `azimuth` or `elevation` without one, is an error that says which to drop. Without a `target`,
@@ -480,14 +524,9 @@ which nothing here measures.
     `mcp_output/scene_dump.txt` as before. `include_properties` is false when left out, where `dump_scene` took true,
     so `dump_scene(root)` is `get_scene_tree(root, include_properties=True)`. `max_depth` left out is 5 for the list
     and 15 for the file, as before, and has no upper bound, where `get_scene_tree` refused more than 15.
-```
-
-Under Fixed:
-
-```markdown
-- **`get_mesh_stats` on `/` lists the levels asked for,** where the tree of a root of `/` listed one level fewer, and
-  nothing at `max_depth` 0. The fix is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart
-  Kit (#77).
+    `dump_scene(root, include_properties=False)` with no filter, blocks with each prim's rotation, box and physics
+    flags but no attribute values, has no form of its own: it is now the list; a filter keeps those blocks for the
+    types it names, and `include_properties=True` gives the full ones.
 ```
 
 ## Risks
@@ -501,8 +540,48 @@ Under Fixed:
 | `get_robot_info` makes an Isaac Sim `Articulation` on every call, stopped too | Resolved by C6: today's `get_joint_states` does so when called stopped; its callbacks go with it, and it loads no physics then |
 | The server drops the tree's `# total:` line by its text; a later extension writes another | Accepted: only a last line starting `# total:` goes; anything else stays, and a unit test pins it |
 | Degrees for limits beside radians for positions in one answer | Accepted (Q5): the block's header names the units and that `set_joint_targets` takes degrees |
-| Plugin users get the new skills before the 0.3.0 server (Q14) | Accepted, short: the release PR follows this one |
+| Plugin installs made between this merge and 0.3.0 run the new skills over a 0.2.3 server: `set_camera(prim_path=...)` errs, `include_properties` and `max_depth` are dropped without a word, and the three removed read tools ask first (P5, Q14) | Accepted, short: existing installs keep their 0.2.3 skills; the release PR follows this one, and its version bump closes the window for each user who updates |
+| The robot answer's parts land in two places, inline and a file | Accepted (P3): the header and the joint states, what a caller came for, stay inline wherever they fit; the line naming the file says what it holds |
 | Users' own prompts and scripts name a removed tool | Accepted: `Unknown tool`, and Breaking changes maps each to its merged tool |
 
 ## Plan review
+
+### Round 1
+
+**How:** one fresh reviewer on Claude Opus, 2026-10-31, on `3de51ff`, reading the plan, the eight tools' both ends,
+the tests and docs it names, Isaac Sim 5.1's and 6.2's `isaacsim.core.experimental.prims` and
+`isaacsim.core.simulation_manager`, `v0.2.0`'s routes, and the MCP SDK's argument model; with two scratch scripts,
+`depth.py` (both depth rules on usd-core) and `robot_size.py` (the merged robot answer's length). **Verdict:**
+needs-answers (minors only). **Now:** P1 to P5 and I1 to I6 folded into the plan; Q1 to Q15 wait for the maintainer.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P1 | minor | The `/` depth bug is only at `max_depth` 0: with root `/`, the old and a correct rule list the same prims at every depth from 1 (`depth.py`, on `/World/Robot/Body` and `/Env`); at 0 the old lists nothing and the new `/`. C8's "one level fewer" and E1's reading were wrong, so the planned Fixed and TOOLS.md lines were wrong, and `test_23b` as written passed on an old extension | fixed: C8 and E1 corrected, re-run by the author; Q12 restated, recommending to leave the extension's tree out of this PR; its Fixed line, TOOLS.md line, handler test and `test_23b`'s check of `/` dropped; a possible follow-up |
+| P2 | minor | `dump_scene(include_properties=False)` with no filter, blocks with rotation, world box and physics flags but no attribute values (`format_prim_block`), has no form in the merged `get_scene_tree`; Q8 said every old call keeps its depth, and scenario 8.4 asked for that form | fixed: named in the Design, What users notice and Breaking changes; Q8 corrected; scenarios 8.2 and 8.4 rewritten; Q15 asks the maintainer to accept it |
+| P3 | minor | For a Franka the merged robot answer, about 1,020 characters stopped and 1,300 playing, passes `FILE_THRESHOLD`, where each old tool answered inline (`robot_size.py`: 797 and 395) | fixed: the header and the joint states or their `not read` line inline, the Joints list inline when the whole fits, else in `responses/`; joint states that pass 1,000 with the header, as a G1's do, go to the file after it. One `Helpers` method writes a part, for `get_mesh_stats` too; unit tests for each case |
+| P4 | minor | The camera's second refusal, "give prim_path, or position and target", doesn't say what to drop when an agent gave a position, a target and an angle | fixed: "give prim_path to frame a prim, or leave them out to aim from position" |
+| P5 | minor | The plugin's window was wrong: a pinned plugin `version` keeps existing installs on their cached 0.2.3 skills, so only installs made between the merge and the release copy `main`'s new skills over `uvx omniverse-mcp==0.2.3`, and auto-update is off by default for a third-party marketplace. Silent there: `include_properties` and `max_depth` dropped (S2), and `allowed-tools` without three read tools 0.2.3 still needs | fixed: Compatibility says who, what fails loudly and silently, and what opens and closes the window; Q14 and Risks restated; the recommendation stands |
+
+Refuted: a stopped `Articulation` per call on Isaac Sim 5.1 leaking callbacks or loading physics (5.1's
+`register_callback` wraps bound methods in `weakref.proxy`, `_on_stop` drops the view, and `Articulation.__init__`
+makes a physics view only when one exists); 0.2.0's `/robot/joint_states` loading physics while stopped (it fails at
+its import on 5.1 and 6.2); Q9 (all eight routes are in `v0.2.0`, with the same body keys and answer fields); an error
+on the second robot route hiding a real problem; one articulation's states for a prim above two robots (deferred
+openly, in Risks); dropping the cap of 15; the output folder's layout changing silently; steps 2 to 5 leaving
+extension text that names removed tools (no test or gate check reads it); Q12 breaking a rule (it doesn't, its
+premise was wrong: P1); the Q11 handler test needing Kit; S2 (pydantic ignores extra arguments, `ArgModelBase` sets
+no `extra="forbid"`); the writing rules.
+
+Owner calls: Q1 to Q15, in Decisions for the maintainer.
+
+Improvements:
+
+| Improvement | Answer |
+|---|---|
+| I1: a contract test that no tool description, `INSTRUCTIONS` or plugin skill names a removed tool, from a `REMOVED` set in `tests/test_contract.py` | taken: each pair's step adds its name |
+| I2: pin what "given" means for `get_scene_tree`'s file form, `include_properties` true or a non-empty list, with a unit test that `filter_types=[]` gives the list | taken |
+| I3: C6 says Isaac Sim 5.1 matches | taken |
+| I4: the Steps' preamble says the extension's text moves in step 6, not in each pair's step | taken |
+| I5: `test_14_05` plays and pauses the G1 itself, since `test_14_04` ends stopped | taken |
+| I6: CHANGELOG's "any 0.2.x extension": joint states need 0.2.1's or later | taken, in Compatibility and Server only too |
 
