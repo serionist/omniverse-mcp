@@ -59,6 +59,8 @@ def project_in_front(clip: Sequence[Sequence[float]], near: float) -> list[list[
     corner behind the camera by its w mirrors it onto the screen (#90), so those are left out, and each edge that
     crosses the near plane gives the point where it does, which bounds the part in front. Empty when nothing is.
     """
+    # A clipping range from 0 puts the plane through the eye, where a corner's w is 0 and can't be divided by.
+    near = max(near, 1e-6)
     ahead = [float(c[3]) <= -near for c in clip]
     points = [_projected(clip[i]) for i in range(len(clip)) if ahead[i]]
     for a, b in _EDGES:

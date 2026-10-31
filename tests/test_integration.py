@@ -769,6 +769,8 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         def at(a: float, h: float, b: float) -> list[float]:
             return [float(a), float(h), float(b)] if up == "Y" else [float(a), float(b), float(h)]
 
+        # Swapping y and z mirrors the scene, so the camera's right is +x on a Y-up stage and -x on a Z-up one.
+        right = 1.5 if up == "Y" else -1.5
         root = "/World/IntTestBehind"
         ahead, behind, across = f"{root}/Ahead", f"{root}/Behind", f"{root}/Across"
         self.addCleanup(self.client.delete_prim, root)
@@ -776,7 +778,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
             (ahead, at(0, 0.5, 0), at(0.5, 0.5, 0.5)),
             (behind, at(0, 0.5, 8), at(0.5, 0.5, 0.5)),
             # 0.2 by 8 along the view, to the right: it reaches from 4 in front of the camera to 4 behind it.
-            (across, at(1.5, 0.5, 5), at(0.1, 0.1, 4)),
+            (across, at(right, 0.5, 5), at(0.1, 0.1, 4)),
         ):
             made = self.client.create_prim(path, "Cube", position=position, scale=scale)
             self.assertEqual(made["status"], "success", made)

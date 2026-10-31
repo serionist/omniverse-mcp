@@ -124,3 +124,10 @@ def test_a_box_across_the_camera_plane_is_bounded_by_its_part_in_front():
 
     assert len(points) == 4 + 4  # the corners in front and the 4 edges along z, cut at the near plane
     assert screen_box(points, SQUARE, SQUARE) == [550.0, 0.0, 1000.0, 1000.0]
+
+
+def test_a_near_plane_at_the_eye_divides_no_corner_by_zero():
+    # A camera's clippingRange can start at 0; a box reaching the eye then has corners at w = 0.
+    points = project_in_front(_clip([-1, -1, -10], [1, 1, 0]), 0.0)
+
+    assert screen_box(points, SQUARE, SQUARE) == [0.0, 0.0, 1000.0, 1000.0]
