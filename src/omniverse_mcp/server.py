@@ -7,7 +7,9 @@ Standalone MCP server that bridges AI assistants to a running NVIDIA Omniverse K
 Design principles:
 - Images are always saved as PNG files, returning paths; capture_viewport(include_image=True) also returns one inline.
 - Scene/prim data uses grep-friendly prim-block text format.
-- Any response > FILE_THRESHOLD chars is written to a file, returning its path (Helpers.rel).
+- Any response > FILE_THRESHOLD chars is written to a file, returning its path (Helpers.rel); get_mesh_stats and
+  get_robot_info write only their long part, the tree, or the Joints list and the joint states that don't fit, and
+  keep the rest inline.
 - Small responses are returned inline as text.
 
 Usage:
@@ -48,8 +50,8 @@ INSTRUCTIONS = """\
 Drives an NVIDIA Omniverse Kit app (Isaac Sim, USD Composer, ...): its USD stage, simulation, viewport and robots.
 
 - Call get_sim_state first: the up axis (Y or Z), the stage's units, and whether physics is running.
-- Look before you act: get_scene_tree or dump_scene for what is there, capture_viewport or inspect_prim for how it
-  looks, and again after a change.
+- Look before you act: get_scene_tree for what is there, capture_viewport or inspect_prim for how it looks, and
+  again after a change.
 - Images and long text are written to files, and their paths returned, relative to the working directory or absolute:
   open them with your file tool. Only capture_viewport(include_image=True) returns an image inline, at a cost in
   context.
@@ -125,14 +127,25 @@ class Helpers:
         self.write(filepath, data)
         return self.rel(filepath)
 
+    @staticmethod
+    def fits(text: str) -> bool:
+        """Whether text is short enough to answer inline."""
+        return len(text) <= FILE_THRESHOLD
+
     def text_response(self, text: str, label: str = "output") -> str:
         """Return text inline if short, or write to file and return path."""
-        if len(text) <= FILE_THRESHOLD:
+        if self.fits(text):
             return text
+        return self.write_response(text, label)
+
+    def write_response(self, text: str, label: str, what: str = "") -> str:
+        """Write text to responses/<label>_NNNN.txt whatever its length, and return the line naming the file and what
+        it holds (what, or the label). A tool whose whole answer is too long writes one part this way, though the part
+        alone would fit, and keeps the rest inline."""
         filepath = os.path.join(self.output_dir, "responses", f"{label}_{self._next('response_counter'):04d}.txt")
         self.write(filepath, text)
         line_count = text.count("\n") + 1
-        return f"Wrote {label} ({len(text):,} chars, {line_count} lines) -> {self.rel(filepath)}"
+        return f"Wrote {what or label} ({len(text):,} chars, {line_count} lines) -> {self.rel(filepath)}"
 
 
 def create_server(host: str, port: int, output_dir: str, client: BridgeClient | None = None) -> MCPServer:
@@ -166,8 +179,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.command == "extension":
         sys.exit(kit_extension.main(args.action))
     # Output dir defaults to ./mcp_output relative to CWD. It is made by the first file written there, by the server or
-    # by Kit (dump_scene, recordings), not here: a client's health check starts the server and calls no tool. A relative
-    # one is made whole here, since Kit would read it against its own working folder.
+    # by Kit (get_scene_tree's dump, recordings), not here: a client's health check starts the server and calls no
+    # tool. A relative one is made whole here, since Kit would read it against its own working folder.
     output_dir = str(Path(args.output_dir).absolute()) if args.output_dir else os.path.join(os.getcwd(), "mcp_output")
     create_server(args.host, args.port, output_dir).run()
 

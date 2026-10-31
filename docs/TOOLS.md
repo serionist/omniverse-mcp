@@ -3,9 +3,11 @@
 Reference for every tool the MCP server provides.
 
 - **Where answers go:** a text answer over 1,000 characters is written to `mcp_output/responses/` and the tool
-  returns its path; images go to `mcp_output/captures/`, recordings to `mcp_output/recordings/`, and a scene dump to
-  `mcp_output/scene_dump.txt`, which the next dump replaces. A file under the server's working folder is given by
-  its relative path, any other by its absolute path. Open them with your client's file tool.
+  returns its path; `get_mesh_stats` and `get_robot_info` write only their long part there, the tree, or the Joints
+  list and the joint states that don't fit, and keep the rest inline. Images go to `mcp_output/captures/`, recordings to `mcp_output/recordings/`, and
+  `get_scene_tree`'s dump, with properties or a filter, to `mcp_output/scene_dump.txt`, which the next dump replaces.
+  A file under the server's working folder is given by its relative path, any other by its absolute path. Open them
+  with your client's file tool.
 - **Prim blocks:** text about prims comes as a `[/prim/path]` header, then `key = value` lines, so you can grep for a
   path or a property.
 - **Known issues** on Isaac Sim 6.2 are in the [README](../README.md#known-issues).
@@ -14,18 +16,18 @@ Reference for every tool the MCP server provides.
 
 | To | Use |
 |---|---|
-| see what is in the scene | `get_scene_tree`, or `dump_scene` for a large one |
+| see what is in the scene | `get_scene_tree`; with `include_properties` or a filter, a file of many prims' values |
 | see how it looks | `capture_viewport`; `inspect_prim` for one object from several sides |
 | read a prim's properties, size or place | `get_prim_properties`, `get_prim_bounds` |
 | create, move, copy, hide or delete prims | `create_prim`, `set_prim_transform`, `clone_prim`, `set_visibility`, `delete_prim` |
 | colour an object | `set_material` |
-| point the camera | `set_camera`, `look_at_prim` |
+| point the camera, at a point or a prim | `set_camera` |
 | fix a black capture | `viewport_light` |
 | play, pause, stop or step physics | `sim_control`; `get_sim_state` for where it stands |
-| add a robot and move its joints | `create_robot`, `get_robot_info`, `get_joint_states`, `set_joint_targets` |
+| add a robot, read and move its joints | `create_robot`, `get_robot_info`, `set_joint_targets` |
 | record a run and look back at it | `start_recording`, `stop_recording`, `get_recording_frame` |
 | set mass or friction, push, or probe | `set_physics_properties`, `apply_force`, `raycast` |
-| count faces, or compare two prims or variants | `get_mesh_stats`, `get_prim_face_count_tree`, `compare_prims` |
+| count faces and find where they are, or compare two prims or variants | `get_mesh_stats`, `compare_prims` |
 | make or switch variants | `create_variant_structure`, `set_variant_selection` |
 | write USD files | `save_scene`, `flatten_usd`, `export_prim_as_file`; `update_material_paths` after files move |
 | open a USD file as the stage, or start an empty one | `open_scene`, `new_scene` |
@@ -37,8 +39,8 @@ it runs one; they are hints, never security (the bridge's token is what keeps ot
 
 | Hints | What they mean | Tools |
 |---|---|---|
-| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs, and leaves Kit's unsaved-edits flag set) | `get_scene_tree`, `dump_scene`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_prim_face_count_tree`, `get_robot_info`, `get_joint_states`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
-| not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `look_at_prim`, `inspect_prim`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug` |
+| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs, and leaves Kit's unsaved-edits flag set) | `get_scene_tree`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
+| not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `inspect_prim`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug` |
 | destructive | Deletes or overwrites prims, the whole stage, or USD files on disk | `delete_prim`, `save_scene`, `open_scene`, `new_scene`, `flatten_usd`, `export_prim_as_file`, `update_material_paths` |
 | destructive, open world | Runs Python or loads extensions inside the Kit app: anything can happen | `execute_script`, `manage_extensions` |
 
@@ -46,13 +48,13 @@ A value out of a parameter's range, or not one of its choices, is refused before
 
 ## Table of Contents
 
-- [Scene Tools](#scene-tools) (12 tools)
-- [Geometry & Mesh Tools](#geometry--mesh-tools) (3 tools)
+- [Scene Tools](#scene-tools) (11 tools)
+- [Geometry & Mesh Tools](#geometry--mesh-tools) (2 tools)
 - [USD Operations](#usd-operations) (2 tools)
 - [Variant Tools](#variant-tools) (2 tools)
 - [Material Tools](#material-tools) (2 tools)
-- [Robot Tools](#robot-tools) (4 tools)
-- [Camera Tools](#camera-tools) (5 tools)
+- [Robot Tools](#robot-tools) (3 tools)
+- [Camera Tools](#camera-tools) (4 tools)
 - [Simulation Tools](#simulation-tools) (2 tools)
 - [Recording Tools](#recording-tools) (3 tools)
 - [Physics Tools](#physics-tools) (3 tools)
@@ -68,45 +70,42 @@ A value out of a parameter's range, or not one of its choices, is refused before
 
 ### `get_scene_tree`
 
-List the stage's prims under `root` as prim blocks: each one's path, type and world position.
+List the stage's prims under `root` as prim blocks: each one's path, type and world position, to `max_depth`. With
+`include_properties`, `filter_types` or `property_filter`, Kit writes the blocks to a file instead, with each prim's
+values.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `root` | string | `"/"` | Starting prim path |
-| `max_depth` | int | `5` | Levels below `root` to list, 0 to 15; a prim on the last level says how many children it has |
+| `max_depth` | int | `null` | Levels below `root`, 0 up: 5 when left out, or 15 with properties or a filter |
+| `include_properties` | bool | `false` | Each prim's rotation, world box and attribute values, written by Kit to `mcp_output/scene_dump.txt` |
+| `filter_types` | list[string] | `null` | Only prims of these types (e.g., `["Mesh", "Xform"]`), written to the file; the others' children are still walked |
+| `property_filter` | list[string] | `null` | Only properties whose names hold one of these (e.g., `["joint"]`), written to the file; it takes the properties with it |
 
-**Returns:** Prim-block text showing each prim's path, type, and world position. Written to file if output exceeds 1000 characters.
-A prim at `max_depth` that has children says how many, as `children = N (truncated)`, and nothing below it is listed.
-An extension of 0.2.3 or older lists instead the next level's prims that have children, and leaves out the rest of
-that level. The prims inside an instanceable prim, as Isaac Sim's robot assets often are, are not listed:
-`get_prim_face_count_tree` looks inside.
+**The list,** when none of `include_properties`, `filter_types` or `property_filter` is given (an empty list counts as
+not given): each prim's path, type and world position, answered inline, or written to
+`mcp_output/responses/scene_tree_NNNN.txt` when over 1,000 characters. A prim at `max_depth` that has children says
+how many, as `children = N (truncated)`, and nothing below it is listed. An extension of 0.2.3 or older lists instead
+the next level's prims that have children, and leaves out the rest of that level.
 
-**When to use:** to find prim paths before acting on them; it is the lightest look at a scene. For properties, use
-`get_prim_properties` on one prim, or `dump_scene` for many at once, written to a file to grep.
+**The file,** with `include_properties`, or a `filter_types` or `property_filter` that isn't empty: Kit writes the
+blocks to `mcp_output/scene_dump.txt`, replacing the last, and the answer gives its path, how many prim blocks it
+holds, which the file's header says too, and how deep it went: `Dumped 120 prims under /World, to depth 15 (48,213
+bytes) -> mcp_output/scene_dump.txt`. Its blocks don't mark a prim whose children were left out.
 
----
+- Each block holds the prim's type, world position, rotation, world box and physics flags, and every attribute's
+  value with `include_properties`, or those `property_filter` names.
+- `filter_types` alone writes those flags and boxes for the types it names, without attribute values. Over every type
+  that form has no call of its own: `include_properties=True` gives the full blocks, `get_prim_bounds` one prim's box.
+- Kit writes the file itself, so with Kit on another machine it lands there. An extension of 0.2.3 or older counts
+  every prim on the stage.
+- The output is in prim-block format: grep for prim paths or property names, or read it in parts.
 
-### `dump_scene`
+Neither lists the prims inside an instanceable prim, as Isaac Sim's robot assets often are: `get_mesh_stats` looks
+inside.
 
-Write the prims under `root`, with their properties, to `mcp_output/scene_dump.txt` as prim blocks, and return the
-file's path. Each block holds the prim's type, world position, rotation and bounding box, and every attribute's value
-unless `include_properties` is false.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `root` | string | `"/"` | Starting prim path |
-| `max_depth` | int | `15` | Max traversal depth; 0 for root alone |
-| `include_properties` | bool | `true` | Include all USD properties per prim |
-| `filter_types` | list[string] | `null` | Only include prims of these types (e.g., `["Mesh", "Xform"]`); the others' children are still walked |
-| `property_filter` | list[string] | `null` | Only include properties containing these substrings |
-
-**Returns:** File path to the dump, its size, and how many prim blocks it holds, which the file's header says too; an
-extension of 0.2.3 or older counts every prim on the stage. Use your file reading tool to examine specific parts. Each
-call replaces the last dump. Kit writes the file itself, so with Kit on another machine it lands there. Like
-`get_scene_tree`, it doesn't list the prims inside an instanceable prim.
-
-**When to use:** for many prims' values at once, or for depths beyond `get_scene_tree`'s 15. The output is in
-prim-block format - grep for prim paths or property names. `get_prim_properties` reads one prim inline.
+**When to use:** to find prim paths before acting on them; the list is the lightest look at a scene. The file is for
+many prims' values at once; `get_prim_properties` reads one prim inline.
 
 ---
 
@@ -122,8 +121,8 @@ attribute's value.
 **Returns:** Prim type, position, bounding box, and all USD properties. Relationships, such as a material binding, are
 named without their targets.
 
-**When to use:** to read one prim. `get_prim_bounds` when only its size and place matter, `dump_scene` for many prims
-at once, `get_scene_tree` to find paths.
+**When to use:** to read one prim. `get_prim_bounds` when only its size and place matter, `get_scene_tree` to find
+paths, and with `include_properties` for many prims at once, written to a file.
 
 ---
 
@@ -172,8 +171,8 @@ Only provided parameters are changed; others are preserved.
 - **An extension of 0.2.3 or older** rewrites the ops as translate, rotateXYZ (orient for a quaternion) and scale, and
   drops every other op: a pivot goes, can be read as the position, and a prim placed by a matrix loses that placement.
 
-**When to use:** to move, turn or size a prim. To aim the viewport camera, use `set_camera` or `look_at_prim`; to push
-a rigid body while physics runs, `apply_force`.
+**When to use:** to move, turn or size a prim. To aim the viewport camera, use `set_camera`; to push a rigid body
+while physics runs, `apply_force`.
 
 ---
 
@@ -352,35 +351,41 @@ No parameters.
 
 ### `get_mesh_stats`
 
-Count the faces, vertices and triangles of every mesh at or under a prim.
+Count the faces, vertices and triangles of every mesh at or under a prim: the totals, then the prims under it to
+`max_depth`, each mesh with its counts and each prim above meshes with `subtree_faces`.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Prim to analyse (includes all descendant meshes) |
+| `max_depth` | int | `2` | Levels of the tree below `prim_path` to list, 0 up; 0 for `prim_path` alone |
 
-**Returns:** Totals (faces, vertices, triangles, mesh count), and each mesh's own counts when there are 20 or fewer.
-Written to file if long. Only `UsdGeom.Mesh` prims count, inside instances too: implicit shapes such as `Cube` and
-`Sphere` have no faces.
+**Returns:** the totals, then the tree:
 
-**When to use:** Checking a geometry budget, or what a simplification saved. `get_prim_face_count_tree` shows where
-the faces are across a whole tree, and `compare_prims` puts two prims or variants side by side.
+```text
+[/World/Franka]
+meshes = 25
+total_faces = 120000
+total_vertices = 60000
+total_triangles = 240000
 
----
+# face_count_tree root=/World/Franka
+[/World/Franka]
+type = Xform
+subtree_faces = 120000
+...
+```
 
-### `get_prim_face_count_tree`
+- **The totals** count every mesh at or under `prim_path`, and always come inline.
+- **The tree** lists `prim_path`, its children and theirs to `max_depth`: each mesh with `faces`, `vertices` and
+  `triangles`, each prim above meshes with `subtree_faces`. Prims below `max_depth` aren't listed, but count in the
+  totals and in their ancestors' `subtree_faces`; a deeper call costs Kit no more, since the whole subtree is counted
+  at any depth. When the whole answer passes 1,000 characters, the tree goes to
+  `mcp_output/responses/mesh_stats_NNNN.txt`, a line giving its path, and the totals stay inline.
+- **Only `UsdGeom.Mesh` prims count,** inside instances too, which `get_scene_tree` doesn't list: implicit shapes such
+  as `Cube` and `Sphere` have no faces. A mesh without face data is in the tree with 0 faces, and not in the totals.
 
-Get scene tree with face counts per mesh and subtree totals.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `root` | string | `"/World"` | Starting prim path |
-| `max_depth` | int | `10` | Max traversal depth; 0 for root alone |
-
-**Returns:** Prim-block text where each mesh shows `faces`, `vertices`, `triangles` and each group shows `subtree_faces` total.
-Unlike `get_scene_tree`, it looks inside instanceable prims. Prims below `max_depth` are left out of the list but still
-count in their ancestors' `subtree_faces`.
-
-**When to use:** Quick overview of where geometry budget is spent in a scene, without needing individual `get_mesh_stats` calls.
+**When to use:** checking a geometry budget, what a simplification saved, or where the faces are: a heavy subtree is
+the next call's `prim_path`. `compare_prims` puts two prims or variants side by side.
 
 ---
 
@@ -582,40 +587,48 @@ animated root op in the file) takes the robot away again.
 
 ### `get_robot_info`
 
-Get robot joint information from USD (no simulation needed).
+Read a robot: its structure from USD, at any time, and where its joints are from physics, while the simulation plays
+or is paused.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Root prim of the robot |
 
-**Returns:** Articulation status, DOF count, link count, and per-joint details (name, type, limits, drive type).
-Limits are as USD holds them: degrees for revolute joints, stage units for prismatic ones. The joints come in the order
-a list of `set_joint_targets` follows, fixed joints included; the DOF count leaves fixed joints out.
+**Returns:** the robot's path, whether it is an articulation, its DOF and link counts, then two lists:
 
-**When to use:** before driving a robot, whatever the simulation's state. `get_joint_states` reads where the joints are
-now, from physics.
+- **Joints,** from USD: each joint's name, type, limits and drive. Limits are as USD holds them: degrees for revolute
+  joints, stage units for prismatic ones. They come in the order a list of `set_joint_targets` follows, fixed joints
+  included; the DOF count leaves fixed joints out.
+- **Joint states,** from physics: each degree of freedom's name, position and velocity, in physics' own order. Radians
+  and radians per second for revolute joints, stage units and stage units per second for prismatic ones;
+  `set_joint_targets` takes degrees for revolute joints. They are the first articulation's at or under `prim_path`,
+  found as `UsdPhysics.ArticulationRootAPI` marks it, and read through Isaac Sim's
+  `isaacsim.core.experimental.prims.Articulation`, which Isaac Sim 5.1 and 6.x ship; tested live on 6.2, not yet on
+  5.x. The tool never starts physics itself.
 
----
+```text
+Robot: /World/Franka
+Articulation: True
+DOF: 9
+Links: 11
+Joints (12):
+  panda_joint1 (PhysicsRevoluteJoint [-166.0, 166.0] drive=angular)
+  ...
+Joint states (9 DOF, from physics: radians for revolute joints, ... set_joint_targets takes degrees):
+  panda_joint1: pos=0.0000 vel=0.0000
+  ...
+```
 
-### `get_joint_states`
+- **No joint states:** stopped, with no articulation under `prim_path`, or in a Kit app without Isaac Sim, such as USD
+  Composer, the structure comes with one line in place of the joint states, `Joint states: not read:` and why, such
+  as `No physics view of /World/Franka: play or step the simulation first`. Only a prim that isn't there, or a Kit app
+  that can't be reached, is an error.
+- **Long answers:** the header lines always stay inline. When the whole answer passes 1,000 characters, as a Franka's
+  does, the Joints list goes to `mcp_output/responses/robot_info_NNNN.txt`, a line giving its path, and the joint
+  states, or their `not read` line, stay inline; joint states that pass 1,000 characters with the header, as a G1's
+  43 do, go to the file too, after the Joints list.
 
-Get current joint positions and velocities.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `prim_path` | string | required | Root prim of the robot |
-
-**Returns:** each degree of freedom's name, position and velocity: radians and radians per second for revolute
-joints, stage units and stage units per second for prismatic ones. `set_joint_targets` takes degrees for revolute
-joints.
-
-- **Physics playing or paused:** joint states come from physics, so a stopped simulation is an error that says to
-  play or step it first. The tool never starts physics itself.
-- **The robot:** `prim_path` itself, or the first prim under it with `UsdPhysics.ArticulationRootAPI`, as
-  `get_robot_info` finds it.
-- **Isaac Sim:** it reads through `isaacsim.core.experimental.prims.Articulation`, which Isaac Sim 5.1 and 6.x
-  ship; it is tested live on 6.2, not yet on 5.x. A Kit app without it, such as USD Composer, gets an error
-  naming it.
+**When to use:** before driving a robot, whatever the simulation's state, and to see where its joints are now.
 
 ---
 
@@ -629,9 +642,9 @@ Set the position targets of a robot's joint drives, which physics drives the joi
 | `targets` | dict or list | `null` | Required in practice: `{joint_name: value}` dict or `[v0, v1, ...]` list. Values in degrees (revolute) or stage units (prismatic). |
 
 Works by setting USD drive target attributes directly - does not require articulation initialisation, or physics
-running. A dict sets the joints it names and skips names it doesn't find; a list follows `get_robot_info`'s joint
-order, fixed joints included, not `get_joint_states`'. A joint without a drive gets one, with stiffness 1000 and
-damping 100. The answer counts the targets set.
+running. A dict sets the joints it names and skips names it doesn't find; a list follows the order of
+`get_robot_info`'s Joints list, fixed joints included, not of its joint states. A joint without a drive gets one, with
+stiffness 1000 and damping 100. The answer counts the targets set.
 
 ---
 
@@ -639,39 +652,37 @@ damping 100. The answer counts the targets set.
 
 ### `set_camera`
 
-Move the viewport's camera to a world position and aim it at a target point.
+Move the viewport's camera and aim it, at a world point or at a prim. The parameters say which: `position` for a
+point, `prim_path` for a prim.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `position` | list[float] | required | `[x, y, z]` camera position in world space |
-| `target` | list[float] | `null` | `[x, y, z]` world point to look at; the origin when omitted |
+| `position` | list[float] | `null` | `[x, y, z]` where the camera stands, in world space: for a point |
+| `target` | list[float] | `null` | `[x, y, z]` the world point it looks at, the world origin when left out: for a point |
+| `prim_path` | string | `""` | A prim to frame instead: the camera aims at the centre of its world box |
+| `distance` | float | `null` | From the prim's centre in stage units, above 0; 2.5 times its largest side when left out |
+| `azimuth` | float | `null` | Degrees around the prim: 0 the front (+Y on a Z-up stage, +Z on a Y-up one), 90 the right (+X), 180 the back, 270 the left; 45 when left out |
+| `elevation` | float | `null` | Degrees above the horizontal; 30 when left out |
+
+- **A point:** `position`, and `target`, the world origin when left out. The answer is `Camera at [5, 3, 5] looking
+  at [0, 0, 0]`; without a `target` it adds `, the world origin: no target was given`. A `position` equal to the
+  point it looks at, its `target` or the origin, is an error.
+- **A prim:** `prim_path`, and the camera goes around the centre of the prim's world box at `distance`, `azimuth` and
+  `elevation`, aimed at that centre. The answer names the prim and the centre, `Camera at [3.0619, 3.0619, 3.0]
+  looking at the centre of /World/Cube, [0.0, 0.0, 0.5]`, then the distance in stage units and the two angles. A prim
+  that doesn't exist is an error.
+- **A mix of the two is refused before the camera moves,** with an error saying what to drop: `prim_path` with
+  `position` or `target` (to aim from a point at a prim, `get_prim_bounds` gives its centre), or `distance`, `azimuth`
+  or `elevation` without `prim_path`. So is a call with neither `position` nor `prim_path`.
 
 It moves whichever camera the viewport looks through, a scene camera included, and the user sees the move. Aiming
 goes through Isaac Sim's `isaacsim.core.utils.viewports` where it loads, and through the camera's own ops elsewhere,
-in the layer that holds them: Kit's session layer for Kit's own cameras. A position equal to the point it looks at,
-its target or the origin, is an error. An extension of 0.2.3 or older aims only in Isaac Sim.
+in the layer that holds them: Kit's session layer for Kit's own cameras. An extension of 0.2.3 or older aims only in
+Isaac Sim.
 
-**When to use:** for a view from coordinates you choose. To frame a prim by its path, use `look_at_prim`; to capture
-from another camera without moving the viewport, `capture_viewport`'s `camera_path`.
-
----
-
-### `look_at_prim`
-
-Move the viewport's camera to frame a prim from an angle around it, aimed at the centre of the prim's bounding box.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `prim_path` | string | required | Target prim |
-| `distance` | float | `null` | Camera distance from the prim's centre in stage units, above 0; 2.5 times the prim's largest side if omitted |
-| `azimuth` | float | `45.0` | Horizontal angle: 0=front (+Y on a Z-up stage, +Z on a Y-up one), 90=right (+X), 180=back, 270=left |
-| `elevation` | float | `30.0` | Vertical angle above horizontal |
-
-It moves whichever camera the viewport looks through, and the user sees the move. It aims as `set_camera` does, and
-gives the distance in stage units. An extension of 0.2.3 or older aims only in Isaac Sim.
-
-**When to use:** to see one prim, given only its path. `set_camera` places the camera at coordinates, and
-`inspect_prim` captures a prim from up to 14 sides in one call; `capture_viewport` then takes the picture.
+**When to use:** for a view from coordinates you choose, or of one prim given only its path. `inspect_prim` captures
+a prim from up to 14 sides in one call; to capture from another camera without moving the viewport,
+`capture_viewport`'s `camera_path`.
 
 ---
 
@@ -719,8 +730,8 @@ Capture a camera at `width` x `height` and save **3 files** for full scene under
 2. **Bounding boxes** (TXT) - screen-space pixel coordinates for each visible mesh or shape under `/World`, plus world-space centre and dimensions. A prim behind the camera has none, and one across the camera's plane is boxed by its part in front
 3. **Instance segmentation** (PNG + legend TXT) - each prim rendered as a unique colour, with a legend mapping colours to prim paths
 
-Use files 2 and 3 to understand which object is where in the viewport image. Aim first with `set_camera` or
-`look_at_prim`; for one prim from every side, use `inspect_prim`.
+Use files 2 and 3 to understand which object is where in the viewport image. Aim first with `set_camera`, at a point
+or a prim; for one prim from every side, use `inspect_prim`.
 
 All three come from one frame of `camera_path`, rendered at `width` x `height` in a render of the call's own, so the boxes are in the image's pixels and from the camera captured. The viewport the user sees keeps its camera and size. That render uses the viewport's renderer settings, but it is a view of its own: not pixel for pixel what the viewport shows (on average about 2 of 255 apart). While it runs the app renders one view more: about a third fewer updates a second at 640x480, headless.
 
@@ -792,8 +803,8 @@ Control the simulation.
 - **stop** - Stop simulation and reset to initial state
 - **step** - Play for two app updates, then pause
 
-**Returns:** the state the timeline is left in. `get_sim_state` reads it without changing it; `get_joint_states` and
-`apply_force` need the simulation playing or paused.
+**Returns:** the state the timeline is left in. `get_sim_state` reads it without changing it; `get_robot_info`'s joint
+states and `apply_force` need the simulation playing or paused.
 
 **A robot's first play** cooks its collision meshes, and the Kit app answers nothing until that ends: the G1 cooked
 from scratch in 0.6 s on Isaac Sim 6.2 with an RTX 5090. Kit keeps what it cooked, so the same meshes cook again

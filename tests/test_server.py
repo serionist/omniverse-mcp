@@ -95,10 +95,10 @@ def test_a_value_out_of_range_is_refused_before_the_bridge(bridge, client, tmp_p
     server = create_server("127.0.0.1", bridge.port, str(tmp_path), client=client)
     bridge.requests.clear()
 
-    result = _run(server, lambda c: c.call_tool("get_scene_tree", {"max_depth": 16}))
+    result = _run(server, lambda c: c.call_tool("get_scene_tree", {"max_depth": -1}))
 
     assert result.is_error
-    assert "less than or equal to 15" in result.content[0].text
+    assert "greater than or equal to 0" in result.content[0].text
     assert bridge.requests == []
 
 
@@ -210,7 +210,7 @@ def test_starting_the_server_makes_no_output_folder(tmp_path, monkeypatch):
 
 
 def test_a_relative_output_folder_is_made_whole_at_start(tmp_path, monkeypatch):
-    # Kit writes dump_scene and recordings into it itself, and would read a relative folder against its own.
+    # Kit writes get_scene_tree's dump and recordings into it itself, and would read a relative folder against its own.
     import omniverse_mcp.server as server_module
 
     started: list[str] = []

@@ -1,6 +1,6 @@
 """Robot tools."""
 
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 from mcp.server.mcpserver import MCPServer
 from pydantic import Field
@@ -8,13 +8,46 @@ from pydantic import Field
 from omniverse_mcp.client import BridgeClient
 
 from ._annotations import EDITS, READS, tool
-from ._bridge import bridge_call
+from ._bridge import bridge_answer, bridge_call
 from ._params import Position, Rotation
 
 if TYPE_CHECKING:
     from omniverse_mcp.server import Helpers
 
 RobotRoot = Annotated[str, Field(description='The robot\'s root prim, e.g. "/World/G1"')]
+
+
+def _joint_line(j: dict[str, Any]) -> str:
+    """One joint of /robot/info's answer: its name, type, limits and drive."""
+    limits = ""
+    if j.get("lower_limit") is not None and j.get("upper_limit") is not None:
+        limits = f" [{j['lower_limit']:.1f}, {j['upper_limit']:.1f}]"
+    drive = ""
+    if j.get("drive_angular"):
+        drive = " drive=angular"
+    elif j.get("drive_linear"):
+        drive = " drive=linear"
+    return f"  {j['name']} ({j['type']}{limits}{drive})"
+
+
+def _joint_states(resp: dict[str, Any]) -> list[str]:
+    """/robot/joint_states' answer as lines: a header naming the units, then each degree of freedom's position and
+    velocity; or one line with the route's error, such as a stopped simulation's."""
+    if resp.get("status") == "error":
+        return [f"Joint states: not read: {resp.get('error', 'the bridge reported an error')}"]
+    r: dict[str, Any] = resp.get("result") or {}
+    names: list[str] = r.get("names", [])
+    positions: list[float] = r.get("positions", [])
+    velocities: list[float] = r.get("velocities", [])
+    lines = [
+        f"Joint states ({r.get('dof_count', len(positions))} DOF, from physics: radians for revolute joints, stage "
+        "units for prismatic ones, velocities per second; set_joint_targets takes degrees):"
+    ]
+    for i, pos in enumerate(positions):
+        name = names[i] if i < len(names) else f"joint_{i}"
+        vel = velocities[i] if i < len(velocities) else 0.0
+        lines.append(f"  {name}: pos={pos:.4f} vel={vel:.4f}")
+    return lines
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
@@ -47,60 +80,42 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
     @tool(mcp, READS)
     def get_robot_info(prim_path: RobotRoot) -> str:
-        """Read a robot's structure from USD: whether it is an articulation, its link and DOF counts, and each joint's
-        name, type, limits and drive.
+        """Read a robot: from USD, at any time, whether it is an articulation, its link and DOF counts, and each joint's
+        name, type, limits and drive; from physics, while the simulation plays or is paused, each joint's position and
+        velocity.
 
-        Use it before driving a robot, whatever the simulation's state; get_joint_states reads where the joints are now,
-        from physics. Limits are as USD holds them: degrees for revolute joints, stage units for prismatic ones. The
-        joints come in the order a list of set_joint_targets follows, fixed joints included; the DOF count leaves fixed
-        joints out.
+        Use it before driving a robot, and to see where its joints are now. Limits are as USD holds them: degrees for
+        revolute joints, stage units for prismatic ones. Joint states are in radians for revolute joints and stage
+        units for prismatic ones, velocities per second; set_joint_targets takes degrees. The Joints list comes in the
+        order a list of set_joint_targets follows, fixed joints included, and the DOF count leaves fixed joints out;
+        the joint states come in physics' own order of degrees of freedom. Stopped, or in a Kit app without Isaac Sim,
+        the answer gives the structure and a line saying why there are no joint states. prim_path is the robot's root:
+        the joint states are the first articulation's at or under it. An answer too long to give inline keeps the
+        counts, and the joint states where they fit, and writes the Joints list to a file, its path in the answer.
         """
-        resp = bridge_call(client.get_robot_info, prim_path)
-        r = resp["result"]
-        lines = [
+        r = bridge_call(client.get_robot_info, prim_path)["result"]
+        header = [
             f"Robot: {r['prim_path']}",
             f"Articulation: {r['is_articulation']}",
             f"DOF: {r['dof_count']}",
             f"Links: {r['link_count']}",
-            f"Joints ({len(r['joints'])}):",
         ]
-        for j in r["joints"]:
-            limits = ""
-            if j.get("lower_limit") is not None and j.get("upper_limit") is not None:
-                limits = f" [{j['lower_limit']:.1f}, {j['upper_limit']:.1f}]"
-            drive = ""
-            drive_angular = j.get("drive_angular")
-            drive_linear = j.get("drive_linear")
-            if drive_angular:
-                drive = " drive=angular"
-            elif drive_linear:
-                drive = " drive=linear"
-            lines.append(f"  {j['name']} ({j['type']}{limits}{drive})")
-        text = "\n".join(lines)
-        return h.text_response(text, "robot_info")
-
-    @tool(mcp, READS)
-    def get_joint_states(prim_path: RobotRoot) -> str:
-        """Get each joint's position and velocity from physics while the simulation plays or is paused; an error while
-        it is stopped, which says to play or step first.
-
-        Radians for revolute joints and stage units for prismatic ones, velocities per second (set_joint_targets takes
-        degrees). Use it to see where a robot is now; get_robot_info reads names, limits and drives from USD at any
-        time. prim_path is the robot's articulation root or a prim above it. Needs Isaac Sim.
-        """
-        resp = bridge_call(client.get_joint_states, prim_path)
-        r = resp["result"]
-        lines = [f"Joint states for {r['prim_path']} ({r['dof_count']} DOF):"]
-        names = r.get("names", [])
-        positions = r.get("positions", [])
-        velocities = r.get("velocities", [])
-        for i in range(len(positions)):
-            name = names[i] if i < len(names) else f"joint_{i}"
-            pos = positions[i]
-            vel = velocities[i] if i < len(velocities) else 0.0
-            lines.append(f"  {name}: pos={pos:.4f} vel={vel:.4f}")
-        text = "\n".join(lines)
-        return h.text_response(text, "joint_states")
+        joints = [f"Joints ({len(r['joints'])}):", *(_joint_line(j) for j in r["joints"])]
+        # Asked every call: the structure needs no physics, and a reason there are no joint states is part of the
+        # answer, not a failure of it. Only a Kit that can't be reached fails the call.
+        states = _joint_states(bridge_answer(client.get_joint_states, prim_path))
+        whole = "\n".join(header + joints + states)
+        if h.fits(whole):
+            return whole
+        # Too long: the header and the joint states, what a caller came for, stay inline where they fit, and the
+        # Joints list goes to a file, with the joint states after it when they don't.
+        if h.fits("\n".join(header + states)):
+            wrote = h.write_response("\n".join(joints), "robot_info", f"the {len(r['joints'])} joints")
+            return "\n".join([*header, wrote, *states])
+        wrote = h.write_response(
+            "\n".join(joints + states), "robot_info", f"the {len(r['joints'])} joints, then the joint states"
+        )
+        return "\n".join([*header, wrote])
 
     @tool(mcp, EDITS)
     def set_joint_targets(
@@ -118,10 +133,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Set the position targets of a robot's joint drives, which physics drives the joints toward while the
         simulation plays.
 
-        A dict sets the joints it names and skips names it doesn't find; a list follows get_robot_info's joint order,
-        not get_joint_states'. A joint without a drive gets one, with stiffness 1000 and damping 100. It writes USD, so
-        it works stopped too, before physics has started. The answer counts the targets set; get_joint_states then
-        reads where the joints are, in radians.
+        A dict sets the joints it names and skips names it doesn't find; a list follows the order of get_robot_info's
+        Joints list, not of its joint states. A joint without a drive gets one, with stiffness 1000 and damping 100. It
+        writes USD, so it works stopped too, before physics has started. The answer counts the targets set;
+        get_robot_info then reads where the joints are, in radians, while the simulation plays or is paused.
         """
         resp = bridge_call(client.set_joint_targets, prim_path, targets)
         r = resp["result"]

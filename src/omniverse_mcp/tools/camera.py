@@ -83,7 +83,7 @@ LIGHTING_ADVICE = (
 CAMERA_LIGHT_ON_ADVICE = (
     "The camera light is already on, so the camera may be inside or facing away from the "
     "geometry, or the renderer is still warming up: recapture, or move the camera with "
-    "look_at_prim."
+    "set_camera's prim_path."
 )
 
 
@@ -116,8 +116,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Use it to see the scene and tell which prim is where: the boxes for places, the segmentation for prims that
         overlap. It renders camera_path, or the viewport's camera when empty, in a render of its own, so the viewport
-        the user sees keeps its camera and size. Aim first with set_camera or look_at_prim; for one prim from every
-        side, use inspect_prim. An all-black image comes with a warning saying what to change with viewport_light.
+        the user sees keeps its camera and size. Aim first with set_camera, at a point or a prim; for one prim from
+        every side, use inspect_prim. An all-black image comes with a warning saying what to change with viewport_light.
         Without omni.syntheticdata only the image comes: the boxes and segmentation need it.
         """
         resp = bridge_call(client.capture_viewport, width, height, camera_path)
@@ -199,19 +199,68 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
     @tool(mcp, EDITS)
     def set_camera(
-        position: Annotated[list[float], Field(description="[x, y, z] camera position in world space")],
-        target: Annotated[
-            list[float] | None, Field(description="[x, y, z] world point to look at; the origin when omitted")
+        position: Annotated[
+            list[float] | None, Field(description="[x, y, z] where the camera stands, in world space: for a point")
         ] = None,
+        target: Annotated[
+            list[float] | None,
+            Field(description="[x, y, z] the world point it looks at, the world origin when left out: for a point"),
+        ] = None,
+        prim_path: Annotated[
+            str, Field(description="A prim to frame instead: the camera aims at the centre of its world box")
+        ] = "",
+        distance: Annotated[
+            float | None,
+            Field(gt=0, description="From the prim's centre in stage units; 2.5 times its largest side when left out"),
+        ] = None,
+        azimuth: Annotated[
+            float | None,
+            Field(
+                description="Degrees around the prim: 0 the front (+Y on a Z-up stage, +Z on a Y-up one), 90 the right "
+                "(+X), 180 the back, 270 the left; 45 when left out"
+            ),
+        ] = None,
+        elevation: Annotated[float | None, Field(description="Degrees above the horizontal; 30 when left out")] = None,
     ) -> str:
-        """Move the viewport's camera to a world position and aim it at a target point, for a view from coordinates
-        you choose.
+        """Move the viewport's camera and aim it, at a world point or at a prim.
 
-        target defaults to the world origin. To frame a prim by its path, use look_at_prim; to capture from another
-        camera without moving the viewport, capture_viewport's camera_path. It moves whichever camera the viewport
-        looks through, a scene camera included, and the user sees the move. An error when position is the point it
-        would look at.
+        For a point, position is where the camera stands and target what it looks at, the world origin when left out.
+        For a prim, prim_path, and the camera goes around the prim's centre at distance, azimuth and elevation, without
+        position or target. It moves whichever camera the viewport looks through, a scene camera included, and the
+        user sees the move. inspect_prim captures a prim from up to 14 sides in one call; capture_viewport's
+        camera_path captures from another camera without moving the viewport. An error when the prim doesn't exist,
+        when position is the point it would look at, and for a mix of the two forms, saying what to drop.
         """
+        # Each form is chosen by the parameters its job needs; a mix of the two means nothing, so it is refused before
+        # any request rather than half of it dropped without a word.
+        if prim_path and (position is not None or target is not None):
+            raise ToolError(
+                "prim_path frames the prim from distance, azimuth and elevation: leave position and target out, or "
+                "leave prim_path out to aim from a position (get_prim_bounds gives a prim's centre)"
+            )
+        if not prim_path and (distance is not None or azimuth is not None or elevation is not None):
+            raise ToolError(
+                "distance, azimuth and elevation place the camera around prim_path: give prim_path to frame a prim, "
+                "or leave them out to aim from position"
+            )
+        if prim_path:
+            resp = bridge_call(
+                client.camera_look_at,
+                prim_path,
+                distance,
+                45.0 if azimuth is None else azimuth,
+                30.0 if elevation is None else elevation,
+            )
+            r = resp["result"]
+            return (
+                f"Camera at {r['camera_position']} looking at the centre of {prim_path}, {r['target']}\n"
+                f"Distance: {r['distance']} stage units, Azimuth: {r['azimuth']}deg, Elevation: {r['elevation']}deg"
+            )
+        if position is None:
+            raise ToolError(
+                "give position, where the camera stands, with target, the point it looks at; or prim_path, a prim to "
+                "frame"
+            )
         looked_at = target if target is not None else [0.0, 0.0, 0.0]
         if [float(p) for p in position] == [float(t) for t in looked_at]:
             # Nothing to aim at: Isaac Sim's call would turn the camera all the same, and answer success.
@@ -219,40 +268,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             raise ToolError(f"position {position} is {which}: give a target away from the camera")
         resp = bridge_call(client.camera_set, position, target)
         r = resp["result"]
-        msg = f"Camera at {r['position']}"
-        if r.get("target"):
-            msg += f" looking at {r['target']}"
-        return msg
-
-    @tool(mcp, EDITS)
-    def look_at_prim(
-        prim_path: PrimPath,
-        distance: Annotated[
-            float | None,
-            Field(gt=0, description="From the prim's centre, in stage units; 2.5 times its largest side when omitted"),
-        ] = None,
-        azimuth: Annotated[
-            float,
-            Field(
-                description="Horizontal angle in degrees: 0 from the front (+Y on a Z-up stage, +Z on a Y-up one), "
-                "90 from the right (+X), 180 the back, 270 the left"
-            ),
-        ] = 45.0,
-        elevation: Annotated[float, Field(description="Vertical angle in degrees above the horizontal")] = 30.0,
-    ) -> str:
-        """Move the viewport's camera to frame a prim from an angle around it, aimed at the prim's centre, given only
-        its path.
-
-        Use it to see one prim: set_camera places the camera at coordinates, and inspect_prim captures a prim from up
-        to 14 sides in one call; capture_viewport then takes the picture. It moves whichever camera the viewport looks
-        through, and the user sees the move. An error when the prim doesn't exist.
-        """
-        resp = bridge_call(client.camera_look_at, prim_path, distance, azimuth, elevation)
-        r = resp["result"]
-        return (
-            f"Camera at {r['camera_position']} looking at {r['target']}\n"
-            f"Distance: {r['distance']} stage units, Azimuth: {r['azimuth']}deg, Elevation: {r['elevation']}deg"
-        )
+        if target is None:
+            # The extension aims at the origin without a target, in every release, and answers none: say where it looks.
+            return f"Camera at {r['position']} looking at [0, 0, 0], the world origin: no target was given"
+        return f"Camera at {r['position']} looking at {r['target']}"
 
     @tool(mcp, EDITS)
     def inspect_prim(

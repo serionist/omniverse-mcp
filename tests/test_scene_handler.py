@@ -361,7 +361,7 @@ def test_delete_prim_deletes_a_prim_that_references_a_file_and_says_it_checked(s
     assert not kit.stage.GetPrimAtPath("/World/Ref").IsValid()
 
 
-# ---- dump_scene and get_scene_tree's text ----
+# ---- /scene/dump and /scene/tree's text ----
 
 
 def _tree(stage: Usd.Stage) -> None:

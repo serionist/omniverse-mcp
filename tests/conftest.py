@@ -1,6 +1,7 @@
 """Puts the Kit extension's folder and tools/ on sys.path, so tests import the extension's Kit-free core
 (ovmcp.core) and the gate, hooks and setup scripts."""
 
+import asyncio
 import os
 import sys
 from collections.abc import Callable, Iterator
@@ -8,9 +9,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from mcp import Client
 
 from omniverse_mcp.client import BridgeClient, BridgeError
 from omniverse_mcp.config import parse_args
+from omniverse_mcp.server import create_server
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXTENSION_ROOT = REPO_ROOT / "extension" / "ovmcp.bridge"
@@ -216,6 +219,28 @@ def live_bridge() -> tuple[str, int]:
     parser, so a Kit app of your own can keep 8211 while another runs them. Read when a live suite starts."""
     args = parse_args([])
     return args.host, args.port
+
+
+def call_tool(tool: str, args: dict[str, Any], output_dir: str | Path) -> tuple[bool, str]:
+    """A tool called as an MCP client calls it, for the live suites: the server built on a BridgeClient at
+    live_bridge(), with the server's own timeout, and reached through the SDK's in-memory client, as
+    tests/test_tools.py reaches it against the mock. Whether it erred, and its text.
+
+    The live suites otherwise drive the routes, so what a tool makes of them, such as the route a merged tool picks
+    and the answer it builds from two (#77), shows only through the server. Its files go to output_dir, which Kit
+    writes into too, so it is a folder on this machine."""
+    host, port = live_bridge()
+    bridge = BridgeClient(host=host, port=port)
+
+    async def call() -> Any:
+        async with Client(create_server(host, port, str(output_dir), client=bridge)) as client:
+            return await client.call_tool(tool, args)
+
+    try:
+        result = asyncio.run(call())
+    finally:
+        bridge.close()
+    return bool(result.is_error), "\n".join(getattr(c, "text", "") for c in result.content)
 
 
 @pytest.fixture

@@ -147,14 +147,14 @@ def test_a_black_capture_with_the_camera_light_on_does_not_suggest_it_again(tmp_
     out = fns["capture_viewport"]()
     assert "mode='camera'" not in out
     assert "camera light is already on" in out
-    assert "look_at_prim" in out
+    assert "move the camera with set_camera's prim_path" in out
 
 
 def test_a_black_inspect_with_the_camera_light_on_does_not_suggest_it_again(tmp_path):
     fns, _ = _tools(tmp_path, {"camera_inspect": _inspect_answer(is_black=True, lighting_mode="camera")})
     out = fns["inspect_prim"]("/World/Lamp")
     assert "mode='camera'" not in out
-    assert "look_at_prim" in out
+    assert "move the camera with set_camera's prim_path" in out
 
 
 def test_capture_prints_why_there_is_no_segmentation(tmp_path):

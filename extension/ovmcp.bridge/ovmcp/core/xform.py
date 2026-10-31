@@ -448,9 +448,9 @@ def position_of(prim: Usd.Prim) -> Gf.Vec3d:
 def look_at(eye: Gf.Vec3d, target: Gf.Vec3d, up_axis: str) -> Gf.Matrix4d:
     """A camera's world matrix at eye, its -Z axis on target, its up as near the stage's up axis as it can be.
 
-    Straight along the up axis the stage's up can't orient it, so the front axis (look_at_prim's azimuth 0: +Z on a
-    Y-up stage, +Y on a Z-up one) does: the camera's up is minus front from above and plus front from below, which is
-    where it tends as it comes over from the front.
+    Straight along the up axis the stage's up can't orient it, so the front axis (set_camera's azimuth 0 around a
+    prim: +Z on a Y-up stage, +Y on a Z-up one) does: the camera's up is minus front from above and plus front from
+    below, which is where it tends as it comes over from the front.
     """
     forward = target - eye
     if forward.GetLength() <= 1e-9 * max(1.0, eye.GetLength()):

@@ -5,6 +5,31 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Breaking changes
+
+- **Four pairs of tools that did one job are one tool each, 42 tools to 38,** so an agent no longer chooses between
+  two tools for one question. A call to a removed tool's name is an error, `Unknown tool`. The merged tools send the
+  Kit extension the requests the old ones sent, so they work with any 0.2.x extension, joint states with 0.2.1's or
+  later (#77).
+  - **`look_at_prim` is `set_camera` with `prim_path`,** with the same `distance`, `azimuth` and `elevation`.
+    `set_camera`'s `position` is needed only without `prim_path`. A `prim_path` with a `position` or `target`, or
+    `distance`, `azimuth` or `elevation` without one, is an error that says which to drop. Without a `target`,
+    `set_camera` still looks at the world origin, and its answer now says so.
+  - **`get_joint_states` is `get_robot_info`,** which reads each joint's position and velocity from physics with the
+    robot's structure. Stopped, or in a Kit app without Isaac Sim, the answer gives the structure and says why there
+    are no positions, where `get_joint_states` failed.
+  - **`get_prim_face_count_tree(root, max_depth)` is `get_mesh_stats(prim_path, max_depth)`:** the totals of every
+    mesh under the prim, then the prims to `max_depth`, 2 when left out where the tree took 10, each mesh with its
+    counts and each prim above meshes with `subtree_faces`. `get_mesh_stats`' list of each mesh, for 20 or fewer, is
+    now that tree.
+  - **`dump_scene` is `get_scene_tree` with `include_properties`, `filter_types` or `property_filter`:** Kit writes
+    `mcp_output/scene_dump.txt` as before. `include_properties` is false when left out, where `dump_scene` took true,
+    so `dump_scene(root)` is `get_scene_tree(root, include_properties=True)`. `max_depth` left out is 5 for the list
+    and 15 for the file, as before, and has no upper bound, where `get_scene_tree` refused more than 15.
+    `dump_scene(root, include_properties=False)` with no filter, blocks with each prim's rotation, box and physics
+    flags but no attribute values, has no form of its own: it is now the list; a filter keeps those blocks for the
+    types it names, and `include_properties=True` gives the full ones.
+
 ### Fixed
 
 - **`delete_prim` refuses a prim it can't remove, where it answered "Deleted" and the prim stayed:** one another layer

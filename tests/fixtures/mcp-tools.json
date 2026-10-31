@@ -544,69 +544,6 @@
         "type": "object"
       }
     },
-    "dump_scene": {
-      "annotations": {
-        "openWorldHint": false,
-        "readOnlyHint": true
-      },
-      "input": {
-        "properties": {
-          "filter_types": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          },
-          "include_properties": {
-            "default": true,
-            "type": "boolean"
-          },
-          "max_depth": {
-            "default": 15,
-            "minimum": 0,
-            "type": "integer"
-          },
-          "property_filter": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          },
-          "root": {
-            "default": "/",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "output": {
-        "properties": {
-          "result": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "result"
-        ],
-        "type": "object"
-      }
-    },
     "execute_script": {
       "annotations": {
         "destructiveHint": true,
@@ -702,34 +639,6 @@
         "type": "object"
       }
     },
-    "get_joint_states": {
-      "annotations": {
-        "openWorldHint": false,
-        "readOnlyHint": true
-      },
-      "input": {
-        "properties": {
-          "prim_path": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "prim_path"
-        ],
-        "type": "object"
-      },
-      "output": {
-        "properties": {
-          "result": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "result"
-        ],
-        "type": "object"
-      }
-    },
     "get_logs": {
       "annotations": {
         "openWorldHint": false,
@@ -784,6 +693,11 @@
       },
       "input": {
         "properties": {
+          "max_depth": {
+            "default": 2,
+            "minimum": 0,
+            "type": "integer"
+          },
           "prim_path": {
             "type": "string"
           }
@@ -819,37 +733,6 @@
         "required": [
           "prim_path"
         ],
-        "type": "object"
-      },
-      "output": {
-        "properties": {
-          "result": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "result"
-        ],
-        "type": "object"
-      }
-    },
-    "get_prim_face_count_tree": {
-      "annotations": {
-        "openWorldHint": false,
-        "readOnlyHint": true
-      },
-      "input": {
-        "properties": {
-          "max_depth": {
-            "default": 10,
-            "minimum": 0,
-            "type": "integer"
-          },
-          "root": {
-            "default": "/World",
-            "type": "string"
-          }
-        },
         "type": "object"
       },
       "output": {
@@ -958,11 +841,49 @@
       },
       "input": {
         "properties": {
+          "filter_types": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "include_properties": {
+            "default": false,
+            "type": "boolean"
+          },
           "max_depth": {
-            "default": 5,
-            "maximum": 15,
-            "minimum": 0,
-            "type": "integer"
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "property_filter": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "root": {
             "default": "/",
@@ -1051,55 +972,6 @@
             "default": 0.0,
             "exclusiveMinimum": -1,
             "type": "number"
-          }
-        },
-        "required": [
-          "prim_path"
-        ],
-        "type": "object"
-      },
-      "output": {
-        "properties": {
-          "result": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "result"
-        ],
-        "type": "object"
-      }
-    },
-    "look_at_prim": {
-      "annotations": {
-        "destructiveHint": false,
-        "openWorldHint": false,
-        "readOnlyHint": false
-      },
-      "input": {
-        "properties": {
-          "azimuth": {
-            "default": 45.0,
-            "type": "number"
-          },
-          "distance": {
-            "anyOf": [
-              {
-                "exclusiveMinimum": 0,
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          },
-          "elevation": {
-            "default": 30.0,
-            "type": "number"
-          },
-          "prim_path": {
-            "type": "string"
           }
         },
         "required": [
@@ -1292,11 +1164,57 @@
       },
       "input": {
         "properties": {
+          "azimuth": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "distance": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "elevation": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "position": {
-            "items": {
-              "type": "number"
-            },
-            "type": "array"
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "prim_path": {
+            "default": "",
+            "type": "string"
           },
           "target": {
             "anyOf": [
@@ -1313,9 +1231,6 @@
             "default": null
           }
         },
-        "required": [
-          "position"
-        ],
         "type": "object"
       },
       "output": {

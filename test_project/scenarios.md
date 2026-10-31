@@ -76,17 +76,18 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
   viewport's (#51)
 
 ### 3.2 Camera Positioning
-- Call `set_camera(position=[5, 3, 5], target=[0, 0, 0])`
+- Call `set_camera(position=[5, 3, 5])`, with no target
 - Call `capture_viewport(640, 480)`
-- Verify: camera shows the scene from an elevated angle, the origin in the middle: aimed, not only moved, in any Kit app
+- Verify: the answer says it looks at `[0, 0, 0]`, the world origin, as no target was given; the camera shows the scene
+  from an elevated angle, the origin in the middle: aimed, not only moved, in any Kit app
 
 ### 3.3 Look At Prim
-- Call `look_at_prim("/World/RedCube", azimuth=0, elevation=20)`
+- Call `set_camera(prim_path="/World/RedCube", azimuth=0, elevation=20)`
 - Call `capture_viewport(640, 480)`
-- Verify: cube is centered in the frame, and the answer gives the distance in stage units
+- Verify: cube is centred in the frame, and the answer names the cube and gives the distance in stage units
 
 ### 3.4 Look At with Auto-Distance
-- Call `look_at_prim("/World/Ground")` (no distance specified)
+- Call `set_camera(prim_path="/World/Ground")` (no distance specified)
 - Call `capture_viewport(640, 480)`
 - Verify: auto-computed distance shows the ground reasonably framed
 
@@ -228,7 +229,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 ## Phase 8: Scene Dump (Prim-Block Format)
 
 ### 8.1 Full Scene Dump
-- `dump_scene(root="/World", include_properties=True)`
+- `get_scene_tree(root="/World", include_properties=True)`
+- Verify: the answer says how many prims it wrote, to depth 15, and where the file is
 - Read the file — verify prim-block format:
   - Header: `# Omniverse MCP Scene Dump`
   - Scene marker: `=== SCENE root=/World prims=N ===`
@@ -236,16 +238,16 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
   - N, and the answer's "Dumped N prims", equal the number of `[/path]` blocks in the file
 
 ### 8.2 Filtered by Type
-- `dump_scene(root="/World", filter_types=["Cube"])`
-- Read: only Cube prims should appear
+- `get_scene_tree(root="/World", filter_types=["Cube"], include_properties=True)`
+- Read: only Cube prims should appear, each with its attributes
 
 ### 8.3 Filtered by Property
-- `dump_scene(root="/World", property_filter=["physics", "collision"])`
+- `get_scene_tree(root="/World", property_filter=["physics", "collision"])`
 - Read: only physics/collision properties in each block
 
-### 8.4 Dump without Properties
-- `dump_scene(root="/World", include_properties=False)`
-- Read: prim blocks should show type and position but NO property listings
+### 8.4 Dump without Attribute Values
+- `get_scene_tree(root="/World", filter_types=["Cube"])`
+- Read: Cube blocks with type, position, rotation and box, but NO attribute listing
 
 ### 8.5 Grep-Friendly Check
 - The file from 8.1 should be grep-able:
@@ -344,7 +346,7 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 - `set_material("/World/RedCube", color=[1,0])` → error (needs 3 values)
 
 ### 12.8 Verify Material Visually
-- Apply red material, look_at_prim, capture_viewport
+- Apply red material, `set_camera(prim_path=...)` on the cube, capture_viewport
 - Verify: cube should appear colored (not default white/gray)
 
 ---
@@ -397,10 +399,11 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 
 ### 14.4 Get Joint States
 - Play sim briefly, then pause: the play answers (#5)
-- `get_joint_states("/World/G1")`
-- Verify: returns names, positions and velocities, dof_count > 0 of each
-- Stop, then `get_joint_states("/World/G1")` again
-- Verify: an error that says to play or step the simulation first
+- `get_robot_info("/World/G1")`
+- Verify: the structure as in 14.1, its Joints list inline or in a file the answer names, and a `Joint states` block
+  with a position and a velocity for each of its DOF
+- Stop, then `get_robot_info("/World/G1")` again
+- Verify: the structure again, no error, and `Joint states: not read:` saying to play or step the simulation first
 
 ---
 
@@ -562,7 +565,8 @@ Each step waits for its drawings to expire before the next.
   new stage
 
 ### 17.6 Segmentation After Captures and a New Stage
-- `create_prim("/World/SegmentedCaptureCube", "Cube", ...)`, `look_at_prim` it, and two `capture_viewport(320, 240)`
+- `create_prim("/World/SegmentedCaptureCube", "Cube", ...)`, `set_camera(prim_path=...)` on it, and two
+  `capture_viewport(320, 240)`
 - `new_scene()`, the cube again, and a third capture
 - Verify: each capture's segmentation has the cube in its legend, and `get_logs(search="Py_Graph")` finds nothing
   since the first: each capture freed its segmentation graphs, so `omni.syntheticdata` tripped on none at the new
@@ -586,7 +590,9 @@ Each step waits for its drawings to expire before the next.
 ### 18.1 Mesh Stats on Robot (Mesh Geometry)
 - Spawn a robot: `create_robot("franka", position=[0, 0, 0])`
 - `get_mesh_stats("/World/Franka")`
-- Verify: total_faces > 0, total_vertices > 0, mesh_count > 0, meshes array populated
+- Verify: the totals, mesh_count > 0, total_faces > 0 and total_vertices > 0, then the tree under `/World/Franka`
+  with `subtree_faces` > 0 on the prims above its meshes; a `max_depth` large enough to reach the meshes lists each
+  one with its faces, vertices and triangles
 
 ### 18.2 Mesh Stats on Procedural Prim (Expected Zero)
 - Create a cube: `create_prim("/World/TestCube", "Cube", position=[3,0.5,0])`
@@ -597,12 +603,13 @@ Each step waits for its drawings to expire before the next.
 - `get_mesh_stats("/World/Nonexistent")` → error
 
 ### 18.4 Face Count Tree
-- `get_prim_face_count_tree("/World")`
-- Verify: hierarchical tree showing Franka with subtree_faces > 0, TestCube with 0
+- `get_mesh_stats("/World", max_depth=10)`
+- Verify: the totals, then a hierarchical tree showing Franka with subtree_faces > 0, TestCube with 0, and no
+  `# total:` line
 
 ### 18.5 Face Count Tree with Depth Limit
-- `get_prim_face_count_tree("/World", max_depth=1)`
-- Verify: only top-level children shown, no deeper nesting
+- `get_mesh_stats("/World", max_depth=1)`
+- Verify: the same totals as 18.4, and only top-level children shown, no deeper nesting
 
 ---
 
@@ -894,7 +901,7 @@ Each step waits for its drawings to expire before the next.
 
 ### 26.2 Look At + Immediate Capture
 - Create a test prim: `create_prim("/World/SettleTest", "Cube", position=[0, 1, 0], scale=0.5)`
-- `look_at_prim("/World/SettleTest", azimuth=45, elevation=30)`
+- `set_camera(prim_path="/World/SettleTest", azimuth=45, elevation=30)`
 - Immediately: `capture_viewport(640, 480)`
 - Verify: the cube is visible in the capture
 - Clean up: `delete_prim("/World/SettleTest")`

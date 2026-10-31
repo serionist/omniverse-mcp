@@ -133,8 +133,8 @@ mounted, can `OMNIVERSE_MCP_STATE_DIR`, set the same on both sides, move the tok
 must be one only you can read.
 
 **Where files land:** captures and long answers come back over the link and are written on the server's machine.
-`dump_scene` and recordings are written by Kit itself, so with a remote Kit they land on the Kit machine, under the
-same path.
+`get_scene_tree`'s dump and recordings are written by Kit itself, so with a remote Kit they land on the Kit machine,
+under the same path.
 
 **A Kit machine without uv:** each [GitHub release](https://github.com/serionist/omniverse-mcp/releases) has the
 bridge as `ovmcp.bridge-<version>.zip`. Take the one of your server's version, unzip it into a folder of its own,

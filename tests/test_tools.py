@@ -26,6 +26,11 @@ HANDSHAKE = {"status": "success", "result": {"protocol": 1, "extension_version":
 PNG = "iVBORw0KGgo="
 # Stands for the server's output folder in what a case expects sent: each test has its own.
 OUTPUT = "<output>"
+# /scene/face_count_tree's text for a robot of one mesh, as the extension writes it, its `# total:` line last.
+TREE = (
+    "# face_count_tree root=/World/Robot\n\n[/World/Robot]\ntype = Xform\nsubtree_faces = 6\n\n"
+    "[/World/Robot/Body]\ntype = Mesh\nfaces = 6\nvertices = 8\ntriangles = 12\n\n# total: 6 faces in 1 meshes"
+)
 
 
 @dataclass(frozen=True)
@@ -34,8 +39,10 @@ class Case:
     args: dict[str, Any]
     route: str
     answer: dict[str, Any]
-    sent: dict[str, Any]  # what the request body must hold, at least
+    sent: dict[str, Any]  # what the first request's body must hold, at least
     says: tuple[str, ...]  # what the tool's text must hold
+    # The routes the tool calls after the first, in order, each with its answer: a merged tool asks two (#77).
+    more: tuple[tuple[str, dict[str, Any]], ...] = ()
 
     def __str__(self) -> str:
         return self.tool
@@ -45,19 +52,11 @@ CASES = [
     # Scene
     Case(
         "get_scene_tree",
-        {"root": "/World", "max_depth": 2},
+        {"root": "/World"},
         "/scene/tree",
         {"text": "[/World]\ntype = Xform\n"},
-        {"root": "/World", "max_depth": 2, "format": "text"},
+        {"root": "/World", "max_depth": 5, "format": "text"},
         ("[/World]", "type = Xform"),
-    ),
-    Case(
-        "dump_scene",
-        {"filter_types": ["Mesh"], "property_filter": ["joint"]},
-        "/scene/dump",
-        {"prim_count": 12, "file_size_bytes": 4096, "file_path": "scene_dump.txt"},
-        {"output_dir": OUTPUT, "filter_types": ["Mesh"], "property_filter": ["joint"], "include_properties": True},
-        ("Dumped 12 prims (4,096 bytes)",),
     ),
     Case(
         "get_prim_properties",
@@ -171,26 +170,23 @@ CASES = [
     # Geometry and USD
     Case(
         "get_mesh_stats",
-        {"prim_path": "/World/Mesh"},
+        {"prim_path": "/World/Robot"},
         "/scene/mesh_stats",
         {
-            "prim_path": "/World/Mesh",
+            "prim_path": "/World/Robot",
             "mesh_count": 1,
             "total_faces": 6,
             "total_vertices": 8,
             "total_triangles": 12,
-            "meshes": [{"path": "/World/Mesh", "faces": 6, "vertices": 8, "triangles": 12}],
+            "meshes": [{"path": "/World/Robot/Body", "faces": 6, "vertices": 8, "triangles": 12}],
         },
-        {"prim_path": "/World/Mesh"},
-        ("total_faces = 6", "faces = 6, vertices = 8, triangles = 12"),
-    ),
-    Case(
-        "get_prim_face_count_tree",
-        {"root": "/World", "max_depth": 0},
-        "/scene/face_count_tree",
-        {"text": "[/World]\nsubtree_faces = 6\n"},
-        {"root": "/World", "max_depth": 0},
-        ("subtree_faces = 6",),
+        {"prim_path": "/World/Robot"},
+        (
+            "[/World/Robot]\nmeshes = 1\ntotal_faces = 6\ntotal_vertices = 8\ntotal_triangles = 12\n\n"
+            "# face_count_tree root=/World/Robot\n\n[/World/Robot]\ntype = Xform\nsubtree_faces = 6\n\n"
+            "[/World/Robot/Body]\ntype = Mesh\nfaces = 6\nvertices = 8\ntriangles = 12",
+        ),
+        more=(("/scene/face_count_tree", {"text": TREE, "total_faces": 6, "mesh_count": 1}),),
     ),
     Case(
         "compare_prims",
@@ -307,15 +303,23 @@ CASES = [
             ],
         },
         {"prim_path": "/World/Franka"},
-        ("DOF: 1", "joint1 (RevoluteJoint [-1.0, 1.0] drive=angular)"),
-    ),
-    Case(
-        "get_joint_states",
-        {"prim_path": "/World/Franka"},
-        "/robot/joint_states",
-        {"prim_path": "/World/Franka", "dof_count": 1, "names": ["joint1"], "positions": [0.5], "velocities": [0.25]},
-        {"prim_path": "/World/Franka"},
-        ("joint1: pos=0.5000 vel=0.2500",),
+        (
+            "DOF: 1",
+            "Joints (1):\n  joint1 (RevoluteJoint [-1.0, 1.0] drive=angular)\nJoint states (1 DOF, from physics: ",
+            "set_joint_targets takes degrees):\n  joint1: pos=0.5000 vel=0.2500",
+        ),
+        more=(
+            (
+                "/robot/joint_states",
+                {
+                    "prim_path": "/World/Franka",
+                    "dof_count": 1,
+                    "names": ["joint1"],
+                    "positions": [0.5],
+                    "velocities": [0.25],
+                },
+            ),
+        ),
     ),
     Case(
         "set_joint_targets",
@@ -357,14 +361,6 @@ CASES = [
         {"position": [5, 3, 5], "target": [0, 0, 0]},
         {"position": [5, 3, 5], "target": [0, 0, 0]},
         ("Camera at [5, 3, 5] looking at [0, 0, 0]",),
-    ),
-    Case(
-        "look_at_prim",
-        {"prim_path": "/World/Cube", "distance": 5.0},
-        "/camera/look_at",
-        {"camera_position": [3, 2, 3], "target": [0, 0, 0], "distance": 5.0, "azimuth": 45.0, "elevation": 30.0},
-        {"prim_path": "/World/Cube", "distance": 5.0},
-        ("Distance: 5.0 stage units, Azimuth: 45.0deg, Elevation: 30.0deg",),
     ),
     Case(
         "inspect_prim",
@@ -534,8 +530,9 @@ def test_every_tool_has_a_case():
 
 
 def _check(case: Case, bridge: MockIsaacServer, tmp_path: Path) -> str:
-    """Calls the case's tool, checks its request and its text, and returns the text."""
-    bridge.set_response(case.route, {"status": "success", "result": case.answer})
+    """Calls the case's tool, checks its requests and its text, and returns the text."""
+    for route, answer in ((case.route, case.answer), *case.more):
+        bridge.set_response(route, {"status": "success", "result": answer})
     bridge.requests.clear()
     client = BridgeClient(port=bridge.port, token="invented-test-token")
     try:
@@ -551,7 +548,7 @@ def _check(case: Case, bridge: MockIsaacServer, tmp_path: Path) -> str:
     text = "\n".join(getattr(c, "text", "") for c in result.content)
     assert not result.is_error, text
     calls = [(path, body) for _, path, body in bridge.requests if path != "/bridge"]
-    assert [path for path, _ in calls] == [case.route]
+    assert [path for path, _ in calls] == [case.route, *(route for route, _ in case.more)]
     body = calls[0][1]
     sent = {k: v.replace(OUTPUT, str(tmp_path)) if isinstance(v, str) else v for k, v in case.sent.items()}
     assert {k: body.get(k) for k in sent} == sent
@@ -906,6 +903,347 @@ def test_set_camera_refuses_a_position_on_the_point_it_looks_at(
     assert erred
     assert says in text
     assert calls == []
+
+
+def test_set_camera_without_a_target_says_it_looks_at_the_world_origin(bridge: MockIsaacServer, tmp_path: Path):
+    # The extension aims at the origin and answers no target, so the answer said nothing of where it looked (#82).
+    _check(
+        Case(
+            "set_camera",
+            {"position": [5, 3, 5]},
+            "/camera/set",
+            {"position": [5, 3, 5], "target": None},
+            {"position": [5, 3, 5], "target": None},
+            ("Camera at [5, 3, 5] looking at [0, 0, 0], the world origin: no target was given",),
+        ),
+        bridge,
+        tmp_path,
+    )
+
+
+def test_set_camera_frames_a_prim_from_the_angles_left_out(bridge: MockIsaacServer, tmp_path: Path):
+    # The prim form (#77): the route that frames a prim, with 45 and 30 degrees for the angles left out.
+    _check(
+        Case(
+            "set_camera",
+            {"prim_path": "/World/Cube", "distance": 5.0},
+            "/camera/look_at",
+            {
+                "camera_position": [3.0619, 3.0619, 3.0],
+                "target": [0.0, 0.0, 0.5],
+                "distance": 5.0,
+                "azimuth": 45.0,
+                "elevation": 30.0,
+            },
+            {"prim_path": "/World/Cube", "distance": 5.0, "azimuth": 45.0, "elevation": 30.0},
+            (
+                "Camera at [3.0619, 3.0619, 3.0] looking at the centre of /World/Cube, [0.0, 0.0, 0.5]\n"
+                "Distance: 5.0 stage units, Azimuth: 45.0deg, Elevation: 30.0deg",
+            ),
+        ),
+        bridge,
+        tmp_path,
+    )
+
+
+def test_set_camera_sends_the_angles_given_for_a_prim(bridge: MockIsaacServer, tmp_path: Path):
+    # 0 is an angle given, not one left out; without a distance, the extension works it out from the prim's size.
+    answer = {"camera_position": [0, 4, 0], "target": [0, 0, 0], "distance": 4.0, "azimuth": 0.0, "elevation": 0.0}
+    _check(
+        Case(
+            "set_camera",
+            {"prim_path": "/World/Cube", "azimuth": 0, "elevation": 0},
+            "/camera/look_at",
+            answer,
+            {"prim_path": "/World/Cube", "distance": None, "azimuth": 0, "elevation": 0},
+            ("Azimuth: 0.0deg, Elevation: 0.0deg",),
+        ),
+        bridge,
+        tmp_path,
+    )
+
+
+@pytest.mark.parametrize(
+    ("args", "says"),
+    [
+        ({"prim_path": "/World/Cube", "position": [5, 3, 5]}, "leave position and target out"),
+        ({"prim_path": "/World/Cube", "target": [0, 0, 0]}, "get_prim_bounds gives a prim's centre"),
+        ({"position": [5, 3, 5], "azimuth": 90}, "distance, azimuth and elevation place the camera around prim_path"),
+        ({"position": [5, 3, 5], "elevation": 0}, "give prim_path to frame a prim, or leave them out"),
+        ({"distance": 3.0}, "distance, azimuth and elevation place the camera around prim_path"),
+        ({}, "give position, where the camera stands, with target, the point it looks at; or prim_path"),
+        ({"target": [0, 0, 0]}, "give position, where the camera stands"),
+    ],
+)
+def test_set_camera_refuses_a_mix_of_its_forms_before_any_request(
+    args: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    # Each form is chosen by its own parameters (#77): a mix, or neither, says what to drop or give, and moves nothing.
+    erred, text, calls = _call(bridge, tmp_path, "set_camera", args)
+    assert erred
+    assert says in text
+    assert calls == []
+
+
+# A Franka as /robot/info answers it, in invented values of its sizes: 12 joints, 3 of them fixed, so 9 DOF.
+FRANKA_JOINTS = [
+    *(
+        {"name": f"panda_joint{n}", "type": "PhysicsRevoluteJoint", "lower_limit": -166.0, "upper_limit": 166.0}
+        | {"drive_angular": {"stiffness": 1000.0, "damping": 100.0}}
+        for n in range(1, 8)
+    ),
+    *(
+        {"name": f"panda_finger_joint{n}", "type": "PhysicsPrismaticJoint", "lower_limit": 0.0, "upper_limit": 0.04}
+        | {"drive_linear": {"stiffness": 1000.0, "damping": 100.0}}
+        for n in (1, 2)
+    ),
+    *({"name": name, "type": "PhysicsFixedJoint"} for name in ("root_joint", "panda_hand_joint", "panda_tcp_joint")),
+]
+FRANKA = {
+    "prim_path": "/World/Franka",
+    "is_articulation": True,
+    "dof_count": 9,
+    "link_count": 11,
+    "joints": FRANKA_JOINTS,
+}
+HEADER = "Robot: /World/Franka\nArticulation: True\nDOF: 9\nLinks: 11"
+STOPPED = (
+    "No physics view of /World/Franka: play or step the simulation first; joint states are read while it plays or is "
+    "paused. If it already plays, get_logs(min_level='warn') says why Isaac Sim made none."
+)
+
+
+def _states(count: int) -> dict[str, Any]:
+    """/robot/joint_states' answer for count degrees of freedom."""
+    names = [f"invented_joint{n}" for n in range(count)]
+    return {"prim_path": "/World/Franka", "dof_count": count, "names": names, "positions": [0.5] * count}
+
+
+def _robot(bridge: MockIsaacServer, info: dict[str, Any], states: dict[str, Any]) -> None:
+    bridge.set_response("/robot/info", {"status": "success", "result": info})
+    bridge.set_response("/robot/joint_states", states)
+
+
+def _written(text: str, tmp_path: Path) -> str:
+    """The one robot_info file the answer names, read."""
+    (path,) = (tmp_path / "responses").glob("robot_info_*.txt")
+    assert path.name in text
+    return path.read_text(encoding="utf-8")
+
+
+def test_get_robot_info_gives_the_structure_and_why_there_are_no_joint_states(bridge: MockIsaacServer, tmp_path: Path):
+    # Stopped, or without Isaac Sim: the joint states' route errs, and the structure still answers (#77).
+    info = {**FRANKA, "dof_count": 1, "joints": FRANKA_JOINTS[:1]}
+    _robot(bridge, info, {"status": "error", "error": STOPPED})
+    erred, text, calls = _call(bridge, tmp_path, "get_robot_info", {"prim_path": "/World/Franka"})
+    assert not erred, text
+    assert calls == [
+        ("/robot/info", {"prim_path": "/World/Franka"}),
+        ("/robot/joint_states", {"prim_path": "/World/Franka"}),
+    ]
+    assert text == (
+        "Robot: /World/Franka\nArticulation: True\nDOF: 1\nLinks: 11\nJoints (1):\n"
+        f"  panda_joint1 (PhysicsRevoluteJoint [-166.0, 166.0] drive=angular)\nJoint states: not read: {STOPPED}"
+    )
+
+
+def test_get_robot_info_fails_on_its_structure_without_asking_the_joint_states(bridge: MockIsaacServer, tmp_path: Path):
+    bridge.set_response("/robot/info", {"status": "error", "error": "Prim not found: /World/Nothing"})
+    erred, text, calls = _call(bridge, tmp_path, "get_robot_info", {"prim_path": "/World/Nothing"})
+    assert erred
+    assert "Prim not found: /World/Nothing" in text
+    assert [path for path, _ in calls] == ["/robot/info"]
+
+
+class _GoneAfterTheStructure(BridgeClient):
+    """Kit stops answering between get_robot_info's two requests."""
+
+    def get_joint_states(self, prim_path: str) -> dict[str, Any]:
+        raise ConnectionError("Connection closed by the ovmcp.bridge extension")
+
+
+def test_get_robot_info_fails_when_kit_goes_before_the_joint_states(bridge: MockIsaacServer, tmp_path: Path):
+    # A route's error is a line of the answer; a Kit that can't be reached fails the call, as for every tool.
+    bridge.set_response("/robot/info", {"status": "success", "result": FRANKA})
+    client = _GoneAfterTheStructure(port=bridge.port, token="invented-test-token")
+    try:
+
+        async def call():
+            async with Client(create_server("127.0.0.1", bridge.port, str(tmp_path), client=client)) as c:
+                return await c.call_tool("get_robot_info", {"prim_path": "/World/Franka"})
+
+        result = asyncio.run(call())
+    finally:
+        client.close()
+    text = "\n".join(getattr(c, "text", "") for c in result.content)
+    assert result.is_error
+    assert "Kit app connection failed: Connection closed by the ovmcp.bridge extension" in text
+
+
+@pytest.mark.parametrize(
+    ("states", "inline"),
+    [
+        ({"status": "error", "error": STOPPED}, f"Joint states: not read: {STOPPED}"),
+        (
+            {"status": "success", "result": _states(9)},
+            "Joint states (9 DOF, from physics: radians for revolute joints, stage units for prismatic ones, "
+            "velocities per second; set_joint_targets takes degrees):\n  invented_joint0: pos=0.5000 vel=0.0000",
+        ),
+    ],
+    ids=["stopped", "playing"],
+)
+def test_a_franka_s_joints_go_to_a_file_and_its_joint_states_stay_inline(
+    states: dict[str, Any], inline: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    # Each old tool answered a Franka inline; together they pass 1,000 characters (#77, P3): the header and the joint
+    # states, what a caller came for, stay inline, and the Joints list goes to a file.
+    _robot(bridge, FRANKA, states)
+    erred, text, _calls = _call(bridge, tmp_path, "get_robot_info", {"prim_path": "/World/Franka"})
+    assert not erred, text
+    lines = text.splitlines()
+    assert "\n".join(lines[:4]) == HEADER
+    assert lines[4].startswith("Wrote the 12 joints (")
+    assert "\n".join(lines[5:]).startswith(inline)
+    assert "panda_joint1" not in text
+    joints = _written(text, tmp_path)
+    assert joints.startswith("Joints (12):\n  panda_joint1 (PhysicsRevoluteJoint [-166.0, 166.0] drive=angular)\n")
+    assert joints.endswith("\n  panda_tcp_joint (PhysicsFixedJoint)")
+
+
+def test_joint_states_too_long_to_answer_inline_go_to_the_file_after_the_joints(
+    bridge: MockIsaacServer, tmp_path: Path
+):
+    # A G1's 43 degrees of freedom pass 1,000 characters with the header alone.
+    _robot(bridge, FRANKA, {"status": "success", "result": _states(43)})
+    erred, text, _calls = _call(bridge, tmp_path, "get_robot_info", {"prim_path": "/World/Franka"})
+    assert not erred, text
+    lines = text.splitlines()
+    assert "\n".join(lines[:4]) == HEADER
+    assert lines[4].startswith("Wrote the 12 joints, then the joint states (")
+    assert len(lines) == 5
+    written = _written(text, tmp_path)
+    assert written.startswith("Joints (12):\n")
+    assert "\n  panda_tcp_joint (PhysicsFixedJoint)\nJoint states (43 DOF, " in written
+    assert written.endswith("\n  invented_joint42: pos=0.5000 vel=0.0000")
+
+
+DUMPED = {"prim_count": 12, "file_size_bytes": 4096, "file_path": "scene_dump.txt", "root": "/World"}
+
+
+def test_get_scene_tree_with_properties_has_kit_write_them_to_a_file(bridge: MockIsaacServer, tmp_path: Path):
+    # The dump's job, merged into get_scene_tree (#77): 15 levels when max_depth is left out, as the dump took.
+    _check(
+        Case(
+            "get_scene_tree",
+            {"root": "/World", "include_properties": True},
+            "/scene/dump",
+            DUMPED,
+            {"output_dir": OUTPUT, "root": "/World", "max_depth": 15, "include_properties": True},
+            ("Dumped 12 prims under /World, to depth 15 (4,096 bytes) -> ",),
+        ),
+        bridge,
+        tmp_path,
+    )
+
+
+@pytest.mark.parametrize(
+    ("args", "sent"),
+    [
+        # A filter alone writes the file too; only values asked for bring the attributes.
+        ({"filter_types": ["Mesh"]}, {"filter_types": ["Mesh"], "include_properties": False}),
+        ({"property_filter": ["joint"]}, {"property_filter": ["joint"], "include_properties": True}),
+        (
+            {"filter_types": ["Mesh"], "property_filter": ["joint"], "max_depth": 3},
+            {"filter_types": ["Mesh"], "property_filter": ["joint"], "include_properties": True, "max_depth": 3},
+        ),
+    ],
+)
+def test_get_scene_tree_with_a_filter_has_kit_write_the_file(
+    args: dict[str, Any], sent: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path
+):
+    _check(
+        Case("get_scene_tree", args, "/scene/dump", DUMPED, sent, ("Dumped 12 prims under /, to depth ",)),
+        bridge,
+        tmp_path,
+    )
+
+
+@pytest.mark.parametrize(
+    "args",
+    [{"filter_types": []}, {"property_filter": []}, {"include_properties": False, "filter_types": [], "max_depth": 5}],
+)
+def test_get_scene_tree_with_an_empty_filter_lists(args: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path):
+    # An empty list asks for nothing, so the answer is the list, not a file.
+    _check(
+        Case("get_scene_tree", args, "/scene/tree", {"text": "[/]\n"}, {"max_depth": 5, "format": "text"}, ("[/]",)),
+        bridge,
+        tmp_path,
+    )
+
+
+@pytest.mark.parametrize("route", ["/scene/tree", "/scene/dump"])
+def test_get_scene_tree_takes_any_depth(route: str, bridge: MockIsaacServer, tmp_path: Path):
+    # The list refused a max_depth over 15, the old server's quiet cap made a bound; the dump took any (#77).
+    args: dict[str, Any] = {"max_depth": 20, **({"include_properties": True} if route == "/scene/dump" else {})}
+    answer = DUMPED if route == "/scene/dump" else {"text": "[/]\n"}
+    _check(Case("get_scene_tree", args, route, answer, {"max_depth": 20}, ()), bridge, tmp_path)
+
+
+MESH_TOTALS = {
+    "prim_path": "/World/Robot",
+    "mesh_count": 1,
+    "total_faces": 6,
+    "total_vertices": 8,
+    "total_triangles": 12,
+}
+
+
+def _mesh_stats(bridge: MockIsaacServer, tmp_path: Path, tree: str, args: dict[str, Any]) -> tuple[str, list]:
+    bridge.set_response("/scene/mesh_stats", {"status": "success", "result": MESH_TOTALS})
+    bridge.set_response("/scene/face_count_tree", {"status": "success", "result": {"text": tree}})
+    erred, text, calls = _call(bridge, tmp_path, "get_mesh_stats", {"prim_path": "/World/Robot", **args})
+    assert not erred, text
+    return text, calls
+
+
+@pytest.mark.parametrize(("args", "depth"), [({}, 2), ({"max_depth": 0}, 0), ({"max_depth": 20}, 20)])
+def test_get_mesh_stats_asks_the_totals_then_the_tree_from_its_prim(
+    args: dict[str, Any], depth: int, bridge: MockIsaacServer, tmp_path: Path
+):
+    # The tree's route takes the prim as its root, 2 levels when max_depth is left out, where the tree's tool took 10.
+    text, calls = _mesh_stats(bridge, tmp_path, TREE, args)
+    assert calls == [
+        ("/scene/mesh_stats", {"prim_path": "/World/Robot"}),
+        ("/scene/face_count_tree", {"root": "/World/Robot", "max_depth": depth}),
+    ]
+    # The tree's total counts only the meshes within max_depth, and would contradict the totals above it.
+    assert "# total:" not in text
+    assert text.endswith("\ntriangles = 12")
+
+
+@pytest.mark.parametrize(
+    "tree",
+    [
+        "[/World/Robot]\ntype = Xform\nsubtree_faces = 6",
+        "[/World/Robot]\ntype = Xform\n# total: 6 faces, a line that isn't the last\nsubtree_faces = 6\n",
+    ],
+)
+def test_get_mesh_stats_keeps_a_tree_that_doesnt_end_with_its_total(tree: str, bridge: MockIsaacServer, tmp_path: Path):
+    text, _calls = _mesh_stats(bridge, tmp_path, tree, {})
+    assert text.endswith(f"\n\n{tree.rstrip()}")
+
+
+def test_get_mesh_stats_writes_a_tree_too_long_to_give_with_the_totals(bridge: MockIsaacServer, tmp_path: Path):
+    # Under 1,000 characters alone, over them with the totals: the tree goes to a file, the totals stay inline.
+    tree = "\n\n".join(f"[/World/Robot/Part{n:02d}]\ntype = Mesh\nfaces = 6" for n in range(21))
+    assert 900 < len(tree) <= 1000
+    text, _calls = _mesh_stats(bridge, tmp_path, f"{tree}\n\n# total: 126 faces in 21 meshes", {})
+    totals, wrote = text.split("\n\n")
+    assert totals == "[/World/Robot]\nmeshes = 1\ntotal_faces = 6\ntotal_vertices = 8\ntotal_triangles = 12"
+    assert wrote.startswith("Wrote the face count tree to depth 2 (")
+    (path,) = (tmp_path / "responses").glob("mesh_stats_*.txt")
+    assert wrote.endswith(path.name)
+    assert path.read_text(encoding="utf-8") == tree
 
 
 @pytest.mark.parametrize(

@@ -6,9 +6,9 @@ description: >-
   to review frame by frame afterwards.
 allowed-tools: >-
   mcp__plugin_omniverse-mcp_omniverse__get_sim_state mcp__plugin_omniverse-mcp_omniverse__get_robot_info
-  mcp__plugin_omniverse-mcp_omniverse__get_joint_states mcp__plugin_omniverse-mcp_omniverse__raycast
-  mcp__plugin_omniverse-mcp_omniverse__get_recording_frame mcp__plugin_omniverse-mcp_omniverse__get_prim_bounds
-  mcp__plugin_omniverse-mcp_omniverse__capture_viewport mcp__plugin_omniverse-mcp_omniverse__get_logs
+  mcp__plugin_omniverse-mcp_omniverse__raycast mcp__plugin_omniverse-mcp_omniverse__get_recording_frame
+  mcp__plugin_omniverse-mcp_omniverse__get_prim_bounds mcp__plugin_omniverse-mcp_omniverse__capture_viewport
+  mcp__plugin_omniverse-mcp_omniverse__get_logs
 ---
 
 # Simulate, drive robots, record
@@ -24,7 +24,7 @@ before play, so pause to look at a moment in the middle.
    the ground.
 3. **Robots.** `create_robot` spawns one of franka, ur10, carter, jetbot, g1, go1, go2, h1, spot or anymal from
    Isaac Sim's asset library (Isaac Sim only), or a robot's own USD file, a path or a URL, in any Kit app.
-   `get_robot_info` lists its joints; `get_joint_states` reads them while the simulation plays or is paused, and
+   `get_robot_info` lists its joints, and reads where they are while the simulation plays or is paused;
    `set_joint_targets` drives them.
 4. **Run.** `sim_control("play")`, `"pause"`, `"step"` or `"stop"`. `apply_force` pushes a rigid body through
    PhysX while the simulation plays or is paused, at its centre of mass unless a `position` is given: an impulse
@@ -40,14 +40,14 @@ before play, so pause to look at a moment in the middle.
    the tracked prims' state land in `mcp_output/recordings/<session>/`. `get_recording_frame` reads one frame back.
    Frames come from `camera_path` (the viewport's camera when empty) at `width` x `height`, 640x480 unless given,
    without moving the viewport; they stop, with a note, if the stage changes or the camera is deleted.
-6. **Check** with `get_prim_bounds`, `get_joint_states` or a capture, rather than assuming the run did what was
-   asked. A tool that fails: `get_logs(min_level="warn")`.
+6. **Check** with `get_prim_bounds`, `get_robot_info`'s joint states or a capture, rather than assuming the run did
+   what was asked. A tool that fails: `get_logs(min_level="warn")`.
 
 ## Traps
 
 | Trap | What to do |
 |---|---|
-| `get_joint_states` errors | play or pause, not stop: it reads physics, which a stop drops |
+| `get_robot_info` says `Joint states: not read` | the line gives the reason. Stopped: play or pause, not stop, since joint states come from physics, which a stop drops. No articulation at or under the path, or a Kit app without Isaac Sim: playing doesn't help; give the robot's root, or read the joints in Isaac Sim |
 | `raycast` finds nothing | play first: it uses PhysX |
 | A stopped run loses the state you wanted | `pause`, not `stop`, to look at it |
 | Gravity along the wrong axis | the up axis from `get_sim_state`: a Y-up stage falls along -Y |

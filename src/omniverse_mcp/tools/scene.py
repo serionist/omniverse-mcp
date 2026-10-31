@@ -40,66 +40,74 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     def get_scene_tree(
         root: Annotated[str, Field(description="Prim path to start from")] = "/",
         max_depth: Annotated[
-            int,
+            int | None,
             Field(
                 ge=0,
-                le=15,
-                description="How many levels below root to list; a prim on the last says how many children it has",
+                description="How many levels below root: 5 when left out, or 15 with properties or a filter; in the "
+                "list, a prim on the last level says how many children it has",
             ),
-        ] = 5,
+        ] = None,
+        include_properties: Annotated[
+            bool,
+            Field(
+                description="Each prim's rotation, world box and attribute values, written by Kit to "
+                "mcp_output/scene_dump.txt"
+            ),
+        ] = False,
+        filter_types: Annotated[
+            list[str] | None,
+            Field(
+                description='Only prims of these types, e.g. ["Mesh", "Xform"], written to the file; the others\' '
+                "children are still walked"
+            ),
+        ] = None,
+        property_filter: Annotated[
+            list[str] | None,
+            Field(
+                description='Only properties whose names hold one of these, e.g. ["joint"], written to the file; it '
+                "takes the properties with it"
+            ),
+        ] = None,
     ) -> str:
-        """List the stage's prims under root as prim blocks: each one's path, type and world position.
+        """List the stage's prims under root as prim blocks: each one's path, type and world position, to max_depth.
 
         Use it to find prim paths before acting on them: it is the lightest look at a scene. A prim at max_depth that
         has children says how many, as children = N (truncated), and nothing below it is listed. The prims inside an
-        instanceable prim are not listed (get_prim_face_count_tree looks inside). For properties, use
-        get_prim_properties on one prim, or dump_scene for many at once, written to a file to grep.
+        instanceable prim are not listed (get_mesh_stats looks inside). With include_properties, filter_types or
+        property_filter, Kit writes the blocks to mcp_output/scene_dump.txt instead, replacing the last, each with the
+        prim's rotation, world box and physics flags, and its attribute values with include_properties or
+        property_filter; the answer gives the file's path, how many prims it holds and how deep it went: grep it, or
+        read it in parts. Kit writes that file itself, so with Kit on another machine it lands there.
+        get_prim_properties reads one prim inline.
         """
-        resp = bridge_call(client.scene_tree, root, max_depth, fmt="text")
-        r = resp["result"]
-        text = r["text"]
-        return h.text_response(text, "scene_tree")
-
-    @tool(mcp, READS)
-    def dump_scene(
-        root: Annotated[str, Field(description="Prim path to start from")] = "/",
-        max_depth: Annotated[int, Field(ge=0, description="How many levels below root; 0 for root alone")] = 15,
-        include_properties: Annotated[bool, Field(description="Include every USD property of each prim")] = True,
-        filter_types: Annotated[
-            list[str] | None, Field(description='Only prims of these types, e.g. ["Mesh", "Xform"]')
-        ] = None,
-        property_filter: Annotated[
-            list[str] | None, Field(description='Only properties whose names contain one of these, e.g. ["joint"]')
-        ] = None,
-    ) -> str:
-        """Write the prims under root, with their properties, to mcp_output/scene_dump.txt as prim blocks; returns the
-        file's path, to grep or read in parts, and how many prims it wrote.
-
-        Each block holds the prim's type, world position, rotation and bounding box, and every attribute's value unless
-        include_properties is False. Use it for many prims' values at once, or for depths beyond get_scene_tree's 15;
-        get_prim_properties reads one prim inline. filter_types keeps the blocks of those types and
-        still walks the others' children. Each call replaces the last dump. Kit writes the file itself, so with Kit on
-        another machine it lands there. Like get_scene_tree, it doesn't list the prims inside an instanceable prim.
-        """
-        resp = bridge_call(
+        # The parameters that ask for values choose Kit's file; an empty list asks for nothing, so it keeps the list.
+        if not (include_properties or filter_types or property_filter):
+            r = bridge_call(client.scene_tree, root, 5 if max_depth is None else max_depth, fmt="text")["result"]
+            return h.text_response(r["text"], "scene_tree")
+        # The dump's blocks don't mark a prim whose children were left out, so the answer says how deep it went.
+        depth = 15 if max_depth is None else max_depth
+        r = bridge_call(
             client.scene_dump,
             h.output_dir,
             root,
-            max_depth,
-            include_properties,
+            depth,
+            include_properties or bool(property_filter),
             filter_types or [],
             property_filter=property_filter,
+        )["result"]
+        return (
+            f"Dumped {r['prim_count']} prims under {root}, to depth {depth} ({r['file_size_bytes']:,} bytes) -> "
+            f"{h.rel(r['file_path'])}"
         )
-        r = resp["result"]
-        return f"Dumped {r['prim_count']} prims ({r['file_size_bytes']:,} bytes) -> {h.rel(r['file_path'])}"
 
     @tool(mcp, READS)
     def get_prim_properties(prim_path: PrimPath) -> str:
         """Get one prim as a prim block: its type, world position and rotation, world bounding box, physics flags, and
         every attribute's value.
 
-        Use it to read one prim; get_prim_bounds when only its size and place matter, dump_scene for many prims at
-        once, get_scene_tree to find paths. Relationships, such as a material binding, are named without their targets.
+        Use it to read one prim; get_prim_bounds when only its size and place matter, get_scene_tree to find paths, and
+        with include_properties for many prims at once, written to a file. Relationships, such as a material binding,
+        are named without their targets.
         """
         resp = bridge_call(client.prim_properties, prim_path, fmt="text")
         text = resp["result"]["text"]
@@ -134,9 +142,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     ) -> str:
         """Set a prim's position, rotation or scale relative to its parent; any of the three left out keeps its value.
 
-        Use it to move, turn or size a prim; to aim the viewport camera, use set_camera or look_at_prim, and to push a
-        rigid body while physics runs, apply_force. Values are in the parent's space, not world space:
-        get_prim_properties gives a prim's world position. It writes into the prim's own xform ops: the position into
+        Use it to move, turn or size a prim; to aim the viewport camera, use set_camera, and to push a rigid body while
+        physics runs, apply_force. Values are in the parent's space, not world space: get_prim_properties gives a
+        prim's world position. It writes into the prim's own xform ops: the position into
         its translate op, the rotation into its rotate or orient ops in their kind, the scale into its scale op, adding
         an op it lacks; other ops, a pivot among them, stay. A part with no op of its own goes into the prim's matrix
         (xformOp:transform) when it has one, as imported assets often do. An error when the prim doesn't exist or can't

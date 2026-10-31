@@ -1,5 +1,6 @@
-"""Whether create_robot was given a USD file or a robot's name, and the prim it makes for it; where get_joint_states
-finds a robot's articulation. Where the file loads from is ovmcp.core.usd_files's rule, which open_scene shares.
+"""Whether create_robot was given a USD file or a robot's name, and the prim it makes for it; where
+/robot/joint_states, which get_robot_info reads, finds a robot's articulation. Where the file loads from is
+ovmcp.core.usd_files's rule, which open_scene shares.
 
 Kit-free, so unit-tested without Kit.
 """

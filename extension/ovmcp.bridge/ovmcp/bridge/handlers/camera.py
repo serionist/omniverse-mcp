@@ -569,7 +569,7 @@ async def handle_camera_look_at(body: dict) -> dict:
         return {"status": "error", "error": why}
 
     # Wait for camera transform to propagate through the rendering pipeline
-    await _settle_or_log("look_at_prim")
+    await _settle_or_log("set_camera")
 
     return {
         "status": "success",

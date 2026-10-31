@@ -33,8 +33,8 @@ The scene is a USD stage: a hierarchy of prims with paths such as `/World/Robot/
 move only while physics plays.
 
 - **Call `get_sim_state` first:** the up axis (Y or Z), the stage's units, and whether physics is playing.
-- **Look before you act, and after:** `get_scene_tree` or `dump_scene` for what is there, `capture_viewport` or
-  `inspect_prim` for how it looks. Never assume a change worked.
+- **Look before you act, and after:** `get_scene_tree` for what is there, with `include_properties` for many prims'
+  values, `capture_viewport` or `inspect_prim` for how it looks. Never assume a change worked.
 - **Files, not inline data:** images and long answers are written under `mcp_output/` in the server's working folder,
   and the tool returns the path; open it with your file tool. `capture_viewport(include_image=True)` also returns the
   image inline, which costs context like any image. Text comes as prim blocks: a `[/prim/path]` header, then

@@ -50,7 +50,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         play starts or resumes physics; pause holds it where it is; stop rewinds the timeline, and physics puts bodies
         back where play found them; step plays for two app updates, then pauses. A robot's first play cooks its
         collision meshes, and Kit answers nothing until that ends. get_sim_state reads the state without changing it;
-        get_joint_states and apply_force need it playing or paused.
+        get_robot_info's joint states and apply_force need it playing or paused.
         """
         resp = bridge_call(client.sim_control, action)
         r = resp["result"]
