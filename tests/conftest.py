@@ -53,7 +53,8 @@ result = capture is not None
 
 # execute_script code for the live suites, with TARGET bound before it: where the viewport's camera is, how far its -Z
 # axis points off TARGET, its world scale, and the xform attributes the root layer holds of it, which an aim must not
-# leave there, since Kit keeps its own cameras in the session layer (#82).
+# leave there, since Kit keeps its own cameras in the session layer (#82). Not checked: a scene camera's
+# omni:kit:centerOfInterest, which the aim may author in the root layer, as that camera's other attributes are.
 CAMERA_AIM = """
 import math
 from omni.kit.viewport.utility import get_active_viewport

@@ -212,12 +212,13 @@ if undo is not None:
 result = sys.modules.get("isaacsim.core.utils.viewports") is not None
 """
 
-# How many times set_camera_view's recorder (test_12f) was called; COUNT = 0 starts the count afresh.
+# How many times set_camera_view's recorder (test_12f) was called; COUNT = 0 starts the count afresh. The count is
+# kept on sys, since the module the recorder wraps is unimportable once the test hides it.
 _ISAAC_CALLS = """
-import isaacsim.core.utils.viewports as viewports
+import sys
 if COUNT == 0:
-    viewports._ovmcp_test_calls = 0
-result = getattr(viewports, "_ovmcp_test_calls", 0)
+    sys._ovmcp_test_isaac_calls = 0
+result = getattr(sys, "_ovmcp_test_isaac_calls", 0)
 """
 
 # The ops and their values of the prims under ROOT, by path, and each one's world position, read in Kit.
@@ -364,14 +365,23 @@ class TestIsaacSimIntegration(unittest.TestCase):
     def test_03b_scene_tree_text_stops_at_max_depth(self):
         """The text listed the next level's prims that had children and left out the rest, so a childless prim there
         looked absent; it stops at max_depth now, with the prim's count of children (#82)."""
-        result = self.client.scene_tree("/World", 0, fmt="text")
+        # Its own prims: a fresh stage has no /World until an earlier test makes one.
+        root = "/World/IntTestDepth"
+        self.addCleanup(self.client.delete_prim, root)
+        for path in (root, f"{root}/A", f"{root}/B", f"{root}/A/Deep"):
+            made = self.client.create_prim(path, "Xform")
+            self.assertEqual(made["status"], "success", made)
+        result = self.client.scene_tree(root, 0, fmt="text")
         self.assertEqual(result["status"], "success", result)
         lines = result["result"]["text"].splitlines()
-        self.assertEqual([line for line in lines if line.startswith("[")], ["[/World]"])
-        children = self._kit("result = len(omni.usd.get_context().get_stage().GetPrimAtPath('/World').GetChildren())")
-        if children:
-            self.assertIn(f"children = {children} (truncated)", lines)
-        print(f"  /World at depth 0: {children} children counted, none listed")
+        self.assertEqual([line for line in lines if line.startswith("[")], [f"[{root}]"])
+        self.assertIn("children = 2 (truncated)", lines)
+        result = self.client.scene_tree(root, 1, fmt="text")
+        self.assertEqual(result["status"], "success", result)
+        lines = result["result"]["text"].splitlines()
+        self.assertEqual([line for line in lines if line.startswith("[")], [f"[{root}]", f"[{root}/A]", f"[{root}/B]"])
+        self.assertIn("children = 1 (truncated)", lines)
+        print("  A tree at depth 0 and 1: the next level's children counted, not listed")
 
     # ===== Script execution =====
 
@@ -704,13 +714,15 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.addCleanup(self.client.viewport_light, "set", mode=lighting)
         self.client.viewport_light("set", mode="camera")
 
-        # Isaac's call, recorded and left undone: the check after it must aim the camera (plan Q7).
+        # Isaac's call, recorded and left undone: the check after it must aim the camera.
         self._wrap(
             "import isaacsim.core.utils.viewports as target",
             "set_camera_view",
             """
             def wrapper(*args, **kwargs):
-                target._ovmcp_test_calls = getattr(target, "_ovmcp_test_calls", 0) + 1
+                import sys
+
+                sys._ovmcp_test_isaac_calls = getattr(sys, "_ovmcp_test_isaac_calls", 0) + 1
             """,
         )
         self._isaac_calls(reset=True)
