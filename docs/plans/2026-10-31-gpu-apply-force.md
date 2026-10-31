@@ -44,7 +44,7 @@ The sources, `omni.physics.tensors` 110.4.4 (Isaac Sim 6.2), and #58's measureme
 | S1 | `create_simulation_view(frontend_name, stage_id=-1, backend="physx")`; frontends `numpy`, `torch`, `tensorflow`, `warp`. numpy can't take a GPU pipeline; warp needs `omni.warp.core`, which Kit ships | `api.py` line 13; #58's alternatives table |
 | S2 | `RigidBodyView`: a lone body or an articulation's link. `apply_forces_and_torques_at_position(force_data, torque_data, position_data, indices, is_global)`, `(count, 3)` arrays; forces only, no impulse mode; without points it pushes at the body's origin | `api.py` 3461-3533; #58 fact 4 |
 | S3 | `get_transforms()` is `(count, 7)`: x, y, z, then the quaternion qx, qy, qz, qw, in the global frame. `get_coms()` is `(count, 7)`: the centre of mass and its principal axes in the body prim's frame | `api.py` 3287-3313, 3584-3615 |
-| S4 | `create_rigid_body_view(pattern)` matches globs per path component; a USD prim name holds no glob character, so a prim's own path matches it alone (#58's E9: one row for `/World/G1/pelvis`). Not quite, as the code review's F2 found: a plain last component matches at any depth under its parent (`/physics/tensors/recursiveLeafPatternMatch`, on by default), so `/World/Cube` matches `/World/Table/Cube` too | `api.py` 287 |
+| S4 | `create_rigid_body_view(pattern)` matches globs per path component; a USD prim name holds no glob character, so a prim's own path matches it alone (#58's E9: one row for `/World/G1/pelvis`). The code review's F2 read in the docs that a plain last component matches at any depth under its parent (`/physics/tensors/recursiveLeafPatternMatch`, on by default), so `/World/Cube` would match `/World/Table/Cube` too; E18 measured a plain path matching itself alone on 6.2 | `api.py` 287 |
 | S5 | A force lasts one physics step (E3); an impulse as impulse / dt for one step is exact (E2); a push while paused lands on the next step (E4); a view of our own per push, invalidated straight after, costs 0.016 ms and leaves Isaac Sim's own view valid (E5) | #58's E2 to E5 |
 | S6 | Under the Direct GPU API the tensor push lands: +10 N s on a lone cube and on a link, +0.16667 for a 10 N force over one step (E8) | #58's E8 |
 | S7 | Isaac Sim's `SimulationManager` makes a warp view at play and drops it at stop; `set_device("cuda:N")` turns on GPU dynamics and `suppressReadback` | #58 fact 7 |
@@ -61,11 +61,13 @@ on, after #58's E1 to E11:
 | U5 | The setting true on a CPU scene, as a stage opened after a GPU device can leave it (`core/force.py`'s comment on `direct_gpu`; #58's code review): does the tensor push land, on a view whose device is the CPU? | A stage opened after `set_device("cuda:0")`, its scene on the CPU, the setting still true: the tensor push and its momentum change; `device_ordinal` |
 | U6 | The CPU pipeline after the probe's `set_device("cpu")`: Fabric stays on and USD write-back off (`SimulationManager.enable_fabric`, which the CPU branch doesn't undo) | Today's call on a lone cube, and the cube's pose read through USD, before and after; how much of the switch a restart alone undoes |
 
-### Live: E12 to E17
+### Live: E12 to E19
 
 Step 1's probe, 2026-10-31, on Isaac Sim 6.2.0 headless (pip, Windows, RTX 5090), a fresh Kit, #58's helpers: a
 5 kg cube with gravity off, `/World/Offset`, turned 90 degrees about Z, its centre of mass at (0.1, 0, 0) in its own
-frame; the measure is the momentum from the tensor API's velocities and masses, as in #58.
+frame; the measure is the momentum from the tensor API's velocities and masses, as in #58. E18 and E19 come from a
+probe after the code review, on the Kit the GPU module's re-run on `ee2c543` had just left, with 5 kg cubes of its
+own.
 
 | # | What | Result | So |
 |---|---|---|---|
@@ -75,6 +77,8 @@ frame; the measure is the momentum from the tensor API's velocities and masses, 
 | E15 | U4: GPU dynamics with readback on (`set_device("cuda:0")`, then `suppressReadback` false) | Today's call: momentum 0 to 10.0. The view's device reads `cpu` | today's call pushes there: Q4 takes today's call |
 | E16 | U5: the setting true on a CPU scene (`set_device("cpu")`, then `suppressReadback` true; `enableGPUDynamics` false) | Today's call: 0 to 10.0; the tensor push too, 10 to 20, on a view whose device is `cpu` | today's call pushes there too: under Q1 the tensor path isn't needed, and the old refusal of the setting alone goes |
 | E17 | U6: the CPU pipeline after `set_device("cpu")` | `suppressReadback` false, but `updateToUsd` and `updateVelocitiesToUsd` stay false and `omni.physx.fabric` stays on. Today's call: 0 to 10.0; 30 frames on, PhysX has the cube at x = -9.0 and USD still at -10.0 | the switch back leaves USD stale, as P1 said: the GPU test needs a Kit of its own, restarted after (Q6) |
+| E18 | Twins on the Direct GPU API, `/physics/tensors/recursiveLeafPatternMatch` true: `/World/T/Cube` and `/World/T/Shelf/Cube`, both rigid bodies | `create_rigid_body_view("/World/T/Cube")` and `create_rigid_body_view(["/World/T/Cube"])` both hold `/World/T/Cube` alone | a plain path matches itself alone on 6.2, though the docs say a plain last name matches deeper too: the code review's F2 doesn't arise here, and the handler's row handling stays as a guard for a Kit that matches more |
+| E19 | Pushes while paused on the Direct GPU API, each through a view of its own invalidated after, as the handler makes them: an impulse of 10 N s on each of two cubes, then two on a third, then play | 10 and 10 on the first two; 10 on the third, not 20, as the GPU module's `test_15` found on the re-run | a second push on a body before the next physics step replaces the first, where on the CPU pipeline the two add (#58's E4); pushes on different bodies each land. Documented, not changed (Q8) |
 
 **What it settles:** today's call moves nothing only with both `suppressReadback` and GPU dynamics on (#58's E8 against
 E15 and E16), and the tensor push lands with the setting on whatever the scene runs (E14, E16). So, as Q7 was
@@ -170,6 +174,7 @@ stays. The route's body is unchanged; its answer's `method` can now be `"tensor"
 | Q5 | The answer's `method` for the new path | `"tensor"`, so a caller and the logs can tell the paths apart | As recommended (2026-10-31) |
 | Q6 | The live test switches the Kit app to the GPU device, which `set_device("cpu")` can't fully undo (Fabric stays on, USD write-back off): in the default live run, or only when asked | Only when asked: `OMNIVERSE_MCP_GPU=1` with `OMNIVERSE_MCP_SIM=1`, on a Kit of its own, restarted after; the default suites never change the device | As recommended (2026-10-31) |
 | Q7 | The setting true on a CPU scene | The tensor path, if U5 shows the push lands; otherwise today's refusal, which says how to turn the setting off | As recommended (2026-10-31) |
+| Q8 | Two pushes on one body before the next physics step, under the Direct GPU API | Document it: the second replaces the first | As recommended (2026-10-31) |
 
 ## Steps
 
