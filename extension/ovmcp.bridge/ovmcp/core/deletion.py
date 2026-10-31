@@ -63,10 +63,7 @@ def why_kept(prim: Usd.Prim, edit_layer: Sdf.Layer) -> str | None:
         what = _ARC_NAMES.get(kind, str(kind))
         source = layer_name(stage, defining[0])
         if arc.IsAncestral():
-            return (
-                f"{path} is not deleted: it comes through a {what} on {stage_prim_of(arc)} ({source}). "
-                f"{_HIDE}"
-            )
+            return f"{path} is not deleted: it comes through a {what} on {stage_prim_of(arc)} ({source}). {_HIDE}"
         # An arc the referenced file itself authors goes with the reference the edit layer holds, so only arcs of the
         # stage's own layer stack count.
         if not arc.IsIntroducedInRootLayerStack():

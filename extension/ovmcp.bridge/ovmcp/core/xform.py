@@ -17,7 +17,7 @@ from typing import cast
 
 from pxr import Gf, Sdf, Tf, Usd, UsdGeom
 
-from .usd import Vec, add_xform_op, attribute_has_default, factors, floats, is_a, xform_ops
+from .usd import Vec, add_xform_op, attribute_has_default, factors, floats, is_a, prim_spec, xform_ops
 
 _DEFAULT = Usd.TimeCode.Default()
 _AXES = {"X": Gf.Vec3d.XAxis(), "Y": Gf.Vec3d.YAxis(), "Z": Gf.Vec3d.ZAxis()}
@@ -132,13 +132,18 @@ def _blocker(prim: Usd.Prim, attr: Usd.Attribute, layer: Sdf.Layer) -> str | Non
 
     The strongest opinion decides: a stronger layer's value outranks the write; time samples in the written layer or a
     stronger one hide its default value; samples only in a weaker layer, such as an animated asset's, are overridden by
-    it, which freezes the animation.
+    it, which freezes the animation. A default already held at or above the written layer froze it before, so the
+    write freezes nothing new and samples below it don't refuse.
     """
     stage = prim.GetStage()
     rank = _rank(stage)
     target = rank.get(layer.identifier, len(rank))
     name = attr.GetName()
-    for spec in attr.GetPropertyStack(_DEFAULT):
+    stack = attr.GetPropertyStack(_DEFAULT)
+    frozen = any(
+        rank.get(spec.layer.identifier, len(rank) + 1) <= target and attribute_has_default(spec) for spec in stack
+    )
+    for spec in stack:
         # A layer outside the stage's own, a referenced file's, is weaker than all of them.
         where = rank.get(spec.layer.identifier, len(rank) + 1)
         samples = spec.layer.GetNumTimeSamplesForPath(spec.path)
@@ -147,7 +152,7 @@ def _blocker(prim: Usd.Prim, attr: Usd.Attribute, layer: Sdf.Layer) -> str | Non
                 f"{prim.GetPath()}'s {name} is animated in {layer_name(stage, spec.layer)}: a value set now would be "
                 "hidden by its time samples"
             )
-        if samples:
+        if samples and not frozen:
             return (
                 f"{prim.GetPath()}'s {name} is animated in {layer_name(stage, spec.layer)}: a value set in "
                 f"{layer_name(stage, layer)} would override the animation and freeze it"
@@ -442,8 +447,9 @@ def position_of(prim: Usd.Prim) -> Gf.Vec3d:
 def look_at(eye: Gf.Vec3d, target: Gf.Vec3d, up_axis: str) -> Gf.Matrix4d:
     """A camera's world matrix at eye, its -Z axis on target, its up as near the stage's up axis as it can be.
 
-    Straight along the up axis the stage's up can't orient it, so minus the front axis (look_at_prim's azimuth 0: +Z
-    on a Y-up stage, +Y on a Z-up one) does, which is where the camera's up tends as it comes over from the front.
+    Straight along the up axis the stage's up can't orient it, so the front axis (look_at_prim's azimuth 0: +Z on a
+    Y-up stage, +Y on a Z-up one) does: the camera's up is minus front from above and plus front from below, which is
+    where it tends as it comes over from the front.
     """
     forward = target - eye
     if forward.GetLength() <= 1e-9 * max(1.0, eye.GetLength()):
@@ -451,7 +457,12 @@ def look_at(eye: Gf.Vec3d, target: Gf.Vec3d, up_axis: str) -> Gf.Matrix4d:
     back = -forward.GetNormalized()
     up = _AXES["Z"] if up_axis == "Z" else _AXES["Y"]
     front = _AXES["Y"] if up_axis == "Z" else _AXES["Z"]
-    reference = up if abs(Gf.Dot(back, up)) <= 0.999 else -front
+    along = Gf.Dot(back, up)
+    if abs(along) <= 0.999:
+        reference = up
+    else:
+        # From above the camera's up tips away from the viewer, from below towards them.
+        reference = -front if along > 0 else front
     right = Gf.Cross(reference, back).GetNormalized()
     camera_up = Gf.Cross(back, right)
     matrix = Gf.Matrix4d(1)
@@ -529,20 +540,31 @@ class Snapshot:
 
     order: object
     values: tuple[tuple[str, object], ...]
+    names: frozenset[str] = frozenset()
 
     @classmethod
     def take(cls, prim: Usd.Prim) -> "Snapshot":
         xformable = UsdGeom.Xformable(prim)
         values = tuple((op.GetAttr().GetName(), op.GetAttr().Get()) for op in xform_ops(xformable))
-        return cls(order=xformable.GetXformOpOrderAttr().Get(), values=values)
+        names = frozenset(name for name in prim.GetPropertyNames() if name.startswith("xformOp:"))
+        return cls(order=xformable.GetXformOpOrderAttr().Get(), values=values, names=names)
 
     def restore(self, prim: Usd.Prim, layer: Sdf.Layer) -> None:
+        """Puts the ops back in layer. A bare camera had no order and no ops, and the call authored both, so its order
+        opinion is cleared and so is every op attribute it added: a FLT_MAX scale left standing would fail the check."""
         with Usd.EditContext(prim.GetStage(), Usd.EditTarget(layer)):
             if self.order is not None:
                 UsdGeom.Xformable(prim).GetXformOpOrderAttr().Set(self.order)
+            else:
+                UsdGeom.Xformable(prim).GetXformOpOrderAttr().Clear()
             for name, value in self.values:
                 if value is not None:
                     prim.GetAttribute(name).Set(value)
+        spec = prim_spec(layer, prim.GetPath())
+        if spec is None:
+            return
+        for added in [p for p in spec.properties if p.name.startswith("xformOp:") and p.name not in self.names]:
+            spec.RemoveProperty(added)
 
 
 def set_centre_of_interest(camera: Usd.Prim, target: Gf.Vec3d, layer: Sdf.Layer) -> None:

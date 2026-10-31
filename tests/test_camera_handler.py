@@ -396,3 +396,36 @@ def test_set_camera_refuses_a_point_that_isnt_one(handler, kit, body):
     r = asyncio.run(handler.handle_camera_set(body))
     assert r["status"] == "error"
     assert "must be [x, y, z]" in r["error"]
+
+
+@pytest.mark.parametrize(("angle", "up_tips_to"), [("top", -1), ("bottom", 1)])
+def test_inspect_prim_top_and_bottom_come_over_from_the_front_not_rolled(handler, kit, angle, up_tips_to):
+    # The bottom view's up was minus front like the top's, a roll of 180 degrees (round 1's C2). Y-up: front is +Z.
+    camera = _kit_camera(kit)
+
+    r = _inspect(handler, angles=[angle], width=64, height=48)
+
+    assert r["status"] == "success", r
+    (cap,) = r["result"]["captures"]
+    assert "image_base64" in cap, cap
+    matrix = UsdGeom.Xformable(camera).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+    assert Gf.IsClose(matrix.TransformDir(Gf.Vec3d(0, 1, 0)).GetNormalized(), Gf.Vec3d(0, 0, up_tips_to), 1e-6)
+
+
+def test_a_bare_scene_camera_isaac_sims_call_broke_is_put_back_without_ops_and_aimed(handler, kit, monkeypatch):
+    # Round 1's C1: a camera with no authored order had nothing to restore, so Isaac's FLT_MAX scale stayed.
+    camera = kit.stage.GetPrimAtPath(CAMERA)
+
+    def at_the_origin(cam: Usd.Prim, _eye: Gf.Vec3d, _target: Gf.Vec3d) -> None:
+        xformable = UsdGeom.Xformable(cam)
+        xformable.AddTranslateOp().Set(Gf.Vec3d(0, 0, 0))
+        xformable.AddScaleOp().Set(Gf.Vec3f(3.4e38, 3.4e38, 3.4e38))
+
+    calls = _isaac(monkeypatch, kit, at_the_origin)
+
+    r = _set_camera(handler, [2, 8, -1], [2, 0.5, -1])
+
+    assert r["status"] == "success", r
+    assert len(calls) == 1
+    assert aim_error(camera, Gf.Vec3d(2, 8, -1), Gf.Vec3d(2, 0.5, -1), UNIT) is None
+    assert _ops(camera) == ["xformOp:translate", "xformOp:orient"]

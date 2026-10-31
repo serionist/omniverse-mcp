@@ -355,6 +355,20 @@ def test_samples_only_in_a_weaker_layer_would_be_frozen(stage):
     assert not stage.GetRootLayer().GetAttributeAtPath("/Bot.xformOp:translate")
 
 
+def test_samples_in_a_weaker_layer_under_a_default_already_held_are_let_through(stage):
+    # Round 1's T3: the root layer's default already froze the animation, so a new value freezes nothing more.
+    asset = Sdf.Layer.CreateAnonymous("asset.usda")
+    held = Usd.Stage.Open(asset)
+    UsdGeom.Xform.Define(held, "/Bot").AddTranslateOp().Set(Gf.Vec3d(1, 0, 0), 1.0)
+    prim = stage.DefinePrim("/Bot")
+    prim.GetReferences().AddReference(asset.identifier, "/Bot")
+    prim.GetAttribute("xformOp:translate").Set(Gf.Vec3d(3, 0, 0))
+
+    set_local_transform(prim, position=[5, 5, 5])
+
+    assert prim.GetAttribute("xformOp:translate").Get() == Gf.Vec3d(5, 5, 5)
+
+
 def test_a_prim_inside_an_instance_is_refused_naming_the_instance(stage):
     asset = Sdf.Layer.CreateAnonymous("asset.usda")
     held = Usd.Stage.Open(asset)
@@ -531,3 +545,43 @@ def test_parts_given_as_parts_are_written_as_they_are(stage):
     prim = UsdGeom.Xform.Define(stage, "/P").GetPrim()
     xform.write_transform(prim, Parts(position=Gf.Vec3d(1, 2, 3)))
     assert _value(prim, "xformOp:translate") == Gf.Vec3d(1, 2, 3)
+
+
+def _camera_up(matrix: Gf.Matrix4d) -> Gf.Vec3d:
+    return matrix.TransformDir(Gf.Vec3d(0, 1, 0))
+
+
+@pytest.mark.parametrize(
+    ("up_axis", "above", "front"),
+    [
+        ("Y", Gf.Vec3d(0, 1, 0), Gf.Vec3d(0, 0, 1)),
+        ("Z", Gf.Vec3d(0, 0, 1), Gf.Vec3d(0, 1, 0)),
+    ],
+)
+def test_look_at_straight_down_and_up_tips_the_cameras_up_as_it_comes_over_from_the_front(up_axis, above, front):
+    # Round 1's C2: the bottom view had its up minus front, rolled 180 degrees from the front view's.
+    top = xform.look_at(above * 5, Gf.Vec3d(0, 0, 0), up_axis)
+    bottom = xform.look_at(-above * 5, Gf.Vec3d(0, 0, 0), up_axis)
+
+    assert Gf.IsClose(_camera_up(top), -front, 1e-9)
+    assert Gf.IsClose(_camera_up(bottom), front, 1e-9)
+    assert _orthonormal(top)
+    assert _orthonormal(bottom)
+
+
+def test_a_snapshot_of_a_bare_camera_clears_what_the_call_authored(stage):
+    # Round 1's C1: no order before, so restore wrote none and the FLT_MAX scale stayed.
+    camera = UsdGeom.Camera.Define(stage, "/Cam").GetPrim()
+    layer = stage.GetSessionLayer()
+    snapshot = xform.Snapshot.take(camera)
+    with Usd.EditContext(stage, layer):
+        xformable = UsdGeom.Xformable(camera)
+        xformable.AddTranslateOp().Set(Gf.Vec3d(0, 0, 0))
+        xformable.AddScaleOp().Set(Gf.Vec3f(3.4e38, 3.4e38, 3.4e38))
+
+    snapshot.restore(camera, layer)
+
+    assert not camera.GetAttribute("xformOp:scale")
+    assert not camera.GetAttribute("xformOp:translate")
+    assert UsdGeom.Xformable(camera).GetXformOpOrderAttr().Get() is None
+    assert xform.aim_error(camera, Gf.Vec3d(0, 0, 0), Gf.Vec3d(0, 0, -1), (1.0, 1.0, 1.0)) is None
