@@ -107,7 +107,7 @@ def _matrix_placed(stage: Usd.Stage, path: str) -> tuple[Usd.Prim, Gf.Matrix4d]:
     return xf.GetPrim(), placed
 
 
-# ---- set_prim_transform (R7) ----
+# ---- set_prim_transform ----
 
 
 def test_set_prim_transform_keeps_a_pivot_and_puts_the_position_in_the_translate_op(scene, kit):
@@ -313,7 +313,7 @@ def test_clone_prim_refuses_a_malformed_offset(scene, kit):
     assert "offset must be" in r["error"]
 
 
-# ---- delete_prim (R1) ----
+# ---- delete_prim ----
 
 
 @pytest.fixture
@@ -361,7 +361,7 @@ def test_delete_prim_deletes_a_prim_that_references_a_file_and_says_it_checked(s
     assert not kit.stage.GetPrimAtPath("/World/Ref").IsValid()
 
 
-# ---- dump_scene (R5) and get_scene_tree's text (R11) ----
+# ---- dump_scene and get_scene_tree's text ----
 
 
 def _tree(stage: Usd.Stage) -> None:
@@ -395,7 +395,7 @@ def test_the_scene_trees_text_stops_at_max_depth_with_each_prims_count_of_childr
     assert r["result"]["prim_count"] == 3
 
 
-# ---- set_material (R4) ----
+# ---- set_material ----
 
 
 def test_set_material_with_an_opacity_of_1_makes_a_see_through_material_opaque(scene, kit):

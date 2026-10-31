@@ -302,7 +302,13 @@ async def handle_create_prim(body: dict) -> dict:
             elif added is not None:
                 # A prim that was there keeps nothing of this call, or each retry would stack another reference.
                 prim.GetReferences().RemoveReference(added)
-            after = ". Nothing was created" if made is not None else ". The reference was not added" if added else ""
+            after = (
+                ". Nothing was created"
+                if made is not None
+                else ". The reference was not added"
+                if added is not None
+                else ""
+            )
             return {"status": "error", "error": f"{e}{after}"}
 
     if body.get("enable_physics", False):
