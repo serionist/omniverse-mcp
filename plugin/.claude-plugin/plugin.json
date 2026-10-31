@@ -1,6 +1,6 @@
 {
   "name": "omniverse-mcp",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "Drive NVIDIA Omniverse Kit apps (Isaac Sim, USD Composer) from Claude Code: look at the stage, edit it, run physics, drive robots and record what happens.",
   "author": {
     "name": "Soma Osvay",

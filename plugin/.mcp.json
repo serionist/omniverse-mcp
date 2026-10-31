@@ -3,7 +3,7 @@
     "omniverse": {
       "command": "uvx",
       "args": [
-        "omniverse-mcp==0.2.3"
+        "omniverse-mcp==0.3.0"
       ],
       "env": {
         "PYTHONPATH": ""
