@@ -238,7 +238,8 @@ async def handle_get_joint_states(body: dict) -> dict:
     except ImportError as e:
         return {
             "status": "error",
-            "error": f"get_joint_states needs Isaac Sim's isaacsim.core.experimental.prims extension: {e}",
+            # get_robot_info gives this as its joint states' line, so it names the joint states, not a tool.
+            "error": f"Joint states need Isaac Sim's isaacsim.core.experimental.prims extension: {e}",
         }
 
     # The call under way, so an error names the one Isaac Sim's experimental API changed.

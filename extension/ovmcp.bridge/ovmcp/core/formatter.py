@@ -11,7 +11,7 @@ Format spec:
 - Values are plain text: numbers, comma-separated vectors, strings
 - Grep-friendly: grep '/World/G1' finds block headers, grep 'joint_angle' finds properties
 
-Used uniformly by dump_scene, recording state, and any large data output.
+Used uniformly by get_scene_tree's dump, recording state, and any large data output.
 """
 
 from collections.abc import Iterable, Sequence
