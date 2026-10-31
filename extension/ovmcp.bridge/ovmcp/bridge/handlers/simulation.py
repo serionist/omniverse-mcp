@@ -377,7 +377,8 @@ def _push_with_tensors(args, stage, prim, stopped: bool) -> dict:
         force_rows[row] = force
         point_rows = np.zeros((count, 3), np.float32)
         point_rows[row] = point
-        # The push's arrays on the view's own device, the indices as uint32 (what E14 measured).
+        # The warp frontend takes float32 data and 32-bit indices only, and the backend reads each array on the device
+        # it was made on, so all three are made on the view's own device: the GPU under the Direct GPU API.
         device = view.device
         forces = wp.array(force_rows, dtype=wp.float32, device=device)
         points = wp.array(point_rows, dtype=wp.float32, device=device)
@@ -390,8 +391,8 @@ def _push_with_tensors(args, stage, prim, stopped: bool) -> dict:
         return {"status": "error", "error": f"PhysX's tensor API could not push {args.prim_path}: {e}"}
     finally:
         if view is not None:
-            # The view is ours alone, and Isaac Sim's own stays valid (what E5 measured). A failing invalidate must not
-            # replace the answer.
+            # The view is ours alone: invalidating it leaves Isaac Sim's own view valid, as measured on Isaac Sim 6.2. A
+            # failing invalidate must not replace the answer.
             try:
                 view.invalidate()
             except Exception as e:
