@@ -981,7 +981,7 @@ def test_set_material_says_its_opacity_when_it_is_1(bridge: MockIsaacServer, tmp
 
 @pytest.mark.parametrize("scale", [1e-200, 1e200, 1.0])
 def test_a_tiny_or_huge_direction_is_still_scaled_to_length_1(scale: float):
-    # Round 1's O1: squaring underflowed [1e-200, 0, 0] to a length of 0 and overflowed [1e200, 0, 0] to inf.
+    # Squaring underflowed [1e-200, 0, 0] to a length of 0 and overflowed [1e200, 0, 0] to inf.
     assert _unit([3 * scale, 0, -4 * scale]) == pytest.approx([0.6, 0, -0.8])
 
 

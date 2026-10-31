@@ -111,7 +111,7 @@ def test_a_prim_inside_an_instance_names_the_instance(stage):
 
 
 def test_a_prim_the_root_layer_defines_under_a_referenced_one_goes(stage):
-    # A camera added to a robot's hand: the reference brings the hand, not the camera (round 1's P10).
+    # A camera added to a robot's hand: the reference brings the hand, not the camera.
     stage.DefinePrim("/World/Franka").GetReferences().AddReference(ASSET.identifier, "/Bot")
     UsdGeom.Camera.Define(stage, "/World/Franka/Hand/Cam")
 
@@ -148,7 +148,7 @@ NESTED = {kind: _asset_with_own_arc(kind) for kind in ("reference", "payload", "
 
 @pytest.mark.parametrize("kind", NESTED)
 def test_a_prim_whose_file_has_arcs_of_its_own_goes_with_its_reference(stage, kind):
-    # The file's reference, payload or inherit goes with the reference the root layer holds (round 1's M1).
+    # The file's reference, payload or inherit goes with the reference the root layer holds.
     stage.DefinePrim("/World/Robot").GetReferences().AddReference(NESTED[kind].identifier, "/Robot")
 
     assert _kept(stage, "/World/Robot") is None

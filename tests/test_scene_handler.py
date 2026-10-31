@@ -171,7 +171,7 @@ def test_set_prim_transform_refuses_an_animated_op(scene, kit):
     assert "animated" in r["error"]
 
 
-# ---- create_prim (R7, round 1's P5) ----
+# ---- create_prim ----
 
 
 def test_create_prim_with_a_malformed_rotation_makes_no_prim(scene, kit):
@@ -206,7 +206,7 @@ def test_create_prim_that_refuses_once_made_takes_away_what_it_made(scene, kit):
 
 
 def test_create_prim_over_a_prim_that_was_there_keeps_no_reference_it_refused(scene, kit):
-    # Round 1's T1: only a prim the call made was taken away, so each retry stacked another reference.
+    # Only a prim the call made was taken away, so each retry stacked another reference.
     asset = Sdf.Layer.CreateAnonymous("asset.usda")
     held = Usd.Stage.Open(asset)
     UsdGeom.Xform.Define(held, "/Bot").AddTranslateOp().Set(Gf.Vec3d(1, 0, 0), 1.0)
@@ -242,7 +242,7 @@ def test_create_prim_without_a_transform_leaves_a_prim_without_one(scene, kit):
     assert r["status"] == "success", r
 
 
-# ---- clone_prim (R8) ----
+# ---- clone_prim ----
 
 
 def test_clone_prim_offsets_a_matrix_placed_sources_copies_and_keeps_their_matrix(scene, kit):
@@ -283,7 +283,7 @@ def test_a_single_clone_with_an_offset_is_left_as_copied(scene, kit):
 
 
 def test_clone_prim_moves_its_copies_in_the_root_layer_with_a_sublayer_as_the_edit_target(scene, kit):
-    # The copies are in the root layer; moving them in the sublayer would be refused as hidden (round 1's P6).
+    # The copies are in the root layer; moving them in the sublayer would be refused as hidden.
     UsdGeom.Xform.Define(kit.stage, "/World/A").AddTranslateOp().Set(Gf.Vec3d(1, 0, 0))
     sub = Sdf.Layer.CreateAnonymous("sub.usda")
     kit.stage.GetRootLayer().subLayerPaths.append(sub.identifier)
@@ -399,7 +399,7 @@ def test_the_scene_trees_text_stops_at_max_depth_with_each_prims_count_of_childr
 
 
 def test_set_material_with_an_opacity_of_1_makes_a_see_through_material_opaque(scene, kit):
-    # 0.2.3 wrote the opacity only below 1 (#82's E8).
+    # 0.2.3 wrote the opacity only below 1, so an opaque material stayed see-through.
     UsdGeom.Cube.Define(kit.stage, "/World/Cube")
     shader_path = "/World/Looks/Cube_Mat/Shader"
 
@@ -415,7 +415,7 @@ def test_set_material_with_an_opacity_of_1_makes_a_see_through_material_opaque(s
 
 
 def test_clone_prim_whose_later_copy_refuses_leaves_none_of_its_copies(scene, kit, monkeypatch):
-    # Round 1's T2. No stage on usd-core makes a copy refuse what its source took: CopySpec carries the root layer's
+    # No stage on usd-core makes a copy refuse what its source took: CopySpec carries the root layer's
     # opinions and any other layer's at the copy's path would make that path taken. So the refusal is faked, on the
     # third copy, after two are there.
     UsdGeom.Xform.Define(kit.stage, "/World/A").AddTranslateOp().Set(Gf.Vec3d(1, 0, 0))

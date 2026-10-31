@@ -52,9 +52,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Use it to find prim paths before acting on them: it is the lightest look at a scene. A prim at max_depth that
         has children says how many, as children = N (truncated), and nothing below it is listed. The prims inside an
-        instanceable prim are not listed
-        (get_prim_face_count_tree looks inside). For properties, use get_prim_properties on one prim, or dump_scene for
-        many at once, written to a file to grep.
+        instanceable prim are not listed (get_prim_face_count_tree looks inside). For properties, use
+        get_prim_properties on one prim, or dump_scene for many at once, written to a file to grep.
         """
         resp = bridge_call(client.scene_tree, root, max_depth, fmt="text")
         r = resp["result"]
@@ -165,10 +164,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         prim_type is a USD type name: Cube, Sphere, Cylinder, Cone, Capsule, Xform, Camera, DistantLight, DomeLight,
         SphereLight and the rest. Missing parents are made as typeless prims. A prim already at prim_path keeps its
         type: one of another type is refused, one of the same type takes the new transform, written as
-        set_prim_transform writes it. A transform it can't write makes nothing. usd_path adds its reference
-        to a prim already there. enable_physics puts the RigidBody and Collision APIs on the prim itself, so a shape
-        falls and collides while the simulation plays; the meshes under an Xform or a referenced file's root get no
-        Collision API of their own. To copy a prim, use clone_prim; for a robot, create_robot.
+        set_prim_transform writes it. A transform it can't write makes nothing. usd_path adds its reference to a prim
+        already there. enable_physics puts the RigidBody and Collision APIs on the prim itself, so a shape falls and
+        collides while the simulation plays; the meshes under an Xform or a referenced file's root get no Collision
+        API of their own. To copy a prim, use clone_prim; for a robot, create_robot.
         """
         kwargs = {}
         if usd_path:
@@ -192,9 +191,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         A prim another layer defines too, or one a reference or payload on a prim above brings, such as a part of a
         referenced asset, can't be deleted this way: the call is refused, saying why, and nothing changes;
-        set_visibility hides such a prim, or its instance for a prim inside one. To hide a prim and keep it, use
-        set_visibility. Kit's undo doesn't record the delete, and the file on disk keeps the prim until save_scene. An
-        error when no prim is there.
+        set_visibility hides such a prim, or its instance for a prim inside one. Kit's undo doesn't record the delete,
+        and the file on disk keeps the prim until save_scene. An error when no prim is there.
         """
         resp = bridge_call(client.delete_prim, prim_path)
         if resp["result"].get("checked"):

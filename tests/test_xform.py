@@ -87,7 +87,7 @@ def test_kits_translate_orient_scale_take_each_part_and_keep_their_kind(stage):
 
 
 def test_euler_angles_into_a_rotate_xyz_op_are_kept_as_given(stage):
-    # A round trip through Gf.Rotation would store [0, 120, 0] as about [180, 60, 180] (#82's round 1, P3).
+    # A round trip through Gf.Rotation would store [0, 120, 0] as about [180, 60, 180].
     xf = UsdGeom.Xform.Define(stage, "/P")
     xf.AddRotateXYZOp()
     prim = xf.GetPrim()
@@ -125,7 +125,7 @@ def test_a_rotation_goes_into_any_euler_op_in_its_order(stage, order, given):
 
 @pytest.mark.parametrize("given", [[10, 20, 30], [0.9, 0.1, 0.3, 0.2]], ids=["euler", "quaternion"])
 def test_kits_three_single_axis_ops_take_the_rotation_split_into_their_axes(stage, given):
-    # Kit's TransformPrimCommand writes [rotateZ, rotateY, rotateX] (#82's Q15).
+    # Kit's TransformPrimCommand writes [rotateZ, rotateY, rotateX].
     xf = UsdGeom.Xform.Define(stage, "/P")
     for axis in "ZYX":
         xf.AddXformOp(getattr(UsdGeom.XformOp, f"TypeRotate{axis}"))
@@ -166,7 +166,7 @@ def test_other_rotate_ops_together_are_replaced_by_one_in_the_first_ones_place(s
 
 
 def test_a_pivot_stays_around_the_rotation_and_the_position_goes_in_the_translate_op(stage):
-    # 0.2.3 read the inverse pivot, a translate op too, as the position, and dropped the pivot (#82's U6).
+    # 0.2.3 read the inverse pivot, a translate op too, as the position, and dropped the pivot.
     xf = UsdGeom.Xform.Define(stage, "/P")
     prim = xf.GetPrim()
     common = UsdGeom.XformCommonAPI(xf)
@@ -204,7 +204,7 @@ def test_a_value_is_written_in_its_ops_precision(stage, precision, kind):
 
 
 def test_an_op_added_over_an_attribute_out_of_the_order_takes_its_precision(stage):
-    # AddXformOp raises for an attribute of its name in another precision (#82's U5).
+    # AddXformOp raises for an attribute of its name in another precision.
     xf = UsdGeom.Xform.Define(stage, "/P")
     xf.AddOrientOp(UsdGeom.XformOp.PrecisionFloat).Set(Gf.Quatf(1, 0, 0, 0))
     xf.ClearXformOpOrder()
@@ -256,7 +256,7 @@ def test_a_matrix_among_other_ops_takes_the_part_with_no_op_of_its_own(stage):
 
 
 def test_a_singular_matrix_takes_a_position_but_no_rotation_or_scale(stage):
-    # Factor fails on it and clamps, so the rotation would be lost while the answer said success (#82's P9).
+    # Factor fails on it and clamps, so the rotation would be lost while the answer said success.
     xf = UsdGeom.Xform.Define(stage, "/P")
     xf.AddTransformOp().Set(Gf.Matrix4d(1))
     prim = xf.GetPrim()
@@ -318,7 +318,7 @@ def test_a_malformed_part_is_refused_before_any_prim_is_touched(parts, says):
 
 
 def test_a_write_the_session_layer_outranks_is_refused(stage):
-    # Kit's own camera lives in the session layer; 0.2.3's writes into the root layer moved nothing (#82's E3, E4).
+    # Kit's own camera lives in the session layer; 0.2.3's writes into the root layer moved nothing.
     with Usd.EditContext(stage, stage.GetSessionLayer()):
         cam = UsdGeom.Camera.Define(stage, "/Cam")
         cam.AddTranslateOp().Set(Gf.Vec3d(0, 0, 5))
@@ -356,7 +356,7 @@ def test_samples_only_in_a_weaker_layer_would_be_frozen(stage):
 
 
 def test_samples_in_a_weaker_layer_under_a_default_already_held_are_let_through(stage):
-    # Round 1's T3: the root layer's default already froze the animation, so a new value freezes nothing more.
+    # The root layer's default already froze the animation, so a new value freezes nothing more.
     asset = Sdf.Layer.CreateAnonymous("asset.usda")
     held = Usd.Stage.Open(asset)
     UsdGeom.Xform.Define(held, "/Bot").AddTranslateOp().Set(Gf.Vec3d(1, 0, 0), 1.0)
@@ -525,7 +525,7 @@ def test_a_snapshot_puts_back_what_a_call_broke(stage):
     camera = _kit_camera(stage)
     snapshot = xform.Snapshot.take(camera)
     with Usd.EditContext(stage, stage.GetSessionLayer()):
-        # What Isaac Sim's call left straight down a Y-up stage (#82's E5).
+        # What Isaac Sim's call left straight down a Y-up stage
         camera.GetAttribute("xformOp:translate").Set(Gf.Vec3d(0, 0, 0))
         camera.GetAttribute("xformOp:scale").Set(Gf.Vec3f(3.4e38, 3.4e38, 3.4e38))
 
@@ -559,7 +559,7 @@ def _camera_up(matrix: Gf.Matrix4d) -> Gf.Vec3d:
     ],
 )
 def test_look_at_straight_down_and_up_tips_the_cameras_up_as_it_comes_over_from_the_front(up_axis, above, front):
-    # Round 1's C2: the bottom view had its up minus front, rolled 180 degrees from the front view's.
+    # The bottom view had its up minus front, rolled 180 degrees from the front view's.
     top = xform.look_at(above * 5, Gf.Vec3d(0, 0, 0), up_axis)
     bottom = xform.look_at(-above * 5, Gf.Vec3d(0, 0, 0), up_axis)
 
@@ -570,7 +570,7 @@ def test_look_at_straight_down_and_up_tips_the_cameras_up_as_it_comes_over_from_
 
 
 def test_a_snapshot_of_a_bare_camera_clears_what_the_call_authored(stage):
-    # Round 1's C1: no order before, so restore wrote none and the FLT_MAX scale stayed.
+    # No order before, so restore wrote none and the FLT_MAX scale stayed.
     camera = UsdGeom.Camera.Define(stage, "/Cam").GetPrim()
     layer = stage.GetSessionLayer()
     snapshot = xform.Snapshot.take(camera)

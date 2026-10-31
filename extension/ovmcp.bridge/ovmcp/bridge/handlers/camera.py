@@ -90,10 +90,10 @@ def _aim_camera(camera_path: str, eye: Gf.Vec3d, target: Gf.Vec3d) -> str | None
     """Puts the camera at eye looking at target; why it couldn't, or None (#82).
 
     Isaac Sim's set_camera_view where it loads, as before; then a check, since it leaves a camera unaimed with no error
-    (straight down a Y-up stage's up axis it puts it at the origin with a scale of about 3.4e38, #82's E5; with no
+    (straight down a Y-up stage's up axis it puts it at the origin with a scale of about 3.4e38; with no
     viewport it moves nothing). When the camera is off, or without Isaac Sim, the camera's ops go back as they were and
     the USD look-at (core/xform.py) aims it, in the layer that holds its ops: the session layer for Kit's own cameras,
-    where a write in the root layer would move nothing and stay in the user's file (#82's E3, E4).
+    where a write in the root layer would move nothing and stay in the user's file.
     """
     stage = _get_stage()
     camera = stage.GetPrimAtPath(camera_path)

@@ -54,7 +54,7 @@ def _inputs(shader: UsdShade.Shader) -> dict[str, object]:
 
 
 def test_an_opacity_of_1_makes_a_see_through_material_opaque_again():
-    # Only an opacity below 1 was written, so a material made see-through stayed so (#82's E8).
+    # Only an opacity below 1 was written, so a material made see-through stayed so, as the live run showed.
     stage = Usd.Stage.CreateInMemory()
     _, shader = ensure_material(stage, "/World/Looks/Cube_Mat")
 

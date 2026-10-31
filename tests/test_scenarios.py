@@ -1342,7 +1342,7 @@ class TestScenarios(unittest.TestCase):
         self.assertEqual(r["status"], "success")
         self.assertAlmostEqual(r["result"]["opacity"], 0.5)
         print("  Opacity=0.5")
-        # Restore full opacity: 0.2.3 wrote only an opacity below 1, so the cube stayed see-through (#82's E8).
+        # Restore full opacity: 0.2.3 wrote only an opacity below 1, so the cube stayed see-through.
         restored = self.c.set_material("/World/RedCube", color=[1, 0, 0], opacity=1.0)
         self.assertEqual(restored["status"], "success", restored)
         shader = self._run_in_kit(

@@ -25,8 +25,8 @@ def _rounded(values: list[float]) -> list[float]:
 
 
 def _unit(direction: list[float]) -> list[float]:
-    """direction scaled to length 1, as raycast_closest's unit_dir asks. Isaac Sim 6.2's PhysX scales it itself (#82's
-    E6); other builds are untried, and a zero one has no direction to cast along."""
+    """direction scaled to length 1, as raycast_closest's unit_dir asks. Isaac Sim 6.2's PhysX scales it itself;
+    other builds are untried, and a zero one has no direction to cast along."""
     if len(direction) != 3:
         raise ToolError(f"direction must be [dx, dy, dz], got {direction}")
     if not all(math.isfinite(d) for d in direction):

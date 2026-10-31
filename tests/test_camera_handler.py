@@ -219,8 +219,8 @@ UNIT = (1.0, 1.0, 1.0)
 
 
 def _kit_camera(kit: FakeKit) -> Usd.Prim:
-    """Kit's own viewport camera as #82's E1 found it: defined in the session layer, which holds its ops and its centre
-    of interest; the viewport looks through it."""
+    """Kit's own viewport camera as the live run showed it: defined in the session layer, which holds its ops and its
+    centre of interest; the viewport looks through it."""
     stage = kit.stage
     with Usd.EditContext(stage, stage.GetSessionLayer()):
         cam = UsdGeom.Camera.Define(stage, KIT_CAMERA)
@@ -269,7 +269,7 @@ def _set_camera(handler: Any, position: list[float], target: list[float] | None 
 
 
 def test_set_camera_aims_kits_camera_without_isaac_sim_in_the_session_layer(handler, kit):
-    # 0.2.3 wrote the root layer, under the session layer's ops: a USD error, and nothing moved (#82's E3).
+    # 0.2.3 wrote the root layer, under the session layer's ops: a USD error, and nothing moved.
     camera = _kit_camera(kit)
 
     r = _set_camera(handler, EYE_AT, TARGET_AT)
@@ -288,7 +288,7 @@ def test_set_camera_aims_at_the_world_origin_without_a_target(handler, kit):
 
 
 def test_look_at_prim_aims_kits_camera_and_keeps_its_ops(handler, kit):
-    # 0.2.3 cleared the camera's ops and wrote a translate: the rotation wiped, or E3's error on Kit's own camera.
+    # 0.2.3 cleared the camera's ops and wrote a translate: the rotation wiped, or a USD error on Kit's own camera.
     camera = _kit_camera(kit)
 
     r = asyncio.run(handler.handle_camera_look_at({"prim_path": BOX, "azimuth": 45, "elevation": 30}))
@@ -300,7 +300,7 @@ def test_look_at_prim_aims_kits_camera_and_keeps_its_ops(handler, kit):
 
 
 def test_inspect_prim_aims_kits_camera_at_its_angle(handler, kit):
-    # 0.2.3's fallback wrote the root layer, so every angle was taken from where the camera stood (#82's E4).
+    # 0.2.3's fallback wrote the root layer, so every angle was taken from where the camera stood.
     camera = _kit_camera(kit)
 
     r = _inspect(handler, width=64, height=48)
@@ -326,8 +326,7 @@ def test_set_camera_aims_a_scene_camera_under_a_moved_parent(handler, kit):
 
 
 def test_what_isaac_sims_call_leaves_straight_down_is_put_back_and_aimed(handler, kit, monkeypatch):
-    # Straight down a Y-up stage's up axis Kit's look-at is singular: the camera at the origin, scaled by FLT_MAX
-    # (#82's E5, round 1's P1).
+    # Straight down a Y-up stage's up axis Kit's look-at is singular: the camera at the origin, scaled by FLT_MAX.
     camera = _kit_camera(kit)
 
     def at_the_origin(cam: Usd.Prim, _eye: Gf.Vec3d, _target: Gf.Vec3d) -> None:
@@ -344,7 +343,7 @@ def test_what_isaac_sims_call_leaves_straight_down_is_put_back_and_aimed(handler
 
 
 def test_an_aim_isaac_sims_call_leaves_scaled_is_caught_by_its_scale(handler, kit, monkeypatch):
-    # inspect_prim's top and bottom may leave the direction right and a near-singular scale (round 1's P1).
+    # inspect_prim's top and bottom may leave the direction right and a near-singular scale.
     camera = _kit_camera(kit)
 
     def aimed_but_scaled(cam: Usd.Prim, eye: Gf.Vec3d, target: Gf.Vec3d) -> None:
@@ -360,7 +359,7 @@ def test_an_aim_isaac_sims_call_leaves_scaled_is_caught_by_its_scale(handler, ki
 
 
 def test_the_centre_of_interest_is_set_after_isaac_sims_call_too(handler, kit, monkeypatch):
-    # Isaac's own branch for a camera straight down a Z-up stage left it at 42.4 for a distance of 7.5 (#82's E5).
+    # Isaac's own branch for a camera straight down a Z-up stage left it at 42.4 for a distance of 7.5.
     camera = _kit_camera(kit)
 
     def aimed_with_a_stale_centre(cam: Usd.Prim, eye: Gf.Vec3d, target: Gf.Vec3d) -> None:
@@ -378,7 +377,7 @@ def test_the_centre_of_interest_is_set_after_isaac_sims_call_too(handler, kit, m
 
 
 def test_a_position_on_its_target_is_refused_before_anything_is_written(handler, kit, monkeypatch):
-    # Isaac's same-x-and-y branch would turn the camera first (round 1's P7).
+    # Isaac's same-x-and-y branch would turn the camera first.
     camera = _kit_camera(kit)
     calls = _isaac(monkeypatch, kit, lambda *_args: None)
 
@@ -400,7 +399,7 @@ def test_set_camera_refuses_a_point_that_isnt_one(handler, kit, body):
 
 @pytest.mark.parametrize(("angle", "up_tips_to"), [("top", -1), ("bottom", 1)])
 def test_inspect_prim_top_and_bottom_come_over_from_the_front_not_rolled(handler, kit, angle, up_tips_to):
-    # The bottom view's up was minus front like the top's, a roll of 180 degrees (round 1's C2). Y-up: front is +Z.
+    # The bottom view's up was minus front like the top's, a roll of 180 degrees. Y-up: front is +Z.
     camera = _kit_camera(kit)
 
     r = _inspect(handler, angles=[angle], width=64, height=48)
@@ -413,7 +412,7 @@ def test_inspect_prim_top_and_bottom_come_over_from_the_front_not_rolled(handler
 
 
 def test_a_bare_scene_camera_isaac_sims_call_broke_is_put_back_without_ops_and_aimed(handler, kit, monkeypatch):
-    # Round 1's C1: a camera with no authored order had nothing to restore, so Isaac's FLT_MAX scale stayed.
+    # A camera with no authored order had nothing to restore, so Isaac's FLT_MAX scale stayed.
     camera = kit.stage.GetPrimAtPath(CAMERA)
 
     def at_the_origin(cam: Usd.Prim, _eye: Gf.Vec3d, _target: Gf.Vec3d) -> None:

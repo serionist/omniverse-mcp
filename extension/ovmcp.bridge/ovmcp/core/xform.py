@@ -38,7 +38,7 @@ _SINGLE = {
 }
 
 # How far an aimed camera's -Z axis may point from its target, and the kinds of op this module adds, as the bridge has
-# always added them, though Kit's own prims get double precision and orient (#82's E1).
+# always added them, though Kit's own prims get double precision and orient.
 AIM_DEGREES = 0.5
 _NEW_PRECISION = {
     UsdGeom.XformOp.TypeTranslate: UsdGeom.XformOp.PrecisionDouble,
@@ -221,7 +221,7 @@ def _quaternion(quat: Gf.Quatd, precision: UsdGeom.XformOp.Precision) -> Gf.Quat
 def _euler_angles(rotation: Gf.Rotation, axes: str) -> Gf.Vec3d:
     """The angles, by axis as (x, y, z), of an Euler op whose axes are `axes`, first turning first."""
     first, second, third = axes
-    # Gf.Rotation.Decompose names the axes the other way round (#82's U4).
+    # Gf.Rotation.Decompose names the axes the other way round, as a probe on usd-core showed.
     angles = floats(rotation.Decompose(_AXES[third], _AXES[second], _AXES[first]))
     by_axis = {third: angles[0], second: angles[1], first: angles[2]}
     return Gf.Vec3d(by_axis["X"], by_axis["Y"], by_axis["Z"])
@@ -237,7 +237,8 @@ class _Plan:
 
 
 def _new_op(prim: Usd.Prim, op_type: Tf.Type) -> _New:
-    """An op to add, in the precision of an attribute of its name that is already there out of the order (#82's U5)."""
+    """An op to add, in the precision of an attribute of its name that is already there out of the order, since
+    AddXformOp raises for another precision."""
     name = f"xformOp:{UsdGeom.XformOp.GetOpTypeToken(op_type)}"
     there = prim.GetAttribute(name)
     precision = UsdGeom.XformOp(there).GetPrecision() if there else _NEW_PRECISION[op_type]
@@ -473,7 +474,7 @@ def look_at(eye: Gf.Vec3d, target: Gf.Vec3d, up_axis: str) -> Gf.Matrix4d:
 
 def camera_layer(camera: Usd.Prim) -> Sdf.Layer:
     """Where a camera's transform is written: the layer of the strongest opinion on its xformOpOrder among the stage's
-    own layers, when that outranks the edit target, as Kit's own cameras' session layer does (#82's E1, E4); else the
+    own layers, when that outranks the edit target, as Kit's own cameras' session layer does; else the
     edit target. A write under the session layer's opinions moves nothing."""
     stage = camera.GetStage()
     edit = stage.GetEditTarget().GetLayer()
@@ -535,7 +536,7 @@ def aim_error(
 @dataclass(frozen=True)
 class Snapshot:
     """A prim's xform ops as they compose now: the order and each op's value, to put back after a call that broke
-    them (Isaac Sim's set_camera_view looking straight down a Y-up stage, #82's E5)."""
+    them (Isaac Sim's set_camera_view looking straight down a Y-up stage)."""
 
     order: object
     values: tuple[tuple[str, object], ...]

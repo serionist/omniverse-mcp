@@ -162,7 +162,7 @@ result = PATH
 
 
 # The centre of the red pixels in the viewport's own frame, as fractions of its size off the middle; None when there
-# are none. What the user sees, where a capture renders a feed of its own (#82's E4).
+# are none. What the user sees, where a capture renders a feed of its own.
 _VIEWPORT_RED = """
 import io
 import numpy as np
@@ -178,7 +178,7 @@ height, width = rgb.shape[:2]
 result = None if xs.size == 0 else [float(xs.mean()) / width - 0.5, float(ys.mean()) / height - 0.5]
 """
 
-# isaacsim.core.utils.viewports made unimportable, as in a Kit app without Isaac Sim (#82's E3), until the cleanup's
+# isaacsim.core.utils.viewports made unimportable, as in a Kit app without Isaac Sim, until the cleanup's
 # _ISAAC_BACK, or Kit's loop after 60 s, and only while it is still this run's own.
 _NO_ISAAC = """
 import asyncio
@@ -526,7 +526,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
 
     def _straight_down_a_y_up_stage(self):
         """Straight down a Y-up stage's up axis, where Isaac Sim's call alone left the camera at the origin with a
-        scale of about 3.4e38 (#82's E5): the check after it puts the camera's ops back and aims it through USD."""
+        scale of about 3.4e38: the check after it puts the camera's ops back and aims it through USD."""
         up = self.client.sim_state()["result"]["up_axis"]
         if up != "Y":
             set_axis = (
@@ -687,8 +687,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
     def test_12f_the_camera_aims_without_isaac_sim(self):
         """set_camera, look_at_prim and inspect_prim aim the viewport's camera through USD, in the session layer that
         holds Kit's camera: once with Isaac Sim's call recorded but left undone, so the check after it must find the
-        camera unaimed, and once without Isaac Sim at all. 0.2.3's fallback answered a USD error or moved nothing
-        (#82's E3, E4)."""
+        camera unaimed, and once without Isaac Sim at all. 0.2.3's fallback answered a USD error or moved nothing."""
         up = self.client.sim_state()["result"]["up_axis"]
 
         def at(a: float, h: float, b: float) -> list[float]:
@@ -735,7 +734,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
 
     def _aims(self, eye: list[float], target: list[float], prim: str) -> None:
         """set_camera from eye: the camera looks at target, Kit's camera keeps its ops in the session layer, and the
-        prim is in the middle of a capture and of the viewport's own frame (#82's E4)."""
+        prim is in the middle of a capture and of the viewport's own frame."""
         result = self.client.camera_set(eye, target)
         self.assertEqual(result["status"], "success", result)
         aim = self._camera_aim(target)

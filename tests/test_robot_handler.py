@@ -56,7 +56,7 @@ def test_a_robot_from_a_file_is_placed_through_its_own_ops(robot, kit, tmp_path)
 
 
 def test_a_malformed_rotation_makes_no_robot(robot, kit, tmp_path):
-    # 0.2.3 made the robot, then failed, and the retry was refused as taken (#82's round 1, P5).
+    # 0.2.3 made the robot, then failed, and the retry was refused as taken.
     r = _create(robot, robot_type=_bot_file(tmp_path), prim_path="/World/Bot", rotation=[0, 90])
 
     assert r["status"] == "error"

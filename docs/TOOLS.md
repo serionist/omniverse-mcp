@@ -102,8 +102,8 @@ unless `include_properties` is false.
 
 **Returns:** File path to the dump, its size, and how many prim blocks it holds, which the file's header says too; an
 extension of 0.2.3 or older counts every prim on the stage. Use your file reading tool to examine specific parts. Each
-call replaces the last dump. Kit writes the file itself, so with Kit on another machine it lands there. Like `get_scene_tree`, it doesn't list
-the prims inside an instanceable prim.
+call replaces the last dump. Kit writes the file itself, so with Kit on another machine it lands there. Like
+`get_scene_tree`, it doesn't list the prims inside an instanceable prim.
 
 **When to use:** for many prims' values at once, or for depths beyond `get_scene_tree`'s 15. The output is in
 prim-block format - grep for prim paths or property names. `get_prim_properties` reads one prim inline.
@@ -194,9 +194,10 @@ Create a new prim in the scene.
 A prim already at `prim_path` keeps its type: creating one of another type there is refused, and one of the same type
 takes the new transform, written into its own ops as `set_prim_transform` writes it. A transform it can't write makes
 nothing: a malformed one is refused before the prim is made, and one refused once it is there (an animated op in a
-referenced file, say) takes away what the call made. A `usd_path` adds its reference to a prim already there. Missing
-parents are made as typeless prims. `enable_physics` puts both APIs on the prim itself, so a shape falls and collides while the simulation plays;
-the meshes under an Xform or a referenced file's root get no Collision API of their own.
+referenced file, say) takes away what the call made. A `usd_path` adds its reference to a prim already there, and takes
+it away again when the transform is refused. Missing parents are made as typeless prims. `enable_physics` puts both APIs
+on the prim itself, so a shape falls and collides while the simulation plays; the meshes under an Xform or a referenced
+file's root get no Collision API of their own.
 
 **When to use:** Creating geometric shapes, lights, cameras, or loading external USD assets. To copy a prim, use
 `clone_prim`; for a robot, `create_robot`.
@@ -220,8 +221,7 @@ Delete a prim and everything under it, by removing what the stage's edit layer h
   it removed: the answer then adds "This Kit extension, older than the server, answers deleted for a prim another
   layer keeps: check with get_scene_tree".
 
-To hide a prim and keep it, use `set_visibility`. Kit's undo doesn't record the delete, and the file on disk keeps the
-prim until `save_scene`.
+Kit's undo doesn't record the delete, and the file on disk keeps the prim until `save_scene`.
 
 ---
 
@@ -510,9 +510,9 @@ bindings of their own.
 
 `opacity`, `roughness` and `metallic` are set on every call, each to its default when left out, so a call without
 `opacity` makes the material opaque; the answer gives all three. An extension of 0.2.3 or older writes the opacity only
-below 1, so a material it made see-through stays so. Without `material_path`, prims of the same name share one
-material, so colouring one recolours the rest: give `material_path` to keep them apart, or to share one on purpose. For friction and bounce, use `set_physics_properties`;
-to repoint bindings after materials move, `update_material_paths`.
+below 1, so a material it made see-through stays so. Without `material_path`, prims of the same name share one material,
+so colouring one recolours the rest: give `material_path` to keep them apart, or to share one on purpose. For friction
+and bounce, use `set_physics_properties`; to repoint bindings after materials move, `update_material_paths`.
 
 ---
 
@@ -673,7 +673,13 @@ gives the distance in stage units. An extension of 0.2.3 or older aims only in I
 
 Orbit-capture: take screenshots from 14 systematic angles around a prim using a cube-based approach (6 face centres + 8 cube corners). The camera distance is fitted so the prim's bounding sphere fills the captured frame with a 10px margin, at `width` x `height`. Optionally includes instance segmentation at each angle.
 
-The orbit moves whichever camera the viewport looks through, a scene camera included, as the user sees, and leaves it at the last angle; each angle is rendered from that camera at `width` x `height` in a render of the call's own, as `capture_viewport`'s is. It aims the camera at each angle as `set_camera` does, Kit's own camera in Kit's session layer; an angle it can't aim says why. An extension of 0.2.3 or older aims only in Isaac Sim, so elsewhere every angle shows the view the camera had. The first line gives the distance in stage units and the size; with an extension of 0.2.2 or older, whose images are the viewport's size, a `WARNING` says so when it isn't the size asked for, with the command that installs this release's extension.
+The orbit moves whichever camera the viewport looks through, a scene camera included, as the user sees, and leaves it at
+the last angle; each angle is rendered from that camera at `width` x `height` in a render of the call's own, as
+`capture_viewport`'s is. It aims the camera at each angle as `set_camera` does, Kit's own camera in Kit's session layer;
+an angle it can't aim says why. An extension of 0.2.3 or older aims only in Isaac Sim, so elsewhere every angle shows
+the view the camera had. The first line gives the distance in stage units and the size; with an extension of 0.2.2 or
+older, whose images are the viewport's size, a `WARNING` says so when it isn't the size asked for, with the command that
+installs this release's extension.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -954,8 +960,8 @@ Cast a ray through PhysX and return the closest collider it hits.
 | `direction` | list[float] | required | `[dx, dy, dz]` direction in world space, of any length but zero: the server scales it to a unit vector, as Isaac Sim 6.2's PhysX also does |
 | `max_distance` | float | `1000.0` | Maximum ray length in stage units, above 0 |
 
-**Returns:** Hit prim path, hit position, surface normal, and distance in stage units. Returns "No hit" if ray doesn't intersect anything.
-The prim named is the rigid body hit, or a static collider itself.
+**Returns:** Hit prim path, hit position, surface normal, and distance in stage units. Returns "No hit" if ray doesn't
+intersect anything. The prim named is the rigid body hit, or a static collider itself.
 
 - **Colliders only:** prims with the Collision API, which `create_prim`'s `enable_physics` adds, are hit; plain meshes
   are not.
