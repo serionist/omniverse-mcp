@@ -590,7 +590,9 @@ Each step waits for its drawings to expire before the next.
 ### 18.1 Mesh Stats on Robot (Mesh Geometry)
 - Spawn a robot: `create_robot("franka", position=[0, 0, 0])`
 - `get_mesh_stats("/World/Franka")`
-- Verify: total_faces > 0, total_vertices > 0, mesh_count > 0, meshes array populated
+- Verify: the totals, mesh_count > 0, total_faces > 0 and total_vertices > 0, then the tree under `/World/Franka`
+  with `subtree_faces` > 0 on the prims above its meshes; a `max_depth` large enough to reach the meshes lists each
+  one with its faces, vertices and triangles
 
 ### 18.2 Mesh Stats on Procedural Prim (Expected Zero)
 - Create a cube: `create_prim("/World/TestCube", "Cube", position=[3,0.5,0])`
