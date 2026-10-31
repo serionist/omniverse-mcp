@@ -398,10 +398,11 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 
 ### 14.4 Get Joint States
 - Play sim briefly, then pause: the play answers (#5)
-- `get_joint_states("/World/G1")`
-- Verify: returns names, positions and velocities, dof_count > 0 of each
-- Stop, then `get_joint_states("/World/G1")` again
-- Verify: an error that says to play or step the simulation first
+- `get_robot_info("/World/G1")`
+- Verify: the structure as in 14.1, its Joints list inline or in a file the answer names, and a `Joint states` block
+  with a position and a velocity for each of its DOF
+- Stop, then `get_robot_info("/World/G1")` again
+- Verify: the structure again, no error, and `Joint states: not read:` saying to play or step the simulation first
 
 ---
 

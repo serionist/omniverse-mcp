@@ -702,34 +702,6 @@
         "type": "object"
       }
     },
-    "get_joint_states": {
-      "annotations": {
-        "openWorldHint": false,
-        "readOnlyHint": true
-      },
-      "input": {
-        "properties": {
-          "prim_path": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "prim_path"
-        ],
-        "type": "object"
-      },
-      "output": {
-        "properties": {
-          "result": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "result"
-        ],
-        "type": "object"
-      }
-    },
     "get_logs": {
       "annotations": {
         "openWorldHint": false,

@@ -34,8 +34,10 @@ class Case:
     args: dict[str, Any]
     route: str
     answer: dict[str, Any]
-    sent: dict[str, Any]  # what the request body must hold, at least
+    sent: dict[str, Any]  # what the first request's body must hold, at least
     says: tuple[str, ...]  # what the tool's text must hold
+    # The routes the tool calls after the first, in order, each with its answer: a merged tool asks two (#77).
+    more: tuple[tuple[str, dict[str, Any]], ...] = ()
 
     def __str__(self) -> str:
         return self.tool
@@ -307,15 +309,23 @@ CASES = [
             ],
         },
         {"prim_path": "/World/Franka"},
-        ("DOF: 1", "joint1 (RevoluteJoint [-1.0, 1.0] drive=angular)"),
-    ),
-    Case(
-        "get_joint_states",
-        {"prim_path": "/World/Franka"},
-        "/robot/joint_states",
-        {"prim_path": "/World/Franka", "dof_count": 1, "names": ["joint1"], "positions": [0.5], "velocities": [0.25]},
-        {"prim_path": "/World/Franka"},
-        ("joint1: pos=0.5000 vel=0.2500",),
+        (
+            "DOF: 1",
+            "Joints (1):\n  joint1 (RevoluteJoint [-1.0, 1.0] drive=angular)\nJoint states (1 DOF, from physics: ",
+            "set_joint_targets takes degrees):\n  joint1: pos=0.5000 vel=0.2500",
+        ),
+        more=(
+            (
+                "/robot/joint_states",
+                {
+                    "prim_path": "/World/Franka",
+                    "dof_count": 1,
+                    "names": ["joint1"],
+                    "positions": [0.5],
+                    "velocities": [0.25],
+                },
+            ),
+        ),
     ),
     Case(
         "set_joint_targets",
@@ -526,8 +536,9 @@ def test_every_tool_has_a_case():
 
 
 def _check(case: Case, bridge: MockIsaacServer, tmp_path: Path) -> str:
-    """Calls the case's tool, checks its request and its text, and returns the text."""
-    bridge.set_response(case.route, {"status": "success", "result": case.answer})
+    """Calls the case's tool, checks its requests and its text, and returns the text."""
+    for route, answer in ((case.route, case.answer), *case.more):
+        bridge.set_response(route, {"status": "success", "result": answer})
     bridge.requests.clear()
     client = BridgeClient(port=bridge.port, token="invented-test-token")
     try:
@@ -543,7 +554,7 @@ def _check(case: Case, bridge: MockIsaacServer, tmp_path: Path) -> str:
     text = "\n".join(getattr(c, "text", "") for c in result.content)
     assert not result.is_error, text
     calls = [(path, body) for _, path, body in bridge.requests if path != "/bridge"]
-    assert [path for path, _ in calls] == [case.route]
+    assert [path for path, _ in calls] == [case.route, *(route for route, _ in case.more)]
     body = calls[0][1]
     sent = {k: v.replace(OUTPUT, str(tmp_path)) if isinstance(v, str) else v for k, v in case.sent.items()}
     assert {k: body.get(k) for k in sent} == sent
@@ -978,6 +989,148 @@ def test_set_camera_refuses_a_mix_of_its_forms_before_any_request(
     assert erred
     assert says in text
     assert calls == []
+
+
+# A Franka as /robot/info answers it, in invented values of its sizes: 12 joints, 3 of them fixed, so 9 DOF.
+FRANKA_JOINTS = [
+    *(
+        {"name": f"panda_joint{n}", "type": "PhysicsRevoluteJoint", "lower_limit": -166.0, "upper_limit": 166.0}
+        | {"drive_angular": {"stiffness": 1000.0, "damping": 100.0}}
+        for n in range(1, 8)
+    ),
+    *(
+        {"name": f"panda_finger_joint{n}", "type": "PhysicsPrismaticJoint", "lower_limit": 0.0, "upper_limit": 0.04}
+        | {"drive_linear": {"stiffness": 1000.0, "damping": 100.0}}
+        for n in (1, 2)
+    ),
+    *({"name": name, "type": "PhysicsFixedJoint"} for name in ("root_joint", "panda_hand_joint", "panda_tcp_joint")),
+]
+FRANKA = {
+    "prim_path": "/World/Franka",
+    "is_articulation": True,
+    "dof_count": 9,
+    "link_count": 11,
+    "joints": FRANKA_JOINTS,
+}
+HEADER = "Robot: /World/Franka\nArticulation: True\nDOF: 9\nLinks: 11"
+STOPPED = (
+    "No physics view of /World/Franka: play or step the simulation first; joint states are read while it plays or is "
+    "paused. If it already plays, get_logs(min_level='warn') says why Isaac Sim made none."
+)
+
+
+def _states(count: int) -> dict[str, Any]:
+    """/robot/joint_states' answer for count degrees of freedom."""
+    names = [f"invented_joint{n}" for n in range(count)]
+    return {"prim_path": "/World/Franka", "dof_count": count, "names": names, "positions": [0.5] * count}
+
+
+def _robot(bridge: MockIsaacServer, info: dict[str, Any], states: dict[str, Any]) -> None:
+    bridge.set_response("/robot/info", {"status": "success", "result": info})
+    bridge.set_response("/robot/joint_states", states)
+
+
+def _written(text: str, tmp_path: Path) -> str:
+    """The one robot_info file the answer names, read."""
+    (path,) = (tmp_path / "responses").glob("robot_info_*.txt")
+    assert path.name in text
+    return path.read_text(encoding="utf-8")
+
+
+def test_get_robot_info_gives_the_structure_and_why_there_are_no_joint_states(bridge: MockIsaacServer, tmp_path: Path):
+    # Stopped, or without Isaac Sim: the joint states' route errs, and the structure still answers (#77).
+    info = {**FRANKA, "dof_count": 1, "joints": FRANKA_JOINTS[:1]}
+    _robot(bridge, info, {"status": "error", "error": STOPPED})
+    erred, text, calls = _call(bridge, tmp_path, "get_robot_info", {"prim_path": "/World/Franka"})
+    assert not erred, text
+    assert calls == [
+        ("/robot/info", {"prim_path": "/World/Franka"}),
+        ("/robot/joint_states", {"prim_path": "/World/Franka"}),
+    ]
+    assert text == (
+        "Robot: /World/Franka\nArticulation: True\nDOF: 1\nLinks: 11\nJoints (1):\n"
+        f"  panda_joint1 (PhysicsRevoluteJoint [-166.0, 166.0] drive=angular)\nJoint states: not read: {STOPPED}"
+    )
+
+
+def test_get_robot_info_fails_on_its_structure_without_asking_the_joint_states(bridge: MockIsaacServer, tmp_path: Path):
+    bridge.set_response("/robot/info", {"status": "error", "error": "Prim not found: /World/Nothing"})
+    erred, text, calls = _call(bridge, tmp_path, "get_robot_info", {"prim_path": "/World/Nothing"})
+    assert erred
+    assert "Prim not found: /World/Nothing" in text
+    assert [path for path, _ in calls] == ["/robot/info"]
+
+
+class _GoneAfterTheStructure(BridgeClient):
+    """Kit stops answering between get_robot_info's two requests."""
+
+    def get_joint_states(self, prim_path: str) -> dict[str, Any]:
+        raise ConnectionError("Connection closed by the ovmcp.bridge extension")
+
+
+def test_get_robot_info_fails_when_kit_goes_before_the_joint_states(bridge: MockIsaacServer, tmp_path: Path):
+    # A route's error is a line of the answer; a Kit that can't be reached fails the call, as for every tool.
+    bridge.set_response("/robot/info", {"status": "success", "result": FRANKA})
+    client = _GoneAfterTheStructure(port=bridge.port, token="invented-test-token")
+    try:
+
+        async def call():
+            async with Client(create_server("127.0.0.1", bridge.port, str(tmp_path), client=client)) as c:
+                return await c.call_tool("get_robot_info", {"prim_path": "/World/Franka"})
+
+        result = asyncio.run(call())
+    finally:
+        client.close()
+    text = "\n".join(getattr(c, "text", "") for c in result.content)
+    assert result.is_error
+    assert "Kit app connection failed: Connection closed by the ovmcp.bridge extension" in text
+
+
+@pytest.mark.parametrize(
+    ("states", "inline"),
+    [
+        ({"status": "error", "error": STOPPED}, f"Joint states: not read: {STOPPED}"),
+        (
+            {"status": "success", "result": _states(9)},
+            "Joint states (9 DOF, from physics: radians for revolute joints, stage units for prismatic ones, "
+            "velocities per second; set_joint_targets takes degrees):\n  invented_joint0: pos=0.5000 vel=0.0000",
+        ),
+    ],
+    ids=["stopped", "playing"],
+)
+def test_a_franka_s_joints_go_to_a_file_and_its_joint_states_stay_inline(
+    states: dict[str, Any], inline: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    # Each old tool answered a Franka inline; together they pass 1,000 characters (#77, P3): the header and the joint
+    # states, what a caller came for, stay inline, and the Joints list goes to a file.
+    _robot(bridge, FRANKA, states)
+    erred, text, _calls = _call(bridge, tmp_path, "get_robot_info", {"prim_path": "/World/Franka"})
+    assert not erred, text
+    lines = text.splitlines()
+    assert "\n".join(lines[:4]) == HEADER
+    assert lines[4].startswith("Wrote the 12 joints (")
+    assert "\n".join(lines[5:]).startswith(inline)
+    assert "panda_joint1" not in text
+    joints = _written(text, tmp_path)
+    assert joints.startswith("Joints (12):\n  panda_joint1 (PhysicsRevoluteJoint [-166.0, 166.0] drive=angular)\n")
+    assert joints.endswith("\n  panda_tcp_joint (PhysicsFixedJoint)")
+
+
+def test_joint_states_too_long_to_answer_inline_go_to_the_file_after_the_joints(
+    bridge: MockIsaacServer, tmp_path: Path
+):
+    # A G1's 43 degrees of freedom pass 1,000 characters with the header alone.
+    _robot(bridge, FRANKA, {"status": "success", "result": _states(43)})
+    erred, text, _calls = _call(bridge, tmp_path, "get_robot_info", {"prim_path": "/World/Franka"})
+    assert not erred, text
+    lines = text.splitlines()
+    assert "\n".join(lines[:4]) == HEADER
+    assert lines[4].startswith("Wrote the 12 joints, then the joint states (")
+    assert len(lines) == 5
+    written = _written(text, tmp_path)
+    assert written.startswith("Joints (12):\n")
+    assert "\n  panda_tcp_joint (PhysicsFixedJoint)\nJoint states (43 DOF, " in written
+    assert written.endswith("\n  invented_joint42: pos=0.5000 vel=0.0000")
 
 
 @pytest.mark.parametrize(

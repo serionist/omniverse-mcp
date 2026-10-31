@@ -15,6 +15,9 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
     `set_camera`'s `position` is needed only without `prim_path`. A `prim_path` with a `position` or `target`, or
     `distance`, `azimuth` or `elevation` without one, is an error that says which to drop. Without a `target`,
     `set_camera` still looks at the world origin, and its answer now says so.
+  - **`get_joint_states` is `get_robot_info`,** which reads each joint's position and velocity from physics with the
+    robot's structure. Stopped, or in a Kit app without Isaac Sim, the answer gives the structure and says why there
+    are no positions, where `get_joint_states` failed.
 
 ### Fixed
 

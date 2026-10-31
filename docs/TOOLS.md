@@ -22,7 +22,7 @@ Reference for every tool the MCP server provides.
 | point the camera, at a point or a prim | `set_camera` |
 | fix a black capture | `viewport_light` |
 | play, pause, stop or step physics | `sim_control`; `get_sim_state` for where it stands |
-| add a robot and move its joints | `create_robot`, `get_robot_info`, `get_joint_states`, `set_joint_targets` |
+| add a robot, read and move its joints | `create_robot`, `get_robot_info`, `set_joint_targets` |
 | record a run and look back at it | `start_recording`, `stop_recording`, `get_recording_frame` |
 | set mass or friction, push, or probe | `set_physics_properties`, `apply_force`, `raycast` |
 | count faces, or compare two prims or variants | `get_mesh_stats`, `get_prim_face_count_tree`, `compare_prims` |
@@ -37,7 +37,7 @@ it runs one; they are hints, never security (the bridge's token is what keeps ot
 
 | Hints | What they mean | Tools |
 |---|---|---|
-| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs, and leaves Kit's unsaved-edits flag set) | `get_scene_tree`, `dump_scene`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_prim_face_count_tree`, `get_robot_info`, `get_joint_states`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
+| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs, and leaves Kit's unsaved-edits flag set) | `get_scene_tree`, `dump_scene`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_prim_face_count_tree`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
 | not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `inspect_prim`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug` |
 | destructive | Deletes or overwrites prims, the whole stage, or USD files on disk | `delete_prim`, `save_scene`, `open_scene`, `new_scene`, `flatten_usd`, `export_prim_as_file`, `update_material_paths` |
 | destructive, open world | Runs Python or loads extensions inside the Kit app: anything can happen | `execute_script`, `manage_extensions` |
@@ -51,7 +51,7 @@ A value out of a parameter's range, or not one of its choices, is refused before
 - [USD Operations](#usd-operations) (2 tools)
 - [Variant Tools](#variant-tools) (2 tools)
 - [Material Tools](#material-tools) (2 tools)
-- [Robot Tools](#robot-tools) (4 tools)
+- [Robot Tools](#robot-tools) (3 tools)
 - [Camera Tools](#camera-tools) (4 tools)
 - [Simulation Tools](#simulation-tools) (2 tools)
 - [Recording Tools](#recording-tools) (3 tools)
@@ -582,40 +582,48 @@ animated root op in the file) takes the robot away again.
 
 ### `get_robot_info`
 
-Get robot joint information from USD (no simulation needed).
+Read a robot: its structure from USD, at any time, and where its joints are from physics, while the simulation plays
+or is paused.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Root prim of the robot |
 
-**Returns:** Articulation status, DOF count, link count, and per-joint details (name, type, limits, drive type).
-Limits are as USD holds them: degrees for revolute joints, stage units for prismatic ones. The joints come in the order
-a list of `set_joint_targets` follows, fixed joints included; the DOF count leaves fixed joints out.
+**Returns:** the robot's path, whether it is an articulation, its DOF and link counts, then two lists:
 
-**When to use:** before driving a robot, whatever the simulation's state. `get_joint_states` reads where the joints are
-now, from physics.
+- **Joints,** from USD: each joint's name, type, limits and drive. Limits are as USD holds them: degrees for revolute
+  joints, stage units for prismatic ones. They come in the order a list of `set_joint_targets` follows, fixed joints
+  included; the DOF count leaves fixed joints out.
+- **Joint states,** from physics: each degree of freedom's name, position and velocity, in physics' own order. Radians
+  and radians per second for revolute joints, stage units and stage units per second for prismatic ones;
+  `set_joint_targets` takes degrees for revolute joints. They are the first articulation's at or under `prim_path`,
+  found as `UsdPhysics.ArticulationRootAPI` marks it, and read through Isaac Sim's
+  `isaacsim.core.experimental.prims.Articulation`, which Isaac Sim 5.1 and 6.x ship; tested live on 6.2, not yet on
+  5.x. The tool never starts physics itself.
 
----
+```text
+Robot: /World/Franka
+Articulation: True
+DOF: 9
+Links: 11
+Joints (12):
+  panda_joint1 (PhysicsRevoluteJoint [-166.0, 166.0] drive=angular)
+  ...
+Joint states (9 DOF, from physics: radians for revolute joints, ... set_joint_targets takes degrees):
+  panda_joint1: pos=0.0000 vel=0.0000
+  ...
+```
 
-### `get_joint_states`
+- **No joint states:** stopped, with no articulation under `prim_path`, or in a Kit app without Isaac Sim, such as USD
+  Composer, the structure comes with one line in place of the joint states, `Joint states: not read:` and why, such
+  as `No physics view of /World/Franka: play or step the simulation first`. Only a prim that isn't there, or a Kit app
+  that can't be reached, is an error.
+- **Long answers:** the header lines always stay inline. When the whole answer passes 1,000 characters, as a Franka's
+  does, the Joints list goes to `mcp_output/responses/robot_info_NNNN.txt`, a line giving its path, and the joint
+  states, or their `not read` line, stay inline; joint states that pass 1,000 characters with the header, as a G1's
+  43 do, go to the file too, after the Joints list.
 
-Get current joint positions and velocities.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `prim_path` | string | required | Root prim of the robot |
-
-**Returns:** each degree of freedom's name, position and velocity: radians and radians per second for revolute
-joints, stage units and stage units per second for prismatic ones. `set_joint_targets` takes degrees for revolute
-joints.
-
-- **Physics playing or paused:** joint states come from physics, so a stopped simulation is an error that says to
-  play or step it first. The tool never starts physics itself.
-- **The robot:** `prim_path` itself, or the first prim under it with `UsdPhysics.ArticulationRootAPI`, as
-  `get_robot_info` finds it.
-- **Isaac Sim:** it reads through `isaacsim.core.experimental.prims.Articulation`, which Isaac Sim 5.1 and 6.x
-  ship; it is tested live on 6.2, not yet on 5.x. A Kit app without it, such as USD Composer, gets an error
-  naming it.
+**When to use:** before driving a robot, whatever the simulation's state, and to see where its joints are now.
 
 ---
 
@@ -629,9 +637,9 @@ Set the position targets of a robot's joint drives, which physics drives the joi
 | `targets` | dict or list | `null` | Required in practice: `{joint_name: value}` dict or `[v0, v1, ...]` list. Values in degrees (revolute) or stage units (prismatic). |
 
 Works by setting USD drive target attributes directly - does not require articulation initialisation, or physics
-running. A dict sets the joints it names and skips names it doesn't find; a list follows `get_robot_info`'s joint
-order, fixed joints included, not `get_joint_states`'. A joint without a drive gets one, with stiffness 1000 and
-damping 100. The answer counts the targets set.
+running. A dict sets the joints it names and skips names it doesn't find; a list follows the order of
+`get_robot_info`'s Joints list, fixed joints included, not of its joint states. A joint without a drive gets one, with
+stiffness 1000 and damping 100. The answer counts the targets set.
 
 ---
 
@@ -790,8 +798,8 @@ Control the simulation.
 - **stop** - Stop simulation and reset to initial state
 - **step** - Play for two app updates, then pause
 
-**Returns:** the state the timeline is left in. `get_sim_state` reads it without changing it; `get_joint_states` and
-`apply_force` need the simulation playing or paused.
+**Returns:** the state the timeline is left in. `get_sim_state` reads it without changing it; `get_robot_info`'s joint
+states and `apply_force` need the simulation playing or paused.
 
 **A robot's first play** cooks its collision meshes, and the Kit app answers nothing until that ends: the G1 cooked
 from scratch in 0.6 s on Isaac Sim 6.2 with an RTX 5090. Kit keeps what it cooked, so the same meshes cook again

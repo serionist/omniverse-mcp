@@ -14,6 +14,18 @@ TRACEBACK_LINES = 5
 UNKNOWN_ROUTE = "Unknown endpoint"
 
 
+def bridge_answer(fn: Callable[..., dict[str, Any]], *args: Any, **kwargs: Any) -> dict[str, Any]:
+    """The bridge's answer to one request, an error answer included.
+
+    ToolError only when the Kit app couldn't be reached or refused the request: a tool that reads an error answer as
+    part of its own, such as get_robot_info's joint states, still fails when Kit is gone.
+    """
+    try:
+        return fn(*args, **kwargs)
+    except (OSError, BridgeError) as e:
+        raise ToolError(f"Kit app connection failed: {e}") from e
+
+
 def bridge_call(fn: Callable[..., dict[str, Any]], *args: Any, **kwargs: Any) -> dict[str, Any]:
     """The bridge's answer to one request, when it succeeded.
 
@@ -21,10 +33,7 @@ def bridge_call(fn: Callable[..., dict[str, Any]], *args: Any, **kwargs: Any) ->
     error with the last lines of its traceback, or why the Kit app couldn't be reached or refused the request. A route
     the extension hasn't got also names the command that installs this server's.
     """
-    try:
-        resp = fn(*args, **kwargs)
-    except (OSError, BridgeError) as e:
-        raise ToolError(f"Kit app connection failed: {e}") from e
+    resp = bridge_answer(fn, *args, **kwargs)
     if resp.get("status") == "error":
         message = str(resp.get("error", "the bridge reported an error"))
         if message.startswith(UNKNOWN_ROUTE):

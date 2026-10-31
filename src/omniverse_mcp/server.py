@@ -125,14 +125,25 @@ class Helpers:
         self.write(filepath, data)
         return self.rel(filepath)
 
+    @staticmethod
+    def fits(text: str) -> bool:
+        """Whether text is short enough to answer inline."""
+        return len(text) <= FILE_THRESHOLD
+
     def text_response(self, text: str, label: str = "output") -> str:
         """Return text inline if short, or write to file and return path."""
-        if len(text) <= FILE_THRESHOLD:
+        if self.fits(text):
             return text
+        return self.write_response(text, label)
+
+    def write_response(self, text: str, label: str, what: str = "") -> str:
+        """Write text to responses/<label>_NNNN.txt whatever its length, and return the line naming the file and what
+        it holds (what, or the label). A tool whose whole answer is too long writes one part this way, though the part
+        alone would fit, and keeps the rest inline."""
         filepath = os.path.join(self.output_dir, "responses", f"{label}_{self._next('response_counter'):04d}.txt")
         self.write(filepath, text)
         line_count = text.count("\n") + 1
-        return f"Wrote {label} ({len(text):,} chars, {line_count} lines) -> {self.rel(filepath)}"
+        return f"Wrote {what or label} ({len(text):,} chars, {line_count} lines) -> {self.rel(filepath)}"
 
 
 def create_server(host: str, port: int, output_dir: str, client: BridgeClient | None = None) -> MCPServer:

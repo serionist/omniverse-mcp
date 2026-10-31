@@ -1,4 +1,4 @@
-"""The prim create_robot names for a robot or its USD file (#40); where get_joint_states finds a robot's articulation
+"""The prim create_robot names for a robot or its USD file (#40); where /robot/joint_states finds a robot's articulation
 (#50). Without Kit. Where a file loads from is tests/test_usd_files.py's."""
 
 import pytest

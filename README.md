@@ -156,7 +156,7 @@ Something else? See [Troubleshooting](#troubleshooting).
 | **Materials** | `set_material`, `update_material_paths` | Give an object a colour and surface; fix material paths after files move |
 | **Simulation** | `sim_control`, `get_sim_state` | Play, pause, stop and step physics; the state, the up axis and the versions |
 | **Physics** | `set_physics_properties`, `apply_force`, `raycast` | Mass, friction and bounce; push an object; cast a ray |
-| **Robots** | `create_robot`, `get_robot_info`, `get_joint_states`, `set_joint_targets` | Add a robot from Isaac Sim's library (Franka, UR10, G1, Spot and more), read its joints, set joint targets |
+| **Robots** | `create_robot`, `get_robot_info`, `set_joint_targets` | Add a robot from Isaac Sim's library (Franka, UR10, G1, Spot and more), read its joints and where they are, set joint targets |
 | **Recording** | `start_recording`, `stop_recording`, `get_recording_frame` | Record frames from any camera at any size, and objects' state, while physics plays, then look back at any frame |
 | **Geometry** | `get_mesh_stats`, `get_prim_face_count_tree`, `compare_prims` | Count faces and vertices, find the heaviest parts, compare two objects or variants |
 | **USD files and variants** | `flatten_usd`, `export_prim_as_file`, `create_variant_structure`, `set_variant_selection` | Write a stage as one file, export an object, make and switch variant sets |
@@ -252,8 +252,8 @@ PATH the client starts with? Restart the client after installing uv.
 mode="Default")` lights the view, or `mode="camera"` for a light that follows the camera; Kit apps have no default
 light.
 
-**A tool returns an error**: `get_logs(min_level="warn")` shows what Kit reported. `get_joint_states` needs physics
-playing or paused, and `raycast` needs it to have played once; the robot tools need Isaac Sim.
+**A tool returns an error**: `get_logs(min_level="warn")` shows what Kit reported. `get_robot_info` reads joint
+positions while physics plays or is paused, and `raycast` needs it to have played once; the robot tools need Isaac Sim.
 
 More in [SETUP.md](docs/SETUP.md#troubleshooting).
 
