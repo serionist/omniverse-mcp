@@ -15,7 +15,7 @@ from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
 from ovmcp.core.bounds import world_bbox
 from ovmcp.core.deletion import why_kept
-from ovmcp.core.formatter import format_prim_block, format_scene_dump, format_value
+from ovmcp.core.formatter import format_prim_block, format_scene_dump, format_scene_tree
 from ovmcp.core.material import ensure_material
 from ovmcp.core.xform import Parts, check_transform, check_writable, layer_name, position_of, write_transform
 
@@ -44,44 +44,8 @@ async def handle_scene_tree(body: dict) -> dict:
         return {"status": "error", "error": f"Prim not found: {root_path}"}
 
     if fmt == "text":
-        # Lightweight prim-block text: path + type + position only (no full properties)
-        lines = []
-        prim_count = 0
-
-        def _walk_text(prim, depth):
-            nonlocal prim_count
-            if depth > max_depth:
-                child_count = len(prim.GetChildren())
-                if child_count > 0:
-                    lines.append(f"[{prim.GetPath()}]")
-                    lines.append(f"type = {prim.GetTypeName() or 'Xform'}")
-                    lines.append(f"children = {child_count} (truncated)")
-                    lines.append("")
-                return
-            prim_count += 1
-            block = [f"[{prim.GetPath()}]"]
-            block.append(f"type = {prim.GetTypeName() or 'Xform'}")
-            if prim.IsA(UsdGeom.Xformable):
-                xf = UsdGeom.Xformable(prim)
-                t = xf.ComputeLocalToWorldTransform(Usd.TimeCode.Default()).ExtractTranslation()
-                block.append(f"pos = {float(t[0]):.4f}, {float(t[1]):.4f}, {float(t[2]):.4f}")
-            if include_properties:
-                for prop in prim.GetProperties():
-                    try:
-                        val = prop.Get()
-                        if val is not None:
-                            block.append(f"{prop.GetName()} = {format_value(val)}")
-                    except Exception:
-                        pass
-            lines.append("\n".join(block))
-            lines.append("")
-            for child in prim.GetChildren():
-                _walk_text(child, depth + 1)
-
-        lines.append(f"# scene_tree root={root_path} up_axis={UsdGeom.GetStageUpAxis(stage)}")
-        lines.append("")
-        _walk_text(root_prim, 0)
-        text = "\n".join(lines)
+        # Lightweight prim-block text: path + type + position only (no full properties), down to max_depth
+        text, prim_count = format_scene_tree(stage, root_path, max_depth, include_properties=include_properties)
         return {"status": "success", "result": {"text": text, "prim_count": prim_count}}
 
     def _build_tree(prim: Usd.Prim, depth: int) -> dict:
@@ -146,7 +110,8 @@ async def handle_scene_dump(body: dict) -> dict:
     if not root_prim.IsValid():
         return {"status": "error", "error": f"Prim not found: {root_path}"}
 
-    text = format_scene_dump(
+    # The count is the blocks written, where the answer counted the whole stage (#82).
+    text, prim_count = format_scene_dump(
         stage,
         root_path,
         max_depth,
@@ -161,7 +126,6 @@ async def handle_scene_dump(body: dict) -> dict:
         f.write(text)
 
     file_size = os.path.getsize(file_path)
-    prim_count = sum(1 for _ in stage.Traverse())
 
     return {
         "status": "success",

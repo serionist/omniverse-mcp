@@ -328,3 +328,37 @@ def test_delete_prim_deletes_a_prim_that_references_a_file_and_says_it_checked(s
     assert r["status"] == "success", r
     assert r["result"]["checked"] is True
     assert not kit.stage.GetPrimAtPath("/World/Ref").IsValid()
+
+
+# ---- dump_scene (R5) and get_scene_tree's text (R11) ----
+
+
+def _tree(stage: Usd.Stage) -> None:
+    """/World/Table with a leg, a top and a cup on the top; a lamp beside the table."""
+    for path in ("/World/Table/Leg", "/World/Table/Top", "/World/Table/Top/Cup", "/World/Lamp"):
+        UsdGeom.Xform.Define(stage, path)
+
+
+def test_dump_scene_counts_the_prims_it_wrote(scene, kit, tmp_path):
+    # "Dumped N prims" counted the whole stage (#82).
+    _tree(kit.stage)
+
+    r = _run(scene, "handle_scene_dump", output_dir=str(tmp_path), root="/World/Table", max_depth=1)
+
+    assert r["status"] == "success", r
+    assert r["result"]["prim_count"] == 3  # the table, its leg and its top; the cup is past max_depth
+    assert len(list(kit.stage.Traverse())) == 6
+
+
+def test_the_scene_trees_text_stops_at_max_depth_with_each_prims_count_of_children(scene, kit):
+    # The text listed the next level's prims that had children and left out the childless ones (#82).
+    _tree(kit.stage)
+
+    r = _run(scene, "handle_scene_tree", root="/World", max_depth=1, format="text")
+
+    assert r["status"] == "success", r
+    blocks = [b for b in r["result"]["text"].split("\n\n") if b.startswith("[")]
+    assert [b.splitlines()[0] for b in blocks] == ["[/World]", "[/World/Table]", "[/World/Lamp]"]
+    assert "children = 2 (truncated)" in blocks[1]
+    assert "children" not in blocks[2]
+    assert r["result"]["prim_count"] == 3

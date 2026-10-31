@@ -153,25 +153,14 @@ def format_scene_dump(
     include_bounds: bool = True,
     filter_types: list[str] | None = None,
     property_filter: list[str] | None = None,
-) -> str:
-    """Format an entire scene subtree as prim-block text."""
+) -> tuple[str, int]:
+    """Format a scene subtree as prim-block text, with the number of prims written: the count, in the header too, is
+    the blocks the file holds, where it counted the whole subtree, past max_depth and filter_types (#82)."""
     root_prim = stage.GetPrimAtPath(root_path)
     if not root_prim.IsValid():
-        return f"# ERROR: Prim not found: {root_path}\n"
+        return f"# ERROR: Prim not found: {root_path}\n", 0
 
-    prim_count = sum(1 for _ in Usd.PrimRange(root_prim))
-
-    lines = [
-        "# Omniverse MCP Scene Dump",
-        "# format = omniverse-mcp-v1",
-        f"# root = {root_path}",
-        f"# prim_count = {prim_count}",
-        f"# up_axis = {UsdGeom.GetStageUpAxis(stage)}",
-        f"# meters_per_unit = {UsdGeom.GetStageMetersPerUnit(stage)}",
-        "",
-        f"=== SCENE root={root_path} prims={prim_count} ===",
-        "",
-    ]
+    blocks: list[str] = []
 
     def _walk(prim: Usd.Prim, depth: int) -> None:
         if depth > max_depth:
@@ -184,21 +173,77 @@ def format_scene_dump(
                 _walk(child, depth + 1)
             return
 
-        block = format_prim_block(
-            prim,
-            include_properties=include_properties,
-            include_transform=True,
-            include_bounds=include_bounds,
-            property_filter=property_filter,
+        blocks.append(
+            format_prim_block(
+                prim,
+                include_properties=include_properties,
+                include_transform=True,
+                include_bounds=include_bounds,
+                property_filter=property_filter,
+            )
         )
-        lines.append(block)
-        lines.append("")  # Blank line between blocks
-
         for child in children(prim):
             _walk(child, depth + 1)
 
     _walk(root_prim, 0)
-    return "\n".join(lines)
+    prim_count = len(blocks)
+    lines = [
+        "# Omniverse MCP Scene Dump",
+        "# format = omniverse-mcp-v1",
+        f"# root = {root_path}",
+        f"# prim_count = {prim_count}",
+        f"# up_axis = {UsdGeom.GetStageUpAxis(stage)}",
+        f"# meters_per_unit = {UsdGeom.GetStageMetersPerUnit(stage)}",
+        "",
+        f"=== SCENE root={root_path} prims={prim_count} ===",
+        "",
+    ]
+    for block in blocks:
+        lines.append(block)
+        lines.append("")  # Blank line between blocks
+    return "\n".join(lines), prim_count
+
+
+def format_scene_tree(
+    stage: Usd.Stage, root_path: str, max_depth: int, include_properties: bool = False
+) -> tuple[str, int]:
+    """get_scene_tree's text: a block for each prim from root down to max_depth, with its type and world position, and
+    the number of blocks. A prim at max_depth that has children says how many, as `children = N (truncated)`, and
+    nothing below it is listed, as the JSON mode has it; the text used to list the next level's prims that had
+    children and leave out the rest, so a childless one there looked absent (#82)."""
+    lines = [f"# scene_tree root={root_path} up_axis={UsdGeom.GetStageUpAxis(stage)}", ""]
+    count = 0
+
+    def _walk(prim: Usd.Prim, depth: int) -> None:
+        nonlocal count
+        count += 1
+        block = [f"[{prim.GetPath()}]", f"type = {prim.GetTypeName() or 'Xform'}"]
+        if is_a(prim, UsdGeom.Xformable):
+            world = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+            block.append(f"pos = {_join(world.ExtractTranslation(), 3)}")
+        if include_properties:
+            for prop in prim.GetProperties():
+                if not isinstance(prop, Usd.Attribute):
+                    continue
+                try:
+                    val = prop.Get()
+                    if val is not None:
+                        block.append(f"{prop.GetName()} = {format_value(val)}")
+                except Exception:
+                    pass
+        below = children(prim)
+        if depth >= max_depth and below:
+            block.append(f"children = {len(below)} (truncated)")
+        lines.append("\n".join(block))
+        lines.append("")
+        if depth < max_depth:
+            for child in below:
+                _walk(child, depth + 1)
+
+    root_prim = stage.GetPrimAtPath(root_path)
+    if root_prim.IsValid():
+        _walk(root_prim, 0)
+    return "\n".join(lines), count
 
 
 def format_frame_state(
