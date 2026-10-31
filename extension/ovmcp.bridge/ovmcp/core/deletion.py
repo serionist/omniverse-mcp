@@ -11,7 +11,7 @@ deleted whole. Needs pxr, not Kit: the tests run it on usd-core.
 
 from pxr import Pcp, Sdf, Usd
 
-from .usd import composition_arcs, node_layers, prim_spec
+from .usd import composition_arcs, node_layers, prim_spec, stage_prim_of
 from .xform import layer_name
 
 _DEFINING = (Sdf.SpecifierDef, Sdf.SpecifierClass)
@@ -64,9 +64,13 @@ def why_kept(prim: Usd.Prim, edit_layer: Sdf.Layer) -> str | None:
         source = layer_name(stage, defining[0])
         if arc.IsAncestral():
             return (
-                f"{path} is not deleted: it comes through a {what} on {arc.GetIntroducingPrimPath()} ({source}). "
+                f"{path} is not deleted: it comes through a {what} on {stage_prim_of(arc)} ({source}). "
                 f"{_HIDE}"
             )
+        # An arc the referenced file itself authors goes with the reference the edit layer holds, so only arcs of the
+        # stage's own layer stack count.
+        if not arc.IsIntroducedInRootLayerStack():
+            continue
         introducing = arc.GetIntroducingLayer()
         if introducing is not None and introducing.identifier != edit_layer.identifier:
             return (

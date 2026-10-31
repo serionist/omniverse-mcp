@@ -125,3 +125,41 @@ def test_a_prim_the_root_layer_defines_and_a_sublayer_overrides_goes(stage):
         stage.OverridePrim("/World/A").CreateAttribute("note", Sdf.ValueTypeNames.String).Set("theirs")
 
     assert _kept(stage, "/World/A") is None
+
+
+def _asset_with_own_arc(kind: str) -> Sdf.Layer:
+    """A file whose /Robot has a reference, a payload or an inherit of its own, the way a robot made of parts does."""
+    layer = Sdf.Layer.CreateAnonymous(f"robot_{kind}.usda")
+    held = Usd.Stage.Open(layer)
+    robot = UsdGeom.Xform.Define(held, "/Robot").GetPrim()
+    if kind == "reference":
+        robot.GetReferences().AddReference(ASSET.identifier, "/Bot")
+    elif kind == "payload":
+        robot.GetPayloads().AddPayload(ASSET.identifier, "/Bot")
+    else:
+        held.CreateClassPrim("/_class_Robot")
+        UsdGeom.Cube.Define(held, "/_class_Robot/Body")
+        robot.GetInherits().AddInherit("/_class_Robot")
+    return layer
+
+
+NESTED = {kind: _asset_with_own_arc(kind) for kind in ("reference", "payload", "inherit")}
+
+
+@pytest.mark.parametrize("kind", NESTED)
+def test_a_prim_whose_file_has_arcs_of_its_own_goes_with_its_reference(stage, kind):
+    # The file's reference, payload or inherit goes with the reference the root layer holds (round 1's M1).
+    stage.DefinePrim("/World/Robot").GetReferences().AddReference(NESTED[kind].identifier, "/Robot")
+
+    assert _kept(stage, "/World/Robot") is None
+
+
+@pytest.mark.parametrize("kind", NESTED)
+def test_a_part_a_files_own_arc_brings_names_the_stage_prim(stage, kind):
+    stage.DefinePrim("/World/Robot").GetReferences().AddReference(NESTED[kind].identifier, "/Robot")
+    child = "Body" if kind == "inherit" else "Link"
+
+    why = _kept(stage, f"/World/Robot/{child}") or ""
+
+    assert why.startswith(f"/World/Robot/{child} is not deleted: it comes through a ")
+    assert " on /World/Robot (" in why

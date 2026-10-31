@@ -119,14 +119,24 @@ class ArcNode(Protocol):
     path: Sdf.Path
 
 
+class IntroNode(Protocol):
+    """A node of the prim index graph, as far as finding the stage prim an arc hangs from needs it."""
+
+    parent: "IntroNode | None"
+    IsRootNode: Callable[[], bool]
+    GetIntroPath: Callable[[], Sdf.Path]
+
+
 class CompositionArc(Protocol):
     """What delete_prim reads of a prim's composition arc."""
 
     GetArcType: Callable[[], object]
     GetTargetNode: Callable[[], ArcNode]
+    GetIntroducingNode: Callable[[], IntroNode]
     GetIntroducingLayer: Callable[[], Sdf.Layer | None]
     GetIntroducingPrimPath: Callable[[], Sdf.Path]
     IsAncestral: Callable[[], bool]
+    IsIntroducedInRootLayerStack: Callable[[], bool]
 
 
 class _Query(Protocol):
@@ -139,6 +149,17 @@ _node_layers = attrgetter("layerStack.layers")
 def composition_arcs(prim: Usd.Prim) -> list[CompositionArc]:
     """Every arc that composes the prim, strongest first, the root arc (its own layer stack) among them."""
     return cast("_Query", Usd.PrimCompositionQuery(prim)).GetCompositionArcs()
+
+
+def stage_prim_of(arc: CompositionArc) -> Sdf.Path:
+    """The stage prim an arc hangs from. GetIntroducingPrimPath is a path inside the referenced file when a file's own
+    arc brings the prim in, so that case walks up to the node the stage's layers introduced and names its path."""
+    if arc.IsIntroducedInRootLayerStack():
+        return arc.GetIntroducingPrimPath()
+    node = arc.GetIntroducingNode()
+    while node.parent is not None and not node.parent.IsRootNode():
+        node = node.parent
+    return node.GetIntroPath()
 
 
 def node_layers(node: ArcNode) -> list[Sdf.Layer]:
