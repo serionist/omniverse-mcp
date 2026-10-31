@@ -44,7 +44,7 @@ The sources, `omni.physics.tensors` 110.4.4 (Isaac Sim 6.2), and #58's measureme
 | S1 | `create_simulation_view(frontend_name, stage_id=-1, backend="physx")`; frontends `numpy`, `torch`, `tensorflow`, `warp`. numpy can't take a GPU pipeline; warp needs `omni.warp.core`, which Kit ships | `api.py` line 13; #58's alternatives table |
 | S2 | `RigidBodyView`: a lone body or an articulation's link. `apply_forces_and_torques_at_position(force_data, torque_data, position_data, indices, is_global)`, `(count, 3)` arrays; forces only, no impulse mode; without points it pushes at the body's origin | `api.py` 3461-3533; #58 fact 4 |
 | S3 | `get_transforms()` is `(count, 7)`: x, y, z, then the quaternion qx, qy, qz, qw, in the global frame. `get_coms()` is `(count, 7)`: the centre of mass and its principal axes in the body prim's frame | `api.py` 3287-3313, 3584-3615 |
-| S4 | `create_rigid_body_view(pattern)` matches globs per path component; a USD prim name holds no glob character, so a prim's own path matches it alone (#58's E9: one row for `/World/G1/pelvis`) | `api.py` 287 |
+| S4 | `create_rigid_body_view(pattern)` matches globs per path component; a USD prim name holds no glob character, so a prim's own path matches it alone (#58's E9: one row for `/World/G1/pelvis`). Not quite, as the code review's F2 found: a plain last component matches at any depth under its parent (`/physics/tensors/recursiveLeafPatternMatch`, on by default), so `/World/Cube` matches `/World/Table/Cube` too | `api.py` 287 |
 | S5 | A force lasts one physics step (E3); an impulse as impulse / dt for one step is exact (E2); a push while paused lands on the next step (E4); a view of our own per push, invalidated straight after, costs 0.016 ms and leaves Isaac Sim's own view valid (E5) | #58's E2 to E5 |
 | S6 | Under the Direct GPU API the tensor push lands: +10 N s on a lone cube and on a link, +0.16667 for a 10 N force over one step (E8) | #58's E8 |
 | S7 | Isaac Sim's `SimulationManager` makes a warp view at play and drops it at stop; `set_device("cuda:N")` turns on GPU dynamics and `suppressReadback` | #58 fact 7 |
@@ -93,7 +93,7 @@ scene. The code review's F1 (`docs/reviews/2026-10-31-gpu-apply-force-code.md`) 
 
 - `refusal(...)` loses `direct_gpu`; a new `gpu_unavailable: str | None` refuses with that reason, naming #68, when the
   tensor path can't run (no `omni.physics.tensors`, no warp). Under the Direct GPU API the `held` fact comes from the
-  view's count instead of the pose.
+  view's `prim_paths` instead of the pose.
 - `one_step_force(force, impulse, dt) -> Vec3`: the force as given, or the impulse over one step, `force / dt`; a
   ValueError for a step that isn't a positive finite number.
 - `tensor_centre_of_mass(transform7, com7) -> Vec3`: the world point of the centre of mass from the two rows (S3), by
@@ -113,13 +113,16 @@ the timeline, the body's own attributes and the stage's fixed joints:
 1. Import `omni.physics.tensors` and `warp`; either missing refuses with the reason (Q3). Read the step,
    `step_seconds(stage)`, here, before any tensor call: a ValueError from it answers "the physics scene's step
    can't be used: <why>", not as PhysX's.
-2. `create_simulation_view("warp", stage_id)`, then `create_rigid_body_view(prim_path)`. A view whose count isn't 1,
-   or whose `prim_paths[0]` isn't the prim, refuses as "PhysX holds no rigid body", as today's pose check does.
-3. The point: the given one, or `tensor_centre_of_mass` from `get_transforms` and `get_coms`, both read to the host
-   (`.numpy()`): `get_coms` lives on the parameters' device, the CPU, and `get_transforms` on the simulation's.
+2. `create_simulation_view("warp", stage_id)`, then `create_rigid_body_view(prim_path)`. A view whose `prim_paths`
+   lack the prim refuses as "PhysX holds no rigid body", as today's pose check does; otherwise the prim's row is its
+   place in `prim_paths`. The view may hold more than the prim (S4), so after the code review's F2 a view of more
+   rows is no longer refused.
+3. The point: the given one, or `tensor_centre_of_mass` from the prim's row of `get_transforms` and `get_coms`, both
+   read to the host (`.numpy()`): `get_coms` lives on the parameters' device, the CPU, and `get_transforms` on the
+   simulation's.
 4. The force: `one_step_force` with step 1's step.
 5. `apply_forces_and_torques_at_position(force, None, point, indices, is_global=True)`: the force and the point as
-   `(1, 3)` float32 and the indices `[0]` as uint32, made on `view.device`.
+   `(count, 3)` float32, zero but the prim's row, and the indices `[row]` as uint32, made on `view.device`.
 6. `invalidate()` on the view in a `finally`, as E5 measured harmless.
 
 The tensor API raises a bare `Exception` ("Failed to create simulation view", "Failed to get rigid body transforms",

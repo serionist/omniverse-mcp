@@ -10,6 +10,7 @@ import asyncio
 import importlib.util
 import math
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -26,6 +27,10 @@ SUPPRESS = "/physics/suppressReadback"
 HALF = math.sqrt(0.5)
 BOX = "/World/Box"
 SCENE = "/World/PhysicsScene"
+# The box's two rows in the tensor API, as #68's probe read its cube: at (-15, 0, 5), turned 90 degrees about Z, its
+# centre of mass 0.1 along its own X, so at (-15, 0.1, 5) in the world.
+TRANSFORM = [-15.0, 0.0, 5.0, 0.0, 0.0, HALF, HALF]
+COM = [0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
 
 
 class Float3(tuple):
@@ -52,18 +57,30 @@ class FakeRows:
         return np.array(self._rows, np.float32)
 
 
+def _matched(pattern: str, bodies: Iterable[str]) -> list[str]:
+    """What omni.physics.tensors 110.4's create_rigid_body_view matches for a prim's own path, with
+    /physics/tensors/recursiveLeafPatternMatch on, its default: the path, and a body of the same name at any depth
+    under its parent, but none inside a match."""
+    parent, name = pattern.rsplit("/", 1)
+    return [
+        path
+        for path in bodies
+        if path == pattern
+        or (path.startswith(f"{parent}/") and path.rsplit("/", 1)[1] == name and not path.startswith(f"{pattern}/"))
+    ]
+
+
 class FakeBodyView:
     def __init__(self, kit: "FakeKit", pattern: str) -> None:
         self.kit = kit
-        matched = [pattern] if pattern in kit.tensor_bodies else []
-        self.count = kit.view_count if kit.view_count is not None else len(matched)
-        self.prim_paths = kit.view_paths if kit.view_paths is not None else matched
+        self.prim_paths = kit.view_paths if kit.view_paths is not None else _matched(pattern, kit.tensor_bodies)
+        self.count = len(self.prim_paths)
 
     def get_transforms(self) -> FakeRows:
-        return FakeRows(self.kit.transform7)
+        return FakeRows([self.kit.tensor_bodies[path][0] for path in self.prim_paths])
 
     def get_coms(self) -> FakeRows:
-        return FakeRows(self.kit.com7)
+        return FakeRows([self.kit.tensor_bodies[path][1] for path in self.prim_paths])
 
     def apply_forces_and_torques_at_position(self, forces, torques, points, indices, is_global) -> bool:
         if self.kit.push_raises:
@@ -108,12 +125,10 @@ class FakeKit:
         self.mass_information = {"mass": 5.0, "com": (0.0, 0.0, 0.25)}
         self.physx_pushes: list[tuple[Any, ...]] = []
         self.physx_push_raises = False
-        # The tensor path's PhysX: the bodies it holds, the rows it reports, and the views and pushes made.
-        self.tensor_bodies = [BOX]
-        self.view_count: int | None = None
+        # The tensor path's PhysX: the bodies it holds, each with its two rows, get_transforms' and get_coms', what a
+        # view holds when a test says so in place of what its pattern matches, and the views and pushes made.
+        self.tensor_bodies: dict[str, tuple[list[float], list[float]]] = {BOX: (TRANSFORM, COM)}
         self.view_paths: list[str] | None = None
-        self.transform7 = [[-15.0, 0.0, 5.0, 0.0, 0.0, HALF, HALF]]
-        self.com7 = [[0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]]
         self.views: list[FakeSimView] = []
         self.view_frontends: list[tuple[str, int]] = []
         self.view_raises = False
@@ -416,9 +431,32 @@ def test_the_view_is_invalidated_after_a_push(simulation, kit):
     assert [v.invalidated for v in kit.views] == [1]
 
 
-def test_a_view_of_the_wrong_count_is_a_body_physx_doesnt_hold(simulation, kit):
-    kit.view_count = 2
-    kit.view_paths = [BOX, "/World/Other"]
+TWIN = "/World/Table/Box"
+TWIN_ROWS = ([3.0, 3.0, 3.0, 0.0, 0.0, 0.0, 1.0], [0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+
+
+@pytest.mark.parametrize("position", [None, [1.0, 2.0, 3.0]])
+def test_a_body_whose_name_repeats_deeper_under_its_parent_is_pushed_alone_on_its_own_row(simulation, kit, position):
+    # The view of /World/Box holds /World/Table/Box as well, its twin first, so the box is row 1 of 2.
+    kit.add_body(TWIN)
+    kit.tensor_bodies = {TWIN: TWIN_ROWS, BOX: (TRANSFORM, COM)}
+    r = _push(simulation, position=position)
+    assert r["status"] == "success", r
+    point = [-15.0, 0.1, 5.0] if position is None else position
+    assert r["result"]["position"] == pytest.approx(point, abs=1e-6)
+    ((forces, _, points, indices, _),) = kit.tensor_pushes
+    assert forces.data.shape == points.data.shape == (2, 3)
+    assert forces.data.tolist() == [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]]
+    assert points.data[0].tolist() == [0.0, 0.0, 0.0]
+    assert points.data[1].tolist() == pytest.approx(point, abs=1e-6)
+    assert indices.data.tolist() == [1]
+    assert indices.data.dtype == np.uint32
+    assert (forces.dtype, points.dtype, indices.dtype) == ("float32", "float32", "uint32")
+
+
+def test_a_view_of_only_a_twin_is_a_body_physx_doesnt_hold(simulation, kit):
+    kit.add_body(TWIN)
+    kit.tensor_bodies = {TWIN: TWIN_ROWS}
     r = _push(simulation)
     assert r["status"] == "error"
     assert r["error"].startswith("PhysX holds no rigid body at /World/Box")
@@ -427,14 +465,20 @@ def test_a_view_of_the_wrong_count_is_a_body_physx_doesnt_hold(simulation, kit):
 
 
 def test_a_view_of_another_prim_is_a_body_physx_doesnt_hold(simulation, kit):
-    kit.view_count = 1
     kit.view_paths = ["/World/Other"]
     assert _push(simulation)["error"].startswith("PhysX holds no rigid body at /World/Box")
 
 
 def test_a_view_of_no_body_is_a_body_physx_doesnt_hold(simulation, kit):
-    kit.tensor_bodies = []
+    kit.tensor_bodies = {}
     assert _push(simulation)["error"].startswith("PhysX holds no rigid body at /World/Box")
+
+
+def test_the_fake_view_matches_as_the_tensor_api_does():
+    # The fake's own rule, which the tests above lean on: the path itself, the same name deeper under its parent, but
+    # not inside a match.
+    bodies = [BOX, TWIN, "/World/Box/Box", "/World/Boxes", "/Other/Box", "/World/Table/Box2"]
+    assert _matched(BOX, bodies) == [BOX, TWIN]
 
 
 def test_view_creation_that_raises_is_answered_and_logged(simulation, kit):
@@ -468,7 +512,7 @@ def test_a_push_that_raises_is_answered_and_the_view_invalidated_after_it(simula
 
 
 def test_a_slip_in_the_rows_is_answered_and_logged_with_its_traceback(simulation, kit):
-    kit.com7 = [[0.0, 0.0, 0.0]]  # not the 7 numbers a row holds
+    kit.tensor_bodies[BOX] = (TRANSFORM, [0.0, 0.0, 0.0])  # not the 7 numbers a row holds
     r = _push(simulation)
     assert r["status"] == "error"
     assert r["error"].startswith("PhysX's tensor API could not push /World/Box:")

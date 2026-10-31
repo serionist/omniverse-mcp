@@ -346,26 +346,36 @@ def _push_with_tensors(args, stage, prim, stopped: bool) -> dict:
     try:
         view = tensors.create_simulation_view("warp", omni.usd.get_context().get_stage_id())
         bodies = view.create_rigid_body_view(args.prim_path)
-        if bodies.count != 1 or list(bodies.prim_paths) != [args.prim_path]:
+        # The prim's own path can match more than the prim: the view takes a plain last name at any depth under its
+        # parent (/physics/tensors/recursiveLeafPatternMatch, on by default in omni.physics.tensors 110.4), so
+        # /World/Cube brings /World/Table/Cube with it. The body is its own row of the view, and only that row moves.
+        paths = list(bodies.prim_paths)
+        if args.prim_path not in paths:
             not_held = refusal(
                 args.prim_path, stopped=False, gpu_unavailable=None, enabled=True, kinematic=False, held=False
             )
             return {"status": "error", "error": not_held}
+        count, row = bodies.count, paths.index(args.prim_path)
 
         if args.position is not None:
             point, at = args.position, AT_GIVEN
         else:
             # Both rows to the host: get_coms lives on the parameters' device, the CPU, and get_transforms on the
             # simulation's.
-            transform = bodies.get_transforms().numpy().reshape(1, 7)[0]
-            com = bodies.get_coms().numpy().reshape(1, 7)[0]
+            transform = bodies.get_transforms().numpy().reshape(count, 7)[row]
+            com = bodies.get_coms().numpy().reshape(count, 7)[row]
             point, at = tensor_centre_of_mass(transform.tolist(), com.tolist()), AT_CENTRE_OF_MASS
 
+        # A row for each body of the view, as the call takes them, zero but the body's; the indices name its row alone.
+        force_rows = np.zeros((count, 3), np.float32)
+        force_rows[row] = force
+        point_rows = np.zeros((count, 3), np.float32)
+        point_rows[row] = point
         # The push's arrays on the view's own device, the indices as uint32 (what E14 measured).
         device = view.device
-        forces = wp.array(np.array([force], np.float32), dtype=wp.float32, device=device)
-        points = wp.array(np.array([point], np.float32), dtype=wp.float32, device=device)
-        indices = wp.array(np.array([0], np.uint32), dtype=wp.uint32, device=device)
+        forces = wp.array(force_rows, dtype=wp.float32, device=device)
+        points = wp.array(point_rows, dtype=wp.float32, device=device)
+        indices = wp.array(np.array([row], np.uint32), dtype=wp.uint32, device=device)
         bodies.apply_forces_and_torques_at_position(forces, None, points, indices, True)
     except Exception as e:
         # The tensor API raises a bare Exception for each of its failures, so nothing narrower catches them; the same
