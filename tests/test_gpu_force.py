@@ -15,6 +15,7 @@ and each push skips unless the third passed. Momentum is read through a tensor v
 read it, and not through PhysX's pose calls: with readback suppressed, PhysX doesn't copy the GPU's state back for them.
 """
 
+import time
 import unittest
 from typing import Any
 
@@ -92,9 +93,9 @@ SimulationManager.set_device("cpu")
 result = True
 """
 
-# The bodies PATHS names, set before it, through a tensor view of our own: their total linear momentum, their largest
-# angular speed, and each one's origin. With no contact and gravity off, a push of J N s changes a body's momentum, or
-# a free articulation's, by exactly J, wherever it lands: #58's measure and #68's probe's.
+# The bodies PATHS names, set before it, through a tensor view of our own: their total linear momentum, each one's,
+# their largest angular speed, and each one's origin. With no contact and gravity off, a push of J N s changes a body's
+# momentum, or a free articulation's, by exactly J, wherever it lands: #58's measure and #68's probe's.
 STATE = """
 import numpy as np
 import omni.usd
@@ -108,9 +109,11 @@ try:
     velocity = bodies.get_velocities().numpy().reshape(n, 6)
     mass = bodies.get_masses().numpy().reshape(n, 1)
     pose = bodies.get_transforms().numpy().reshape(n, 7)
+    momentum = mass * velocity[:, :3]
     result = {
         "paths": paths,
-        "momentum": [float(v) for v in (mass * velocity[:, :3]).sum(0)],
+        "momentum": [float(v) for v in momentum.sum(0)],
+        "each": {path: [float(v) for v in momentum[i]] for i, path in enumerate(paths)},
         "spin": float(np.abs(velocity[:, 3:]).max()) if n else 0.0,
         "origin": {path: [float(v) for v in pose[i, :3]] for i, path in enumerate(paths)},
     }
@@ -377,6 +380,72 @@ class TestGpuForce(PhysicsChecks):
             "first",
         )
         self.assertLess(abs(change[1]) + abs(change[2]), expected * 0.02)
+
+    # ----- a body whose name repeats deeper under its parent -----
+
+    def _twins(self) -> tuple[str, str]:
+        """Two 5 kg cubes of their own, both named Cube: one under /World/GpuTwin, the other deeper, under its
+        Shelf, a plain Xform. The tensor API's view of the first holds the second too, as it matches a plain last name
+        at any depth under the parent. Gravity is off and they sit 2 apart, away from the scene, so only a push moves
+        them. Deleted after, the simulation stopped first."""
+        root = "/World/GpuTwin"
+        outer, twin = f"{root}/Cube", f"{root}/Shelf/Cube"
+        position = [-50.0, 0.0, 0.0]
+        position[self._up_axis()] = 5.0
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+        self.addCleanup(self.c.delete_prim, root)
+        self.addCleanup(self.c.sim_control, "stop")
+        r = self.c.execute(
+            "from pxr import PhysxSchema\n"
+            "stage = omni.usd.get_context().get_stage()\n"
+            f"UsdGeom.Xform.Define(stage, {root!r})\n"
+            f"UsdGeom.Xform.Define(stage, {root + '/Shelf'!r})\n"
+            f"x, y, z = {position!r}\n"
+            f"for path, dx in (({outer!r}, 0.0), ({twin!r}, 2.0)):\n"
+            "    cube = UsdGeom.Cube.Define(stage, path)\n"
+            "    cube.CreateSizeAttr(0.3)\n"
+            "    UsdGeom.XformCommonAPI(cube).SetTranslate(Gf.Vec3d(x + dx, y, z))\n"
+            "    UsdPhysics.RigidBodyAPI.Apply(cube.GetPrim())\n"
+            "    UsdPhysics.CollisionAPI.Apply(cube.GetPrim())\n"
+            "    UsdPhysics.MassAPI.Apply(cube.GetPrim()).CreateMassAttr(5.0)\n"
+            "    PhysxSchema.PhysxRigidBodyAPI.Apply(cube.GetPrim()).CreateDisableGravityAttr(True)\n"
+            "result = 'ok'"
+        )
+        self.assertEqual(r["status"], "success", r)
+        return outer, twin
+
+    def test_16_a_body_whose_name_repeats_deeper_under_its_parent_is_pushed_alone(self) -> None:
+        # The handler's view of the body holds its twin as well, and only the body's own row may move.
+        self._switched()
+        outer, twin = self._twins()
+        read = f"PATHS = {[outer]!r}\n" + STATE  # the view the handler makes, of the body's path alone
+        self.assertEqual(self.c.sim_control("play")["status"], "success")
+        before = self._kit(read)
+        self.assertEqual(
+            sorted(before["paths"]),
+            sorted([outer, twin]),
+            f"the tensor API's view of {outer} holds {before['paths']}, not it and its twin {twin}, so this test "
+            "doesn't reach a view that holds both",
+        )
+        r = self.c.apply_force(outer, force=[IMPULSE, 0.0, 0.0], impulse=True)
+        self.assertEqual(r["status"], "success", r)
+        self.assertEqual(r["result"]["method"], "tensor", r)
+        self._run_frames(FRAMES)
+        after = self._kit(read)
+        moved = {
+            path: [a - b for a, b in zip(after["each"][path], before["each"][path], strict=True)]
+            for path in (outer, twin)
+        }
+        print(f"  impulse {IMPULSE:g} on {outer}: its momentum change {moved[outer]}, its twin's {moved[twin]}")
+        what_moved = f"{outer}'s momentum changed by {moved[outer]} and its twin {twin}'s by {moved[twin]}"
+        self.assertAlmostEqual(moved[outer][0], IMPULSE, delta=IMPULSE * 0.02, msg=what_moved)
+        self.assertLess(abs(moved[outer][1]) + abs(moved[outer][2]), IMPULSE * 0.02, what_moved)
+        self.assertLess(
+            max(abs(v) for v in moved[twin]),
+            IMPULSE * 0.01,
+            f"the push on {outer} moved its twin: {what_moved}",
+        )
 
 
 if __name__ == "__main__":
