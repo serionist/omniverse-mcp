@@ -209,8 +209,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         target defaults to the world origin. To frame a prim by its path, use look_at_prim; to capture from another
         camera without moving the viewport, capture_viewport's camera_path. It moves whichever camera the viewport
-        looks through, a scene camera included, and the user sees the move. Aiming needs Isaac Sim: other Kit apps
-        only move the camera, without aiming it. An error when position is the point it would look at.
+        looks through, a scene camera included, and the user sees the move. An error when position is the point it
+        would look at.
         """
         looked_at = target if target is not None else [0.0, 0.0, 0.0]
         if [float(p) for p in position] == [float(t) for t in looked_at]:
@@ -245,8 +245,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Use it to see one prim: set_camera places the camera at coordinates, and inspect_prim captures a prim from up
         to 14 sides in one call; capture_viewport then takes the picture. It moves whichever camera the viewport looks
-        through, and the user sees the move. Aiming needs Isaac Sim: other Kit apps only move the camera, without
-        aiming it. An error when the prim doesn't exist.
+        through, and the user sees the move. An error when the prim doesn't exist.
         """
         resp = bridge_call(client.camera_look_at, prim_path, distance, azimuth, elevation)
         r = resp["result"]
