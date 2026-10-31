@@ -1,9 +1,11 @@
 """Simulation and physics tools."""
 
+import math
 from importlib.metadata import version
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import Field
 
 from omniverse_mcp.client import BridgeClient
@@ -20,6 +22,17 @@ if TYPE_CHECKING:
 def _rounded(values: list[float]) -> list[float]:
     """A vector as the model reads it: a centre of mass from PhysX carries float32 noise past the fourth place."""
     return [round(v, 4) for v in values]
+
+
+def _unit(direction: list[float]) -> list[float]:
+    """direction scaled to length 1, as raycast_closest's unit_dir asks. Isaac Sim 6.2's PhysX scales it itself (#82's
+    E6); other builds are untried, and a zero one has no direction to cast along."""
+    if len(direction) != 3:
+        raise ToolError(f"direction must be [dx, dy, dz], got {direction}")
+    length = math.sqrt(sum(float(d) * float(d) for d in direction))
+    if length == 0:
+        raise ToolError("direction is [0, 0, 0]: give the way the ray goes, of any length but zero")
+    return [float(d) / length for d in direction]
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
@@ -139,19 +152,19 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         origin: Annotated[list[float], Field(description="[x, y, z] start point in world space")],
         direction: Annotated[
             list[float],
-            Field(description="[dx, dy, dz] direction in world space, a unit vector: PhysX takes it as given"),
+            Field(description="[dx, dy, dz] direction in world space, of any length but zero"),
         ],
         max_distance: Annotated[float, Field(gt=0, description="The longest the ray goes, in stage units")] = 1000.0,
     ) -> str:
         """Cast a ray through PhysX and return the closest collider it hits: its prim, the hit point, the surface
-        normal and the distance, or "No hit".
+        normal and the distance in stage units, or "No hit".
 
         Use it to find what lies along a line, such as the ground under a point or what a robot faces; get_prim_bounds
         measures a prim you already know. Only colliders (the Collision API, which create_prim's enable_physics adds)
         are hit, not plain meshes. PhysX needs to know the scene: play or step the simulation once first, or it may
         find nothing, or fail. The prim named is the rigid body hit, or a static collider itself.
         """
-        resp = bridge_call(client.raycast, origin, direction, max_distance)
+        resp = bridge_call(client.raycast, origin, _unit(direction), max_distance)
         r = resp["result"]
         if not r["hit"]:
             return "No hit"
@@ -159,7 +172,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             f"Hit: {r.get('prim_path', 'unknown')}",
             f"Position: {r['position'][0]:.4f}, {r['position'][1]:.4f}, {r['position'][2]:.4f}",
             f"Normal: {r['normal'][0]:.4f}, {r['normal'][1]:.4f}, {r['normal'][2]:.4f}",
-            f"Distance: {r['distance']:.4f}m",
+            f"Distance: {r['distance']:.4f} stage units",
         ]
         return "\n".join(lines)
 

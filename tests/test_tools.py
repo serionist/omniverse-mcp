@@ -361,7 +361,7 @@ CASES = [
         "/camera/look_at",
         {"camera_position": [3, 2, 3], "target": [0, 0, 0], "distance": 5.0, "azimuth": 45.0, "elevation": 30.0},
         {"prim_path": "/World/Cube", "distance": 5.0},
-        ("Distance: 5.0m, Azimuth: 45.0deg, Elevation: 30.0deg",),
+        ("Distance: 5.0 stage units, Azimuth: 45.0deg, Elevation: 30.0deg",),
     ),
     Case(
         "inspect_prim",
@@ -374,7 +374,7 @@ CASES = [
             "captures": [{"angle": "front", "image_base64": PNG}, {"angle": "top", "error": "invented failure"}],
         },
         {"prim_path": "/World/Cube", "angles": ["front", "top"], "zoom_offset": -0.3},
-        ("Inspect /World/Cube (dist=2.5m, zoom_offset=-0.3)", "top: ERROR invented failure"),
+        ("Inspect /World/Cube (dist=2.5 stage units, zoom_offset=-0.3)", "top: ERROR invented failure"),
     ),
     Case(
         "viewport_light",
@@ -437,7 +437,7 @@ CASES = [
         "/physics/raycast",
         {"hit": True, "prim_path": "/World/Ground", "position": [0, 0, 0], "normal": [0, 0, 1], "distance": 5.0},
         {"origin": [0, 0, 5], "direction": [0, 0, -1], "max_distance": 1000.0},
-        ("Hit: /World/Ground", "Distance: 5.0000m"),
+        ("Hit: /World/Ground", "Distance: 5.0000 stage units"),
     ),
     Case(
         "draw_debug",
@@ -869,3 +869,80 @@ def test_start_recording_on_an_older_extension_warns_of_nothing_without_a_camera
     assert text.startswith("Recording rec_1 at 5fps -> ")
     assert "WARNING" not in text
     assert "Renders into" not in text  # an older extension renders into nothing of its own
+
+
+def _call(bridge: MockIsaacServer, tmp_path: Path, tool: str, args: dict[str, Any]) -> tuple[bool, str, list]:
+    """Calls a tool: whether it erred, its text, and the requests it made beside the handshake."""
+    bridge.requests.clear()
+    client = BridgeClient(port=bridge.port, token="invented-test-token")
+    try:
+
+        async def call():
+            async with Client(create_server("127.0.0.1", bridge.port, str(tmp_path), client=client)) as c:
+                return await c.call_tool(tool, args)
+
+        result = asyncio.run(call())
+    finally:
+        client.close()
+    text = "\n".join(getattr(c, "text", "") for c in result.content)
+    return bool(result.is_error), text, [(path, body) for _, path, body in bridge.requests if path != "/bridge"]
+
+
+@pytest.mark.parametrize(
+    ("args", "says"),
+    [
+        ({"position": [1, 2, 3], "target": [1.0, 2.0, 3.0]}, "is the target"),
+        ({"position": [0, 0, 0]}, "is the world origin, which it looks at without a target"),
+    ],
+)
+def test_set_camera_refuses_a_position_on_the_point_it_looks_at(
+    args: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    # Isaac Sim's call turns the camera all the same, with nothing to aim at, and answered success (#82).
+    erred, text, calls = _call(bridge, tmp_path, "set_camera", args)
+    assert erred
+    assert says in text
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "session_dir",
+    [r"C:\Users\me\rec_1", r"\\host\share\rec_1", "/home/me/rec_1", "C:/Users/me/rec_1"],
+)
+def test_get_recording_frame_sends_an_absolute_session_dir_as_given(
+    session_dir: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    # Rooted in either OS's form: a Kit app on another OS keeps its own paths.
+    bridge.set_response("/recording/frame", {"status": "success", "result": {"frame_index": 0, "image_base64": PNG}})
+    erred, text, calls = _call(bridge, tmp_path, "get_recording_frame", {"session_dir": session_dir})
+    assert not erred, text
+    assert calls[0][1]["session_dir"] == session_dir
+
+
+def test_get_recording_frame_reads_a_relative_session_dir_from_the_servers_folder(
+    bridge: MockIsaacServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # start_recording and stop_recording print the folder relative to the server's working folder; Kit read it
+    # from its own and answered "Frame not found" (#82).
+    monkeypatch.chdir(tmp_path)
+    bridge.set_response("/recording/frame", {"status": "success", "result": {"frame_index": 0, "image_base64": PNG}})
+    erred, text, calls = _call(bridge, tmp_path, "get_recording_frame", {"session_dir": "mcp_output/recordings/rec_1"})
+    assert not erred, text
+    assert Path(calls[0][1]["session_dir"]) == tmp_path / "mcp_output" / "recordings" / "rec_1"
+
+
+def test_raycast_sends_its_direction_as_a_unit_vector(bridge: MockIsaacServer, tmp_path: Path):
+    bridge.set_response("/physics/raycast", {"status": "success", "result": {"hit": False}})
+    erred, text, calls = _call(bridge, tmp_path, "raycast", {"origin": [0, 0, 5], "direction": [0, 3, -4]})
+    assert not erred, text
+    assert calls[0][1]["direction"] == pytest.approx([0, 0.6, -0.8])
+
+
+@pytest.mark.parametrize("direction", [[0, 0, 0], [0, 0, -1, 0]])
+def test_raycast_refuses_a_direction_it_cant_cast_along(
+    direction: list[float], bridge: MockIsaacServer, tmp_path: Path
+):
+    erred, text, calls = _call(bridge, tmp_path, "raycast", {"origin": [0, 0, 5], "direction": direction})
+    assert erred
+    assert "direction" in text
+    assert calls == []
