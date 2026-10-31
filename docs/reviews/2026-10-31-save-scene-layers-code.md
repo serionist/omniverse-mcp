@@ -84,3 +84,10 @@ Not shown: other Kit apps, such as USD Composer, the Isaac Sim GUI, and paths on
   tests in `test_layers.py` and the handler's own-file test), the used-layer exclusion from the unsaved-edits check (1
   test in each file), the anonymous-root check (1 test for each caller). Against `origin/main`'s `handlers/scene.py`, 3
   of the 5 handler tests fail: the sublayer refusal, the read-again and the held layer with unsaved edits.
+- **CI on `87e62cb`:** one leg failed, Windows with Python 3.14. The handler's own-file test raised Boost.Python's
+  `ArgumentError` reading `realPath` of an expired `Sdf.Layer`. `GetLoadedLayers()` gives weak handles, and the
+  garbage collector freed an earlier test's stage during the walk. Kit can meet the same in all three tools,
+  `flatten_usd` and `export_prim_as_file` since #81. Fixed in `adfdf75`: each read of a held layer is guarded, and
+  a layer gone since it was listed is passed over, never refused. Two deterministic tests feed expired handles into
+  the walk; the first fails with CI's error against the old `layers.py`. The gate passed on `adfdf75`: 1283 passed,
+  and the whole suite on Python 3.14 too.
