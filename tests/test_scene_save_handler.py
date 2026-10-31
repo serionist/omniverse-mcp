@@ -70,8 +70,8 @@ def handler(stage: Usd.Stage, monkeypatch: pytest.MonkeyPatch) -> Any:
         "handlers_under_test": _module("handlers_under_test", __path__=[]),
         "handlers_under_test._utils": _module(
             "handlers_under_test._utils",
-            _apply_xform=None,
             _compute_mesh_stats=None,
+            _first_missing=None,
             _get_stage=lambda: stage,
             _next_update=next_update,
             _serialize_value=None,
