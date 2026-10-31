@@ -5,6 +5,15 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+## 0.3.0 (2026-11-01)
+
+Four pairs of tools that did one job merge, 42 tools to 38: `look_at_prim`, `get_joint_states`,
+`get_prim_face_count_tree` and `dump_scene` are now `set_camera`, `get_robot_info`, `get_mesh_stats` and
+`get_scene_tree` (Breaking changes, below). Twelve tools now do what their answers say, `apply_force` pushes under
+PhysX's Direct GPU API, `save_scene` no longer writes over another file the stage has loaded, and captures give no box
+to a prim behind the camera. Most of it is in the Kit extension: run `uvx omniverse-mcp==0.3.0 extension install`
+(the plugin's `/omniverse-mcp:setup` does it) and restart Kit.
+
 ### Breaking changes
 
 - **Four pairs of tools that did one job are one tool each, 42 tools to 38,** so an agent no longer chooses between
