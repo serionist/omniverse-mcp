@@ -75,6 +75,9 @@ machine, as some write a file for Kit to read, or read one Kit wrote. CI never r
 changes the extension, the client or a tool says whether they ran and on which Kit app. Without a Kit app, say so
 in the PR.
 
+Kit has hung inside NVIDIA's code during these suites (#54). A call that times out while `/health` gets no answer
+either ends the run there, with the command for a thread dump: take it before you end Kit, and add it to #54.
+
 ### Adding a tool
 
 A tool touches these places. Its name, parameters and hints are a contract clients depend on (AGENTS.md, One-way

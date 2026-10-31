@@ -3,10 +3,13 @@
 
 import os
 import sys
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from omniverse_mcp.client import BridgeClient, BridgeError
 from omniverse_mcp.config import parse_args
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +27,82 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     for item in items:
         if item.get_closest_marker("sim") or item.get_closest_marker("scenario"):
             item.add_marker(skip)
+
+
+# How long /health may take when a live call has timed out, before Kit counts as hung: a handler that runs long on
+# Kit's loop holds /health back too, so it gets twice the scenarios' usual timeout.
+PROBE_SECONDS = 20.0
+Request = Callable[..., dict[str, Any]]
+# BridgeClient.request as the client defines it, before the session's guard wraps it.
+UNGUARDED: Request = BridgeClient.request
+
+
+def health_answers(request: Request, host: str, port: int) -> bool:
+    """Whether the bridge at host:port answers /health within PROBE_SECONDS, through request, the unwrapped
+    BridgeClient.request."""
+    probe = BridgeClient(host=host, port=port, timeout=PROBE_SECONDS)
+    try:
+        return request(probe, "/health", {}, "GET").get("status") == "success"
+    except BridgeError:
+        return True  # a refused token is an answer: Kit is running, perhaps restarted with another token
+    except OSError:
+        return False
+    finally:
+        probe.close()
+
+
+class HungKit:
+    """A Kit that stopped answering ends a live run at its first timeout (#54). Kit has hung inside NVIDIA's code
+    during the live suites, and each later call and cleanup then waited out its own timeout, about an hour for a run.
+    A call that times out only counts when /health gets no answer either, so a slow call still fails only its test."""
+
+    def __init__(self, answers: Callable[[Request, str, int], bool] = health_answers) -> None:
+        self.answers = answers
+        self.live = False  # while a live test's setup, call or teardown runs
+        self.why = ""
+
+    def guard(self, request: Request) -> Request:
+        """request wrapped: once Kit counts as hung, each live call fails at once."""
+
+        def guarded(client: BridgeClient, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            if self.live and self.why:
+                raise TimeoutError(self.why)
+            try:
+                return request(client, *args, **kwargs)
+            except TimeoutError:
+                if self.live and not self.answers(request, client.host, client.port):
+                    self.why = (
+                        f"Kit at {client.host}:{client.port} stopped answering: a call timed out after "
+                        f"{client.timeout:g} s and /health got no answer in {PROBE_SECONDS:g} s, so the live run stops "
+                        "here (#54). Take a thread dump before ending Kit: uvx py-spy dump --native --pid <Kit's pid>"
+                    )
+                raise
+
+        return guarded
+
+
+HUNG = HungKit()
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _stop_at_a_hung_kit() -> Iterator[None]:
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(BridgeClient, "request", HUNG.guard(UNGUARDED))
+        yield
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_protocol(item: pytest.Item, nextitem: pytest.Item | None) -> Iterator[None]:
+    HUNG.live = bool(item.get_closest_marker("sim") or item.get_closest_marker("scenario"))
+    yield
+    HUNG.live = False
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) -> Iterator[None]:
+    yield
+    if HUNG.why:
+        item.session.shouldstop = HUNG.why
 
 
 # execute_script code for the live suites: sets one of ovmcp.core.capture's limits, its time or its count of frames;
