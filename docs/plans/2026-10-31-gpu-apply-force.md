@@ -61,10 +61,31 @@ on, after #58's E1 to E11:
 | U5 | The setting true on a CPU scene, as a stage opened after a GPU device can leave it (`core/force.py`'s comment on `direct_gpu`; #58's code review): does the tensor push land, on a view whose device is the CPU? | A stage opened after `set_device("cuda:0")`, its scene on the CPU, the setting still true: the tensor push and its momentum change; `device_ordinal` |
 | U6 | The CPU pipeline after the probe's `set_device("cpu")`: Fabric stays on and USD write-back off (`SimulationManager.enable_fabric`, which the CPU branch doesn't undo) | Today's call on a lone cube, and the cube's pose read through USD, before and after; how much of the switch a restart alone undoes |
 
+### Live: E12 to E17
+
+Step 1's probe, 2026-10-31, on Isaac Sim 6.2.0 headless (pip, Windows, RTX 5090), a fresh Kit, #58's helpers: a
+5 kg cube with gravity off, `/World/Offset`, turned 90 degrees about Z, its centre of mass at (0.1, 0, 0) in its own
+frame; the measure is the momentum from the tensor API's velocities and masses, as in #58.
+
+| # | What | Result | So |
+|---|---|---|---|
+| E12 | U1, on the Direct GPU API (`set_device("cuda:0")`: device `cuda:0`, `suppressReadback` true, the scene's `physxScene:enableGPUDynamics` true, `updateToUsd` false) | The view of `/World/Offset`: one row, its own path. `get_transforms` (-15, 0, 5) with the quaternion (0, 0, 0.7071, 0.7071); `get_coms` (0.1, 0, 0); the centre of mass built from both, (-15, 0.1, 5), as expected | `tensor_centre_of_mass` from the two rows works there |
+| E13 | U2: the step | `physxScene:timeStepsPerSecond` 60, the scene's step 1/60 and Isaac Sim's `get_physics_dt()` 1/60 alike. 10 N s as a force of 10 / dt for one step, at the centre of mass: momentum 0 to 10.0, angular velocity 0 before and after | the impulse as one step's force is exact, and a push at the centre of mass doesn't turn the body |
+| E14 | U3: the force and the point as `(1, 3)` float32 and the indices as uint32, made on the view's device, on a view of our own invalidated after | +10.0 again (10 to 20), no turn | the handler's arrays as designed |
+| E15 | U4: GPU dynamics with readback on (`set_device("cuda:0")`, then `suppressReadback` false) | Today's call: momentum 0 to 10.0. The view's device reads `cpu` | today's call pushes there: Q4 takes today's call |
+| E16 | U5: the setting true on a CPU scene (`set_device("cpu")`, then `suppressReadback` true; `enableGPUDynamics` false) | Today's call: 0 to 10.0; the tensor push too, 10 to 20, on a view whose device is `cpu` | today's call pushes there too: under Q1 the tensor path isn't needed, and the old refusal of the setting alone goes |
+| E17 | U6: the CPU pipeline after `set_device("cpu")` | `suppressReadback` false, but `updateToUsd` and `updateVelocitiesToUsd` stay false and `omni.physx.fabric` stays on. Today's call: 0 to 10.0; 30 frames on, PhysX has the cube at x = -9.0 and USD still at -10.0 | the switch back leaves USD stale, as P1 said: the GPU test needs a Kit of its own, restarted after (Q6) |
+
+**What it settles:** today's call moves nothing only with both `suppressReadback` and GPU dynamics on (#58's E8 against
+E15 and E16). So the tensor path is taken when `/physics/suppressReadback` is true and the physics scene's
+`physxScene:enableGPUDynamics` is true, read the way the step is; every other case keeps today's call, the setting on
+its own included, which is no longer refused. Q4 and Q7 resolve that way, under Q1.
+
 ## Design
 
 ### The Kit-free core, `core/force.py`
 
+- `gpu_dynamics(stage)`: whether the stage's physics scene has `physxScene:enableGPUDynamics` true, read by name.
 - `refusal(...)` loses `direct_gpu`; a new `gpu_unavailable: str | None` refuses with that reason, naming #68, when the
   tensor path can't run (no `omni.physics.tensors`, no warp). Under the Direct GPU API the `held` fact comes from the
   view's count instead of the pose.
@@ -102,10 +123,9 @@ So the path catches `Exception` around steps 2 to 5 only, answers "PhysX's tenso
 <why>", and logs the traceback, since the same catch would hide a slip of ours in the arrays or the point; the CPU
 path's catch stays as it is.
 
-Which path a push takes: the tensor path when `/physics/suppressReadback` is true, a CPU scene included if U5 shows the
-push lands there (Q7). If U4 shows today's call moves nothing under GPU dynamics with readback on too, the condition
-becomes the scene's `physxScene:enableGPUDynamics` or the setting, read the same way as the step; otherwise GPU
-dynamics with readback keeps today's call.
+Which path a push takes (E15, E16): the tensor path when `/physics/suppressReadback` is true and the physics scene's
+`physxScene:enableGPUDynamics` is true, read by `core/force.py` the way the step is; today's call in every other
+case, the setting on a CPU scene included, which is no longer refused.
 
 The answer is today's, with `"method": "tensor"`; the CPU path keeps `"physx"`. Nothing awaits between reading the pose
 and the push, as today.
