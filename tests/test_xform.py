@@ -262,9 +262,10 @@ def test_a_singular_matrix_takes_a_position_but_no_rotation_or_scale(stage):
     prim = xf.GetPrim()
     set_local_transform(prim, scale=0)
 
-    for parts in ({"scale": 1}, {"rotation": [0, 0, 90]}):
-        with pytest.raises(ValueError, match="singular"):
-            set_local_transform(prim, **parts)
+    with pytest.raises(ValueError, match="singular"):
+        set_local_transform(prim, scale=1)
+    with pytest.raises(ValueError, match="singular"):
+        set_local_transform(prim, rotation=[0, 0, 90])
     set_local_transform(prim, position=[1, 2, 3])
     assert _value(prim, "xformOp:transform").ExtractTranslation() == Gf.Vec3d(1, 2, 3)
 
@@ -406,7 +407,8 @@ def _looks(matrix: Gf.Matrix4d, eye: Gf.Vec3d, target: Gf.Vec3d) -> float:
 
 
 def _orthonormal(matrix: Gf.Matrix4d) -> bool:
-    return _close(matrix.ExtractRotationMatrix() * matrix.ExtractRotationMatrix().GetTranspose(), Gf.Matrix3d(1), 1e-9)
+    rotation = matrix.ExtractRotationMatrix()
+    return Gf.IsClose(rotation * rotation.GetTranspose(), Gf.Matrix3d(1), 1e-9)
 
 
 @pytest.mark.parametrize("up_axis", ["Y", "Z"])
