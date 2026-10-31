@@ -47,7 +47,7 @@ before play, so pause to look at a moment in the middle.
 
 | Trap | What to do |
 |---|---|
-| `get_robot_info` says `Joint states: not read` | play or pause, not stop: they come from physics, which a stop drops |
+| `get_robot_info` says `Joint states: not read` | the line gives the reason. Stopped: play or pause, not stop, since joint states come from physics, which a stop drops. No articulation at or under the path, or a Kit app without Isaac Sim: playing doesn't help; give the robot's root, or read the joints in Isaac Sim |
 | `raycast` finds nothing | play first: it uses PhysX |
 | A stopped run loses the state you wanted | `pause`, not `stop`, to look at it |
 | Gravity along the wrong axis | the up axis from `get_sim_state`: a Y-up stage falls along -Y |
