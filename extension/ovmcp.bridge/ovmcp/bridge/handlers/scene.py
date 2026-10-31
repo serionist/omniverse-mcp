@@ -17,6 +17,7 @@ from ovmcp.core.bounds import world_bbox
 from ovmcp.core.deletion import why_kept
 from ovmcp.core.formatter import format_prim_block, format_scene_dump, format_scene_tree
 from ovmcp.core.material import ensure_material, set_surface
+from ovmcp.core.usd import prim_spec
 from ovmcp.core.xform import Parts, check_transform, check_writable, layer_name, position_of, write_transform
 
 from ._utils import (
@@ -277,9 +278,14 @@ async def handle_create_prim(body: dict) -> dict:
             "error": f"{prim_path} is already a {existing.GetTypeName()}: delete it first, or pick another path",
         }
     made = None if existing.IsValid() else _first_missing(stage, prim_path)
+    added = None
     if usd_path:
         prim = stage.DefinePrim(prim_path)
+        reference = Sdf.Reference(usd_path)
+        spec = prim_spec(stage.GetEditTarget().GetLayer(), prim.GetPath())
+        held = spec is not None and reference in spec.referenceList.GetAddedOrExplicitItems()
         prim.GetReferences().AddReference(usd_path)
+        added = None if held else reference
     else:
         prim = stage.DefinePrim(prim_path, prim_type)
 
@@ -293,7 +299,11 @@ async def handle_create_prim(body: dict) -> dict:
             # Found only once the prim exists, such as an animated op in a referenced file: what this call made goes.
             if made is not None:
                 stage.RemovePrim(made)
-            return {"status": "error", "error": f"{e}{'. Nothing was created' if made is not None else ''}"}
+            elif added is not None:
+                # A prim that was there keeps nothing of this call, or each retry would stack another reference.
+                prim.GetReferences().RemoveReference(added)
+            after = ". Nothing was created" if made is not None else ". The reference was not added" if added else ""
+            return {"status": "error", "error": f"{e}{after}"}
 
     if body.get("enable_physics", False):
         UsdPhysics.RigidBodyAPI.Apply(prim)

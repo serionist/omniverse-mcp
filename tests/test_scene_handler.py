@@ -205,6 +205,37 @@ def test_create_prim_that_refuses_once_made_takes_away_what_it_made(scene, kit):
     assert not kit.stage.GetPrimAtPath("/World/Group").IsValid()
 
 
+def test_create_prim_over_a_prim_that_was_there_keeps_no_reference_it_refused(scene, kit):
+    # Round 1's T1: only a prim the call made was taken away, so each retry stacked another reference.
+    asset = Sdf.Layer.CreateAnonymous("asset.usda")
+    held = Usd.Stage.Open(asset)
+    UsdGeom.Xform.Define(held, "/Bot").AddTranslateOp().Set(Gf.Vec3d(1, 0, 0), 1.0)
+    held.SetDefaultPrim(held.GetPrimAtPath("/Bot"))
+    kit.stage.DefinePrim("/World/Bot", "Xform")
+    body = {"prim_path": "/World/Bot", "usd_path": asset.identifier, "position": [5, 5, 5]}
+
+    for _ in range(2):
+        r = _run(scene, "handle_create_prim", **body)
+        assert r["status"] == "error"
+        assert r["error"].endswith(". The reference was not added")
+        spec = kit.stage.GetRootLayer().GetPrimAtPath("/World/Bot")
+        assert not spec.referenceList.GetAddedOrExplicitItems()
+
+
+def test_create_prim_that_refuses_keeps_a_reference_the_prim_already_held(scene, kit):
+    asset = Sdf.Layer.CreateAnonymous("asset.usda")
+    held = Usd.Stage.Open(asset)
+    UsdGeom.Xform.Define(held, "/Bot").AddTranslateOp().Set(Gf.Vec3d(1, 0, 0), 1.0)
+    held.SetDefaultPrim(held.GetPrimAtPath("/Bot"))
+    kit.stage.DefinePrim("/World/Bot", "Xform").GetReferences().AddReference(asset.identifier)
+
+    r = _run(scene, "handle_create_prim", prim_path="/World/Bot", usd_path=asset.identifier, position=[5, 5, 5])
+
+    assert r["status"] == "error"
+    assert "reference was not added" not in r["error"]
+    assert len(kit.stage.GetRootLayer().GetPrimAtPath("/World/Bot").referenceList.GetAddedOrExplicitItems()) == 1
+
+
 def test_create_prim_without_a_transform_leaves_a_prim_without_one(scene, kit):
     # A material has no transform: nothing is checked when none is given.
     r = _run(scene, "handle_create_prim", prim_path="/World/Looks/Mat", prim_type="Material")
@@ -381,3 +412,28 @@ def test_set_material_with_an_opacity_of_1_makes_a_see_through_material_opaque(s
     shader = UsdShade.Shader(kit.stage.GetPrimAtPath(shader_path))
     assert shader.GetInput("enable_opacity").Get() is False
     assert shader.GetInput("opacity_constant").Get() == 1.0
+
+
+def test_clone_prim_whose_later_copy_refuses_leaves_none_of_its_copies(scene, kit, monkeypatch):
+    # Round 1's T2. No stage on usd-core makes a copy refuse what its source took: CopySpec carries the root layer's
+    # opinions and any other layer's at the copy's path would make that path taken. So the refusal is faked, on the
+    # third copy, after two are there.
+    UsdGeom.Xform.Define(kit.stage, "/World/A").AddTranslateOp().Set(Gf.Vec3d(1, 0, 0))
+    real = scene.write_transform
+    moved: list[str] = []
+
+    def refuse_the_third(prim: Usd.Prim, parts: Any, layer: Any = None) -> None:
+        moved.append(str(prim.GetPath()))
+        if len(moved) == 2:
+            raise ValueError("held by Kit's session layer")
+        real(prim, parts, layer)
+
+    monkeypatch.setattr(scene, "write_transform", refuse_the_third)
+
+    r = _run(scene, "handle_clone_prim", source_path="/World/A", target_path="/World/Row", count=3, offset=[0, 1, 0])
+
+    assert r["status"] == "error"
+    assert r["error"] == "held by Kit's session layer. Nothing was copied"
+    assert moved == ["/World/Row_002", "/World/Row_003"]
+    for n in (1, 2, 3):
+        assert not kit.stage.GetPrimAtPath(f"/World/Row_00{n}").IsValid()

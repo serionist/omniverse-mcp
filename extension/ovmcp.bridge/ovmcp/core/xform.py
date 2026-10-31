@@ -458,9 +458,8 @@ def look_at(eye: Gf.Vec3d, target: Gf.Vec3d, up_axis: str) -> Gf.Matrix4d:
     up = _AXES["Z"] if up_axis == "Z" else _AXES["Y"]
     front = _AXES["Y"] if up_axis == "Z" else _AXES["Z"]
     along = Gf.Dot(back, up)
-    if abs(along) <= 0.999:
-        reference = up
-    else:
+    reference = up
+    if abs(along) > 0.999:
         # From above the camera's up tips away from the viewer, from below towards them.
         reference = -front if along > 0 else front
     right = Gf.Cross(reference, back).GetNormalized()
