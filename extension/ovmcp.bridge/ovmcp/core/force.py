@@ -64,8 +64,9 @@ def refusal(
     stage's joints after.
 
     A stopped timeline first: PhysX holds no bodies then, so the others say nothing. Then `gpu_unavailable`, the
-    reason the tensor API can't push under the Direct GPU API, where today's call moves nothing. Then what the prim
-    says of itself, then whether PhysX holds it.
+    reason the tensor API can't push while /physics/suppressReadback is on, where the push goes through it, since
+    apply_force_at_pos moves nothing under the Direct GPU API. Then what the prim says of itself, then whether PhysX
+    holds it.
     """
     if stopped:
         return (
@@ -109,17 +110,11 @@ def _first_scene(stage: Usd.Stage) -> Usd.Prim | None:
     return None
 
 
-def gpu_dynamics(stage: Usd.Stage) -> bool:
-    """Whether the stage's physics scene runs GPU dynamics: physxScene:enableGPUDynamics is true. Read by name, as
-    PhysxSchema is Kit's and this core imports only pxr."""
-    scene = _first_scene(stage)
-    return scene is not None and scene.GetAttribute("physxScene:enableGPUDynamics").Get() is True
-
-
 def step_seconds(stage: Usd.Stage) -> Step:
     """The length of one physics step: 1 / physxScene:timeStepsPerSecond of the stage's physics scene, the first in
-    stage order. 60 steps a second when the scene leaves it unset or the stage has no scene, as PhysX defaults. A
-    ValueError says why when the value is not a positive finite number."""
+    stage order, read by the attribute's name, as PhysxSchema is Kit's and this core imports only pxr. 60 steps a
+    second when the scene leaves it unset or the stage has no scene, as PhysX defaults. A ValueError says why when the
+    value is not a positive finite number."""
     scene = _first_scene(stage)
     if scene is None:
         return Step(1.0 / DEFAULT_STEPS_PER_SECOND, None)

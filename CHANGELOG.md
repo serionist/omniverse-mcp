@@ -60,10 +60,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   its middle, though the image couldn't show it. A prim across the camera's plane is boxed by its part in front. The
   fix is in the Kit extension (#90).
 - **`apply_force` pushes under PhysX's Direct GPU API,** which Isaac Sim turns on for a GPU device
-  (`SimulationManager.set_device("cuda:0")`), where it was refused: PhysX's own push moves nothing there, so the call
-  goes through PhysX's tensor API, with the same refusals, and its answer says `method: tensor`. A push with
-  `/physics/suppressReadback` on a scene without GPU dynamics is no longer refused either, as PhysX's own push moves
-  the body there. The fix is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#68).
+  (`SimulationManager.set_device("cuda:0")`), where it was refused: PhysX's own push moves nothing there, so whenever
+  `/physics/suppressReadback` is on the call goes through PhysX's tensor API, with the same refusals, and its answer
+  says `method: tensor`. That takes in a scene on the CPU with the setting on, which was refused too. The fix is in the
+  Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#68).
 
 ### Changed
 

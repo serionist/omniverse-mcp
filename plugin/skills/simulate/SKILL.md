@@ -31,9 +31,9 @@ before play, so pause to look at a moment in the middle.
    acts at once, a force for one physics step, so a sustained push is an impulse of force times seconds. A push on
    a robot's link moves the robot through its joints: a floating robot touching nothing by the impulse over its whole
    mass, while a fixed robot's link turns about its joints and friction on the ground takes some of the push. A body
-   a fixed joint holds to the world, such as a fixed robot's base, is refused. On Isaac Sim's GPU device, PhysX's
-   Direct GPU API, the push goes through PhysX's tensor API and its answer says `method: tensor`. `raycast` needs the
-   simulation to have played.
+   a fixed joint holds to the world, such as a fixed robot's base, is refused. With `/physics/suppressReadback` on,
+   as Isaac Sim's GPU device sets it for PhysX's Direct GPU API, the push goes through PhysX's tensor API and its
+   answer says `method: tensor`. `raycast` needs the simulation to have played.
 5. **Record what happens.** `start_recording` with `track_prims`, play, then `stop_recording`: each frame's image and
    the tracked prims' state land in `mcp_output/recordings/<session>/`. `get_recording_frame` reads one frame back.
    Frames come from `camera_path` (the viewport's camera when empty) at `width` x `height`, 640x480 unless given,

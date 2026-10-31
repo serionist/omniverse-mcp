@@ -77,15 +77,20 @@ frame; the measure is the momentum from the tensor API's velocities and masses, 
 | E17 | U6: the CPU pipeline after `set_device("cpu")` | `suppressReadback` false, but `updateToUsd` and `updateVelocitiesToUsd` stay false and `omni.physx.fabric` stays on. Today's call: 0 to 10.0; 30 frames on, PhysX has the cube at x = -9.0 and USD still at -10.0 | the switch back leaves USD stale, as P1 said: the GPU test needs a Kit of its own, restarted after (Q6) |
 
 **What it settles:** today's call moves nothing only with both `suppressReadback` and GPU dynamics on (#58's E8 against
-E15 and E16). So the tensor path is taken when `/physics/suppressReadback` is true and the physics scene's
-`physxScene:enableGPUDynamics` is true, read the way the step is; every other case keeps today's call, the setting on
-its own included, which is no longer refused. Q4 and Q7 resolve that way, under Q1.
+E15 and E16), and the tensor push lands with the setting on whatever the scene runs (E14, E16). So, as Q7 was
+approved, the tensor path is taken whenever `/physics/suppressReadback` is true, a CPU scene included, which is no
+longer refused; with the setting off, GPU dynamics with readback on included, the push keeps today's call (Q4, E15).
+Q4 and Q7 resolve that way, under Q1.
+
+After the approval this paragraph and the code narrowed the rule to the setting and the physics scene's
+`physxScene:enableGPUDynamics` together, which wasn't put to the maintainer, and which reads a scene without
+`PhysxSceneAPI`, or no scene, as one without GPU dynamics, so a push there took today's call on what may be a GPU
+scene. The code review's F1 (`docs/reviews/2026-10-31-gpu-apply-force-code.md`) put it back to Q7 as approved.
 
 ## Design
 
 ### The Kit-free core, `core/force.py`
 
-- `gpu_dynamics(stage)`: whether the stage's physics scene has `physxScene:enableGPUDynamics` true, read by name.
 - `refusal(...)` loses `direct_gpu`; a new `gpu_unavailable: str | None` refuses with that reason, naming #68, when the
   tensor path can't run (no `omni.physics.tensors`, no warp). Under the Direct GPU API the `held` fact comes from the
   view's count instead of the pose.
@@ -123,9 +128,10 @@ So the path catches `Exception` around steps 2 to 5 only, answers "PhysX's tenso
 <why>", and logs the traceback, since the same catch would hide a slip of ours in the arrays or the point; the CPU
 path's catch stays as it is.
 
-Which path a push takes (E15, E16): the tensor path when `/physics/suppressReadback` is true and the physics scene's
-`physxScene:enableGPUDynamics` is true, read by `core/force.py` the way the step is; today's call in every other
-case, the setting on a CPU scene included, which is no longer refused.
+Which path a push takes (Q7, E15, E16): the tensor path whenever `/physics/suppressReadback` is true, a CPU scene
+included, which is no longer refused; today's call with the setting off, GPU dynamics with readback on included. A
+rule narrowed to the scene's `physxScene:enableGPUDynamics` as well, written here after the approval, went back to
+this one after the code review (F1).
 
 The answer is today's, with `"method": "tensor"`; the CPU path keeps `"physx"`. Nothing awaits between reading the pose
 and the push, as today.

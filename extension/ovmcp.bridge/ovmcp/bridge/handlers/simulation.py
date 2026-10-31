@@ -18,7 +18,6 @@ from ovmcp.core.force import (
     centre_of_mass,
     fixed_refusal,
     force_args,
-    gpu_dynamics,
     one_step_force,
     refusal,
     step_seconds,
@@ -184,9 +183,10 @@ async def handle_apply_force(body: dict) -> dict:
     """Apply a force or impulse to a rigid body or an articulation's link through PhysX, at a world point or at its
     centre of mass.
 
-    Two paths. Under PhysX's Direct GPU API (/physics/suppressReadback with GPU dynamics, as Isaac Sim's
-    SimulationManager.set_device("cuda:N") sets them), IPhysxSimulation.apply_force_at_pos returns and moves nothing, so
-    the push goes through the tensor API (#68). Everywhere else it is that call (#25, #58).
+    Two paths. With /physics/suppressReadback on, as PhysX's Direct GPU API has it (Isaac Sim's
+    SimulationManager.set_device("cuda:N") turns both on), IPhysxSimulation.apply_force_at_pos returns and moves nothing
+    on a GPU scene, so the push goes through the tensor API, which pushes on a CPU scene too (#68). With the setting
+    off it is apply_force_at_pos (#25, #58).
 
     Refused where PhysX would move nothing: the timeline stopped, a disabled or kinematic body, a prim PhysX holds no
     body for, a body a fixed joint holds to the world. A PhysX failure is an error; nothing else moves the body in its
@@ -208,9 +208,10 @@ async def handle_apply_force(body: dict) -> dict:
 
     # From here to the push nothing awaits, so the pose, the centre of mass and the push are all of one update.
     stopped = omni.timeline.get_timeline_interface().is_stopped()
-    # Today's call moves nothing only with the setting and GPU dynamics together (#68's measurements): the setting alone
-    # (readback on, or a CPU scene that a stage opened after a GPU device left it on) pushes.
-    if carb.settings.get_settings().get_as_bool("/physics/suppressReadback") and gpu_dynamics(stage):
+    # The setting alone picks the path. apply_force_at_pos moves nothing with it on a GPU scene, and the tensor API
+    # pushes with it on a CPU scene as well, so the tensor path is right either way. What the stage says of GPU
+    # dynamics would be a worse guide: a scene without PhysxSceneAPI, or no scene, doesn't say what PhysX runs.
+    if carb.settings.get_settings().get_as_bool("/physics/suppressReadback"):
         return _push_with_tensors(args, stage, prim, stopped)
     return _push_with_physx(args, stage, prim, stopped)
 
@@ -250,8 +251,8 @@ def _answer(args, point, at: str, method: str) -> dict:
 
 
 def _push_with_physx(args, stage, prim, stopped: bool) -> dict:
-    """The push through IPhysxSimulation.apply_force_at_pos, which PhysX takes everywhere but under the Direct GPU
-    API."""
+    """The push through IPhysxSimulation.apply_force_at_pos, with /physics/suppressReadback off: exact on the CPU
+    pipeline and with GPU dynamics alike."""
     try:
         from omni.physx import get_physx_interface, get_physx_simulation_interface
         from pxr import PhysicsSchemaTools
@@ -310,7 +311,7 @@ def _push_with_physx(args, stage, prim, stopped: bool) -> dict:
 
 
 def _push_with_tensors(args, stage, prim, stopped: bool) -> dict:
-    """The push through PhysX's tensor API, a RigidBodyView of our own for the one body, under the Direct GPU API.
+    """The push through PhysX's tensor API, a RigidBodyView of our own, while /physics/suppressReadback is on.
 
     The tensor API has no impulse mode, so an impulse is the force that delivers it over one step.
     """
@@ -322,8 +323,8 @@ def _push_with_tensors(args, stage, prim, stopped: bool) -> dict:
             from omni.physics import tensors
         except ImportError as e:
             gpu_unavailable = (
-                "PhysX's Direct GPU API is on (/physics/suppressReadback is true with GPU dynamics), where a push "
-                f"goes through omni.physics.tensors and warp, and this Kit app lacks one ({e}) (#68)"
+                "/physics/suppressReadback is true, as PhysX's Direct GPU API has it, where a push goes through "
+                f"omni.physics.tensors and warp, and this Kit app lacks one ({e}) (#68)"
             )
     enabled, kinematic = _body_flags(prim)
     # Whether PhysX holds the body is the view's count, below; here the body is taken as held.

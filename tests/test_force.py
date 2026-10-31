@@ -13,7 +13,6 @@ from ovmcp.core.force import (
     centre_of_mass,
     fixed_refusal,
     force_args,
-    gpu_dynamics,
     one_step_force,
     refusal,
     step_seconds,
@@ -522,34 +521,20 @@ def test_a_pose_that_isnt_one_is_an_error(position, rotation, local, says):
         world_point(position, rotation, local)
 
 
-def _scene_stage(**attrs: object) -> Usd.Stage:
+def _scene_stage(**attrs: int) -> Usd.Stage:
     """A stage whose physics scene has the given physxScene: attributes authored."""
     stage = Usd.Stage.CreateInMemory()
     scene = UsdPhysics.Scene.Define(stage, "/World/PhysicsScene").GetPrim()
     for name, value in attrs.items():
-        kind = Sdf.ValueTypeNames.Bool if isinstance(value, bool) else Sdf.ValueTypeNames.UInt
-        scene.CreateAttribute(f"physxScene:{name}", kind).Set(value)
+        scene.CreateAttribute(f"physxScene:{name}", Sdf.ValueTypeNames.UInt).Set(value)
     return stage
 
 
-def test_gpu_dynamics_is_the_scene_s_enable_gpu_dynamics():
-    assert gpu_dynamics(_scene_stage(enableGPUDynamics=True))
-    assert not gpu_dynamics(_scene_stage(enableGPUDynamics=False))
-
-
-def test_a_scene_that_doesnt_say_runs_no_gpu_dynamics():
-    assert not gpu_dynamics(_scene_stage())
-    assert not gpu_dynamics(Usd.Stage.CreateInMemory())
-
-
-def test_the_first_scene_in_stage_order_decides_the_dynamics_and_the_step():
+def test_the_first_scene_in_stage_order_gives_the_step():
     stage = Usd.Stage.CreateInMemory()
-    first = UsdPhysics.Scene.Define(stage, "/A/Scene").GetPrim()
+    UsdPhysics.Scene.Define(stage, "/A/Scene")
     second = UsdPhysics.Scene.Define(stage, "/B/Scene").GetPrim()
-    first.CreateAttribute("physxScene:enableGPUDynamics", Sdf.ValueTypeNames.Bool).Set(False)
-    second.CreateAttribute("physxScene:enableGPUDynamics", Sdf.ValueTypeNames.Bool).Set(True)
     second.CreateAttribute("physxScene:timeStepsPerSecond", Sdf.ValueTypeNames.UInt).Set(240)
-    assert not gpu_dynamics(stage)
     assert step_seconds(stage) == (1 / 60, "/A/Scene")
 
 

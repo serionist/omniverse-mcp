@@ -25,6 +25,7 @@ HANDLER = EXTENSION_ROOT / "ovmcp" / "bridge" / "handlers" / "simulation.py"
 SUPPRESS = "/physics/suppressReadback"
 HALF = math.sqrt(0.5)
 BOX = "/World/Box"
+SCENE = "/World/PhysicsScene"
 
 
 class Float3(tuple):
@@ -95,9 +96,8 @@ class FakeKit:
 
     def __init__(self) -> None:
         self.stage = Usd.Stage.CreateInMemory()
-        scene = UsdPhysics.Scene.Define(self.stage, "/World/PhysicsScene").GetPrim()
-        self.scene = scene
-        scene.CreateAttribute("physxScene:enableGPUDynamics", Sdf.ValueTypeNames.Bool).Set(True)
+        # A scene as UsdPhysics makes one: without PhysxSceneAPI's attributes, which the tests author as they need.
+        self.scene = UsdPhysics.Scene.Define(self.stage, SCENE).GetPrim()
         self.add_body(BOX)
         self.stopped = False
         self.suppress = True
@@ -251,9 +251,22 @@ def test_a_force_with_a_position_is_pushed_there(simulation, kit):
     assert kit.physx_pushes[0][4] == "Force"
 
 
-def test_the_setting_alone_on_a_cpu_scene_takes_todays_call(simulation, kit):
-    # #68's E15 and E16: with readback on, or with the setting true on a CPU scene, PhysX's call pushes.
-    kit.scene_attr("enableGPUDynamics", Sdf.ValueTypeNames.Bool, False)
+def _scene(kit: FakeKit, scene: str) -> None:
+    """The physics scene as the test names it: GPU dynamics on or off, a scene that doesn't say, or none at all."""
+    if scene == "none":
+        kit.stage.RemovePrim(SCENE)
+    elif scene != "unsaid":
+        kit.scene_attr("enableGPUDynamics", Sdf.ValueTypeNames.Bool, scene == "gpu")
+
+
+SCENES = ["gpu", "cpu", "unsaid", "none"]
+
+
+@pytest.mark.parametrize("scene", SCENES)
+def test_with_readback_on_every_scene_takes_apply_force_at_pos(simulation, kit, scene):
+    # Measured on Isaac Sim 6.2: with /physics/suppressReadback off, apply_force_at_pos pushes, GPU dynamics included.
+    kit.suppress = False
+    _scene(kit, scene)
     r = _push(simulation)
     assert r["status"] == "success", r
     assert r["result"]["method"] == "physx"
@@ -261,11 +274,17 @@ def test_the_setting_alone_on_a_cpu_scene_takes_todays_call(simulation, kit):
     assert not kit.views
 
 
-def test_gpu_dynamics_with_readback_on_takes_todays_call(simulation, kit):
-    kit.suppress = False
+@pytest.mark.parametrize("scene", SCENES)
+def test_with_the_setting_on_every_scene_takes_the_tensor_path(simulation, kit, scene):
+    # The setting alone decides, as the plan's Q7 was approved: apply_force_at_pos moves nothing with it on a GPU
+    # scene, the tensor push lands with it on a CPU one (measured on Isaac Sim 6.2), and a scene that doesn't say, or
+    # none, can't tell which PhysX runs.
+    _scene(kit, scene)
     r = _push(simulation)
-    assert r["result"]["method"] == "physx"
-    assert not kit.views
+    assert r["status"] == "success", r
+    assert r["result"]["method"] == "tensor"
+    assert len(kit.tensor_pushes) == 1
+    assert not kit.physx_pushes
 
 
 @pytest.mark.parametrize(
@@ -510,9 +529,3 @@ def test_a_stopped_simulation_is_refused_before_a_missing_module(simulation, kit
     monkeypatch.setitem(sys.modules, "warp", None)
     kit.stopped = True
     assert _push(simulation)["error"].startswith("The simulation is stopped")
-
-
-def test_a_stage_without_a_scene_takes_todays_call(simulation, kit):
-    kit.stage.RemovePrim("/World/PhysicsScene")
-    r = _push(simulation)
-    assert r["result"]["method"] == "physx"

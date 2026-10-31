@@ -43,7 +43,8 @@ result = int(warp.get_cuda_device_count())
 # The switch, as #68's probe made it. A stage without a physics scene gets one first, and an update before the switch,
 # so Isaac Sim's SimulationManager, which tracks the scenes added to the stage, has it when set_device sets their GPU
 # dynamics. Then 40 updates of play, after which a tensor view says the device PhysX simulates on, and a stop. The
-# result: the two facts the handler chooses its path by, the setting and the first scene's GPU dynamics, and the device.
+# result: the setting the handler chooses its path by, and the first scene's GPU dynamics and the device, which say
+# PhysX simulates on the GPU.
 SWITCH = """
 import carb
 import omni.kit.app

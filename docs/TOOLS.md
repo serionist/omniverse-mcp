@@ -930,9 +930,10 @@ robot on the ground loses some of the push to friction. Measured on Isaac Sim 6.
 Under PhysX's Direct GPU API, which Isaac Sim turns on for a GPU device (`SimulationManager.set_device("cuda:0")`),
 PhysX's own push returns and moves nothing, so the call pushes through PhysX's tensor API, `omni.physics.tensors`
 with warp, as measured on Isaac Sim 6.2 ([#68](https://github.com/serionist/omniverse-mcp/issues/68)). It takes that
-path when `/physics/suppressReadback` is true and the physics scene's `physxScene:enableGPUDynamics` is true; GPU
-dynamics with readback on, or the setting on a CPU scene, keep PhysX's own push, which moves the body there. The
-tensor API has no impulse, so an impulse goes in as the force that gives it over one physics step.
+path whenever `/physics/suppressReadback` is true, the setting that API runs with, whatever the physics scene says of
+GPU dynamics: the tensor API pushes on a CPU scene with the setting on too. With the setting off, GPU dynamics
+included, the call keeps PhysX's own push, which moves the body there. The tensor API has no impulse, so an impulse
+goes in as the force that gives it over one physics step.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -947,8 +948,8 @@ tensor API has no impulse, so an impulse goes in as the force that gives it over
 |---|---|
 | the prim has no `RigidBodyAPI` | it is no rigid body: `set_physics_properties` or `create_prim`'s `enable_physics` makes one |
 | the simulation is stopped | PhysX holds no bodies then; paused works |
-| PhysX runs its Direct GPU API and the Kit app lacks `omni.physics.tensors` or warp | the push there goes through them; the error names the one missing |
-| PhysX runs its Direct GPU API and the physics scene's `physxScene:timeStepsPerSecond` isn't a positive number | the push there needs the step's length |
+| `/physics/suppressReadback` is true and the Kit app lacks `omni.physics.tensors` or warp | the push then goes through them; the error names the one missing |
+| `/physics/suppressReadback` is true and the physics scene's `physxScene:timeStepsPerSecond` isn't a positive number | the push then needs the step's length |
 | the body is disabled (`physics:rigidBodyEnabled` is false) | PhysX holds it as a static body, which no force moves |
 | the body is kinematic (`physics:kinematicEnabled` is true) | PhysX takes the force and moves it only by its transform |
 | PhysX holds no rigid body at `prim_path` | nothing to push; `get_logs(min_level="warn")` may say why |
@@ -956,12 +957,12 @@ tensor API has no impulse, so an impulse goes in as the force that gives it over
 | `position` is left out and PhysX gives the body no mass | no centre of mass to push at: give a `position` |
 
 **Returns:** `position`, the world point pushed at; `at`, `given` or `centre of mass`; `method`, `physx`, or `tensor`
-under the Direct GPU API. A point off the centre of mass turns the body as well as moving it. Newtons assume a stage
-in metres and kilograms: PhysX works in the stage's units (`meters_per_unit` in `get_sim_state`). The centre of mass
-comes from PhysX's unit-tests interface (`get_mass_information`), which NVIDIA may change between Kit releases, or
-under the Direct GPU API from the tensor API's view of the body; without it the call is an error, never a push at
-another point. All of this is the Kit extension's: one from 0.2.0 nudges `physics:velocity` instead, and its answer
-says `method: velocity`; one from 0.2.3 refuses every push while `/physics/suppressReadback` is true.
+with `/physics/suppressReadback` on. A point off the centre of mass turns the body as well as moving it. Newtons
+assume a stage in metres and kilograms: PhysX works in the stage's units (`meters_per_unit` in `get_sim_state`). The
+centre of mass comes from PhysX's unit-tests interface (`get_mass_information`), which NVIDIA may change between Kit
+releases, or with the setting on from the tensor API's view of the body; without it the call is an error, never a
+push at another point. All of this is the Kit extension's: one from 0.2.0 nudges `physics:velocity` instead, and its
+answer says `method: velocity`; one from 0.2.3 refuses every push while `/physics/suppressReadback` is true.
 
 ---
 
