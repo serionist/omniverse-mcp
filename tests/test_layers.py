@@ -1,6 +1,8 @@
-"""flatten_usd and export_prim_as_file never write over a layer the open stage uses, and read a layer again from its
-file only when the open stage doesn't use it and it has no unsaved edits (#81), on usd-core."""
+"""flatten_usd, export_prim_as_file and save_scene never write over a layer the open stage uses, save_scene's own root
+layer apart, and read a layer again from its file only when the open stage doesn't use it and it has no unsaved edits
+(#81, #85), on usd-core."""
 
+import gc
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -171,6 +173,77 @@ def test_a_layer_held_outside_the_open_stage_with_unsaved_edits_is_refused(stage
     assert "unsaved edits" in refusal
 
 
+# ----- write_refusal for save_scene, which writes the root layer -----
+
+
+@pytest.mark.parametrize(
+    ("name", "role"),
+    [
+        ("sub.usda", "a sublayer of the open stage"),
+        ("ref.usda", "a layer the open stage references or pays in"),
+        ("pay.usda", "a layer the open stage references or pays in"),
+    ],
+)
+def test_saving_over_another_layer_of_the_open_stage_is_refused(stage: Usd.Stage, scene: Path, name: str, role: str):
+    refusal = write_refusal(stage, str(scene.parent / name), saving=True)
+    assert refusal is not None
+    assert role in refusal
+    assert "saving the root layer there" in refusal
+    assert "save_scene without a file_path" in refusal
+
+
+@pytest.mark.parametrize(("saving", "ending"), [(True, "Save to another path."), (False, "Write to another path.")])
+def test_a_stage_never_saved_is_offered_no_save_to_its_own_file(scene: Path, saving: bool, ending: str):
+    # new_scene's stage, then a prim referencing a file: save_scene without a file_path fails, with no file to save.
+    stage = Usd.Stage.CreateInMemory()
+    stage.DefinePrim("/World/Table").GetReferences().AddReference(str(scene.parent / "ref.usda"))
+    refusal = write_refusal(stage, str(scene.parent / "ref.usda"), saving=saving)
+    assert refusal is not None
+    assert "a layer the open stage references or pays in" in refusal
+    assert refusal.endswith(ending)
+    assert "save_scene" not in refusal
+
+
+def test_saving_over_the_open_stages_own_file_is_a_save_by_any_spelling(
+    stage: Usd.Stage, scene: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # Unsaved edits, as a save has: they are the open stage's, not a layer held outside it.
+    stage.DefinePrim("/World/Unsaved")
+    link = scene.parent / "linked" / "scene.usda"
+    link.parent.mkdir()
+    link.hardlink_to(scene)
+    monkeypatch.chdir(scene.parent)
+    spellings = ["scene.usda", "./nowhere/../scene.usda", scene.as_posix(), str(scene), scene.as_uri(), str(link)]
+    shouted = scene.with_name("SCENE.USDA")
+    if shouted.exists():
+        spellings.append(str(shouted))
+    for spelling in spellings:
+        assert write_refusal(stage, spelling, saving=True) is None, spelling
+
+
+def test_saving_onto_a_layer_held_outside_the_open_stage_with_unsaved_edits_is_refused(stage: Usd.Stage, scene: Path):
+    other = scene.parent / "other.usda"
+    held = Sdf.Layer.FindOrOpen(str(other))
+    assert write_refusal(stage, str(other), saving=True) is None
+    Sdf.CreatePrimInLayer(held, "/Edit")
+    refusal = write_refusal(stage, str(other), saving=True)
+    assert refusal is not None
+    assert "unsaved edits" in refusal
+
+
+def test_saving_over_the_open_stages_file_is_refused_when_kit_holds_it_apart_with_unsaved_edits(
+    stage: Usd.Stage, scene: Path
+):
+    # The same file opened with arguments is a layer of its own, outside the open stage: its edits aren't the save's.
+    apart = Sdf.Layer.FindOrOpen(str(scene), {"ovmcp": "apart"})
+    assert apart is not None
+    assert apart != stage.GetRootLayer()
+    Sdf.CreatePrimInLayer(apart, "/Apart")
+    refusal = write_refusal(stage, str(scene), saving=True)
+    assert refusal is not None
+    assert "unsaved edits" in refusal
+
+
 # ----- open_to_flatten -----
 
 
@@ -267,3 +340,54 @@ def test_refresh_leaves_the_open_stages_layers_and_anonymous_ones(stage: Usd.Sta
     assert refresh(stage, [*stage.GetUsedLayers(), anonymous]) == []
     assert stage.GetPrimAtPath("/World/Unsaved")
     assert anonymous.GetPrimAtPath("/Other")
+
+
+# ----- layers gone while they are walked -----
+
+
+def _gone(path: Path) -> list[Sdf.Layer]:
+    """The handles GetLoadedLayers gave for a stage opened from path, once the stage has gone: weak, so they expire with
+    it, as a stage Python's garbage collector frees during a walk takes its layers with it (CI's Python 3.14, #85)."""
+    opened = Usd.Stage.Open(str(path))
+    used = opened.GetUsedLayers()
+    handles = [layer for layer in Sdf.Layer.GetLoadedLayers() if layer in used]
+    del opened, used
+    gc.collect()
+    assert handles
+    assert not any(handles), "a layer outlived its stage"
+    return handles
+
+
+def test_a_layer_gone_while_kits_layers_are_walked_is_passed_over(
+    stage: Usd.Stage, scene: Path, monkeypatch: pytest.MonkeyPatch
+):
+    other = scene.parent / "other.usda"
+    gone = _gone(other)
+    loaded = Sdf.Layer.GetLoadedLayers
+    monkeypatch.setattr(Sdf.Layer, "GetLoadedLayers", staticmethod(lambda: [*gone, *loaded()]))
+    for saving in (False, True):
+        assert write_refusal(stage, str(other), saving=saving) is None
+    assert refresh_written(stage, str(other)) == []
+    assert refresh(stage, gone) == []
+    # The walk goes on past them.
+    held = Sdf.Layer.FindOrOpen(str(other))
+    Sdf.CreatePrimInLayer(held, "/Edit")
+    refusal = write_refusal(stage, str(other))
+    assert refusal is not None
+    assert "unsaved edits" in refusal
+
+
+def test_a_layer_gone_after_it_is_named_is_passed_over(stage: Usd.Stage, scene: Path, monkeypatch: pytest.MonkeyPatch):
+    other = scene.parent / "other.usda"
+    gone = _gone(other)
+    # Handles the name check gives back from Kit's layers (any_name is for the open stage's own), then gone before
+    # their edits are read or they are read again.
+    named = layers._layers_at
+
+    def then_gone(path: str, found: list[Sdf.Layer], *, any_name: bool = False) -> list[Sdf.Layer]:
+        return named(path, found, any_name=any_name) + ([] if any_name else gone)
+
+    monkeypatch.setattr(layers, "_layers_at", then_gone)
+    for saving in (False, True):
+        assert write_refusal(stage, str(other), saving=saving) is None
+    assert refresh_written(stage, str(other)) == []
