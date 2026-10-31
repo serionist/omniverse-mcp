@@ -29,7 +29,12 @@ def _unit(direction: list[float]) -> list[float]:
     E6); other builds are untried, and a zero one has no direction to cast along."""
     if len(direction) != 3:
         raise ToolError(f"direction must be [dx, dy, dz], got {direction}")
-    length = math.sqrt(sum(float(d) * float(d) for d in direction))
+    if not all(math.isfinite(d) for d in direction):
+        raise ToolError(f"direction must be 3 finite numbers, got {direction}")
+    # hypot scales as it goes: squaring first underflows a tiny direction to zero and overflows a huge one.
+    length = math.hypot(*direction)
+    if not math.isfinite(length):
+        raise ToolError(f"direction {direction} is too long to take the length of: give a shorter one")
     if length == 0:
         raise ToolError("direction is [0, 0, 0]: give the way the ray goes, of any length but zero")
     return [float(d) / length for d in direction]

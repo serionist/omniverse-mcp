@@ -3,6 +3,7 @@ and the text the model reads back from a canned answer. tests/test_contract.py p
 what they do with it."""
 
 import asyncio
+import math
 from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
@@ -11,10 +12,12 @@ from typing import Any
 import golden
 import pytest
 from mcp import Client
+from mcp.server.mcpserver.exceptions import ToolError
 
 from omniverse_mcp import kit_extension
 from omniverse_mcp.client import BridgeClient
 from omniverse_mcp.server import create_server
+from omniverse_mcp.tools.simulation import _unit
 
 from .mock_bridge import MockIsaacServer
 
@@ -974,3 +977,15 @@ def test_set_material_says_its_opacity_when_it_is_1(bridge: MockIsaacServer, tmp
     erred, text, _calls = _call(bridge, tmp_path, "set_material", {"prim_path": "/World/Cube", "color": [0, 1, 0]})
     assert not erred, text
     assert "opacity=1.0" in text
+
+
+@pytest.mark.parametrize("scale", [1e-200, 1e200, 1.0])
+def test_a_tiny_or_huge_direction_is_still_scaled_to_length_1(scale: float):
+    # Round 1's O1: squaring underflowed [1e-200, 0, 0] to a length of 0 and overflowed [1e200, 0, 0] to inf.
+    assert _unit([3 * scale, 0, -4 * scale]) == pytest.approx([0.6, 0, -0.8])
+
+
+@pytest.mark.parametrize("direction", [[math.nan, 0, 1], [math.inf, 0, 0], [1.7e308, 1.7e308, 1.7e308]])
+def test_a_direction_with_no_finite_length_is_refused(direction: list[float]):
+    with pytest.raises(ToolError, match="direction"):
+        _unit(direction)
