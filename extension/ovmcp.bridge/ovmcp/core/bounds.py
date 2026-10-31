@@ -47,6 +47,37 @@ def box_corners(min_pt: Vec, max_pt: Vec) -> list[list[float]]:
     ]
 
 
+# The box's 12 edges, as pairs of box_corners' indices one bit apart.
+_EDGES = [(i, i | bit) for i in range(8) for bit in (1, 2, 4) if not i & bit]
+
+
+def project_in_front(clip: Sequence[Sequence[float]], near: float) -> list[list[float]]:
+    """A box's corners in clip space, as Kit's pinhole projection gives them (omni.syntheticdata's
+    get_view_proj_mat), projected to fractions of the viewport [x, y], keeping only the part in front of the camera.
+
+    Kit's w is the view-space z, and the camera looks down -z, so a corner is in front where w <= -near. Dividing a
+    corner behind the camera by its w mirrors it onto the screen (#90), so those are left out, and each edge that
+    crosses the near plane gives the point where it does, which bounds the part in front. Empty when nothing is.
+    """
+    ahead = [float(c[3]) <= -near for c in clip]
+    points = [_projected(clip[i]) for i in range(len(clip)) if ahead[i]]
+    for a, b in _EDGES:
+        if ahead[a] != ahead[b]:
+            wa, wb = float(clip[a][3]), float(clip[b][3])
+            t = (-near - wa) / (wb - wa)
+            points.append(
+                _projected([float(clip[a][k]) + t * (float(clip[b][k]) - float(clip[a][k])) for k in range(4)])
+            )
+    return points
+
+
+def _projected(c: Sequence[float]) -> list[float]:
+    """A clip-space point divided by its w and mapped from -1..1 to 0..1, as omni.syntheticdata's project_pinhole
+    does."""
+    w = float(c[3])
+    return [0.5 * (float(c[0]) / w + 1.0), 0.5 * (float(c[1]) / w + 1.0)]
+
+
 def screen_box(points: Sequence[Vec], viewport: tuple[int, int], image: tuple[int, int]) -> list[float] | None:
     """The outline of points projected to the viewport, as [x0, y0, x1, y1] in the output image's pixels.
 
