@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 import golden
@@ -16,7 +17,8 @@ from omniverse_mcp.server import INSTRUCTIONS
 from omniverse_mcp.tools._annotations import DESTROYS, EDITS, READS, RUNS
 
 TOOLS_MD = golden.ROOT / "docs" / "TOOLS.md"
-PLUGIN_SKILLS = golden.ROOT / "plugin" / "skills"
+# What an agent reads beside the tools: the plugin's skills, and the guide for clients without the plugin.
+AGENT_FILES = [*sorted((golden.ROOT / "plugin" / "skills").glob("*/SKILL.md")), golden.ROOT / "docs" / "AI_GUIDE.md"]
 HINTS = [h.model_dump(by_alias=True, exclude_none=True) for h in (READS, EDITS, DESTROYS, RUNS)]
 # docs/TOOLS.md's hints table, a row for each of HINTS in the same order.
 HINT_ROWS = ("read-only", "not destructive", "destructive", "destructive, open world")
@@ -117,15 +119,41 @@ def _names(name: str, text: str) -> bool:
     return re.search(rf"(?<![A-Za-z0-9]){re.escape(name)}(?!\w)", text) is not None
 
 
+def _naming_removed(tools: list[Tool], files: list[Path]) -> list[str]:
+    """Where what an agent reads names a removed tool: each tool's description and its parameters', which a client
+    shows the model beside it, the server's instructions, and files, such as the plugin's skills."""
+    texts = {"the server's INSTRUCTIONS": INSTRUCTIONS}
+    for t in tools:
+        texts[f"{t.name}'s description"] = t.description or ""
+        for param, schema in t.input_schema.get("properties", {}).items():
+            texts[f"{t.name}.{param}'s description"] = schema.get("description", "")
+    for path in files:
+        where = path.relative_to(golden.ROOT).as_posix() if path.is_relative_to(golden.ROOT) else str(path)
+        texts[where] = path.read_text(encoding="utf-8")
+    return sorted(f"{where}: {name}" for where, text in texts.items() for name in REMOVED if _names(name, text))
+
+
 def test_a_removed_tool_is_neither_listed_nor_named(listed):
     tools, _, _ = listed
     assert sorted(REMOVED & {t.name for t in tools}) == [], "the server still lists these"
-    texts = {f"{t.name}'s description": t.description or "" for t in tools}
-    texts["the server's INSTRUCTIONS"] = INSTRUCTIONS
-    for skill in sorted(PLUGIN_SKILLS.glob("*/SKILL.md")):
-        texts[skill.relative_to(golden.ROOT).as_posix()] = skill.read_text(encoding="utf-8")
-    named = sorted(f"{where}: {name}" for where, text in texts.items() for name in REMOVED if _names(name, text))
+    named = _naming_removed(tools, AGENT_FILES)
     assert not named, f"these name a tool that is gone: {named}"
+
+
+@pytest.mark.parametrize("where", ["a parameter", "a file"])
+def test_a_removed_tool_named_in_a_parameter_or_a_file_is_found(where: str, listed, tmp_path: Path):
+    # The check is only as good as what it reads: a name planted in either is caught.
+    tools, _, _ = listed
+    files = list(AGENT_FILES)
+    if where == "a parameter":
+        planted = next(t for t in tools if t.name == "get_scene_tree").model_copy(deep=True)
+        planted.input_schema["properties"]["root"]["description"] = "the prim dump_scene started from"
+        tools = [*tools, planted]
+    else:
+        guide = tmp_path / "AI_GUIDE.md"
+        guide.write_text("Look with `look_at_prim` first.", encoding="utf-8")
+        files.append(guide)
+    assert len(_naming_removed(tools, files)) == 1
 
 
 @pytest.mark.parametrize(
