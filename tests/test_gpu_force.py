@@ -350,6 +350,34 @@ class TestGpuForce(PhysicsChecks):
         self.assertEqual(r["status"], "error", r)
         self.assertIn("kinematic", r["error"])
 
+    # ----- pushes while paused add up -----
+
+    def test_15_two_impulses_while_paused_add_up(self) -> None:
+        # On the CPU pipeline two pushes before a step add (#58's E4); the tool says a paused push works, and on the
+        # Direct GPU API each push sets the force the next step takes, which may replace the one before.
+        self._switched()
+        cube = self._force_body("GpuTwiceCube")
+        self._start_physics()
+        before = self._state([cube])
+        for _ in range(2):
+            r = self.c.apply_force(cube, force=[IMPULSE, 0.0, 0.0], impulse=True)
+            self.assertEqual(r["status"], "success", r)
+            self.assertEqual(r["result"]["method"], "tensor", r)
+        self._run_frames(FRAMES)
+        after = self._state([cube])
+        change = [a - b for a, b in zip(after["momentum"], before["momentum"], strict=True)]
+        print(f"  two impulses of {IMPULSE:g} on {cube} while paused: momentum change {change}")
+        expected = 2 * IMPULSE
+        self.assertAlmostEqual(
+            change[0],
+            expected,
+            delta=expected * 0.02,
+            msg=f"two pushes of {IMPULSE:g} N s while paused moved the momentum by {change[0]:.4f}: {IMPULSE:g} would "
+            "mean the tensor path sets the step's force rather than adding to it, and the second push replaced the "
+            "first",
+        )
+        self.assertLess(abs(change[1]) + abs(change[2]), expected * 0.02)
+
 
 if __name__ == "__main__":
     unittest.main()
