@@ -9,7 +9,7 @@ import math
 import numbers
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 from pxr import Sdf, Usd, UsdPhysics
 
@@ -52,28 +52,28 @@ def force_args(body: Mapping[str, Any]) -> ForceArgs:
 
 
 def refusal(
-    prim_path: str, *, stopped: bool, direct_gpu: bool, enabled: bool, kinematic: bool, held: bool
+    prim_path: str,
+    *,
+    stopped: bool,
+    gpu_unavailable: str | None,
+    enabled: bool,
+    kinematic: bool,
+    held: bool,
 ) -> str | None:
     """Why PhysX won't move the body, or None when it will, as far as the cheap facts tell; `fixed_refusal` asks the
     stage's joints after.
 
-    A stopped timeline first: PhysX holds no bodies then, so the others say nothing. Then PhysX's Direct GPU API,
-    under which no push moves any body. Then what the prim says of itself, then whether PhysX holds it.
+    A stopped timeline first: PhysX holds no bodies then, so the others say nothing. Then `gpu_unavailable`, the
+    reason the tensor API can't push under the Direct GPU API, where today's call moves nothing. Then what the prim
+    says of itself, then whether PhysX holds it.
     """
     if stopped:
         return (
             "The simulation is stopped, so PhysX holds no bodies to push: play it first with sim_control('play'); "
             "paused works too"
         )
-    if direct_gpu:
-        # Measured on Isaac Sim 6.2 with GPU dynamics and suppressReadback: the push returns and moves nothing. A
-        # stage opened after a GPU device can keep the setting on a CPU scene, where a push is unmeasured: refused too,
-        # with how to turn the setting off.
-        return (
-            "PhysX's Direct GPU API is on (/physics/suppressReadback is true), and a push moves nothing under it "
-            "(#68). To push bodies, stop the simulation, turn it off with execute_script: "
-            "carb.settings.get_settings().set_bool('/physics/suppressReadback', False), and play again"
-        )
+    if gpu_unavailable:
+        return gpu_unavailable
     if not enabled:
         # PhysX makes such a body a static rigid, as NVIDIA's own rigid body tests count it, and nothing moves one.
         return (
@@ -88,6 +88,67 @@ def refusal(
     if not held:
         return f"PhysX holds no rigid body at {prim_path}; get_logs(min_level='warn') may say why"
     return None
+
+
+class Step(NamedTuple):
+    """The physics scene's step: its length in seconds, and the scene it comes from (None when the stage has none)."""
+
+    seconds: float
+    scene: str | None
+
+
+# PhysX's own default for physxScene:timeStepsPerSecond, which a scene without the attribute authored runs at.
+DEFAULT_STEPS_PER_SECOND = 60.0
+
+
+def _first_scene(stage: Usd.Stage) -> Usd.Prim | None:
+    """The first UsdPhysics.Scene in stage order, the one a stage with several answers for here."""
+    for prim in Usd.PrimRange.Stage(stage, Usd.TraverseInstanceProxies()):
+        if is_a(prim, UsdPhysics.Scene):
+            return prim
+    return None
+
+
+def gpu_dynamics(stage: Usd.Stage) -> bool:
+    """Whether the stage's physics scene runs GPU dynamics: physxScene:enableGPUDynamics is true. Read by name, as
+    PhysxSchema is Kit's and this core imports only pxr."""
+    scene = _first_scene(stage)
+    return scene is not None and scene.GetAttribute("physxScene:enableGPUDynamics").Get() is True
+
+
+def step_seconds(stage: Usd.Stage) -> Step:
+    """The length of one physics step: 1 / physxScene:timeStepsPerSecond of the stage's physics scene, the first in
+    stage order. 60 steps a second when the scene leaves it unset or the stage has no scene, as PhysX defaults. A
+    ValueError says why when the value is not a positive finite number."""
+    scene = _first_scene(stage)
+    if scene is None:
+        return Step(1.0 / DEFAULT_STEPS_PER_SECOND, None)
+    path = str(scene.GetPath())
+    value = scene.GetAttribute("physxScene:timeStepsPerSecond").Get()
+    if value is None:
+        return Step(1.0 / DEFAULT_STEPS_PER_SECOND, path)
+    if not _is_number(value) or float(value) <= 0:
+        raise ValueError(f"{path}'s physxScene:timeStepsPerSecond is {value!r}, not a positive number")
+    return Step(1.0 / float(value), path)
+
+
+def one_step_force(force: Vec3, impulse: bool, dt: float) -> Vec3:
+    """The force to give PhysX's tensor API, which has no impulse mode: the force as given, or an impulse over one
+    step of dt seconds, which a force lasting that one step delivers exactly. A ValueError for a step that is not a
+    positive finite number."""
+    if not _is_number(dt) or dt <= 0:
+        raise ValueError(f"the physics step must be a positive finite number of seconds (got {dt!r})")
+    if not impulse:
+        return force
+    return force[0] / dt, force[1] / dt, force[2] / dt
+
+
+def tensor_centre_of_mass(transform7: object, com7: object) -> Vec3:
+    """The world point of a body's centre of mass from the tensor API's two rows: get_transforms' (x, y, z, qx, qy, qz,
+    qw) in the global frame, and get_coms' (the centre in the body's frame, then its principal axes, unused here)."""
+    pose = _vector(transform7, 7, "transform")
+    com = _vector(com7, 7, "com")
+    return world_point(pose[:3], pose[3:], com[:3])
 
 
 def fixed_refusal(prim_path: str, fixed_base: str, articulation: str | None) -> str:

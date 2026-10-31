@@ -13,7 +13,11 @@ from ovmcp.core.force import (
     centre_of_mass,
     fixed_refusal,
     force_args,
+    gpu_dynamics,
+    one_step_force,
     refusal,
+    step_seconds,
+    tensor_centre_of_mass,
     world_point,
 )
 from ovmcp.core.usd import has_api
@@ -82,31 +86,46 @@ def _why(
     path: str = "/World/Box",
     *,
     stopped: bool = False,
-    direct_gpu: bool = False,
+    gpu_unavailable: str | None = None,
     enabled: bool = True,
     kinematic: bool = False,
     held: bool = True,
 ) -> str | None:
     """refusal for a body PhysX would push, but for what the test names."""
-    return refusal(path, stopped=stopped, direct_gpu=direct_gpu, enabled=enabled, kinematic=kinematic, held=held)
+    return refusal(
+        path, stopped=stopped, gpu_unavailable=gpu_unavailable, enabled=enabled, kinematic=kinematic, held=held
+    )
 
 
 def test_a_stopped_timeline_is_refused_first():
     # Stopped, PhysX holds no bodies, so whether it holds this one says nothing.
-    why = _why(stopped=True, direct_gpu=True, enabled=False, kinematic=True, held=False)
+    why = _why(stopped=True, gpu_unavailable="no warp", enabled=False, kinematic=True, held=False)
     assert why is not None
     assert why.startswith("The simulation is stopped")
     assert "paused works too" in why
 
 
-def test_the_direct_gpu_api_is_refused_before_what_the_body_says_and_says_how_to_turn_it_off():
-    # Measured on Isaac Sim 6.2: with suppressReadback, a push on a lone cube returned and moved nothing (#68).
-    why = _why(direct_gpu=True, enabled=False, kinematic=True, held=False)
-    assert why == (
-        "PhysX's Direct GPU API is on (/physics/suppressReadback is true), and a push moves nothing under it (#68). "
-        "To push bodies, stop the simulation, turn it off with execute_script: "
-        "carb.settings.get_settings().set_bool('/physics/suppressReadback', False), and play again"
-    )
+def test_a_gpu_path_that_cant_run_is_refused_with_its_reason_before_what_the_body_says():
+    why = _why(gpu_unavailable="warp is missing (#68)", enabled=False, kinematic=True, held=False)
+    assert why == "warp is missing (#68)"
+
+
+def test_the_refusals_keep_their_order():
+    # A body with every fact against it: dropping the first leaves the next one refused, down to the last.
+    calm = {"stopped": False, "gpu_unavailable": None, "enabled": True, "kinematic": False, "held": True}
+    against = {"stopped": True, "gpu_unavailable": "no warp", "enabled": False, "kinematic": True, "held": False}
+    says = [
+        "The simulation is stopped",
+        "no warp",
+        "'s rigid body is disabled",
+        " is kinematic",
+        "PhysX holds no rigid",
+    ]
+    for index, expected in enumerate(says):
+        facts = {**calm, **dict(list(against.items())[index:])}
+        why = refusal("/World/Box", **facts)
+        assert why is not None
+        assert expected in why
 
 
 def test_a_disabled_rigid_body_is_refused_before_a_kinematic_one():
@@ -501,3 +520,74 @@ def test_a_rotation_that_isnt_a_unit_quaternion_is_normalised():
 def test_a_pose_that_isnt_one_is_an_error(position, rotation, local, says):
     with pytest.raises(ValueError, match=says):
         world_point(position, rotation, local)
+
+
+def _scene_stage(**attrs: object) -> Usd.Stage:
+    """A stage whose physics scene has the given physxScene: attributes authored."""
+    stage = Usd.Stage.CreateInMemory()
+    scene = UsdPhysics.Scene.Define(stage, "/World/PhysicsScene").GetPrim()
+    for name, value in attrs.items():
+        kind = Sdf.ValueTypeNames.Bool if isinstance(value, bool) else Sdf.ValueTypeNames.UInt
+        scene.CreateAttribute(f"physxScene:{name}", kind).Set(value)
+    return stage
+
+
+def test_gpu_dynamics_is_the_scene_s_enable_gpu_dynamics():
+    assert gpu_dynamics(_scene_stage(enableGPUDynamics=True))
+    assert not gpu_dynamics(_scene_stage(enableGPUDynamics=False))
+
+
+def test_a_scene_that_doesnt_say_runs_no_gpu_dynamics():
+    assert not gpu_dynamics(_scene_stage())
+    assert not gpu_dynamics(Usd.Stage.CreateInMemory())
+
+
+def test_the_first_scene_in_stage_order_decides_the_dynamics_and_the_step():
+    stage = Usd.Stage.CreateInMemory()
+    first = UsdPhysics.Scene.Define(stage, "/A/Scene").GetPrim()
+    second = UsdPhysics.Scene.Define(stage, "/B/Scene").GetPrim()
+    first.CreateAttribute("physxScene:enableGPUDynamics", Sdf.ValueTypeNames.Bool).Set(False)
+    second.CreateAttribute("physxScene:enableGPUDynamics", Sdf.ValueTypeNames.Bool).Set(True)
+    second.CreateAttribute("physxScene:timeStepsPerSecond", Sdf.ValueTypeNames.UInt).Set(240)
+    assert not gpu_dynamics(stage)
+    assert step_seconds(stage) == (1 / 60, "/A/Scene")
+
+
+def test_the_step_is_one_over_the_scene_s_steps_a_second():
+    step = step_seconds(_scene_stage(timeStepsPerSecond=240))
+    assert step.seconds == pytest.approx(1 / 240)
+    assert step.scene == "/World/PhysicsScene"
+
+
+def test_the_step_is_a_sixtieth_when_the_scene_leaves_it_unset_or_there_is_none():
+    assert step_seconds(_scene_stage()) == (1 / 60, "/World/PhysicsScene")
+    assert step_seconds(Usd.Stage.CreateInMemory()) == (1 / 60, None)
+
+
+def test_a_step_that_isnt_a_positive_number_is_an_error():
+    with pytest.raises(ValueError, match=r"^/World/PhysicsScene's physxScene:timeStepsPerSecond is 0, not a positive"):
+        step_seconds(_scene_stage(timeStepsPerSecond=0))
+
+
+def test_a_force_is_given_as_it_is_and_an_impulse_is_one_step_s_force():
+    assert one_step_force((1.0, 2.0, 3.0), False, 1 / 60) == (1.0, 2.0, 3.0)
+    assert one_step_force((10.0, 0.0, -5.0), True, 1 / 60) == pytest.approx((600.0, 0.0, -300.0))
+
+
+@pytest.mark.parametrize("dt", [0.0, -1 / 60, math.nan, math.inf, "0.1", True])
+def test_a_step_that_isnt_a_positive_finite_number_is_an_error_for_a_force_too(dt):
+    with pytest.raises(ValueError, match="physics step must be a positive finite number"):
+        one_step_force((1.0, 0.0, 0.0), False, dt)
+
+
+def test_the_centre_of_mass_from_the_tensor_rows_is_turned_and_moved():
+    # The probe's cube (#68's E12): at (-15, 0, 5), turned 90 degrees about Z, its centre 0.1 along its own X.
+    transform = (-15.0, 0.0, 5.0, 0.0, 0.0, HALF, HALF)
+    com = (0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0)
+    assert tensor_centre_of_mass(transform, com) == pytest.approx((-15.0, 0.1, 5.0), abs=1e-12)
+
+
+@pytest.mark.parametrize(("transform", "com"), [((0.0,) * 6, (0.0,) * 7), ((0.0,) * 7, (0.0,) * 6)])
+def test_tensor_rows_of_the_wrong_size_are_an_error(transform, com):
+    with pytest.raises(ValueError, match="must be 7 finite numbers"):
+        tensor_centre_of_mass(transform, com)
