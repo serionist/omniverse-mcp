@@ -19,7 +19,7 @@ Reference for every tool the MCP server provides.
 | read a prim's properties, size or place | `get_prim_properties`, `get_prim_bounds` |
 | create, move, copy, hide or delete prims | `create_prim`, `set_prim_transform`, `clone_prim`, `set_visibility`, `delete_prim` |
 | colour an object | `set_material` |
-| point the camera | `set_camera`, `look_at_prim` |
+| point the camera, at a point or a prim | `set_camera` |
 | fix a black capture | `viewport_light` |
 | play, pause, stop or step physics | `sim_control`; `get_sim_state` for where it stands |
 | add a robot and move its joints | `create_robot`, `get_robot_info`, `get_joint_states`, `set_joint_targets` |
@@ -38,7 +38,7 @@ it runs one; they are hints, never security (the bridge's token is what keeps ot
 | Hints | What they mean | Tools |
 |---|---|---|
 | read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs, and leaves Kit's unsaved-edits flag set) | `get_scene_tree`, `dump_scene`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_prim_face_count_tree`, `get_robot_info`, `get_joint_states`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
-| not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `look_at_prim`, `inspect_prim`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug` |
+| not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `inspect_prim`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug` |
 | destructive | Deletes or overwrites prims, the whole stage, or USD files on disk | `delete_prim`, `save_scene`, `open_scene`, `new_scene`, `flatten_usd`, `export_prim_as_file`, `update_material_paths` |
 | destructive, open world | Runs Python or loads extensions inside the Kit app: anything can happen | `execute_script`, `manage_extensions` |
 
@@ -52,7 +52,7 @@ A value out of a parameter's range, or not one of its choices, is refused before
 - [Variant Tools](#variant-tools) (2 tools)
 - [Material Tools](#material-tools) (2 tools)
 - [Robot Tools](#robot-tools) (4 tools)
-- [Camera Tools](#camera-tools) (5 tools)
+- [Camera Tools](#camera-tools) (4 tools)
 - [Simulation Tools](#simulation-tools) (2 tools)
 - [Recording Tools](#recording-tools) (3 tools)
 - [Physics Tools](#physics-tools) (3 tools)
@@ -172,8 +172,8 @@ Only provided parameters are changed; others are preserved.
 - **An extension of 0.2.3 or older** rewrites the ops as translate, rotateXYZ (orient for a quaternion) and scale, and
   drops every other op: a pivot goes, can be read as the position, and a prim placed by a matrix loses that placement.
 
-**When to use:** to move, turn or size a prim. To aim the viewport camera, use `set_camera` or `look_at_prim`; to push
-a rigid body while physics runs, `apply_force`.
+**When to use:** to move, turn or size a prim. To aim the viewport camera, use `set_camera`; to push a rigid body
+while physics runs, `apply_force`.
 
 ---
 
@@ -639,39 +639,37 @@ damping 100. The answer counts the targets set.
 
 ### `set_camera`
 
-Move the viewport's camera to a world position and aim it at a target point.
+Move the viewport's camera and aim it, at a world point or at a prim. The parameters say which: `position` for a
+point, `prim_path` for a prim.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `position` | list[float] | required | `[x, y, z]` camera position in world space |
-| `target` | list[float] | `null` | `[x, y, z]` world point to look at; the origin when omitted |
+| `position` | list[float] | `null` | `[x, y, z]` where the camera stands, in world space: for a point |
+| `target` | list[float] | `null` | `[x, y, z]` the world point it looks at, the world origin when left out: for a point |
+| `prim_path` | string | `""` | A prim to frame instead: the camera aims at the centre of its world box |
+| `distance` | float | `null` | From the prim's centre in stage units, above 0; 2.5 times its largest side when left out |
+| `azimuth` | float | `null` | Degrees around the prim: 0 the front (+Y on a Z-up stage, +Z on a Y-up one), 90 the right (+X), 180 the back, 270 the left; 45 when left out |
+| `elevation` | float | `null` | Degrees above the horizontal; 30 when left out |
+
+- **A point:** `position`, and `target`, the world origin when left out. The answer is `Camera at [5, 3, 5] looking
+  at [0, 0, 0]`; without a `target` it adds `, the world origin: no target was given`. A `position` equal to the
+  point it looks at, its `target` or the origin, is an error.
+- **A prim:** `prim_path`, and the camera goes around the centre of the prim's world box at `distance`, `azimuth` and
+  `elevation`, aimed at that centre. The answer names the prim and the centre, `Camera at [3.0619, 3.0619, 3.0]
+  looking at the centre of /World/Cube, [0.0, 0.0, 0.5]`, then the distance in stage units and the two angles. A prim
+  that doesn't exist is an error.
+- **A mix of the two is refused before the camera moves,** with an error saying what to drop: `prim_path` with
+  `position` or `target` (to aim from a point at a prim, `get_prim_bounds` gives its centre), or `distance`, `azimuth`
+  or `elevation` without `prim_path`. So is a call with neither `position` nor `prim_path`.
 
 It moves whichever camera the viewport looks through, a scene camera included, and the user sees the move. Aiming
 goes through Isaac Sim's `isaacsim.core.utils.viewports` where it loads, and through the camera's own ops elsewhere,
-in the layer that holds them: Kit's session layer for Kit's own cameras. A position equal to the point it looks at,
-its target or the origin, is an error. An extension of 0.2.3 or older aims only in Isaac Sim.
+in the layer that holds them: Kit's session layer for Kit's own cameras. An extension of 0.2.3 or older aims only in
+Isaac Sim.
 
-**When to use:** for a view from coordinates you choose. To frame a prim by its path, use `look_at_prim`; to capture
-from another camera without moving the viewport, `capture_viewport`'s `camera_path`.
-
----
-
-### `look_at_prim`
-
-Move the viewport's camera to frame a prim from an angle around it, aimed at the centre of the prim's bounding box.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `prim_path` | string | required | Target prim |
-| `distance` | float | `null` | Camera distance from the prim's centre in stage units, above 0; 2.5 times the prim's largest side if omitted |
-| `azimuth` | float | `45.0` | Horizontal angle: 0=front (+Y on a Z-up stage, +Z on a Y-up one), 90=right (+X), 180=back, 270=left |
-| `elevation` | float | `30.0` | Vertical angle above horizontal |
-
-It moves whichever camera the viewport looks through, and the user sees the move. It aims as `set_camera` does, and
-gives the distance in stage units. An extension of 0.2.3 or older aims only in Isaac Sim.
-
-**When to use:** to see one prim, given only its path. `set_camera` places the camera at coordinates, and
-`inspect_prim` captures a prim from up to 14 sides in one call; `capture_viewport` then takes the picture.
+**When to use:** for a view from coordinates you choose, or of one prim given only its path. `inspect_prim` captures
+a prim from up to 14 sides in one call; to capture from another camera without moving the viewport,
+`capture_viewport`'s `camera_path`.
 
 ---
 
@@ -719,8 +717,8 @@ Capture a camera at `width` x `height` and save **3 files** for full scene under
 2. **Bounding boxes** (TXT) - screen-space pixel coordinates for each visible mesh or shape under `/World`, plus world-space centre and dimensions. A prim behind the camera has none, and one across the camera's plane is boxed by its part in front
 3. **Instance segmentation** (PNG + legend TXT) - each prim rendered as a unique colour, with a legend mapping colours to prim paths
 
-Use files 2 and 3 to understand which object is where in the viewport image. Aim first with `set_camera` or
-`look_at_prim`; for one prim from every side, use `inspect_prim`.
+Use files 2 and 3 to understand which object is where in the viewport image. Aim first with `set_camera`, at a point
+or a prim; for one prim from every side, use `inspect_prim`.
 
 All three come from one frame of `camera_path`, rendered at `width` x `height` in a render of the call's own, so the boxes are in the image's pixels and from the camera captured. The viewport the user sees keeps its camera and size. That render uses the viewport's renderer settings, but it is a view of its own: not pixel for pixel what the viewport shows (on average about 2 of 255 apart). While it runs the app renders one view more: about a third fewer updates a second at 640x480, headless.
 

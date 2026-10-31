@@ -31,7 +31,7 @@ while physics plays. Never edit blind: look, change, look again.
    image inline as well, which costs about what opening the file does (some 400 tokens at the default 640x480) and
    saves a step.
    - A prim from every side: `inspect_prim`, which frames it, with `isolate=True` to hide everything else.
-   - Another view: `set_camera` or `look_at_prim`, then capture.
+   - Another view: `set_camera`, from a `position` or around a prim with `prim_path`, then capture.
    - Inside or behind something: `set_visibility(path, false)`, capture, then show it again.
    - Overlapping prims that look alike: the segmentation tells them apart.
 4. **Place with numbers, not by eye.** `get_prim_bounds` of the thing and of what it goes on, compute the position

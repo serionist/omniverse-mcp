@@ -705,9 +705,10 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
     # ===== The camera aimed through USD, in the session layer (#82) =====
 
     def test_12f_the_camera_aims_without_isaac_sim(self):
-        """set_camera, look_at_prim and inspect_prim aim the viewport's camera through USD, in the session layer that
-        holds Kit's camera: once with Isaac Sim's call recorded but left undone, so the check after it must find the
-        camera unaimed, and once without Isaac Sim at all. 0.2.3's fallback answered a USD error or moved nothing."""
+        """/camera/set, /camera/look_at and /camera/inspect aim the viewport's camera through USD, in the session layer
+        that holds Kit's camera: once with Isaac Sim's call recorded but left undone, so the check after it must find
+        the camera unaimed, and once without Isaac Sim at all. 0.2.3's fallback answered a USD error or moved
+        nothing."""
         up = self.client.sim_state()["result"]["up_axis"]
 
         def at(a: float, h: float, b: float) -> list[float]:

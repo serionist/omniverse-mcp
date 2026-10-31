@@ -76,17 +76,18 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
   viewport's (#51)
 
 ### 3.2 Camera Positioning
-- Call `set_camera(position=[5, 3, 5], target=[0, 0, 0])`
+- Call `set_camera(position=[5, 3, 5])`, with no target
 - Call `capture_viewport(640, 480)`
-- Verify: camera shows the scene from an elevated angle, the origin in the middle: aimed, not only moved, in any Kit app
+- Verify: the answer says it looks at `[0, 0, 0]`, the world origin, as no target was given; the camera shows the scene
+  from an elevated angle, the origin in the middle: aimed, not only moved, in any Kit app
 
 ### 3.3 Look At Prim
-- Call `look_at_prim("/World/RedCube", azimuth=0, elevation=20)`
+- Call `set_camera(prim_path="/World/RedCube", azimuth=0, elevation=20)`
 - Call `capture_viewport(640, 480)`
-- Verify: cube is centered in the frame, and the answer gives the distance in stage units
+- Verify: cube is centred in the frame, and the answer names the cube and gives the distance in stage units
 
 ### 3.4 Look At with Auto-Distance
-- Call `look_at_prim("/World/Ground")` (no distance specified)
+- Call `set_camera(prim_path="/World/Ground")` (no distance specified)
 - Call `capture_viewport(640, 480)`
 - Verify: auto-computed distance shows the ground reasonably framed
 
@@ -344,7 +345,7 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 - `set_material("/World/RedCube", color=[1,0])` → error (needs 3 values)
 
 ### 12.8 Verify Material Visually
-- Apply red material, look_at_prim, capture_viewport
+- Apply red material, `set_camera(prim_path=...)` on the cube, capture_viewport
 - Verify: cube should appear colored (not default white/gray)
 
 ---
@@ -562,7 +563,8 @@ Each step waits for its drawings to expire before the next.
   new stage
 
 ### 17.6 Segmentation After Captures and a New Stage
-- `create_prim("/World/SegmentedCaptureCube", "Cube", ...)`, `look_at_prim` it, and two `capture_viewport(320, 240)`
+- `create_prim("/World/SegmentedCaptureCube", "Cube", ...)`, `set_camera(prim_path=...)` on it, and two
+  `capture_viewport(320, 240)`
 - `new_scene()`, the cube again, and a third capture
 - Verify: each capture's segmentation has the cube in its legend, and `get_logs(search="Py_Graph")` finds nothing
   since the first: each capture freed its segmentation graphs, so `omni.syntheticdata` tripped on none at the new
@@ -894,7 +896,7 @@ Each step waits for its drawings to expire before the next.
 
 ### 26.2 Look At + Immediate Capture
 - Create a test prim: `create_prim("/World/SettleTest", "Cube", position=[0, 1, 0], scale=0.5)`
-- `look_at_prim("/World/SettleTest", azimuth=45, elevation=30)`
+- `set_camera(prim_path="/World/SettleTest", azimuth=45, elevation=30)`
 - Immediately: `capture_viewport(640, 480)`
 - Verify: the cube is visible in the capture
 - Clean up: `delete_prim("/World/SettleTest")`

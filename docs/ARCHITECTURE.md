@@ -53,7 +53,7 @@ passes it through `inspect.cleandoc`; `tests/test_contract.py` fails on a descri
 | Module | Tools |
 |--------|-------|
 | `scene.py` | Scene graph: tree, dump, properties, bounds, transform, create, delete, material, clone, visibility, save, open, new |
-| `camera.py` | Viewport: capture, set camera, look at, inspect (orbit), viewport light |
+| `camera.py` | Viewport: capture, set camera (at a point or a prim), inspect (orbit), viewport light |
 | `robot.py` | Robot: create, info, joint states, joint targets |
 | `simulation.py` | Sim control, state, physics properties, apply force, raycast, debug draw |
 | `recording.py` | Recording: start, stop, get frame |
@@ -471,9 +471,9 @@ frame is reset and captured once more by itself, after 20 more of the feed's fra
   restore after `isolate` doesn't wait for frames. Any other error is its angle's alone.
 - **Under the server's timeout:** 80 s plus 10 s leaves 30 s of the client's 120 s for encoding the images and
   sending them; `tests/test_capture.py` holds the sum under the client's timeout.
-- **Outside a call:** `set_camera`, `look_at_prim` and `viewport_light` give a settle or reset 30 s for all its
-  frames, and answer as before, with a warning in Kit's log, when the frames don't come. A recording frame gets 30 s,
-  then 10 s for its file, and is the empty marker when they run out.
+- **Outside a call:** `set_camera` and `viewport_light` give a settle or reset 30 s for all its frames, and answer as
+  before, with a warning in Kit's log, when the frames don't come. A recording frame gets 30 s, then 10 s for its
+  file, and is the empty marker when they run out.
 - **Kit versions:** run live on Isaac Sim 6.2 (Kit 110) only. Kit 107's capture, frame wait and `omni.syntheticdata`
   sources were read and match Kit 110's where this relies on them, but Isaac Sim 5.x is untested live: 5.1 crashed
   in its own start on the test machine, before any extension loaded.

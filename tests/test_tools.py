@@ -359,14 +359,6 @@ CASES = [
         ("Camera at [5, 3, 5] looking at [0, 0, 0]",),
     ),
     Case(
-        "look_at_prim",
-        {"prim_path": "/World/Cube", "distance": 5.0},
-        "/camera/look_at",
-        {"camera_position": [3, 2, 3], "target": [0, 0, 0], "distance": 5.0, "azimuth": 45.0, "elevation": 30.0},
-        {"prim_path": "/World/Cube", "distance": 5.0},
-        ("Distance: 5.0 stage units, Azimuth: 45.0deg, Elevation: 30.0deg",),
-    ),
-    Case(
         "inspect_prim",
         {"prim_path": "/World/Cube", "angles": ["front", "top"], "zoom_offset": -0.3},
         "/camera/inspect",
@@ -902,6 +894,86 @@ def test_set_camera_refuses_a_position_on_the_point_it_looks_at(
     args: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
 ):
     # Isaac Sim's call turns the camera all the same, with nothing to aim at, and answered success (#82).
+    erred, text, calls = _call(bridge, tmp_path, "set_camera", args)
+    assert erred
+    assert says in text
+    assert calls == []
+
+
+def test_set_camera_without_a_target_says_it_looks_at_the_world_origin(bridge: MockIsaacServer, tmp_path: Path):
+    # The extension aims at the origin and answers no target, so the answer said nothing of where it looked (#82).
+    _check(
+        Case(
+            "set_camera",
+            {"position": [5, 3, 5]},
+            "/camera/set",
+            {"position": [5, 3, 5], "target": None},
+            {"position": [5, 3, 5], "target": None},
+            ("Camera at [5, 3, 5] looking at [0, 0, 0], the world origin: no target was given",),
+        ),
+        bridge,
+        tmp_path,
+    )
+
+
+def test_set_camera_frames_a_prim_from_the_angles_left_out(bridge: MockIsaacServer, tmp_path: Path):
+    # The prim form (#77): the route that frames a prim, with 45 and 30 degrees for the angles left out.
+    _check(
+        Case(
+            "set_camera",
+            {"prim_path": "/World/Cube", "distance": 5.0},
+            "/camera/look_at",
+            {
+                "camera_position": [3.0619, 3.0619, 3.0],
+                "target": [0.0, 0.0, 0.5],
+                "distance": 5.0,
+                "azimuth": 45.0,
+                "elevation": 30.0,
+            },
+            {"prim_path": "/World/Cube", "distance": 5.0, "azimuth": 45.0, "elevation": 30.0},
+            (
+                "Camera at [3.0619, 3.0619, 3.0] looking at the centre of /World/Cube, [0.0, 0.0, 0.5]\n"
+                "Distance: 5.0 stage units, Azimuth: 45.0deg, Elevation: 30.0deg",
+            ),
+        ),
+        bridge,
+        tmp_path,
+    )
+
+
+def test_set_camera_sends_the_angles_given_for_a_prim(bridge: MockIsaacServer, tmp_path: Path):
+    # 0 is an angle given, not one left out; without a distance, the extension works it out from the prim's size.
+    answer = {"camera_position": [0, 4, 0], "target": [0, 0, 0], "distance": 4.0, "azimuth": 0.0, "elevation": 0.0}
+    _check(
+        Case(
+            "set_camera",
+            {"prim_path": "/World/Cube", "azimuth": 0, "elevation": 0},
+            "/camera/look_at",
+            answer,
+            {"prim_path": "/World/Cube", "distance": None, "azimuth": 0, "elevation": 0},
+            ("Azimuth: 0.0deg, Elevation: 0.0deg",),
+        ),
+        bridge,
+        tmp_path,
+    )
+
+
+@pytest.mark.parametrize(
+    ("args", "says"),
+    [
+        ({"prim_path": "/World/Cube", "position": [5, 3, 5]}, "leave position and target out"),
+        ({"prim_path": "/World/Cube", "target": [0, 0, 0]}, "get_prim_bounds gives a prim's centre"),
+        ({"position": [5, 3, 5], "azimuth": 90}, "distance, azimuth and elevation place the camera around prim_path"),
+        ({"position": [5, 3, 5], "elevation": 0}, "give prim_path to frame a prim, or leave them out"),
+        ({"distance": 3.0}, "distance, azimuth and elevation place the camera around prim_path"),
+        ({}, "give position, where the camera stands, with target, the point it looks at; or prim_path"),
+        ({"target": [0, 0, 0]}, "give position, where the camera stands"),
+    ],
+)
+def test_set_camera_refuses_a_mix_of_its_forms_before_any_request(
+    args: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    # Each form is chosen by its own parameters (#77): a mix, or neither, says what to drop or give, and moves nothing.
     erred, text, calls = _call(bridge, tmp_path, "set_camera", args)
     assert erred
     assert says in text

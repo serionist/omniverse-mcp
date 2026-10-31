@@ -134,9 +134,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     ) -> str:
         """Set a prim's position, rotation or scale relative to its parent; any of the three left out keeps its value.
 
-        Use it to move, turn or size a prim; to aim the viewport camera, use set_camera or look_at_prim, and to push a
-        rigid body while physics runs, apply_force. Values are in the parent's space, not world space:
-        get_prim_properties gives a prim's world position. It writes into the prim's own xform ops: the position into
+        Use it to move, turn or size a prim; to aim the viewport camera, use set_camera, and to push a rigid body while
+        physics runs, apply_force. Values are in the parent's space, not world space: get_prim_properties gives a
+        prim's world position. It writes into the prim's own xform ops: the position into
         its translate op, the rotation into its rotate or orient ops in their kind, the scale into its scale op, adding
         an op it lacks; other ops, a pivot among them, stay. A part with no op of its own goes into the prim's matrix
         (xformOp:transform) when it has one, as imported assets often do. An error when the prim doesn't exist or can't

@@ -2,8 +2,8 @@
 
 capture_viewport and inspect_prim each make one camera feed of the camera at the size asked for, and let it go
 whatever happens, after a capture that succeeds, one that raises, and a restore of isolate that raises (#51).
-set_camera, look_at_prim and inspect_prim aim the camera without Isaac Sim, and after an Isaac Sim call that left it
-unaimed (#82).
+The handlers of /camera/set, /camera/look_at and /camera/inspect aim the camera without Isaac Sim, and after an Isaac
+Sim call that left it unaimed (#82).
 
 handlers/camera.py is loaded from its file with Kit's modules, its _utils and its camera feed faked in sys.modules, as
 tests/test_recording_handler.py loads its handler. The stage is a real usd-core one, and the Kit-free core is the real

@@ -1070,55 +1070,6 @@
         "type": "object"
       }
     },
-    "look_at_prim": {
-      "annotations": {
-        "destructiveHint": false,
-        "openWorldHint": false,
-        "readOnlyHint": false
-      },
-      "input": {
-        "properties": {
-          "azimuth": {
-            "default": 45.0,
-            "type": "number"
-          },
-          "distance": {
-            "anyOf": [
-              {
-                "exclusiveMinimum": 0,
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          },
-          "elevation": {
-            "default": 30.0,
-            "type": "number"
-          },
-          "prim_path": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "prim_path"
-        ],
-        "type": "object"
-      },
-      "output": {
-        "properties": {
-          "result": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "result"
-        ],
-        "type": "object"
-      }
-    },
     "manage_extensions": {
       "annotations": {
         "destructiveHint": true,
@@ -1292,11 +1243,57 @@
       },
       "input": {
         "properties": {
+          "azimuth": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "distance": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "elevation": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "position": {
-            "items": {
-              "type": "number"
-            },
-            "type": "array"
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "prim_path": {
+            "default": "",
+            "type": "string"
           },
           "target": {
             "anyOf": [
@@ -1313,9 +1310,6 @@
             "default": null
           }
         },
-        "required": [
-          "position"
-        ],
         "type": "object"
       },
       "output": {

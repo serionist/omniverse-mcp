@@ -5,6 +5,17 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Breaking changes
+
+- **Four pairs of tools that did one job are one tool each, 42 tools to 38,** so an agent no longer chooses between
+  two tools for one question. A call to a removed tool's name is an error, `Unknown tool`. The merged tools send the
+  Kit extension the requests the old ones sent, so they work with any 0.2.x extension, joint states with 0.2.1's or
+  later (#77).
+  - **`look_at_prim` is `set_camera` with `prim_path`,** with the same `distance`, `azimuth` and `elevation`.
+    `set_camera`'s `position` is needed only without `prim_path`. A `prim_path` with a `position` or `target`, or
+    `distance`, `azimuth` or `elevation` without one, is an error that says which to drop. Without a `target`,
+    `set_camera` still looks at the world origin, and its answer now says so.
+
 ### Fixed
 
 - **`delete_prim` refuses a prim it can't remove, where it answered "Deleted" and the prim stayed:** one another layer
