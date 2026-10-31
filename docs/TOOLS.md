@@ -246,12 +246,18 @@ Write the open stage's root layer to a USD file: back to the stage's own file, o
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `file_path` | string | `""` | Destination path, on Kit's machine. If empty, saves to the current file (overwrite). |
+| `file_path` | string | `""` | Destination path, on Kit's machine; never another file the open stage has loaded. If empty, saves to the current file (overwrite). |
 
 - **Without `file_path`:** it overwrites the file the stage was opened from, and fails for a stage never saved, such as
   `new_scene`'s.
 - **With `file_path`:** it overwrites any file there, and the stage stays tied to its own file, or to none, so a later
   `save_scene()` without a path still writes there, or fails.
+- **Another file the open stage has loaded is refused** before anything is written: a sublayer, its session layer, or
+  a referenced or payload file it has loaded. Writing the root layer there would replace a file the open scene is made
+  of, while Kit kept that layer as it was. The path is compared as `flatten_usd`'s `output_path` is: as USD takes it,
+  and for a file that exists as the file system does, a link or a `file:` URL included. The stage's own file, by any
+  of those names, is a save. A file Kit holds outside the open stage with unsaved edits is refused too, since writing
+  it would lose them; one with none is read again after the write, so the next open gets the new file.
 - **Only the root layer** is written: sublayers and referenced files stay as they are, still referenced. For one
   self-contained file, use `flatten_usd`; for one prim's subtree, `export_prim_as_file`.
 

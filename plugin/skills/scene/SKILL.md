@@ -60,6 +60,7 @@ to the stage with `create_prim` (`DistantLight`, `DomeLight`). Nothing relights 
 | Materials look grey at first | MDL compiles on first use: capture again before deciding a material is broken |
 | `UsdGeom.Cube` and the like have no faces | implicit shapes, not meshes: `get_mesh_stats` counts only `UsdGeom.Mesh` |
 | A new stage has no file | pass `file_path` to every `save_scene` of it: that writes a copy, and the stage itself still has no file |
+| `save_scene` refuses a `file_path` the open stage has loaded | a sublayer or a referenced file would be replaced by the root layer: name another path, or `save_scene()` with none to save the stage to its own file |
 | A file opened with `open_scene` sets no units | its `note` says so: USD reads it as centimetres, 0.01 metres per unit, and every number is scaled by it |
 | A `.usdz`, or a stage `open_scene`'s answer calls read-only (an `https://` URL's) | `save_scene` can't write it back: give a `file_path` ending `.usd` or `.usda`, or use `flatten_usd` |
 | A scene with thousands of instances | loading can take minutes, and tools answer slowly meanwhile: ask the user whether it has finished |
