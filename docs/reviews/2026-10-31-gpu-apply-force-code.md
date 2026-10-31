@@ -98,7 +98,12 @@ On `ee2c543`, the fixes and the two live tests the review asked for:
   `simulate` skill and the CHANGELOG, `tests/fixtures/mcp-tools.json` unmoved; `c3be812` adds E18, E19 and Q8 to
   the plan.
 
-After the changes: pending.
+**After the changes, on `2691b68`,** each on a fresh Kit:
+
+- the GPU module, 16 passed in 8.69 s: every impulse of 10 N s moved the momentum by 10.0 and every force of 300 N
+  over one step by 5.0, as before; paused, the body pushed twice moved by 10 and each body pushed once by 10
+  (`test_15`); the outer cube of a twin pair moved by 10 and its twin by 0 (`test_16`);
+- both suites whole on another fresh Kit, on the CPU pipeline: 184 passed and 16 subtests in 149.97 s.
 
 ## Checks
 
