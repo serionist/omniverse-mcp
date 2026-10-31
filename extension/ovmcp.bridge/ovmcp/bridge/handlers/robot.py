@@ -10,8 +10,9 @@ from pxr import Sdf, Tf, Usd, UsdPhysics
 
 from ovmcp.core.robot import articulation_root, is_usd_file, robot_prim_path
 from ovmcp.core.usd_files import LIBRARY_PREFIX, usd_file_url
+from ovmcp.core.xform import check_transform, write_transform
 
-from ._utils import _apply_xform, _get_stage, _next_update
+from ._utils import _first_missing, _get_stage, _next_update
 
 # ---------------------------------------------------------------------------
 # Robot asset registry
@@ -52,6 +53,11 @@ async def handle_create_robot(body: dict) -> dict:
 
     if not given:
         return {"status": "error", "error": f"No robot_type. Available: {list(ROBOT_ASSETS.keys())}"}
+    # Before the prim is made: a refusal after it would leave a robot the retry then finds in the way.
+    try:
+        parts = check_transform(position, body.get("rotation"))
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
 
     robot_type = given.lower()
     if robot_type in ROBOT_ASSETS:
@@ -91,12 +97,18 @@ async def handle_create_robot(body: dict) -> dict:
     if layer is None:
         return {"status": "error", "error": f"Could not open {full_usd_path}"}
 
+    made = _first_missing(stage, prim_path)
     prim = stage.DefinePrim(prim_path)
     prim.GetReferences().AddReference(full_usd_path)
     if not prim.IsValid():
         return {"status": "error", "error": f"Failed to create robot at {prim_path}"}
 
-    _apply_xform(prim, position, body.get("rotation"))
+    try:
+        write_transform(prim, parts)
+    except ValueError as e:
+        # Such as an animated root op in the file: what this call made goes, so a retry isn't refused as taken.
+        stage.RemovePrim(made)
+        return {"status": "error", "error": f"{e}. The robot was not added"}
 
     joint_info = []
     for desc_prim in Usd.PrimRange(prim, Usd.TraverseInstanceProxies()):

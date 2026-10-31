@@ -60,6 +60,15 @@ def _get_valid_prim(prim_path: str):
     return prim, None
 
 
+def _first_missing(stage, path: str) -> str:
+    """The shallowest of path and its ancestors with no prim: what DefinePrim(path) makes, missing parents included, so
+    a call that refuses after it can take away all it made."""
+    for prefix in Sdf.Path(path).GetPrefixes():
+        if not stage.GetPrimAtPath(prefix).IsValid():
+            return str(prefix)
+    return path
+
+
 def _validate_vec3(value, name: str) -> list[float]:
     """Validate that value is a list of 3 numbers. Returns the validated list."""
     if not isinstance(value, (list, tuple)) or len(value) != 3:
