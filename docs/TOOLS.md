@@ -948,7 +948,7 @@ goes in as the force that gives it over one physics step.
 |---|---|
 | the prim has no `RigidBodyAPI` | it is no rigid body: `set_physics_properties` or `create_prim`'s `enable_physics` makes one |
 | the simulation is stopped | PhysX holds no bodies then; paused works |
-| `/physics/suppressReadback` is true and the Kit app lacks `omni.physics.tensors` or warp | the push then goes through them; the error names the one missing |
+| `/physics/suppressReadback` is true and the Kit app lacks `omni.physics.tensors` or warp | the push then goes through them. The error names the one missing, and says to turn it on with `manage_extensions`, or to push with readback on: stop the simulation, set `/physics/suppressReadback` to false through `execute_script`, and play again |
 | `/physics/suppressReadback` is true and the physics scene's `physxScene:timeStepsPerSecond` isn't a positive number | the push then needs the step's length |
 | the body is disabled (`physics:rigidBodyEnabled` is false) | PhysX holds it as a static body, which no force moves |
 | the body is kinematic (`physics:kinematicEnabled` is true) | PhysX takes the force and moves it only by its transform |

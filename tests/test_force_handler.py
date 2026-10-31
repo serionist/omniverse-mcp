@@ -565,6 +565,12 @@ def test_a_kit_app_without_the_tensor_api_or_warp_refuses_and_names_the_issue(si
     assert r["status"] == "error"
     assert "goes through omni.physics.tensors and warp" in r["error"]
     assert "(#68)" in r["error"]
+    # What to do next: turn the module on, or push with readback on, which PhysX takes at play.
+    assert "manage_extensions (omni.physics.tensors, or omni.warp.core for warp)" in r["error"]
+    assert r["error"].endswith(
+        "stop the simulation, run carb.settings.get_settings().set_bool('/physics/suppressReadback', False) with "
+        "execute_script, and play again"
+    )
     assert not kit.views
     assert not kit.physx_pushes
 

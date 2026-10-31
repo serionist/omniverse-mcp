@@ -322,9 +322,15 @@ def _push_with_tensors(args, stage, prim, stopped: bool) -> dict:
             import warp as wp
             from omni.physics import tensors
         except ImportError as e:
+            # With readback on, apply_force_at_pos pushes, GPU dynamics included (measured on Isaac Sim 6.2), and
+            # PhysX reads the setting when the simulation starts, hence the stop.
             gpu_unavailable = (
                 "/physics/suppressReadback is true, as PhysX's Direct GPU API has it, where a push goes through "
-                f"omni.physics.tensors and warp, and this Kit app lacks one ({e}) (#68)"
+                f"omni.physics.tensors and warp, and this Kit app lacks one ({e}) (#68). Turn the missing one on with "
+                "manage_extensions (omni.physics.tensors, or omni.warp.core for warp), or push with readback on, "
+                "where PhysX's own push moves the body: stop the simulation, run "
+                "carb.settings.get_settings().set_bool('/physics/suppressReadback', False) with execute_script, and "
+                "play again"
             )
     enabled, kinematic = _body_flags(prim)
     # Whether PhysX holds the body is the view's count, below; here the body is taken as held.
