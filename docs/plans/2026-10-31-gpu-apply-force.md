@@ -1,9 +1,9 @@
 ---
 title: Push bodies through PhysX's tensor API under the Direct GPU API
 issue: "#68"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-10-31
 ---
 
 # Push bodies through PhysX's tensor API under the Direct GPU API
@@ -132,15 +132,15 @@ stays. The route's body is unchanged; its answer's `method` can now be `"tensor"
 
 ## Decisions for the maintainer
 
-| # | Question | Recommendation |
-|---|---|---|
-| Q1 | The tensor path only under the Direct GPU API, or for every push | Only there: today's call is exact elsewhere |
-| Q2 | The frontend | warp: Kit ships it |
-| Q3 | Under the Direct GPU API without `omni.physics.tensors` or warp | Refuse as today, saying which is missing |
-| Q4 | GPU dynamics with readback on | Decided by U4: the tensor path there too if today's call moves nothing, else today's call |
-| Q5 | The answer's `method` for the new path | `"tensor"`, so a caller and the logs can tell the paths apart |
-| Q6 | The live test switches the Kit app to the GPU device, which `set_device("cpu")` can't fully undo (Fabric stays on, USD write-back off): in the default live run, or only when asked | Only when asked: `OMNIVERSE_MCP_GPU=1` with `OMNIVERSE_MCP_SIM=1`, on a Kit of its own, restarted after; the default suites never change the device |
-| Q7 | The setting true on a CPU scene | The tensor path, if U5 shows the push lands; otherwise today's refusal, which says how to turn the setting off |
+| # | Question | Recommendation | Answer |
+|---|---|---|---|
+| Q1 | The tensor path only under the Direct GPU API, or for every push | Only there: today's call is exact elsewhere | As recommended (2026-10-31) |
+| Q2 | The frontend | warp: Kit ships it | As recommended (2026-10-31) |
+| Q3 | Under the Direct GPU API without `omni.physics.tensors` or warp | Refuse as today, saying which is missing | As recommended (2026-10-31) |
+| Q4 | GPU dynamics with readback on | Decided by U4: the tensor path there too if today's call moves nothing, else today's call | As recommended (2026-10-31) |
+| Q5 | The answer's `method` for the new path | `"tensor"`, so a caller and the logs can tell the paths apart | As recommended (2026-10-31) |
+| Q6 | The live test switches the Kit app to the GPU device, which `set_device("cpu")` can't fully undo (Fabric stays on, USD write-back off): in the default live run, or only when asked | Only when asked: `OMNIVERSE_MCP_GPU=1` with `OMNIVERSE_MCP_SIM=1`, on a Kit of its own, restarted after; the default suites never change the device | As recommended (2026-10-31) |
+| Q7 | The setting true on a CPU scene | The tensor path, if U5 shows the push lands; otherwise today's refusal, which says how to turn the setting off | As recommended (2026-10-31) |
 
 ## Steps
 
@@ -268,3 +268,5 @@ Improvements:
 |---|---|
 | The GPU module's first test checks the Kit is on the CPU pipeline, so a Kit left on the GPU fails clearly | taken, in step 4 |
 | U6 in the same probe session as U1 to U5 | taken, in step 1 |
+
+**Approved** by the maintainer on 2026-10-31, Q1 to Q7 as recommended.
