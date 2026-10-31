@@ -78,12 +78,12 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 ### 3.2 Camera Positioning
 - Call `set_camera(position=[5, 3, 5], target=[0, 0, 0])`
 - Call `capture_viewport(640, 480)`
-- Verify: camera shows the scene from an elevated angle
+- Verify: camera shows the scene from an elevated angle, the origin in the middle: aimed, not only moved, in any Kit app
 
 ### 3.3 Look At Prim
 - Call `look_at_prim("/World/RedCube", azimuth=0, elevation=20)`
 - Call `capture_viewport(640, 480)`
-- Verify: cube is centered in the frame
+- Verify: cube is centered in the frame, and the answer gives the distance in stage units
 
 ### 3.4 Look At with Auto-Distance
 - Call `look_at_prim("/World/Ground")` (no distance specified)
@@ -233,6 +233,7 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
   - Header: `# Omniverse MCP Scene Dump`
   - Scene marker: `=== SCENE root=/World prims=N ===`
   - Prim blocks with `[/path]`, `type = ...`, `pos = ...`
+  - N, and the answer's "Dumped N prims", equal the number of `[/path]` blocks in the file
 
 ### 8.2 Filtered by Type
 - `dump_scene(root="/World", filter_types=["Cube"])`
@@ -304,7 +305,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 - `execute_script("def broken(")` → error with traceback
 
 ### 11.4 Double Recording
-- Start a recording, then try `start_recording()` again → error
+- Start a recording, then try `start_recording()` again → error saying to call `stop_recording` first, not to pass
+  `force`
 
 ### 11.5 Stop Without Recording
 - `stop_recording()` when none active → error
@@ -328,6 +330,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 ### 12.4 Set Material - Opacity
 - `set_material("/World/RedCube", color=[1,0,0], opacity=0.5)`
 - Verify: opacity=0.5
+- `set_material("/World/RedCube", color=[1,0,0], opacity=1)`
+- Verify: the answer says opacity=1.0, and the cube is opaque again
 
 ### 12.5 Set Material - Custom Path
 - `set_material("/World/RedCube", color=[0,1,0], material_path="/World/Looks/MyGreenMat")`
@@ -364,7 +368,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 
 ### 13.5 Clone Multiple Copies with Offset
 - `clone_prim("/World/RedCube", "/World/CloneBatch", count=3, offset=[2,0,0])`
-- Verify: 3 clones created (`/World/CloneBatch_001`, `_002`, `_003`)
+- Verify: 3 clones created (`/World/CloneBatch_001`, `_002`, `_003`), copy n at the cube's position plus n times
+  [2,0,0], each with the cube's own xform ops
 
 ### 13.6 Clone - Verify Offset Positions
 - Get bounds of each clone from 13.5

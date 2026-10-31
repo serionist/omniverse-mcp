@@ -3,7 +3,13 @@
 import pytest
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 
-from ovmcp.core.formatter import format_frame_state, format_prim_block, format_scene_dump, format_value
+from ovmcp.core.formatter import (
+    format_frame_state,
+    format_prim_block,
+    format_scene_dump,
+    format_scene_tree,
+    format_value,
+)
 
 
 @pytest.mark.parametrize(
@@ -98,7 +104,7 @@ def test_a_prim_without_a_transform_has_no_pose(stage):
 
 
 def test_a_scene_dump_walks_the_tree(stage):
-    text = format_scene_dump(stage, "/World", include_properties=False, include_bounds=False)
+    text, _count = format_scene_dump(stage, "/World", include_properties=False, include_bounds=False)
 
     assert text.splitlines()[:8] == [
         "# Omniverse MCP Scene Dump",
@@ -115,13 +121,13 @@ def test_a_scene_dump_walks_the_tree(stage):
 
 
 def test_a_type_filter_still_walks_below_what_it_leaves_out(stage):
-    text = format_scene_dump(stage, "/", filter_types=["Sphere"], include_properties=False)
+    text, _count = format_scene_dump(stage, "/", filter_types=["Sphere"], include_properties=False)
 
     assert [line for line in text.splitlines() if line.startswith("[")] == ["[/World/Group/Ball]"]
 
 
 def test_max_depth_stops_the_walk(stage):
-    text = format_scene_dump(stage, "/World", max_depth=1, include_properties=False, include_bounds=False)
+    text, _count = format_scene_dump(stage, "/World", max_depth=1, include_properties=False, include_bounds=False)
 
     assert [line for line in text.splitlines() if line.startswith("[")] == [
         "[/World]",
@@ -131,7 +137,54 @@ def test_max_depth_stops_the_walk(stage):
 
 
 def test_a_missing_root_says_so(stage):
-    assert format_scene_dump(stage, "/Nowhere") == "# ERROR: Prim not found: /Nowhere\n"
+    assert format_scene_dump(stage, "/Nowhere") == ("# ERROR: Prim not found: /Nowhere\n", 0)
+
+
+@pytest.mark.parametrize(
+    ("args", "count"),
+    [({}, 4), ({"max_depth": 1}, 3), ({"max_depth": 0}, 1), ({"filter_types": ["Sphere"]}, 1)],
+)
+def test_a_scene_dump_counts_the_prims_it_wrote(stage, args, count):
+    # The answer counted the whole stage and the header the whole subtree, past max_depth and filter_types (#82).
+    text, written = format_scene_dump(stage, "/World", include_properties=False, include_bounds=False, **args)
+
+    assert written == count
+    assert sum(line.startswith("[") for line in text.splitlines()) == count
+    assert f"# prim_count = {count}" in text.splitlines()
+    assert f"=== SCENE root=/World prims={count} ===" in text.splitlines()
+
+
+def test_a_scene_tree_at_depth_0_says_how_many_children_the_root_has(stage):
+    text, listed = format_scene_tree(stage, "/World", 0)
+
+    assert listed == 1
+    assert [line for line in text.splitlines() if line.startswith("[")] == ["[/World]"]
+    assert "children = 2 (truncated)" in text.splitlines()  # the cube and the group; the inactive prim isn't listed
+
+
+def test_a_scene_tree_lists_every_prim_down_to_its_depth_and_counts_what_lies_below(stage):
+    # The text listed the next level's prims that had children and left out the rest (#82).
+    text, listed = format_scene_tree(stage, "/World", 1)
+
+    assert listed == 3
+    blocks = text.split("\n\n")
+    assert [b.splitlines()[0] for b in blocks if b.startswith("[")] == ["[/World]", "[/World/Cube]", "[/World/Group]"]
+    group = next(b for b in blocks if b.startswith("[/World/Group]"))
+    cube = next(b for b in blocks if b.startswith("[/World/Cube]"))
+    assert "children = 1 (truncated)" in group
+    assert "children" not in cube
+    assert "pos = 1.0000, 2.0000, 3.0000" in cube
+
+
+def test_a_scene_tree_with_properties_gives_each_attributes_value(stage):
+    text, _listed = format_scene_tree(stage, "/World/Cube", 0, include_properties=True)
+    assert "size = 2" in text.splitlines()
+
+
+def test_a_scene_tree_of_a_missing_root_lists_nothing(stage):
+    text, listed = format_scene_tree(stage, "/Nowhere", 3)
+    assert listed == 0
+    assert not [line for line in text.splitlines() if line.startswith("[")]
 
 
 def test_a_frame_has_its_marker_and_skips_prims_that_are_gone(stage):

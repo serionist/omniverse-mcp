@@ -20,6 +20,15 @@ from ovmcp.core.lighting import camera_light_switch, current_mode
 from ovmcp.core.png import encode_png, png_size
 from ovmcp.core.recording import camera_error
 from ovmcp.core.serial import LazyLock, serial
+from ovmcp.core.xform import (
+    Snapshot,
+    aim,
+    aim_error,
+    camera_layer,
+    check_transform,
+    set_centre_of_interest,
+    world_scale,
+)
 
 from ._utils import (
     CAMERA_SETTLE_FRAMES,
@@ -66,62 +75,59 @@ async def _settle_or_log(what: str):
 # ---------------------------------------------------------------------------
 
 
-def _set_camera_xform(camera_path: str, eye: list[float], target: list[float]):
-    """Set camera transform directly via UsdGeom.Xformable with look-at math.
+def _point(value, name: str) -> Gf.Vec3d:
+    """value as a point, or ValueError naming it."""
+    try:
+        point = check_transform(position=value).position
+    except ValueError:
+        point = None
+    if point is None:
+        raise ValueError(f"{name} must be [x, y, z], 3 numbers, got {value!r}")
+    return point
 
-    WARNING: This is a last-resort fallback for non-Isaac-Sim environments.
-    UsdGeom.Xformable does NOT reliably move the viewport camera — the viewport
-    camera controller can override USD xform ops.  Prefer set_camera_view() from
-    isaacsim.core.utils.viewports whenever available.
-    Handles the top-down degenerate case with explicit right vector.
+
+def _aim_camera(camera_path: str, eye: Gf.Vec3d, target: Gf.Vec3d) -> str | None:
+    """Puts the camera at eye looking at target; why it couldn't, or None (#82).
+
+    Isaac Sim's set_camera_view where it loads, as before; then a check, since it leaves a camera unaimed with no error
+    (straight down a Y-up stage's up axis it puts it at the origin with a scale of about 3.4e38; with no
+    viewport it moves nothing). When the camera is off, or without Isaac Sim, the camera's ops go back as they were and
+    the USD look-at (core/xform.py) aims it, in the layer that holds its ops: the session layer for Kit's own cameras,
+    where a write in the root layer would move nothing and stay in the user's file.
     """
     stage = _get_stage()
-    cam_prim = stage.GetPrimAtPath(camera_path)
-    if not cam_prim.IsValid():
-        return
-
-    eye_v = Gf.Vec3d(*eye)
-    target_v = Gf.Vec3d(*target)
-
-    fwd = target_v - eye_v
-    dist = fwd.GetLength()
-    if dist < 1e-6:
-        return
-    fwd = fwd.GetNormalized()
-
-    up_axis = UsdGeom.GetStageUpAxis(stage)
-    world_up = Gf.Vec3d(0, 0, 1) if up_axis == "Z" else Gf.Vec3d(0, 1, 0)
-
-    # Degenerate case: camera looking straight along up axis
-    dot = abs(fwd[0] * world_up[0] + fwd[1] * world_up[1] + fwd[2] * world_up[2])
-    if dot > 0.999:
-        right = Gf.Vec3d(1, 0, 0)
-    else:
-        # right = world_up x back
-        back = -fwd
-        right = Gf.Vec3d(
-            world_up[1] * back[2] - world_up[2] * back[1],
-            world_up[2] * back[0] - world_up[0] * back[2],
-            world_up[0] * back[1] - world_up[1] * back[0],
-        ).GetNormalized()
-
-    back = -fwd
-    cam_up = Gf.Vec3d(
-        back[1] * right[2] - back[2] * right[1],
-        back[2] * right[0] - back[0] * right[2],
-        back[0] * right[1] - back[1] * right[0],
-    ).GetNormalized()
-
-    # Row-major: row0=right, row1=up, row2=back, row3=translate
-    m = Gf.Matrix4d(1)
-    m[0][0], m[0][1], m[0][2] = right[0], right[1], right[2]
-    m[1][0], m[1][1], m[1][2] = cam_up[0], cam_up[1], cam_up[2]
-    m[2][0], m[2][1], m[2][2] = back[0], back[1], back[2]
-    m[3][0], m[3][1], m[3][2] = eye_v[0], eye_v[1], eye_v[2]
-
-    xformable = UsdGeom.Xformable(cam_prim)
-    xformable.ClearXformOpOrder()
-    xformable.AddTransformOp().Set(m)
+    camera = stage.GetPrimAtPath(camera_path)
+    if not camera.IsValid():
+        return f"Camera prim not found: {camera_path}"
+    if (target - eye).GetLength() <= 1e-9 * max(1.0, eye.GetLength()):
+        # Isaac's call would turn the camera all the same: refused before anything is written.
+        return f"position {list(eye)} is the target {list(target)}: there is nothing to look at"
+    layer = camera_layer(camera)
+    snapshot = Snapshot.take(camera)
+    scale = world_scale(camera)
+    try:
+        from isaacsim.core.utils.viewports import set_camera_view
+    except ImportError:
+        set_camera_view = None
+    if set_camera_view is not None:
+        try:
+            set_camera_view(eye=list(eye), target=list(target), camera_prim_path=camera_path)
+        except Exception as e:
+            return f"Isaac Sim's set_camera_view failed for {camera_path}: {e}"
+    off = aim_error(camera, eye, target, scale)
+    if off:
+        if set_camera_view is not None:
+            carb.log_info(f"[MCP Bridge] set_camera_view left {camera_path} unaimed ({off}): aiming it through USD")
+            snapshot.restore(camera, layer)
+        try:
+            aim(camera, eye, target, layer)
+        except ValueError as e:
+            return f"The camera {camera_path} could not be aimed: {e}"
+        off = aim_error(camera, eye, target, scale)
+        if off:
+            return f"The camera {camera_path} could not be aimed: {off}"
+    set_centre_of_interest(camera, target, layer)
+    return None
 
 
 def _is_image_black(png_bytes: bytes, threshold: int = 5) -> bool:
@@ -482,30 +488,19 @@ async def handle_camera_set(body: dict) -> dict:
 
     if position is None:
         return {"status": "error", "error": "position is required ([x, y, z])"}
+    try:
+        eye = _point(position, "position")
+        # Without a target it looks at the world origin, as it always has.
+        look = _point(target if target is not None else [0, 0, 0], "target")
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
 
     await _next_update()
 
     camera_path = _get_active_camera_path()
-
-    effective_target = target if target is not None else [0, 0, 0]
-
-    try:
-        from isaacsim.core.utils.viewports import set_camera_view
-
-        set_camera_view(
-            eye=position,
-            target=effective_target,
-            camera_prim_path=camera_path,
-        )
-    except (ImportError, Exception):
-        # Fallback: set transform directly via USD
-        stage = _get_stage()
-        cam_prim = stage.GetPrimAtPath(camera_path)
-        if not cam_prim.IsValid():
-            return {"status": "error", "error": f"Camera prim not found: {camera_path}"}
-        from ._utils import _apply_xform
-
-        _apply_xform(cam_prim, position=position)
+    why = _aim_camera(camera_path, eye, look)
+    if why:
+        return {"status": "error", "error": why}
 
     # Wait for camera transform to propagate through the rendering pipeline
     await _settle_or_log("set_camera")
@@ -556,22 +551,11 @@ async def handle_camera_look_at(body: dict) -> dict:
             center[2] + distance * math.cos(el_rad) * math.cos(az_rad),
         ]
 
-    # Use the set_camera_view utility
     await _next_update()
-    try:
-        from isaacsim.core.utils.viewports import set_camera_view
-
-        camera_path = _get_active_camera_path()
-
-        set_camera_view(eye=cam_pos, target=center, camera_prim_path=camera_path)
-    except ImportError:
-        # Fallback: manually set transform
-        camera_path = _get_active_camera_path()
-        cam_prim = stage.GetPrimAtPath(camera_path)
-        if cam_prim.IsValid():
-            xformable = UsdGeom.Xformable(cam_prim)
-            xformable.ClearXformOpOrder()
-            xformable.AddTranslateOp().Set(Gf.Vec3d(*cam_pos))
+    camera_path = _get_active_camera_path()
+    why = _aim_camera(camera_path, Gf.Vec3d(*cam_pos), Gf.Vec3d(*center))
+    if why:
+        return {"status": "error", "error": why}
 
     # Wait for camera transform to propagate through the rendering pipeline
     await _settle_or_log("look_at_prim")
@@ -675,13 +659,11 @@ async def handle_camera_inspect(body: dict) -> dict:
                     center[2] + distance * math.cos(el_rad) * math.cos(az_rad),
                 ]
 
-            # Prefer set_camera_view (reliable); fall back to USD xform (unreliable)
-            try:
-                from isaacsim.core.utils.viewports import set_camera_view
-
-                set_camera_view(eye=cam_pos, target=center, camera_prim_path=camera_path)
-            except ImportError:
-                _set_camera_xform(camera_path, cam_pos, center)
+            why = _aim_camera(camera_path, Gf.Vec3d(*cam_pos), Gf.Vec3d(*center))
+            if why:
+                # This angle's alone, as a capture's error is: the next may aim.
+                captures.append({"angle": angle_name, "error": why})
+                continue
 
             try:
                 # The feed renders the camera's new place a few frames after the move (#51's E14: 3)

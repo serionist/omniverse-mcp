@@ -73,12 +73,13 @@ List the stage's prims under `root` as prim blocks: each one's path, type and wo
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `root` | string | `"/"` | Starting prim path |
-| `max_depth` | int | `5` | Levels below `root` to list, 0 to 15; the next level shows only prims with children |
+| `max_depth` | int | `5` | Levels below `root` to list, 0 to 15; a prim on the last level says how many children it has |
 
 **Returns:** Prim-block text showing each prim's path, type, and world position. Written to file if output exceeds 1000 characters.
-The level after `max_depth` lists only the prims that have children, each with its type and `children = N
-(truncated)`; the rest of that level, and everything deeper, is left out. The prims inside an instanceable prim, as
-Isaac Sim's robot assets often are, are not listed: `get_prim_face_count_tree` looks inside.
+A prim at `max_depth` that has children says how many, as `children = N (truncated)`, and nothing below it is listed.
+An extension of 0.2.3 or older lists instead the next level's prims that have children, and leaves out the rest of
+that level. The prims inside an instanceable prim, as Isaac Sim's robot assets often are, are not listed:
+`get_prim_face_count_tree` looks inside.
 
 **When to use:** to find prim paths before acting on them; it is the lightest look at a scene. For properties, use
 `get_prim_properties` on one prim, or `dump_scene` for many at once, written to a file to grep.
@@ -99,9 +100,10 @@ unless `include_properties` is false.
 | `filter_types` | list[string] | `null` | Only include prims of these types (e.g., `["Mesh", "Xform"]`); the others' children are still walked |
 | `property_filter` | list[string] | `null` | Only include properties containing these substrings |
 
-**Returns:** File path to the dump. Use your file reading tool to examine specific parts. Each call replaces the last
-dump. Kit writes the file itself, so with Kit on another machine it lands there. Like `get_scene_tree`, it doesn't list
-the prims inside an instanceable prim.
+**Returns:** File path to the dump, its size, and how many prim blocks it holds, which the file's header says too; an
+extension of 0.2.3 or older counts every prim on the stage. Use your file reading tool to examine specific parts. Each
+call replaces the last dump. Kit writes the file itself, so with Kit on another machine it lands there. Like
+`get_scene_tree`, it doesn't list the prims inside an instanceable prim.
 
 **When to use:** for many prims' values at once, or for depths beyond `get_scene_tree`'s 15. The output is in
 prim-block format - grep for prim paths or property names. `get_prim_properties` reads one prim inline.
@@ -152,9 +154,23 @@ Set a prim's position, rotation or scale relative to its parent.
 Only provided parameters are changed; others are preserved.
 
 - **Local, not world:** values are in the parent's space; `get_prim_properties` gives a prim's world position.
-- **Its xform ops:** it rewrites them as translate, rotateXYZ (orient for a quaternion) and scale, and drops any other
-  op, so a prim placed by a matrix (`xformOp:transform`), as imported assets often are, loses that placement.
-- **Errors:** a prim that doesn't exist, or one that can't be transformed.
+- **Its xform ops:** it writes into the prim's own ops, as Kit's Property panel shows them, and keeps every other op
+  where it is, a pivot, Kit's `:unitsResolve` ops and `!resetXformStack!` among them:
+  - the position into the prim's `xformOp:translate`, which a pivot turns and scales the prim about;
+  - the rotation into its rotate or orient ops, in their kind: Euler angles into a `rotateXYZ` op and a quaternion into
+    an `orient` op as given, either converted into an op of the other kind or another Euler order, and into Kit's
+    `[rotateZ, rotateY, rotateX]` split across the three. A single-axis op alone, or another mix of rotate ops, is
+    replaced in its place by one `rotateXYZ` or `orient`;
+  - the scale into its `xformOp:scale`;
+  - a part with no op of its own into the prim's matrix (`xformOp:transform`) when it has one, as imported assets often
+    do; else a new op: translate first, rotateXYZ or orient before the scale, scale before an inverse pivot.
+- **Errors, with nothing written:** a prim that doesn't exist, or one that can't be transformed; a rotation that isn't
+  3 or 4 numbers, or a zero quaternion; an op with animation (time samples), whose value set here would be hidden, or
+  would freeze the animation of a weaker layer, such as an asset's; ops a stronger layer holds, such as a Kit camera's,
+  in its session layer, where a value set in the stage's layer wouldn't show; a rotation or scale on a matrix that
+  can't be factored, a singular one such as a scale of 0 leaves.
+- **An extension of 0.2.3 or older** rewrites the ops as translate, rotateXYZ (orient for a quaternion) and scale, and
+  drops every other op: a pivot goes, can be read as the position, and a prim placed by a matrix loses that placement.
 
 **When to use:** to move, turn or size a prim. To aim the viewport camera, use `set_camera` or `look_at_prim`; to push
 a rigid body while physics runs, `apply_force`.
@@ -176,9 +192,12 @@ Create a new prim in the scene.
 | `enable_physics` | bool | `false` | Add RigidBody + Collision APIs |
 
 A prim already at `prim_path` keeps its type: creating one of another type there is refused, and one of the same type
-takes the new transform. A `usd_path` adds its reference to a prim already there. Missing parents are made as typeless
-prims. `enable_physics` puts both APIs on the prim itself, so a shape falls and collides while the simulation plays;
-the meshes under an Xform or a referenced file's root get no Collision API of their own.
+takes the new transform, written into its own ops as `set_prim_transform` writes it. A transform it can't write makes
+nothing: a malformed one is refused before the prim is made, and one refused once it is there (an animated op in a
+referenced file, say) takes away what the call made. A `usd_path` adds its reference to a prim already there, and takes
+it away again when the transform is refused. Missing parents are made as typeless prims. `enable_physics` puts both APIs
+on the prim itself, so a shape falls and collides while the simulation plays; the meshes under an Xform or a referenced
+file's root get no Collision API of their own.
 
 **When to use:** Creating geometric shapes, lights, cameras, or loading external USD assets. To copy a prim, use
 `clone_prim`; for a robot, `create_robot`.
@@ -193,9 +212,16 @@ Delete a prim and everything under it, by removing what the stage's edit layer h
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Full USD path to delete |
 
-USD keeps a prim that another layer defines too, or that comes in through a reference or payload, such as a part of a
-referenced asset: it stays, though the answer says deleted, so check with `get_scene_tree`. To hide a prim and keep it,
-use `set_visibility`. Kit's undo doesn't record the delete, and the file on disk keeps the prim until `save_scene`.
+- **What it can't delete:** a prim another layer defines too (a sublayer, or Kit's session layer), or one a reference,
+  payload, inherit, specialize or variant on a prim above brings, such as a part of a referenced asset. The call is
+  refused, saying which, and nothing changes. `set_visibility` hides such a prim; for a prim inside an instance, the
+  error names the instance, which `set_visibility` hides whole. A prim that references a file is deleted with its
+  reference.
+- **An extension of 0.2.3 or older** answers "Deleted" for such a prim and leaves it, with what the edit layer held of
+  it removed: the answer then adds "This Kit extension, older than the server, answers deleted for a prim another
+  layer keeps: check with get_scene_tree".
+
+Kit's undo doesn't record the delete, and the file on disk keeps the prim until `save_scene`.
 
 ---
 
@@ -212,9 +238,12 @@ already holds a prim is refused, before anything is copied.
 | `offset` | list[float] | `null` | `[x, y, z]` per-copy offset, in the parent's space. The first copy sits on the source, and each next one shifts by this amount from the previous, so a single copy never moves. |
 
 It copies what the stage's root layer holds at `source_path`, its references included, so a prim from a sublayer, or
-from inside a referenced asset, can't be copied whole. With `offset`, the copies it places, and a single copy, get their
-xform ops rewritten as `set_prim_transform` does, counted from the source's translate (the origin without one): copies
-of a prim placed by a matrix lose that placement.
+from inside a referenced asset, can't be copied whole. With `offset`, copy n moves n times `offset` from the source in
+the parent's space, through its own translate op, or its matrix for a prim placed by one, its other ops and placement
+kept; the first copy, and a single copy, are left as copied. A source whose position can't be written, such as an
+animated translate, is refused before anything is copied. An extension of 0.2.3 or older rewrites the moved copies',
+and a single copy's, xform ops as translate, rotate and scale, so copies of a prim placed by a matrix or about a pivot
+lose that placement.
 
 **Example:** Clone a cube into a row of 5, the first on the cube and each 2 further along x:
 ```
@@ -485,9 +514,11 @@ bindings of their own.
 | `metallic` | float | `0.0` | 0.0 (plastic) to 1.0 (metal); nothing outside that |
 | `material_path` | string | `""` | Custom material prim path (`/World/Looks/<prim name>_Mat` if omitted) |
 
-Without `material_path`, prims of the same name share one material, so colouring one recolours the rest: give
-`material_path` to keep them apart, or to share one on purpose. For friction and bounce, use `set_physics_properties`;
-to repoint bindings after materials move, `update_material_paths`.
+`opacity`, `roughness` and `metallic` are set on every call, each to its default when left out, so a call without
+`opacity` makes the material opaque; the answer gives all three. An extension of 0.2.3 or older writes the opacity only
+below 1, so a material it made see-through stays so. Without `material_path`, prims of the same name share one material,
+so colouring one recolours the rest: give `material_path` to keep them apart, or to share one on purpose. For friction
+and bounce, use `set_physics_properties`; to repoint bindings after materials move, `update_material_paths`.
 
 ---
 
@@ -543,7 +574,9 @@ Add a robot: one of Isaac Sim's by name (Isaac Sim only), or any robot from its 
 A USD file as `robot_type` loads from a path on the Kit app's machine, a URL (`omniverse://`, `https://`), or a
 path in Isaac Sim's asset library (`/Isaac/...`), which goes under the library's root; its case is kept. Without
 `prim_path`, the prim is named after the file: `/World/MyBot` for `.../MyBot.usd`. A file that can't be opened
-is an error, and so is a prim already at `prim_path`.
+is an error, and so is a prim already at `prim_path`. `position` and `rotation` go into the robot's own root ops, as
+`set_prim_transform` writes them; a malformed one is refused before the robot is added, and one refused after it (an
+animated root op in the file) takes the robot away again.
 
 ---
 
@@ -614,7 +647,9 @@ Move the viewport's camera to a world position and aim it at a target point.
 | `target` | list[float] | `null` | `[x, y, z]` world point to look at; the origin when omitted |
 
 It moves whichever camera the viewport looks through, a scene camera included, and the user sees the move. Aiming
-goes through Isaac Sim's `isaacsim.core.utils.viewports`: other Kit apps only move the camera, without aiming it.
+goes through Isaac Sim's `isaacsim.core.utils.viewports` where it loads, and through the camera's own ops elsewhere,
+in the layer that holds them: Kit's session layer for Kit's own cameras. A position equal to the point it looks at,
+its target or the origin, is an error. An extension of 0.2.3 or older aims only in Isaac Sim.
 
 **When to use:** for a view from coordinates you choose. To frame a prim by its path, use `look_at_prim`; to capture
 from another camera without moving the viewport, `capture_viewport`'s `camera_path`.
@@ -632,8 +667,8 @@ Move the viewport's camera to frame a prim from an angle around it, aimed at the
 | `azimuth` | float | `45.0` | Horizontal angle: 0=front (+Y on a Z-up stage, +Z on a Y-up one), 90=right (+X), 180=back, 270=left |
 | `elevation` | float | `30.0` | Vertical angle above horizontal |
 
-It moves whichever camera the viewport looks through, and the user sees the move. Aiming goes through Isaac Sim's
-`isaacsim.core.utils.viewports`: other Kit apps only move the camera, without aiming it.
+It moves whichever camera the viewport looks through, and the user sees the move. It aims as `set_camera` does, and
+gives the distance in stage units. An extension of 0.2.3 or older aims only in Isaac Sim.
 
 **When to use:** to see one prim, given only its path. `set_camera` places the camera at coordinates, and
 `inspect_prim` captures a prim from up to 14 sides in one call; `capture_viewport` then takes the picture.
@@ -644,7 +679,13 @@ It moves whichever camera the viewport looks through, and the user sees the move
 
 Orbit-capture: take screenshots from 14 systematic angles around a prim using a cube-based approach (6 face centres + 8 cube corners). The camera distance is fitted so the prim's bounding sphere fills the captured frame with a 10px margin, at `width` x `height`. Optionally includes instance segmentation at each angle.
 
-The orbit moves whichever camera the viewport looks through, a scene camera included, as the user sees, and leaves it at the last angle; each angle is rendered from that camera at `width` x `height` in a render of the call's own, as `capture_viewport`'s is. The first line gives that size; with an extension of 0.2.2 or older, whose images are the viewport's size, a `WARNING` says so when it isn't the size asked for, with the command that installs this release's extension.
+The orbit moves whichever camera the viewport looks through, a scene camera included, as the user sees, and leaves it at
+the last angle; each angle is rendered from that camera at `width` x `height` in a render of the call's own, as
+`capture_viewport`'s is. It aims the camera at each angle as `set_camera` does, Kit's own camera in Kit's session layer;
+an angle it can't aim says why. An extension of 0.2.3 or older aims only in Isaac Sim, so elsewhere every angle shows
+the view the camera had. The first line gives the distance in stage units and the size; with an extension of 0.2.2 or
+older, whose images are the viewport's size, a `WARNING` says so when it isn't the size asked for, with the command that
+installs this release's extension.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -798,7 +839,8 @@ prim the recording renders into, which it deletes at stop.
   advances the simulation as before, so the run takes longer, not differently.
 - **When frames stop:** if the stage changes (`new_scene`, `open_scene`) or the camera is deleted, since the render
   would show something else then. `get_sim_state` and `stop_recording` say why.
-- **One at a time:** while a recording runs, another start is refused until `stop_recording`.
+- **One at a time:** while a recording runs, another start is refused, saying to call `stop_recording` first; an
+  extension of 0.2.3 or older says to pass `force=True`, which the tool doesn't take: call `stop_recording`.
 - **An extension of 0.2.2 or older** records the active viewport at its own size: the answer then carries a
   `WARNING` line naming the `camera_path`, `width` or `height` it ignores, with the command that installs this
   release's extension.
@@ -842,7 +884,7 @@ stopped, the frame's simulation time.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `frame_index` | int | `0` | Frame number (0-based), not negative |
-| `session_dir` | string | `""` | Session directory on Kit's machine, absolute or relative to Kit's working folder (uses the last recording started since the extension started, the running one included, if empty). `start_recording` and `stop_recording` may give it relative to the server's folder: pass an absolute path |
+| `session_dir` | string | `""` | The session folder as `start_recording` and `stop_recording` give it, relative to this server's working folder, or an absolute path on Kit's machine, in either Windows' or POSIX's form (uses the last recording started since the extension started, the running one included, if empty) |
 
 Kit writes a recording's frames itself, as `frame_00000.png` and on in the session folder: with Kit on this machine you
 can also open them there, and with Kit on another this tool brings one here. A frame Kit failed to capture comes back
@@ -921,11 +963,11 @@ Cast a ray through PhysX and return the closest collider it hits.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `origin` | list[float] | required | `[x, y, z]` start point in world space |
-| `direction` | list[float] | required | `[dx, dy, dz]` direction in world space, a unit vector: PhysX takes it as given |
+| `direction` | list[float] | required | `[dx, dy, dz]` direction in world space, of any length but zero: the server scales it to a unit vector, as Isaac Sim 6.2's PhysX also does |
 | `max_distance` | float | `1000.0` | Maximum ray length in stage units, above 0 |
 
-**Returns:** Hit prim path, hit position, surface normal, and distance. Returns "No hit" if ray doesn't intersect anything.
-The prim named is the rigid body hit, or a static collider itself.
+**Returns:** Hit prim path, hit position, surface normal, and distance in stage units. Returns "No hit" if ray doesn't
+intersect anything. The prim named is the rigid body hit, or a static collider itself.
 
 - **Colliders only:** prims with the Collision API, which `create_prim`'s `enable_physics` adds, are hit; plain meshes
   are not.

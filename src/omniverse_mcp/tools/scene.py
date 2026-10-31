@@ -42,17 +42,18 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         max_depth: Annotated[
             int,
             Field(
-                ge=0, le=15, description="How many levels below root to list; the next shows only prims with children"
+                ge=0,
+                le=15,
+                description="How many levels below root to list; a prim on the last says how many children it has",
             ),
         ] = 5,
     ) -> str:
         """List the stage's prims under root as prim blocks: each one's path, type and world position.
 
-        Use it to find prim paths before acting on them: it is the lightest look at a scene. The level after max_depth
-        lists only the prims that have children, each with its type and how many children it holds; the rest of that
-        level, and everything deeper, is left out. The prims inside an instanceable prim are not listed
-        (get_prim_face_count_tree looks inside). For properties, use get_prim_properties on one prim, or dump_scene for
-        many at once, written to a file to grep.
+        Use it to find prim paths before acting on them: it is the lightest look at a scene. A prim at max_depth that
+        has children says how many, as children = N (truncated), and nothing below it is listed. The prims inside an
+        instanceable prim are not listed (get_prim_face_count_tree looks inside). For properties, use
+        get_prim_properties on one prim, or dump_scene for many at once, written to a file to grep.
         """
         resp = bridge_call(client.scene_tree, root, max_depth, fmt="text")
         r = resp["result"]
@@ -72,7 +73,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         ] = None,
     ) -> str:
         """Write the prims under root, with their properties, to mcp_output/scene_dump.txt as prim blocks; returns the
-        file's path, to grep or read in parts.
+        file's path, to grep or read in parts, and how many prims it wrote.
 
         Each block holds the prim's type, world position, rotation and bounding box, and every attribute's value unless
         include_properties is False. Use it for many prims' values at once, or for depths beyond get_scene_tree's 15;
@@ -135,10 +136,12 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Use it to move, turn or size a prim; to aim the viewport camera, use set_camera or look_at_prim, and to push a
         rigid body while physics runs, apply_force. Values are in the parent's space, not world space:
-        get_prim_properties gives a prim's world position. It rewrites the prim's xform ops as translate, rotateXYZ
-        (orient for a quaternion) and scale, and drops any other op, so a prim placed by a matrix (xformOp:transform),
-        as imported assets often are, loses that placement. An error when the prim doesn't exist or can't be
-        transformed.
+        get_prim_properties gives a prim's world position. It writes into the prim's own xform ops: the position into
+        its translate op, the rotation into its rotate or orient ops in their kind, the scale into its scale op, adding
+        an op it lacks; other ops, a pivot among them, stay. A part with no op of its own goes into the prim's matrix
+        (xformOp:transform) when it has one, as imported assets often do. An error when the prim doesn't exist or can't
+        be transformed, for an animated op, for ops a stronger layer holds, such as a Kit camera's, and for a rotation
+        or scale on a matrix that can't be factored.
         """
         bridge_call(client.set_transform, prim_path, position, rotation, scale)
         return f"Transform updated for {prim_path}"
@@ -160,10 +163,11 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         prim_type is a USD type name: Cube, Sphere, Cylinder, Cone, Capsule, Xform, Camera, DistantLight, DomeLight,
         SphereLight and the rest. Missing parents are made as typeless prims. A prim already at prim_path keeps its
-        type: one of another type is refused, one of the same type takes the new transform. usd_path adds its reference
-        to a prim already there. enable_physics puts the RigidBody and Collision APIs on the prim itself, so a shape
-        falls and collides while the simulation plays; the meshes under an Xform or a referenced file's root get no
-        Collision API of their own. To copy a prim, use clone_prim; for a robot, create_robot.
+        type: one of another type is refused, one of the same type takes the new transform, written as
+        set_prim_transform writes it. A transform it can't write makes nothing. usd_path adds its reference to a prim
+        already there. enable_physics puts the RigidBody and Collision APIs on the prim itself, so a shape falls and
+        collides while the simulation plays; the meshes under an Xform or a referenced file's root get no Collision
+        API of their own. To copy a prim, use clone_prim; for a robot, create_robot.
         """
         kwargs = {}
         if usd_path:
@@ -185,13 +189,20 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     def delete_prim(prim_path: PrimPath) -> str:
         """Delete a prim and everything under it, by removing what the stage's edit layer holds at that path.
 
-        USD keeps a prim that another layer defines too, or that comes in through a reference or payload, such as a
-        part of a referenced asset: it stays, though the answer says deleted, so check with get_scene_tree. To hide a
-        prim and keep it, use set_visibility. Kit's undo doesn't record the delete, and the file on disk keeps the prim
-        until save_scene. An error when no prim is there.
+        A prim another layer defines too, or one a reference or payload on a prim above brings, such as a part of a
+        referenced asset, can't be deleted this way: the call is refused, saying why, and nothing changes;
+        set_visibility hides such a prim, or its instance for a prim inside one. Kit's undo doesn't record the delete,
+        and the file on disk keeps the prim until save_scene. An error when no prim is there.
         """
-        bridge_call(client.delete_prim, prim_path)
-        return f"Deleted {prim_path}"
+        resp = bridge_call(client.delete_prim, prim_path)
+        if resp["result"].get("checked"):
+            return f"Deleted {prim_path}"
+        # An extension from before the check answers "deleted" for a prim another layer keeps, and the plugin updates
+        # the server ahead of the extension.
+        return (
+            f"Deleted {prim_path}\nThis Kit extension, older than the server, answers deleted for a prim another layer "
+            "keeps: check with get_scene_tree"
+        )
 
     @tool(mcp, EDITS)
     def set_material(
@@ -210,16 +221,18 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Colour a prim with an OmniPBR material: make the material, or update the one at its path, set its colour and
         surface values, and bind it to the prim in place of its binding.
 
-        Without material_path the material is /World/Looks/<prim name>_Mat, so prims of the same name share one and
-        colouring one recolours the rest: give material_path to keep them apart, or to share one on purpose. The binding
-        reaches the prim's children unless they have bindings of their own. For friction and bounce, use
-        set_physics_properties; to repoint bindings after materials move, update_material_paths.
+        opacity, roughness and metallic are set on every call, each to its default when left out, so a call without
+        opacity makes the material opaque. Without material_path the material is /World/Looks/<prim name>_Mat, so prims
+        of the same name share one and colouring one recolours the rest: give material_path to keep them apart, or to
+        share one on purpose. The binding reaches the prim's children unless they have bindings of their own. For
+        friction and bounce, use set_physics_properties; to repoint bindings after materials move,
+        update_material_paths.
         """
         resp = bridge_call(client.set_material, prim_path, color, opacity, roughness, metallic, material_path)
         r = resp["result"]
         parts = [f"color=[{r['color'][0]:.2f},{r['color'][1]:.2f},{r['color'][2]:.2f}]"]
-        if r.get("opacity", 1.0) < 1.0:
-            parts.append(f"opacity={r['opacity']}")
+        # Every call, 1 included: a recolour that makes a see-through material opaque says so.
+        parts.append(f"opacity={r.get('opacity', opacity)}")
         parts.append(f"roughness={r['roughness']}")
         parts.append(f"metallic={r['metallic']}")
         return f"Material {r['material_path']} -> {r['prim_path']} ({', '.join(parts)})"
@@ -239,12 +252,12 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Copy a prim with everything under it to a new path, once or as a row of count copies.
 
         The first copy sits on the source and each next one moves by offset from the one before, so a single copy is
-        never moved: move it with set_prim_transform. With offset, the copies it places, and a single copy, get their
-        xform ops rewritten as set_prim_transform does, counted from the source's translate (the origin without one):
-        copies of a prim placed by a matrix lose that placement. It copies what the stage's root layer holds at
-        source_path, its references included, so a prim from a sublayer, or from inside a referenced asset, can't be
-        copied whole. A target path that already holds a prim is refused before anything is copied. For a new prim,
-        use create_prim.
+        never moved: move it with set_prim_transform. With offset, copy n moves n times offset from the source in the
+        parent's space, through its own translate op or matrix, its other ops and placement kept; the first copy, and a
+        single copy, are left as copied. A source whose position can't be written copies nothing. It copies what the
+        stage's root layer holds at source_path, its references included, so a prim from a sublayer, or from inside a
+        referenced asset, can't be copied whole. A target path that already holds a prim is refused before anything is
+        copied. For a new prim, use create_prim.
         """
         resp = bridge_call(client.clone_prim, source_path, target_path, count, offset)
         r = resp["result"]

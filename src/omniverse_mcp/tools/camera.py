@@ -209,9 +209,14 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         target defaults to the world origin. To frame a prim by its path, use look_at_prim; to capture from another
         camera without moving the viewport, capture_viewport's camera_path. It moves whichever camera the viewport
-        looks through, a scene camera included, and the user sees the move. Aiming needs Isaac Sim: other Kit apps
-        only move the camera, without aiming it.
+        looks through, a scene camera included, and the user sees the move. An error when position is the point it
+        would look at.
         """
+        looked_at = target if target is not None else [0.0, 0.0, 0.0]
+        if [float(p) for p in position] == [float(t) for t in looked_at]:
+            # Nothing to aim at: Isaac Sim's call would turn the camera all the same, and answer success.
+            which = "the target" if target is not None else "the world origin, which it looks at without a target"
+            raise ToolError(f"position {position} is {which}: give a target away from the camera")
         resp = bridge_call(client.camera_set, position, target)
         r = resp["result"]
         msg = f"Camera at {r['position']}"
@@ -240,14 +245,13 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Use it to see one prim: set_camera places the camera at coordinates, and inspect_prim captures a prim from up
         to 14 sides in one call; capture_viewport then takes the picture. It moves whichever camera the viewport looks
-        through, and the user sees the move. Aiming needs Isaac Sim: other Kit apps only move the camera, without
-        aiming it. An error when the prim doesn't exist.
+        through, and the user sees the move. An error when the prim doesn't exist.
         """
         resp = bridge_call(client.camera_look_at, prim_path, distance, azimuth, elevation)
         r = resp["result"]
         return (
             f"Camera at {r['camera_position']} looking at {r['target']}\n"
-            f"Distance: {r['distance']}m, Azimuth: {r['azimuth']}deg, Elevation: {r['elevation']}deg"
+            f"Distance: {r['distance']} stage units, Azimuth: {r['azimuth']}deg, Elevation: {r['elevation']}deg"
         )
 
     @tool(mcp, EDITS)
@@ -304,7 +308,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         isolate_info = ", isolated" if r.get("isolate") else ""
         # An extension from before #51 doesn't say the size, which was the viewport's whatever was asked.
         size_info = f", {r['width']}x{r['height']}" if r.get("width") and r.get("height") else ""
-        lines = [f"Inspect {prim_path} (dist={r['distance']}m{size_info}{zoom_info}{isolate_info})"]
+        lines = [f"Inspect {prim_path} (dist={r['distance']} stage units{size_info}{zoom_info}{isolate_info})"]
         if not size_info:
             lines.extend(_older_inspect_warning(r, width, height))
         for warning in r.get("isolate_warnings", []):

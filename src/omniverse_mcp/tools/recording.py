@@ -1,6 +1,7 @@
 """Recording tools."""
 
 import os
+from pathlib import Path, PureWindowsPath
 from typing import TYPE_CHECKING, Annotated
 
 from mcp.server.mcpserver import MCPServer
@@ -37,6 +38,15 @@ def _ignored_warning(camera_path: str, width: int, height: int) -> str | None:
         f"{'is' if len(ignored) == 1 else 'are'} ignored. Install the extension of this server's release, "
         f"{install_command()}, then restart Kit, to record from a camera at a size."
     )
+
+
+def _from_here(session_dir: str) -> str:
+    """session_dir as Kit must read it. start_recording sends Kit this server's own output folder and prints it relative
+    to this server's working folder (Helpers.rel), so a relative one is joined to that folder again; one rooted in
+    either Windows' or POSIX's form goes as given, so a Kit app on another OS keeps its own paths."""
+    if not session_dir or PureWindowsPath(session_dir).anchor:
+        return session_dir
+    return str(Path.cwd() / session_dir)
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
@@ -121,8 +131,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         session_dir: Annotated[
             str,
             Field(
-                description="The session folder on Kit's machine, absolute or relative to Kit's working folder; "
-                "the last recording when empty"
+                description="The session folder as start_recording and stop_recording give it, relative to this "
+                "server's working folder, or an absolute path on Kit's machine; the last recording when empty"
             ),
         ] = "",
     ) -> str:
@@ -131,12 +141,12 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Frames come from start_recording, which Kit writes itself as frame_00000.png and on in the session folder: with
         Kit on this machine you can also open them there, and with Kit on another this brings one here. Without
-        session_dir it reads the last recording started since the Kit extension started, the running one included.
-        Kit reads session_dir against its own working folder, while start_recording and stop_recording may give the
-        folder relative to the server's: pass an absolute path. A frame Kit failed to capture comes back as an empty
-        file; a frame number past the last is an error. For a picture of the scene now, use capture_viewport.
+        session_dir it reads the last recording started since the Kit extension started, the running one included. A
+        relative session_dir is read from this server's working folder, as start_recording and stop_recording give it.
+        A frame Kit failed to capture comes back as an empty file; a frame number past the last is an error. For a
+        picture of the scene now, use capture_viewport.
         """
-        resp = bridge_call(client.recording_frame, session_dir, frame_index)
+        resp = bridge_call(client.recording_frame, _from_here(session_dir), frame_index)
 
         r = resp["result"]
         filepath = h.save_png(r["image_base64"], f"frame_{r['frame_index']:04d}")

@@ -10,12 +10,19 @@
 - Sdf.Layer.Find is typed with a dict of unknowns and as always finding a layer; it gives None when the registry holds
   none for the path.
 - Sdf.FileFormat.FindByExtension is typed as always finding a format; it gives None for an extension none reads.
+- Xformable.GetOrderedXformOps is typed as a bare list; it gives XformOps.
+- An op type is typed as a Tf.Type by the XformOp constants and GetOpType, and as XformOp.Type by AddXformOp; they
+  are the same enum.
+- Matrix4d.Factor is typed as a bare tuple; its first item says whether the matrix could be factored.
+- PrimCompositionQuery.GetCompositionArcs is typed with a class pxr doesn't have (CompositionArc at run time), whose
+  GetIntroducingLayer is None for the root arc; a Pcp node's layerStack is untyped.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from operator import attrgetter
 from typing import Protocol, cast
 
-from pxr import Sdf, Tf, Usd
+from pxr import Gf, Sdf, Tf, Usd, UsdGeom
 
 
 class Vec(Protocol):
@@ -79,6 +86,91 @@ def has_unsaved_edits(layer: Sdf.Layer) -> bool:
 def find_layer(path: str) -> Sdf.Layer | None:
     """The layer Sdf's registry holds for path, or None."""
     return cast("_Registry", Sdf.Layer).Find(path)
+
+
+class _Ordered(Protocol):
+    GetOrderedXformOps: Callable[[], list[UsdGeom.XformOp]]
+
+
+class _Factors(Protocol):
+    Factor: Callable[[], tuple[bool, ...]]
+
+
+def xform_ops(xformable: UsdGeom.Xformable) -> list[UsdGeom.XformOp]:
+    """The xformable's ops in their order, outermost first."""
+    return cast("_Ordered", xformable).GetOrderedXformOps()
+
+
+def add_xform_op(
+    xformable: UsdGeom.Xformable, op_type: Tf.Type, precision: UsdGeom.XformOp.Precision
+) -> UsdGeom.XformOp:
+    """AddXformOp with an op type as the XformOp constants are typed."""
+    return xformable.AddXformOp(cast("UsdGeom.XformOp.Type", op_type), precision)
+
+
+def factors(matrix: Gf.Matrix4d) -> bool:
+    """Whether the matrix factors into a rotation, a scale and a translation: a singular one doesn't."""
+    return bool(cast("_Factors", matrix).Factor()[0])
+
+
+class ArcNode(Protocol):
+    """A composition arc's target: a prim path in a layer stack."""
+
+    path: Sdf.Path
+
+
+class IntroNode(Protocol):
+    """A node of the prim index graph, as far as finding the stage prim an arc hangs from needs it."""
+
+    parent: "IntroNode | None"
+    IsRootNode: Callable[[], bool]
+    GetIntroPath: Callable[[], Sdf.Path]
+
+
+class CompositionArc(Protocol):
+    """What delete_prim reads of a prim's composition arc."""
+
+    GetArcType: Callable[[], object]
+    GetTargetNode: Callable[[], ArcNode]
+    GetIntroducingNode: Callable[[], IntroNode]
+    GetIntroducingLayer: Callable[[], Sdf.Layer | None]
+    GetIntroducingPrimPath: Callable[[], Sdf.Path]
+    IsAncestral: Callable[[], bool]
+    IsIntroducedInRootLayerStack: Callable[[], bool]
+
+
+class _Query(Protocol):
+    GetCompositionArcs: Callable[[], list[CompositionArc]]
+
+
+_node_layers = attrgetter("layerStack.layers")
+
+
+def composition_arcs(prim: Usd.Prim) -> list[CompositionArc]:
+    """Every arc that composes the prim, strongest first, the root arc (its own layer stack) among them."""
+    return cast("_Query", Usd.PrimCompositionQuery(prim)).GetCompositionArcs()
+
+
+def stage_prim_of(arc: CompositionArc) -> Sdf.Path:
+    """The stage prim an arc hangs from. GetIntroducingPrimPath is a path inside the referenced file when a file's own
+    arc brings the prim in, so that case walks up to the node the stage's layers introduced and names its path."""
+    if arc.IsIntroducedInRootLayerStack():
+        return arc.GetIntroducingPrimPath()
+    node = arc.GetIntroducingNode()
+    while node.parent is not None and not node.parent.IsRootNode():
+        node = node.parent
+    return node.GetIntroPath()
+
+
+def node_layers(node: ArcNode) -> list[Sdf.Layer]:
+    """The layers of the stack an arc's node reads, strongest first."""
+    return list(cast("Sequence[Sdf.Layer]", _node_layers(node)))
+
+
+def attribute_has_default(spec: Sdf.PropertySpec) -> bool:
+    """Whether a property spec holds a default value: an attribute's when one is authored, a relationship's never.
+    A property stack is typed as PropertySpecs; its attributes' specs are AttributeSpecs."""
+    return isinstance(spec, Sdf.AttributeSpec) and spec.HasDefaultValue()
 
 
 def format_of(path: str) -> Sdf.FileFormat | None:

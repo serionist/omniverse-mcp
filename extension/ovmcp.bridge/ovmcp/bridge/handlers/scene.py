@@ -11,16 +11,19 @@ from typing import Any
 
 import omni.kit.app
 import omni.usd
-from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
+from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
 from ovmcp.core import layers
 from ovmcp.core.bounds import world_bbox
-from ovmcp.core.formatter import format_prim_block, format_scene_dump, format_value
-from ovmcp.core.material import ensure_material
+from ovmcp.core.deletion import why_kept
+from ovmcp.core.formatter import format_prim_block, format_scene_dump, format_scene_tree
+from ovmcp.core.material import ensure_material, set_surface
+from ovmcp.core.usd import prim_spec
+from ovmcp.core.xform import Parts, check_transform, check_writable, layer_name, position_of, write_transform
 
 from ._utils import (
-    _apply_xform,
     _compute_mesh_stats,
+    _first_missing,
     _get_stage,
     _next_update,
     _serialize_value,
@@ -43,44 +46,8 @@ async def handle_scene_tree(body: dict) -> dict:
         return {"status": "error", "error": f"Prim not found: {root_path}"}
 
     if fmt == "text":
-        # Lightweight prim-block text: path + type + position only (no full properties)
-        lines = []
-        prim_count = 0
-
-        def _walk_text(prim, depth):
-            nonlocal prim_count
-            if depth > max_depth:
-                child_count = len(prim.GetChildren())
-                if child_count > 0:
-                    lines.append(f"[{prim.GetPath()}]")
-                    lines.append(f"type = {prim.GetTypeName() or 'Xform'}")
-                    lines.append(f"children = {child_count} (truncated)")
-                    lines.append("")
-                return
-            prim_count += 1
-            block = [f"[{prim.GetPath()}]"]
-            block.append(f"type = {prim.GetTypeName() or 'Xform'}")
-            if prim.IsA(UsdGeom.Xformable):
-                xf = UsdGeom.Xformable(prim)
-                t = xf.ComputeLocalToWorldTransform(Usd.TimeCode.Default()).ExtractTranslation()
-                block.append(f"pos = {float(t[0]):.4f}, {float(t[1]):.4f}, {float(t[2]):.4f}")
-            if include_properties:
-                for prop in prim.GetProperties():
-                    try:
-                        val = prop.Get()
-                        if val is not None:
-                            block.append(f"{prop.GetName()} = {format_value(val)}")
-                    except Exception:
-                        pass
-            lines.append("\n".join(block))
-            lines.append("")
-            for child in prim.GetChildren():
-                _walk_text(child, depth + 1)
-
-        lines.append(f"# scene_tree root={root_path} up_axis={UsdGeom.GetStageUpAxis(stage)}")
-        lines.append("")
-        _walk_text(root_prim, 0)
-        text = "\n".join(lines)
+        # Lightweight prim-block text: path + type + position only (no full properties), down to max_depth
+        text, prim_count = format_scene_tree(stage, root_path, max_depth, include_properties=include_properties)
         return {"status": "success", "result": {"text": text, "prim_count": prim_count}}
 
     def _build_tree(prim: Usd.Prim, depth: int) -> dict:
@@ -145,7 +112,8 @@ async def handle_scene_dump(body: dict) -> dict:
     if not root_prim.IsValid():
         return {"status": "error", "error": f"Prim not found: {root_path}"}
 
-    text = format_scene_dump(
+    # The count is the blocks written, where the answer counted the whole stage (#82).
+    text, prim_count = format_scene_dump(
         stage,
         root_path,
         max_depth,
@@ -160,7 +128,6 @@ async def handle_scene_dump(body: dict) -> dict:
         f.write(text)
 
     file_size = os.path.getsize(file_path)
-    prim_count = sum(1 for _ in stage.Traverse())
 
     return {
         "status": "success",
@@ -273,7 +240,10 @@ async def handle_transform(body: dict) -> dict:
         return {"status": "error", "error": f"Prim is not transformable: {prim_path}"}
 
     await _next_update()
-    _apply_xform(prim, body.get("position"), body.get("rotation"), body.get("scale"))
+    try:
+        write_transform(prim, check_transform(body.get("position"), body.get("rotation"), body.get("scale")))
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
 
     return {
         "status": "success",
@@ -291,6 +261,11 @@ async def handle_create_prim(body: dict) -> dict:
     prim_type = body.get("prim_type", "Xform")
     if not prim_path:
         return {"status": "error", "error": "No prim_path provided"}
+    # Before the prim is made: a refusal after it would leave a prim the answer says wasn't created.
+    try:
+        parts = check_transform(body.get("position"), body.get("rotation"), body.get("scale"))
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
 
     await _next_update()
     stage = _get_stage()
@@ -303,16 +278,39 @@ async def handle_create_prim(body: dict) -> dict:
             "status": "error",
             "error": f"{prim_path} is already a {existing.GetTypeName()}: delete it first, or pick another path",
         }
+    made = None if existing.IsValid() else _first_missing(stage, prim_path)
+    added = None
     if usd_path:
         prim = stage.DefinePrim(prim_path)
+        reference = Sdf.Reference(usd_path)
+        spec = prim_spec(stage.GetEditTarget().GetLayer(), prim.GetPath())
+        held = spec is not None and reference in spec.referenceList.GetAddedOrExplicitItems()
         prim.GetReferences().AddReference(usd_path)
+        added = None if held else reference
     else:
         prim = stage.DefinePrim(prim_path, prim_type)
 
     if not prim.IsValid():
         return {"status": "error", "error": f"Failed to create prim at {prim_path}"}
 
-    _apply_xform(prim, body.get("position"), body.get("rotation"), body.get("scale"))
+    if parts != Parts():
+        try:
+            write_transform(prim, parts)
+        except ValueError as e:
+            # Found only once the prim exists, such as an animated op in a referenced file: what this call made goes.
+            if made is not None:
+                stage.RemovePrim(made)
+            elif added is not None:
+                # A prim that was there keeps nothing of this call, or each retry would stack another reference.
+                prim.GetReferences().RemoveReference(added)
+            after = (
+                ". Nothing was created"
+                if made is not None
+                else ". The reference was not added"
+                if added is not None
+                else ""
+            )
+            return {"status": "error", "error": f"{e}{after}"}
 
     if body.get("enable_physics", False):
         UsdPhysics.RigidBodyAPI.Apply(prim)
@@ -340,10 +338,23 @@ async def handle_delete_prim(body: dict) -> dict:
     if not prim.IsValid():
         return {"status": "error", "error": f"Prim not found: {prim_path}"}
 
-    stage.RemovePrim(prim_path)
+    # RemovePrim takes only the edit layer's specs: what another layer or an arc above defines would stay, with the
+    # edit layer's overrides of it gone, so that is refused before anything changes.
+    edit_layer = stage.GetEditTarget().GetLayer()
+    why = why_kept(prim, edit_layer)
+    if why:
+        return {"status": "error", "error": why}
+    where = layer_name(stage, edit_layer)
+    if not stage.RemovePrim(prim_path):
+        return {"status": "error", "error": f"{prim_path} is not deleted: {where}, where edits go, holds nothing there"}
+    after = stage.GetPrimAtPath(prim_path)
+    if after.IsValid() and after.IsDefined():
+        # The check above should have said why; this answers the truth if it missed a case.
+        return {"status": "error", "error": f"{prim_path} is still on the stage after what {where} held of it went"}
     return {
         "status": "success",
-        "result": {"prim_path": prim_path, "message": "Prim deleted"},
+        # checked: this extension refuses a prim it can't remove, so the server needn't warn of one that stayed.
+        "result": {"prim_path": prim_path, "message": "Prim deleted", "checked": True},
     }
 
 
@@ -393,15 +404,7 @@ async def handle_set_material(body: dict) -> dict:
         mat_path = f"/World/Looks/{prim_name}_Mat"
 
     mat, shader = ensure_material(stage, mat_path)
-
-    # Set PBR properties
-    shader.CreateInput("diffuse_color_constant", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(r, g, b))
-    shader.CreateInput("reflection_roughness_constant", Sdf.ValueTypeNames.Float).Set(roughness)
-    shader.CreateInput("metallic_constant", Sdf.ValueTypeNames.Float).Set(metallic)
-
-    if opacity < 1.0:
-        shader.CreateInput("enable_opacity", Sdf.ValueTypeNames.Bool).Set(True)
-        shader.CreateInput("opacity_constant", Sdf.ValueTypeNames.Float).Set(opacity)
+    set_surface(shader, (r, g, b), opacity, roughness, metallic)
 
     # Bind material to the target prim
     UsdShade.MaterialBindingAPI.Apply(prim)
@@ -437,6 +440,11 @@ async def handle_clone_prim(body: dict) -> dict:
     if not target_path:
         return {"status": "error", "error": "No target_path provided"}
 
+    try:
+        step = check_transform(position=offset).position if offset is not None else None
+    except ValueError:
+        return {"status": "error", "error": f"offset must be [x, y, z], 3 numbers, got {offset!r}"}
+
     await _next_update()
     stage = _get_stage()
     source_prim = stage.GetPrimAtPath(source_path)
@@ -452,23 +460,31 @@ async def handle_clone_prim(body: dict) -> dict:
             "error": f"Already a prim at {', '.join(taken)}: delete it first, or pick another target_path",
         }
 
+    # The copies are written into the root layer, so they move there: with a sublayer as the edit target, a move there
+    # would be refused as hidden, after the copies were made.
     src_layer = stage.GetRootLayer()
+    moves = step is not None and count > 1 and source_prim.IsA(UsdGeom.Xformable)
+    if moves:
+        try:
+            check_writable(source_prim, Parts(position=position_of(source_prim)), src_layer)
+        except ValueError as e:
+            return {"status": "error", "error": f"{e}. Nothing was copied"}
     created = []
     for i, dest_path in enumerate(dest_paths):
         if not Sdf.CopySpec(src_layer, source_path, src_layer, dest_path):
             return {"status": "error", "error": f"Failed to clone to {dest_path}"}
-        if offset and (i > 0 or count == 1):
-            dest_prim = stage.GetPrimAtPath(dest_path)
-            if dest_prim.IsValid() and dest_prim.IsA(UsdGeom.Xformable):
-                xf = UsdGeom.Xformable(dest_prim)
-                cur = [0.0, 0.0, 0.0]
-                for op in xf.GetOrderedXformOps():
-                    if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
-                        v = op.Get()
-                        cur = [float(v[0]), float(v[1]), float(v[2])]
-                        break
-                _apply_xform(dest_prim, position=[cur[j] + offset[j] * i for j in range(3)])
         created.append(dest_path)
+        # Copy n moves n offsets from the source, through its own ops; the first copy, and a single one, stay as copied.
+        dest_prim = stage.GetPrimAtPath(dest_path)
+        if moves and step is not None and i > 0 and dest_prim.IsA(UsdGeom.Xformable):
+            try:
+                write_transform(dest_prim, Parts(position=position_of(dest_prim) + step * i), src_layer)
+            except ValueError as e:
+                # A copy composes apart from its source, so one may refuse what the source took: none stays.
+                with Usd.EditContext(stage, Usd.EditTarget(src_layer)):
+                    for path in created:
+                        stage.RemovePrim(path)
+                return {"status": "error", "error": f"{e}. Nothing was copied"}
 
     return {
         "status": "success",

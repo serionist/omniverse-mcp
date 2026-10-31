@@ -25,7 +25,9 @@ from ovmcp.core.recording import FrameClock, RecordingArgs, camera_error, record
 from ._utils import _get_active_camera_path, _get_stage, capture_feed_png
 from .camera_feed import CameraFeed, discard, forget
 
-ALREADY_ACTIVE = "Recording already active. Stop it first, or use force=True to override."
+# What the tools can follow: start_recording has no force, which only the route takes (#82).
+ALREADY_ACTIVE = "A recording is already running: call stop_recording first"
+STARTING = "A recording is starting: wait for its answer, then call stop_recording"
 
 
 class _Session:
@@ -91,7 +93,9 @@ def recording_note() -> str | None:
 
 async def handle_recording_start(body: dict) -> dict:
     # A start still waiting for its first frame can't be forced aside: it holds no session to end yet.
-    if _state.starting or (_state.session is not None and not body.get("force", False)):
+    if _state.starting:
+        return {"status": "error", "error": STARTING}
+    if _state.session is not None and not body.get("force", False):
         return {"status": "error", "error": ALREADY_ACTIVE}
     try:
         args = recording_args(body)

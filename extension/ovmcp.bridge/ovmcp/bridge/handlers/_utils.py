@@ -60,14 +60,13 @@ def _get_valid_prim(prim_path: str):
     return prim, None
 
 
-def _validate_vec3(value, name: str) -> list[float]:
-    """Validate that value is a list of 3 numbers. Returns the validated list."""
-    if not isinstance(value, (list, tuple)) or len(value) != 3:
-        raise ValueError(f"{name} must be [x, y, z] with 3 numeric values, got {value}")
-    try:
-        return [float(v) for v in value]
-    except (TypeError, ValueError):
-        raise ValueError(f"{name} must contain numeric values, got {value}")
+def _first_missing(stage, path: str) -> str:
+    """The shallowest of path and its ancestors with no prim: what DefinePrim(path) makes, missing parents included, so
+    a call that refuses after it can take away all it made."""
+    for prefix in Sdf.Path(path).GetPrefixes():
+        if not stage.GetPrimAtPath(prefix).IsValid():
+            return str(prefix)
+    return path
 
 
 def _get_stage() -> Usd.Stage:
@@ -257,83 +256,6 @@ def _serialize_value(val):
         return val
     except (TypeError, ValueError):
         return str(val)
-
-
-def _apply_xform(prim, position=None, rotation=None, scale=None):
-    """Apply transform ops to a prim. Preserves existing ops not being set.
-
-    Uses existing attribute precisions to avoid type-mismatch errors when
-    the prim already has xformOp attributes (e.g. from USD assets).
-    """
-    xformable = UsdGeom.Xformable(prim)
-    if position is None and rotation is None and scale is None:
-        return
-
-    if position is not None:
-        position = _validate_vec3(position, "position")
-
-    # Read existing values and precisions before clearing
-    existing_ops = xformable.GetOrderedXformOps()
-    old_translate = None
-    old_translate_prec = UsdGeom.XformOp.PrecisionDouble
-    old_rotate = None
-    old_rotate_type = None  # "xyz" or "orient"
-    old_rotate_prec = UsdGeom.XformOp.PrecisionDouble
-    old_scale = None
-    old_scale_prec = UsdGeom.XformOp.PrecisionFloat
-    for op in existing_ops:
-        op_type = op.GetOpType()
-        if op_type == UsdGeom.XformOp.TypeTranslate:
-            old_translate = op.Get()
-            old_translate_prec = op.GetPrecision()
-        elif op_type == UsdGeom.XformOp.TypeRotateXYZ:
-            old_rotate = op.Get()
-            old_rotate_type = "xyz"
-            old_rotate_prec = op.GetPrecision()
-        elif op_type == UsdGeom.XformOp.TypeOrient:
-            old_rotate = op.Get()
-            old_rotate_type = "orient"
-            old_rotate_prec = op.GetPrecision()
-        elif op_type == UsdGeom.XformOp.TypeScale:
-            old_scale = op.Get()
-            old_scale_prec = op.GetPrecision()
-
-    xformable.ClearXformOpOrder()
-
-    # Translate
-    t = position if position is not None else old_translate
-    if t is not None:
-        prec = old_translate_prec if old_translate is not None else UsdGeom.XformOp.PrecisionDouble
-        xformable.AddTranslateOp(precision=prec).Set(Gf.Vec3d(*t) if position is not None else t)
-
-    # Rotation
-    if rotation is not None:
-        if len(rotation) == 3:
-            prec = old_rotate_prec if old_rotate_type == "xyz" else UsdGeom.XformOp.PrecisionFloat
-            xformable.AddRotateXYZOp(precision=prec).Set(Gf.Vec3f(*rotation))
-        elif len(rotation) == 4:
-            prec = old_rotate_prec if old_rotate_type == "orient" else UsdGeom.XformOp.PrecisionDouble
-            quat = Gf.Quatd(rotation[0], Gf.Vec3d(rotation[1], rotation[2], rotation[3]))
-            xformable.AddOrientOp(precision=prec).Set(quat)
-    elif old_rotate is not None:
-        if old_rotate_type == "orient":
-            xformable.AddOrientOp(precision=old_rotate_prec).Set(old_rotate)
-        else:
-            xformable.AddRotateXYZOp(precision=old_rotate_prec).Set(old_rotate)
-
-    # Scale
-    if scale is not None:
-        if isinstance(scale, (int, float)):
-            scale = [scale, scale, scale]
-        elif isinstance(scale, (list, tuple)) and len(scale) == 3:
-            scale = _validate_vec3(scale, "scale")
-        prec = old_scale_prec if old_scale is not None else UsdGeom.XformOp.PrecisionFloat
-        if prec == UsdGeom.XformOp.PrecisionDouble:
-            xformable.AddScaleOp(precision=prec).Set(Gf.Vec3d(*scale))
-        else:
-            xformable.AddScaleOp(precision=prec).Set(Gf.Vec3f(*scale))
-    elif old_scale is not None:
-        xformable.AddScaleOp(precision=old_scale_prec).Set(old_scale)
 
 
 def _compute_mesh_stats(prim) -> dict:

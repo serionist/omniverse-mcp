@@ -283,7 +283,7 @@ def test_inspect_says_the_size_it_captured_at(tmp_path):
 
     out = fns["inspect_prim"]("/World/Lamp", width=320, height=240)
 
-    assert out.splitlines()[0] == "Inspect /World/Lamp (dist=5.0m, 320x240)"
+    assert out.splitlines()[0] == "Inspect /World/Lamp (dist=5.0 stage units, 320x240)"
 
 
 def test_inspect_from_an_older_extension_says_no_size(tmp_path):
@@ -292,7 +292,7 @@ def test_inspect_from_an_older_extension_says_no_size(tmp_path):
 
     out = fns["inspect_prim"]("/World/Lamp")
 
-    assert out.splitlines()[0] == "Inspect /World/Lamp (dist=5.0m)"
+    assert out.splitlines()[0] == "Inspect /World/Lamp (dist=5.0 stage units)"
 
 
 def test_inspect_from_an_older_extension_at_another_size_is_flagged_with_the_fix(tmp_path):

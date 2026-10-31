@@ -51,6 +51,30 @@ if capture is not None:
 result = capture is not None
 """
 
+# execute_script code for the live suites, with TARGET bound before it: where the viewport's camera is, how far its -Z
+# axis points off TARGET, its world scale, and the xform attributes the root layer holds of it, which an aim must not
+# leave there, since Kit keeps its own cameras in the session layer (#82). Not checked: a scene camera's
+# omni:kit:centerOfInterest, which the aim may author in the root layer, as that camera's other attributes are.
+CAMERA_AIM = """
+import math
+from omni.kit.viewport.utility import get_active_viewport
+from pxr import Gf, Usd, UsdGeom
+stage = omni.usd.get_context().get_stage()
+path = str(get_active_viewport().camera_path)
+matrix = UsdGeom.Xformable(stage.GetPrimAtPath(path)).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+eye = matrix.ExtractTranslation()
+looks = matrix.TransformDir(Gf.Vec3d(0, 0, -1)).GetNormalized()
+towards = (Gf.Vec3d(*TARGET) - eye).GetNormalized()
+spec = stage.GetRootLayer().GetPrimAtPath(path)
+result = {
+    "camera": path,
+    "eye": [eye[0], eye[1], eye[2]],
+    "degrees": math.degrees(math.acos(max(-1.0, min(1.0, Gf.Dot(looks, towards))))),
+    "scale": [matrix.GetRow3(i).GetLength() for i in range(3)],
+    "root_xform": sorted(n for n in (spec.attributes.keys() if spec else []) if n.startswith("xformOp")),
+}
+"""
+
 # execute_script code that puts a limit SET_LIMIT set back, from a test's cleanup.
 RESTORE_LIMIT = """
 from ovmcp.core import capture
