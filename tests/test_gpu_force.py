@@ -353,43 +353,12 @@ class TestGpuForce(PhysicsChecks):
         self.assertEqual(r["status"], "error", r)
         self.assertIn("kinematic", r["error"])
 
-    # ----- pushes while paused add up -----
+    # ----- cubes of their own, side by side -----
 
-    def test_15_two_impulses_while_paused_add_up(self) -> None:
-        # On the CPU pipeline two pushes before a step add (#58's E4); the tool says a paused push works, and on the
-        # Direct GPU API each push sets the force the next step takes, which may replace the one before.
-        self._switched()
-        cube = self._force_body("GpuTwiceCube")
-        self._start_physics()
-        before = self._state([cube])
-        for _ in range(2):
-            r = self.c.apply_force(cube, force=[IMPULSE, 0.0, 0.0], impulse=True)
-            self.assertEqual(r["status"], "success", r)
-            self.assertEqual(r["result"]["method"], "tensor", r)
-        self._run_frames(FRAMES)
-        after = self._state([cube])
-        change = [a - b for a, b in zip(after["momentum"], before["momentum"], strict=True)]
-        print(f"  two impulses of {IMPULSE:g} on {cube} while paused: momentum change {change}")
-        expected = 2 * IMPULSE
-        self.assertAlmostEqual(
-            change[0],
-            expected,
-            delta=expected * 0.02,
-            msg=f"two pushes of {IMPULSE:g} N s while paused moved the momentum by {change[0]:.4f}: {IMPULSE:g} would "
-            "mean the tensor path sets the step's force rather than adding to it, and the second push replaced the "
-            "first",
-        )
-        self.assertLess(abs(change[1]) + abs(change[2]), expected * 0.02)
-
-    # ----- a body whose name repeats deeper under its parent -----
-
-    def _twins(self) -> tuple[str, str]:
-        """Two 5 kg cubes of their own, both named Cube: one under /World/GpuTwin, the other deeper, under its
-        Shelf, a plain Xform. The tensor API's view of the first holds the second too, as it matches a plain last name
-        at any depth under the parent. Gravity is off and they sit 2 apart, away from the scene, so only a push moves
-        them. Deleted after, the simulation stopped first."""
-        root = "/World/GpuTwin"
-        outer, twin = f"{root}/Cube", f"{root}/Shelf/Cube"
+    def _cubes(self, root: str, paths: list[str], *, xforms: tuple[str, ...] = ()) -> list[str]:
+        """5 kg cubes of their own at `paths`, under `root` and the `xforms` between, plain Xforms all. Gravity is off
+        and they sit 2 apart along X, away from the scene, so only a push moves each. Deleted after, the simulation
+        stopped first."""
         position = [-50.0, 0.0, 0.0]
         position[self._up_axis()] = 5.0
         self.c.sim_control("stop")
@@ -399,13 +368,13 @@ class TestGpuForce(PhysicsChecks):
         r = self.c.execute(
             "from pxr import PhysxSchema\n"
             "stage = omni.usd.get_context().get_stage()\n"
-            f"UsdGeom.Xform.Define(stage, {root!r})\n"
-            f"UsdGeom.Xform.Define(stage, {root + '/Shelf'!r})\n"
+            f"for path in {[root, *xforms]!r}:\n"
+            "    UsdGeom.Xform.Define(stage, path)\n"
             f"x, y, z = {position!r}\n"
-            f"for path, dx in (({outer!r}, 0.0), ({twin!r}, 2.0)):\n"
+            f"for i, path in enumerate({paths!r}):\n"
             "    cube = UsdGeom.Cube.Define(stage, path)\n"
             "    cube.CreateSizeAttr(0.3)\n"
-            "    UsdGeom.XformCommonAPI(cube).SetTranslate(Gf.Vec3d(x + dx, y, z))\n"
+            "    UsdGeom.XformCommonAPI(cube).SetTranslate(Gf.Vec3d(x + 2 * i, y, z))\n"
             "    UsdPhysics.RigidBodyAPI.Apply(cube.GetPrim())\n"
             "    UsdPhysics.CollisionAPI.Apply(cube.GetPrim())\n"
             "    UsdPhysics.MassAPI.Apply(cube.GetPrim()).CreateMassAttr(5.0)\n"
@@ -413,30 +382,73 @@ class TestGpuForce(PhysicsChecks):
             "result = 'ok'"
         )
         self.assertEqual(r["status"], "success", r)
-        return outer, twin
+        return paths
+
+    def _each(self, paths: list[str]) -> dict[str, list[float]]:
+        """Each body's linear momentum, through a tensor view of the bodies' paths."""
+        each = self._kit(f"PATHS = {paths!r}\n" + STATE)["each"]
+        self.assertLessEqual(set(paths), set(each), "the tensor API doesn't hold each body")
+        return each
+
+    def _moved(self, before: dict[str, list[float]], after: dict[str, list[float]]) -> dict[str, list[float]]:
+        """Each body's change of momentum between two reads of _each."""
+        return {path: [a - b for a, b in zip(after[path], before[path], strict=True)] for path in before}
+
+    # ----- pushes while paused -----
+
+    def test_15_paused_a_second_push_on_one_body_replaces_the_first_and_pushes_on_two_bodies_each_land(self) -> None:
+        """Measured on Isaac Sim 6.2 (#68's E19): under the Direct GPU API a second push on a body before the next
+        physics step replaces the first, where on the CPU pipeline the two add (#58's E4), and pushes on different
+        bodies each land. The tool's docs say so: one push per body per step, the pushes combined into one."""
+        self._switched()
+        root = "/World/GpuPaused"
+        twice, once_a, once_b = cubes = self._cubes(root, [f"{root}/Twice", f"{root}/OnceA", f"{root}/OnceB"])
+        self._start_physics()
+        before = self._each(cubes)
+        # In the probe's order: one push on each of two bodies, then two on the third.
+        for path in (once_a, once_b, twice, twice):
+            r = self.c.apply_force(path, force=[IMPULSE, 0.0, 0.0], impulse=True)
+            self.assertEqual(r["status"], "success", r)
+            self.assertEqual(r["result"]["method"], "tensor", r)
+        self._run_frames(FRAMES)
+        moved = self._moved(before, self._each(cubes))
+        print(f"  impulses of {IMPULSE:g} while paused, two on {twice} and one on each other: momentum changes {moved}")
+        self.assertAlmostEqual(
+            moved[twice][0],
+            IMPULSE,
+            delta=IMPULSE * 0.02,
+            msg=f"two pushes of {IMPULSE:g} N s on {twice} while paused moved its momentum by {moved[twice][0]:.4f}: "
+            f"{2 * IMPULSE:g} would mean the pushes now add, as on the CPU pipeline, and the docs that say the second "
+            "replaces the first should change",
+        )
+        for path in (once_a, once_b):
+            self.assertAlmostEqual(
+                moved[path][0],
+                IMPULSE,
+                delta=IMPULSE * 0.02,
+                msg=f"one push of {IMPULSE:g} N s on {path} while paused, beside pushes on other bodies, moved its "
+                f"momentum by {moved[path][0]:.4f}",
+            )
+        for path, change in moved.items():
+            self.assertLess(abs(change[1]) + abs(change[2]), IMPULSE * 0.02, f"{path} moved across X: {change}")
+
+    # ----- a body whose name repeats deeper under its parent -----
 
     def test_16_a_body_whose_name_repeats_deeper_under_its_parent_is_pushed_alone(self) -> None:
-        # The handler's view of the body holds its twin as well, and only the body's own row may move.
+        """On Isaac Sim 6.2 the tensor API's view of a plain path holds that body alone (#68's E18): the view of
+        /World/GpuTwin/Cube doesn't hold /World/GpuTwin/Shelf/Cube, though omni.physics.tensors' docs say a plain last
+        name matches at any depth under the parent. The handler pushes on the body's own row all the same, and this
+        guards a Kit whose view holds the twin too: the push moves the body named, and its twin not at all."""
         self._switched()
-        outer, twin = self._twins()
-        read = f"PATHS = {[outer]!r}\n" + STATE  # the view the handler makes, of the body's path alone
+        root = "/World/GpuTwin"
+        outer, twin = self._cubes(root, [f"{root}/Cube", f"{root}/Shelf/Cube"], xforms=(f"{root}/Shelf",))
         self.assertEqual(self.c.sim_control("play")["status"], "success")
-        before = self._kit(read)
-        self.assertEqual(
-            sorted(before["paths"]),
-            sorted([outer, twin]),
-            f"the tensor API's view of {outer} holds {before['paths']}, not it and its twin {twin}, so this test "
-            "doesn't reach a view that holds both",
-        )
+        before = self._each([outer, twin])
         r = self.c.apply_force(outer, force=[IMPULSE, 0.0, 0.0], impulse=True)
         self.assertEqual(r["status"], "success", r)
         self.assertEqual(r["result"]["method"], "tensor", r)
         self._run_frames(FRAMES)
-        after = self._kit(read)
-        moved = {
-            path: [a - b for a, b in zip(after["each"][path], before["each"][path], strict=True)]
-            for path in (outer, twin)
-        }
+        moved = self._moved(before, self._each([outer, twin]))
         print(f"  impulse {IMPULSE:g} on {outer}: its momentum change {moved[outer]}, its twin's {moved[twin]}")
         what_moved = f"{outer}'s momentum changed by {moved[outer]} and its twin {twin}'s by {moved[twin]}"
         self.assertAlmostEqual(moved[outer][0], IMPULSE, delta=IMPULSE * 0.02, msg=what_moved)
