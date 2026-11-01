@@ -81,6 +81,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   the viewport's light rig, and Kit's hiding of the scene's own lights, so the file was lit by the rig with its own
   lights off; and Kit's own cameras. An export wrote the hiding of a light in its subtree; one of a prim that comes
   from the session layer alone, such as a Kit camera, is now an error. The fix is in the Kit extension (#118).
+- **`get_logs` shows what a search matched:** the bridge matched the whole message while the answer showed its first
+  200 characters, so a hit could show no match at all, as Kit's deprecation callstacks did for `search="MCP"`. A
+  message cut short now ends ` ... (+N characters)`, an entry whose match ends past the cut gets a `matched:` line
+  with the match in its line, and the channel shows whole, where it was cut at 40. The fix is in the server (#111).
 
 ### Changed
 
@@ -97,6 +101,18 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   dynamic)`, before the APIs it applied, and says so when a call sets nothing. `apply_force` names the path the push
   took beside the point it pushed at: `method: physx`, PhysX's own push, or `method: tensor` with
   `/physics/suppressReadback` on, as under the Direct GPU API (#104).
+- **A recording takes `fps` frames a second by its own clock:** seconds of simulation while the simulation plays,
+  seconds by the wall clock while it is stopped or paused. Frames came every few app updates, so before play and
+  while paused a fast Kit gave about twice the `fps` asked for (8.5 to 13 frames a second at `fps=5`, headless on
+  Isaac Sim 6.2), and an `fps` that doesn't divide the stage's time codes ran fast while playing too (`fps=7` took
+  7.5). A simulation faster than real time still gives more than `fps` frames a wall second while it plays, now by
+  design. The first frame comes on the first update after the start, not a frame's worth of updates later.
+  `stop_recording`'s line names the seconds of simulation played and the seconds stopped or paused, and
+  `metadata.json` holds them as `simulation_seconds` and `idle_seconds`, so the count can be checked against `fps`.
+  The docs say that frames taken while the simulation is stopped or paused show Kit's grid, as the viewport does,
+  which Isaac Sim 6.2 hides while it plays: frame 0 of a recording started before play differed from the later frames
+  for that alone. The clock is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit
+  (#111).
 
 ## 0.3.0 (2026-11-01)
 

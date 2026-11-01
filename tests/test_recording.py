@@ -1,6 +1,8 @@
 """What start_recording accepts, when a recording takes its frames and how its render product leaves the stage:
 core/recording.py, on usd-core, without Kit (#25, #69)."""
 
+import itertools
+
 import pytest
 from pxr import Sdf, Usd, UsdGeom
 
@@ -13,7 +15,6 @@ from ovmcp.core.recording import (
     camera_error,
     delete_render_product,
     recording_args,
-    steps_per_frame,
 )
 
 BODY = {"output_dir": "C:/out/recordings"}
@@ -58,11 +59,6 @@ def test_a_bad_request_is_refused_saying_what_is_wrong(change, says):
         recording_args({**BODY, **change})
 
 
-@pytest.mark.parametrize(("codes", "fps", "steps"), [(60, 5, 12), (60, 30, 2), (60, 60, 1), (60, 1000, 1), (24, 5, 4)])
-def test_steps_per_frame(codes, fps, steps):
-    assert steps_per_frame(codes, fps) == steps
-
-
 @pytest.fixture
 def stage() -> Usd.Stage:
     stage = Usd.Stage.CreateInMemory()
@@ -93,51 +89,169 @@ def test_anything_but_a_camera_is_refused_saying_why(stage, path, says):
     assert says in error
 
 
-def _ticks(clock: FrameClock, updates: int, render_pending: bool = False) -> list[int | None]:
-    return [clock.tick(render_pending) for _ in range(updates)]
+class Updates:
+    """A Kit's updates as the clock sees them: the timeline's state and time and the wall clock, moved by hand. Each
+    update ticks the clock with them, then moves them on by the steps given."""
+
+    def __init__(self, clock: FrameClock) -> None:
+        self.clock = clock
+        self.update = 0
+        self.playing = False
+        self.sim = 0.0
+        self.now = 0.0
+        # Each frame taken: the update it came on, its number, and the clock's seconds of each kind then.
+        self.frames: list[tuple[int, int, float, float]] = []
+
+    def run(
+        self,
+        count: int,
+        sim_step: float = 1 / 60,
+        wall_step: float = 1 / 120,
+        render_pending: bool = False,
+        written: bool = True,
+    ) -> list[int | None]:
+        """`count` updates, each moving the simulation by `sim_step` while it plays and the clock by `wall_step`;
+        `written` marks each frame's file written at once, so none stays in flight."""
+        taken = []
+        for _ in range(count):
+            number = self.clock.tick(self.sim, self.now, render_pending)
+            if number is not None:
+                self.frames.append((self.update, number, self.clock.simulated, self.clock.idle))
+                if written:
+                    self.clock.done()
+            taken.append(number)
+            self.update += 1
+            self.sim += sim_step if self.playing else 0.0
+            self.now += wall_step
+        return taken
+
+    def at(self) -> list[int]:
+        """The updates frames came on."""
+        return [update for update, _number, _simulated, _idle in self.frames]
 
 
-def test_the_clock_takes_a_frame_every_steps_updates_numbered_in_order():
-    clock = FrameClock(3)
-    taken = _ticks(clock, 6)
-    assert taken == [None, None, 0, None, None, 1]
-    clock.done()
-    clock.done()
-    assert _ticks(clock, 3) == [None, None, 2]
-    assert clock.taken == 3
+def test_while_playing_a_frame_comes_every_0_2_s_of_simulation_whatever_the_update_rate():
+    # 150 updates a second by the clock, each 1/60 s of simulation, as on the probe's Kit (#111's P1).
+    updates = Updates(FrameClock(5))
+    updates.playing = True
+    updates.run(120, wall_step=1 / 150)
+    assert updates.at() == list(range(0, 120, 12))
+    assert [number for _update, number, _s, _i in updates.frames] == list(range(10))
+    assert updates.clock.taken == 10
 
 
-def test_the_clock_takes_none_while_the_last_frame_awaits_its_render():
-    clock = FrameClock(1)
-    assert clock.tick() == 0
-    assert clock.tick(render_pending=True) is None
-    assert clock.tick() == 1  # the number skipped isn't lost: numbers stay in order without gaps
+def test_an_fps_that_doesnt_divide_the_time_codes_keeps_its_rate_while_playing():
+    # Counting updates took one every 8 at fps=7, 75 frames in 10 s of simulation.
+    updates = Updates(FrameClock(7))
+    updates.playing = True
+    updates.run(600)
+    assert updates.clock.taken == 70
+
+
+@pytest.mark.parametrize("sim", [0.0, 2.5], ids=["stopped", "paused"])
+def test_while_not_playing_a_frame_comes_every_0_2_s_by_the_clock_whatever_the_update_rate(sim):
+    # Counting updates took one every 12 at 60 time codes a second: 10 frames a second at 120 updates (#111's P2).
+    updates = Updates(FrameClock(5))
+    updates.sim = sim
+    updates.run(240)
+    assert updates.at() == list(range(0, 240, 24))
+    assert (updates.clock.simulated, updates.clock.taken) == (0.0, 10)
+
+
+def test_across_play_and_pause_each_frame_is_a_period_of_its_own_kind_after_the_last():
+    updates = Updates(FrameClock(5))
+    updates.run(120)  # stopped, 1 s
+    updates.playing = True
+    updates.run(120)  # playing, 2 s of simulation in 1 s by the clock
+    updates.playing = False
+    updates.run(120)  # paused, 1 s
+    seconds = [simulated + idle for _update, _number, simulated, idle in updates.frames]
+    gaps = [b - a for a, b in itertools.pairwise(seconds)]
+    # No frame twice at a change, and none skipped: each one period of the recording's clock after the last, give or
+    # take the one update whose kind changed.
+    assert all(abs(gap - 0.2) < 1 / 120 + 1e-9 for gap in gaps), gaps
+    assert updates.clock.taken == 20
+    # Every 1/60 s played, the last seen on the first update paused; the first update playing found no time moved.
+    assert updates.clock.simulated == pytest.approx(120 / 60)
+    assert updates.clock.idle == pytest.approx(239 / 120)
+
+
+def test_a_timeline_that_plays_and_doesnt_move_takes_frames_by_the_clock():
+    # A file with no time-code range plays over a single frame: Isaac Sim warns so, and its time never moves (#111's
+    # review P2). Its updates add wall time, as stopped ones do, where adding nothing took frame 0 alone.
+    updates = Updates(FrameClock(5))
+    updates.playing = True
+    updates.run(240, sim_step=0.0)
+    assert updates.at() == list(range(0, 240, 24))
+    assert updates.clock.simulated == 0.0
+    assert updates.clock.idle == pytest.approx(239 / 120)
+
+
+def test_a_step_back_while_playing_adds_that_update_s_wall_time():
+    updates = Updates(FrameClock(5))
+    updates.playing = True
+    updates.run(60)
+    simulated, idle = updates.clock.simulated, updates.clock.idle
+    updates.sim = 0.0  # a loop at the end time, or a time set back by hand
+    updates.run(1)
+    assert updates.clock.simulated == simulated
+    assert updates.clock.idle == pytest.approx(idle + 1 / 120)
+
+
+@pytest.mark.parametrize("seen", [(0, 1, 2), (1, 2, 2)], ids=["read before the timeline ticks", "read after"])
+def test_each_step_counts_whole_as_simulation_whichever_order_kit_ticks_in(seen):
+    # sim_control's step plays the timeline for two updates, each 1/60 s, then pauses it. An update that reads the
+    # timeline before Kit ticks it finds the second 1/60 s only on the update after, the timeline paused by then:
+    # reading the state there counted that half of each step as idle (#111's code review).
+    clock = FrameClock(5)
+    clock.tick(0.0, 0.0)  # stopped, before the first step
+    for step in range(10):
+        for update, ticks in enumerate(seen):
+            clock.tick((2 * step + ticks) / 60, (3 * step + update + 1) / 100)
+    assert clock.simulated == pytest.approx(20 / 60)
+
+
+def test_a_frame_held_by_a_pending_render_comes_on_the_next_update_that_can_take_it():
+    updates = Updates(FrameClock(5))
+    assert updates.run(24) == [0] + [None] * 23
+    assert updates.run(2, render_pending=True) == [None, None]  # updates 24 and 25: frame 1 is due, its render isn't
+    updates.run(60)
+    # Frame 1 on update 26, and frame 2 still on its own boundary, 0.4 s at update 48: frames keep to the clock.
+    assert updates.at() == [0, 26, 48, 72]
+
+
+def test_after_a_stall_of_several_periods_one_frame_comes_then_the_next_boundary_after_the_clock():
+    updates = Updates(FrameClock(5))
+    updates.run(24)
+    updates.run(77, render_pending=True)  # updates 24 to 100: boundaries 0.2 to 0.8 pass
+    updates.run(40)
+    assert updates.at() == [0, 101, 120]
 
 
 def test_the_clock_takes_none_while_four_frames_are_written_and_one_again_once_a_place_is_free():
-    clock = FrameClock(1)
-    assert _ticks(clock, MAX_IN_FLIGHT + 2) == [0, 1, 2, 3, None, None]
-    clock.done()
-    assert clock.tick() == 4
-    assert clock.tick() is None
-    assert clock.in_flight == MAX_IN_FLIGHT
+    updates = Updates(FrameClock(60))
+    assert updates.run(MAX_IN_FLIGHT + 2, wall_step=1 / 60, written=False) == [0, 1, 2, 3, None, None]
+    updates.clock.done()
+    assert updates.run(2, wall_step=1 / 60, written=False) == [4, None]
+    assert updates.clock.in_flight == MAX_IN_FLIGHT
 
 
 def test_no_number_is_given_twice_whatever_order_frames_end_in():
     # Today's recording numbered a frame when its capture ended, so ticks closer than a capture shared one (#69).
-    clock = FrameClock(2)
+    clock = FrameClock(30)
     numbers = []
     for update in range(200):
-        number = clock.tick()
+        number = clock.tick(0.0, update / 60)
         if number is not None:
             numbers.append(number)
         if update % 3 == 0:
             clock.done()
     assert numbers == list(range(len(numbers)))
+    assert len(numbers) > 50
 
 
 def test_done_never_counts_below_none_in_flight():
-    clock = FrameClock(1)
+    clock = FrameClock(5)
     clock.done()
     assert clock.in_flight == 0
 

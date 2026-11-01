@@ -6,6 +6,7 @@ never moves (#25). No Kit imports: the handler passes in the stage and Kit's ans
 usd-core.
 """
 
+import math
 from collections.abc import Mapping
 from typing import NamedTuple, cast
 
@@ -20,6 +21,9 @@ DEFAULT_SIZE = (640, 480)
 # Frames whose files are still being written. A frame takes about four app updates, most of them after its render, so
 # one at a time halved fps=30 (#25's E15); four leave room for that, and still bound the waits a stalled feed starts.
 MAX_IN_FLIGHT = 4
+
+# A frame is due this share of a period early: twelve steps of 1/60 s add up to a hair under 0.2 s in floating point.
+PERIOD_TOLERANCE = 1e-6
 
 # Kit lists every texture's render product in its render settings, in the root layer, and leaves the entry there when
 # the prim goes (#25's E22).
@@ -68,11 +72,6 @@ def recording_args(body: Mapping[str, object]) -> RecordingArgs:
     )
 
 
-def steps_per_frame(time_codes_per_second: float, fps: int) -> int:
-    """App updates between frames: a stage of 60 time codes a second, recorded at 5 frames a second, takes one in 12."""
-    return max(1, int(time_codes_per_second / fps))
-
-
 def camera_error(stage: Usd.Stage, path: str) -> str | None:
     """Why `path` can't be recorded from, or None when it is a camera on `stage`."""
     if not Sdf.Path.IsValidPathString(path) or not Sdf.Path(path).IsAbsolutePath():
@@ -88,27 +87,58 @@ def camera_error(stage: Usd.Stage, path: str) -> str | None:
 class FrameClock:
     """Which app updates take a frame, and the frame's number.
 
-    Every `steps`-th update takes one, unless the feed still awaits the last one's render, which would give two frames
-    the same render (#25's E18), or MAX_IN_FLIGHT frames are still being written. Numbers are given when a frame is
-    taken, so frames whose captures end out of order keep theirs, and none is used twice (#69).
+    The recording keeps a clock of its own, in seconds. An update that finds the timeline's time moved forward since the
+    update before adds the simulation time it advanced; any other adds the wall time since then: stopped, paused, or
+    playing a timeline whose time doesn't move, such as a file with no time-code range. So frames are 1/fps s of
+    simulation apart while things move and 1/fps s apart by the clock while they don't, whatever Kit's update rate,
+    where counting updates gave 8.5 to 13 frames a second at fps=5 on a fast Kit while nothing played (#111).
+
+    The timeline's state isn't read: an update may find the time a sim_control step moved only after the step has
+    paused the timeline again, depending on whether Kit ticks the timeline before or after this update's callback,
+    and that time is still simulation.
+
+    Frame k is due once the clock reaches k/fps, frame 0 on the first update. A due frame waits while the feed still
+    awaits the last one's render, which would give two frames the same render (#25's E18), or MAX_IN_FLIGHT frames are
+    still being written. Once one is taken, the next is due at the first period boundary after the clock, so frames a
+    stall made late are dropped rather than sent in a burst. Numbers are given when a frame is taken, so frames whose
+    captures end out of order keep theirs, and none is used twice (#69).
     """
 
-    def __init__(self, steps: int, max_in_flight: int = MAX_IN_FLIGHT):
-        self._steps = steps
+    def __init__(self, fps: int, max_in_flight: int = MAX_IN_FLIGHT):
+        self._fps = fps
         self._max_in_flight = max_in_flight
-        self._updates = 0
+        # The update before's simulation time and wall time; None before the first update.
+        self._last: tuple[float, float] | None = None
+        # The period boundary the next frame is due at, counted in periods of 1/fps s.
+        self._due = 0
         self._next = 0
         self.in_flight = 0
+        self.simulated = 0.0
+        self.idle = 0.0
 
-    def tick(self, render_pending: bool = False) -> int | None:
-        """This update's frame number, or None when it takes none."""
-        self._updates += 1
-        if self._updates % self._steps or render_pending or self.in_flight >= self._max_in_flight:
+    def tick(self, sim_time: float, now: float, render_pending: bool = False) -> int | None:
+        """This update's frame number, or None when it takes none. `sim_time` is the timeline's time and `now` the
+        wall clock's, both in seconds, read on this update."""
+        self._advance(sim_time, now)
+        periods = (self.simulated + self.idle) * self._fps
+        if periods + PERIOD_TOLERANCE < self._due or render_pending or self.in_flight >= self._max_in_flight:
             return None
+        self._due = math.floor(periods + PERIOD_TOLERANCE) + 1
         number = self._next
         self._next += 1
         self.in_flight += 1
         return number
+
+    def _advance(self, sim_time: float, now: float) -> None:
+        if self._last is not None:
+            last_sim, last_now = self._last
+            step = sim_time - last_sim
+            if step > 0:
+                self.simulated += step
+            else:
+                # A step back too: a loop at the end time, or a time set by hand, costs this update's wall time.
+                self.idle += max(0.0, now - last_now)
+        self._last = (sim_time, now)
 
     def done(self) -> None:
         """A frame's file is written, or given up."""

@@ -1,7 +1,8 @@
 """Miscellaneous tools (execute_script, manage_extensions, get_logs)."""
 
 import json
-from typing import TYPE_CHECKING, Annotated, Literal
+import re
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -14,6 +15,40 @@ from ._bridge import bridge_call
 
 if TYPE_CHECKING:
     from omniverse_mcp.server import Helpers
+
+# How much of a log message get_logs shows, and how much either side of a search's match it shows when the match lies
+# past that: a callstack runs to hundreds or thousands of characters.
+SHOWN = 200
+AROUND_MATCH = 80
+
+
+def _log_lines(entry: dict[str, Any], search: str) -> list[str]:
+    """An entry as get_logs prints it: its level, its channel whole and the first SHOWN characters of its message,
+    saying how many more it has. When `search` matched only past them, a `matched:` line shows the match, where an
+    entry whose shown text lacks the word searched for read as a wrong hit (#111)."""
+    msg: str = entry["msg"]
+    level: str = entry["level"]
+    shown = msg[:SHOWN]
+    if len(msg) > SHOWN:
+        shown += f" ... (+{len(msg) - SHOWN:,} characters)"
+    lines = [f"  [{level.upper().ljust(5)}] {entry['channel'] or ''}: {shown}"]
+    # The bridge matches the whole message, in any case. A match ending past the shown part shows too little of itself.
+    match = re.search(re.escape(search), msg, re.IGNORECASE) if search else None
+    if match is not None and match.end() > SHOWN:
+        lines.append(f"    matched: {_around(msg, match.start(), match.end())}")
+    return lines
+
+
+def _around(msg: str, start: int, end: int) -> str:
+    """The line of `msg` that holds msg[start:end], cut to AROUND_MATCH characters either side of it, with `...` at
+    each end cut."""
+    line_start = msg.rfind("\n", 0, start) + 1
+    line_end = msg.find("\n", end)
+    if line_end < 0:
+        line_end = len(msg)
+    left = max(line_start, start - AROUND_MATCH)
+    right = min(line_end, end + AROUND_MATCH)
+    return f"{'...' if left > line_start else ''}{msg[left:right].strip()}{'...' if right < line_end else ''}"
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
@@ -97,14 +132,17 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             Field(description="The lowest severity to return; every level when empty"),
         ] = "",
         channel: Annotated[str, Field(description='Only channels containing this, e.g. "omni.physx"')] = "",
-        search: Annotated[str, Field(description="Only messages containing this, in any case")] = "",
+        search: Annotated[str, Field(description="Only messages containing this anywhere, in any case")] = "",
     ) -> str:
         """Get the latest entries of the Kit app's log, read from its log file since the bridge extension started, by
         level, channel or text.
 
-        Kit's file holds Info and above by default; verbose lines need Kit started with both --/log/level=verbose and
-        --/log/fileLogLevel=verbose. A script's own exception, print and stderr come back in execute_script's answer
-        and never reach Kit's log; carb.log_error and the other carb.log_* calls in a script do.
+        Each entry shows its channel and the first 200 characters of its message, saying how many more it has. search
+        matches the whole message: an entry whose match lies past the 200 gets a matched: line with the match in its
+        line. Kit's file holds Info and above by default; verbose lines need Kit started with both
+        --/log/level=verbose and --/log/fileLogLevel=verbose. A script's own exception, print and stderr come back in
+        execute_script's answer and never reach Kit's log; carb.log_error and the other carb.log_* calls in a script
+        do.
         """
         resp = bridge_call(client.get_logs, count, min_level, channel, None, search)
         r = resp["result"]
@@ -114,9 +152,6 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             return f"{text}\n{r['note']}" if r.get("note") else text
         lines = [f"Log entries ({r['count']}/{r['total_captured']} total, buffer={r['buffer_size']}):"]
         for e in r["entries"]:
-            level = e["level"].upper().ljust(5)
-            chan = e["channel"][:40] if e["channel"] else ""
-            msg = e["msg"][:200]
-            lines.append(f"  [{level}] {chan}: {msg}")
+            lines.extend(_log_lines(e, search))
         text = "\n".join(lines)
         return h.text_response(text, "logs")

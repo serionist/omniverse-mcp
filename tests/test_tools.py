@@ -496,9 +496,19 @@ CASES = [
         "stop_recording",
         {},
         "/recording/stop",
-        {"frame_count": 3, "duration_seconds": 0.6, "output_dir": "rec_1", "state_file": "rec_1/state.txt"},
+        {
+            "frame_count": 3,
+            "duration_seconds": 0.6,
+            "simulation_seconds": 0.4,
+            "idle_seconds": 0.15,
+            "output_dir": "rec_1",
+            "state_file": "rec_1/state.txt",
+        },
         {},
-        ("Stopped. 3 frames, 0.6s", "State: rec_1/state.txt"),
+        (
+            "Stopped. 3 frames, 0.6s: 0.40 s of simulation played, 0.15 s stopped or paused -> ",
+            "State: rec_1/state.txt",
+        ),
     ),
     Case(
         "get_recording_frame",
@@ -1038,6 +1048,86 @@ def test_stop_recording_says_why_frames_stopped_early(bridge: MockIsaacServer, t
         bridge,
         tmp_path,
     )
+
+
+def test_stop_recording_on_an_older_extension_says_what_it_did_before(bridge: MockIsaacServer, tmp_path: Path):
+    # 0.3.0's extension answers no simulation_seconds or idle_seconds.
+    text = _check(
+        Case(
+            "stop_recording",
+            {},
+            "/recording/stop",
+            {"frame_count": 3, "duration_seconds": 0.6, "output_dir": "rec_1", "state_file": None},
+            {},
+            ("Stopped. 3 frames, 0.6s -> ",),
+        ),
+        bridge,
+        tmp_path,
+    )
+    assert "simulation" not in text
+
+
+def _logs(msg: str, search: str, bridge: MockIsaacServer, tmp_path: Path, channel: str = "carb") -> str:
+    """get_logs' text for one entry of `msg`, found by `search`."""
+    args = {"search": search} if search else {}
+    entry = {"level": "info", "channel": channel, "msg": msg}
+    answer = {"entries": [entry], "count": 1, "total_captured": 9, "buffer_size": 2000}
+    return _check(Case("get_logs", args, "/logs", answer, args, ()), bridge, tmp_path)
+
+
+def test_get_logs_shows_a_match_past_the_cut_with_its_context(bridge: MockIsaacServer, tmp_path: Path):
+    # The bridge matches the whole message; the answer showed its first 200 characters, so a hit could show no match
+    # at all (#111).
+    msg = "x" * 2000 + "OvMcp" + "y" * 540
+    text = _logs(msg, "ovmcp", bridge, tmp_path)
+    assert f"  [INFO ] carb: {'x' * 200} ... (+2,345 characters)\n" in text
+    assert text.endswith(f"\n    matched: ...{'x' * 80}OvMcp{'y' * 80}...")
+
+
+def test_get_logs_shows_the_whole_line_of_a_callstack_that_holds_the_match(bridge: MockIsaacServer, tmp_path: Path):
+    # #111's entry: Kit's deprecation callstack, the match in the bridge's own frame of it, at an invented path here.
+    msg = (
+        "`get_update_event_stream` is deprecated. Use Events 2.0. Callstack:"
+        '   File "C:\\Python312\\Lib\\asyncio\\events.py", line 88, in _run\n'
+        "    self._context.run(self._callback, *self._args)\n"
+        '  File "c:/users/ada/kit/exts/omniverse-mcp/extension/ovmcp.bridge/ovmcp/bridge/handlers/camera_feed.py", '
+        "line 161, in add\n"
+        "    stream = omni.kit.app.get_app().get_update_event_stream()\n" + "    more of the callstack\n" * 20
+    )
+    text = _logs(msg, "MCP", bridge, tmp_path)
+    assert f"{msg[:200]} ... (+{len(msg) - 200:,} characters)\n    matched: " in text
+    assert text.endswith(
+        '\n    matched: File "c:/users/ada/kit/exts/omniverse-mcp/extension/ovmcp.bridge/ovmcp/bridge/handlers/'
+        'camera_feed.py", line 161, in add'
+    )
+
+
+@pytest.mark.parametrize(("at", "shown"), [(199, False), (197, True)], ids=["ending past the cut", "ending at it"])
+def test_get_logs_counts_a_match_as_shown_only_when_it_ends_within_the_first_200(
+    at: int, shown: bool, bridge: MockIsaacServer, tmp_path: Path
+):
+    # A match from character 199 shows only its first letter (#111's review P3).
+    text = _logs("z" * at + "MCP" + "w" * 100, "mcp", bridge, tmp_path)
+    assert ("matched:" not in text) == shown
+    if not shown:
+        assert text.endswith(f"\n    matched: ...{'z' * 80}MCP{'w' * 80}...")
+
+
+def test_get_logs_marks_a_cut_without_a_search_and_adds_no_match(bridge: MockIsaacServer, tmp_path: Path):
+    text = _logs("v" * 201, "", bridge, tmp_path)
+    assert text.endswith(f": {'v' * 200} ... (+1 characters)")
+    assert "matched:" not in text
+
+
+def test_get_logs_marks_no_cut_on_a_message_of_200_characters(bridge: MockIsaacServer, tmp_path: Path):
+    assert _logs("q" * 200, "q", bridge, tmp_path).endswith(f"  [INFO ] carb: {'q' * 200}")
+
+
+def test_get_logs_shows_a_channel_whole(bridge: MockIsaacServer, tmp_path: Path):
+    # Cut at 40, a channel lost the part that tells modules apart, which the channel filter matches too.
+    channel = "isaacsim.core.experimental.utils.impl.transform"
+    assert len(channel) > 40
+    assert f"  [INFO ] {channel}: a short message" in _logs("a short message", "", bridge, tmp_path, channel)
 
 
 def test_get_sim_state_says_why_a_recording_s_frames_stopped(bridge: MockIsaacServer, tmp_path: Path):

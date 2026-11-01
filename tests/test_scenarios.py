@@ -12,6 +12,7 @@ import math
 import os
 import re
 import shutil
+import statistics
 import tempfile
 import time
 import unittest
@@ -289,6 +290,13 @@ FRAME_STATS = (
     "    rows = np.nonzero(red)[0]\n"
     "    return [int(rgb.shape[1]), int(rgb.shape[0]), int(red.sum()), float(rows.mean()) if len(rows) else None]\n"
     "result = [stats(p) for p in PATHS]\n"
+)
+# Two frame files' mean absolute difference per channel, out of 255, read in Kit with its numpy and Pillow.
+FRAME_DIFFERENCE = (
+    "import numpy as np\n"
+    "from PIL import Image\n"
+    "a, b = (np.asarray(Image.open(p).convert('RGB')).astype(np.int32) for p in PATHS)\n"
+    "result = float(np.abs(a - b).mean())\n"
 )
 # The viewport as a recording must leave it: its camera, that camera's transform, its resolution; and whether the
 # timeline plays every frame, which Replicator's capture would have turned on.
@@ -812,10 +820,10 @@ class TestScenarios(PhysicsChecks):
 
         self.c.sim_control("play")
         time.sleep(2.0)
-        self.c.sim_control("stop")
-        time.sleep(0.3)
-
+        # Paused, not stopped: a recording takes frames while stopped too, and a stop puts the cube back (#111).
+        self.c.sim_control("pause")
         r = self.c.recording_stop()
+        self.c.sim_control("stop")
         self.assertEqual(r["status"], "success", r)
         self.assertGreater(r["result"]["frame_count"], 0)
         # Every frame a whole PNG of the size asked for, whatever the viewport's own (#25).
@@ -996,6 +1004,90 @@ class TestScenarios(PhysicsChecks):
         print(f"  {stop['result']['frame_count']} frames, then: {stop['result']['note']}")
         self._pass()
 
+    def test_06_10_frames_follow_the_clock_stopped_and_the_simulation_playing(self):
+        """Phase 6.10: At fps=5, frames 0.2 s apart by the clock while stopped and paused and 0.2 s of simulation apart
+        while playing, whatever Kit's update rate; frame 0 like frame 1 in a still, lit scene; the stop says what the
+        frames span (#111)"""
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+        self.c.set_transform("/World/RedCube", position=_along_up(self._up_axis(), 1.5))
+        camera = self._recording_camera()
+        self._stop_recording_after()
+        r = self.c.recording_start(
+            self._recordings("recordings_clock"), fps=5, width=320, height=240, camera_path=camera
+        )
+        self.assertEqual(r["status"], "success", r)
+        started = time.monotonic()
+        time.sleep(1.2)
+        self.c.sim_control("play")
+        played = time.monotonic()
+        time.sleep(1.2)
+        self.c.sim_control("pause")
+        paused = time.monotonic()
+        time.sleep(1.0)
+        stop = self.c.recording_stop()
+        stopped = time.monotonic()
+        self.c.sim_control("stop")
+        self.assertEqual(stop["status"], "success", stop)
+
+        frames = self._metadata(stop)["frames"]
+        pairs = list(itertools.pairwise(frames))
+        # Stopped, the timeline's time is its start, 0; paused, it holds where the pause left it.
+        stopped_gaps = [b["wall_time"] - a["wall_time"] for a, b in pairs if a["sim_time"] == b["sim_time"] == 0]
+        paused_gaps = [b["wall_time"] - a["wall_time"] for a, b in pairs if a["sim_time"] == b["sim_time"] > 0]
+        # The first and last pairs that move straddle play and pause: part of their period is the clock's.
+        playing_gaps = [b["sim_time"] - a["sim_time"] for a, b in pairs if b["sim_time"] > a["sim_time"]][1:-1]
+        print(
+            f"  {len(frames)} frames; median gaps: stopped {statistics.median(stopped_gaps):.3f} s by the clock, "
+            f"playing {statistics.median(playing_gaps):.3f} s of simulation, paused "
+            f"{statistics.median(paused_gaps):.3f} s by the clock; {stop['result']['simulation_seconds']} s simulated, "
+            f"{stop['result']['idle_seconds']} s idle"
+        )
+        for gaps, within in ((stopped_gaps, 0.05), (playing_gaps, 1 / 60), (paused_gaps, 0.05)):
+            self.assertGreater(len(gaps), 2, f"too few frames: {frames}")
+            self.assertAlmostEqual(statistics.median(gaps), 0.2, delta=within)
+
+        # The clock's totals: the simulation played, and the wall time stopped and paused.
+        self.assertAlmostEqual(stop["result"]["simulation_seconds"], frames[-1]["sim_time"], delta=0.05)
+        idle = (played - started) + (stopped - paused)
+        self.assertAlmostEqual(stop["result"]["idle_seconds"], idle, delta=0.4)
+
+        # Frame 0 comes on the first update after the start: in a still, lit scene, as frame 1 within a grey level.
+        # A new feed's first frame was 0.21 to 0.24 from a settled one under RT 2.0 (#51's E14), Kit's grid 6 to 8.
+        first_two = [str(Path(stop["result"]["output_dir"]) / f"frame_{n:05d}.png") for n in (0, 1)]
+        for stats in self._frame_stats(first_two):
+            self.assertIsNotNone(stats, "frame 0 or 1 didn't come")
+            self.assertGreater(stats[2], 20, f"no lit red cube in frame 0 or 1: {stats}")
+        difference = self._run_in_kit(FRAME_DIFFERENCE, PATHS=[str(Path(p).resolve()) for p in first_two])
+        print(f"  Frame 0 against frame 1: {difference:.3f} of 255")
+        self.assertLess(difference, 1.0)
+        self._pass()
+
+    def test_06_11_steps_count_as_simulation(self):
+        """Phase 6.11: Each sim_control('step') a recording spans counts whole in simulation_seconds, whichever side
+        of Kit's timeline tick the recording's update runs on (#111)"""
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+        camera = self._recording_camera()
+        self._stop_recording_after()
+        r = self.c.recording_start(
+            self._recordings("recordings_steps"), fps=5, width=160, height=120, camera_path=camera
+        )
+        self.assertEqual(r["status"], "success", r)
+        for _ in range(10):
+            step = self.c.sim_control("step")
+            self.assertEqual(step["status"], "success", step)
+        stepped = self.c.sim_state()["result"]["sim_time"]
+        stop = self.c.recording_stop()
+        self.c.sim_control("stop")
+        self.assertEqual(stop["status"], "success", stop)
+        simulated = stop["result"]["simulation_seconds"]
+        print(f"  10 steps: the timeline at {stepped:.4f} s, the recording's simulation_seconds {simulated}")
+        self.assertGreater(stepped, 0)
+        # simulation_seconds is rounded to the hundredth.
+        self.assertAlmostEqual(simulated, stepped, delta=0.006)
+        self._pass()
+
     # ===== Phase 7: Recording with Prim State Tracking =====
 
     def test_07_01_record_with_track_prims(self):
@@ -1076,10 +1168,9 @@ class TestScenarios(PhysicsChecks):
 
         self.c.sim_control("play")
         time.sleep(1.0)
-        self.c.sim_control("stop")
-        time.sleep(0.3)
-
+        self.c.sim_control("pause")
         r = self.c.recording_stop()
+        self.c.sim_control("stop")
         self.assertEqual(r["status"], "success")
 
         state_file = r["result"].get("state_file")

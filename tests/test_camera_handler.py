@@ -114,6 +114,8 @@ def handler(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
             _get_stage=lambda: kit.stage,
             _next_update=_nothing,
             _reset_renderer=_nothing,
+            # RT 2.0's: no frames owed after a feed's first.
+            _settle_frames=lambda: 0,
             _settle_viewport=_nothing,
             capture_feed_png=kit.capture_feed_png,
         ),

@@ -1,9 +1,10 @@
-"""The recording handler against a fake Kit (#25, #69): the feed it makes, when it takes frames and how it numbers
-them, how frames stop when the stage changes or the camera goes, and how start, stop and shutdown clean up.
+"""The recording handler against a fake Kit (#25, #69, #111): the feed it makes and the frames it waits for first,
+when it takes frames and how it numbers them, what they span, how frames stop when the stage changes or the camera
+goes, and how start, stop and shutdown clean up.
 
 handlers/recording.py is loaded from its file with Kit's modules, its _utils and its camera feed faked in sys.modules,
-as tests/test_debug_draw_handler.py loads its handler. The stage is a real usd-core one, and the Kit-free core is
-the real one.
+as tests/test_debug_draw_handler.py loads its handler. The stage is a real usd-core one, and the Kit-free core is the
+real one. The handler's monotonic clock is the fake Kit's, which each update moves on.
 """
 
 import asyncio
@@ -41,13 +42,19 @@ class FakeFeed:
         assert seconds == capture.FRAME_SECONDS
         await self.kit.first_frame_wait()
 
+    async def wait_frames(self, count: int, budget: Any = None) -> None:
+        assert budget is None  # bounded as a viewport frame is, each frame and all of them (capture.frames)
+        self.kit.events.append(f"settled {count}")
+        if self.kit.settle_raises is not None:
+            raise self.kit.settle_raises
+
     def drop(self) -> None:
         self.dropped = True
 
 
 class FakeKit:
-    """Kit as the handler sees it: the stage and its state, the timeline, the update stream, the feeds made and
-    discarded, and each capture's frame, which a test hands over when it chooses."""
+    """Kit as the handler sees it: the stage and its state, the timeline and the clock, the update stream, the feeds
+    made and discarded, and each capture's frame, which a test hands over when it chooses."""
 
     def __init__(self) -> None:
         self.stage = Usd.Stage.CreateInMemory()
@@ -59,6 +66,18 @@ class FakeKit:
         self.stage_id = 1
         self.stage_state = OPENED
         self.sim_time = 0.0
+        self.playing = False
+        # The monotonic clock, and how far each update moves it and, while playing, the simulation: Kit at 60 updates
+        # a second by default, in real time.
+        self.now = 0.0
+        self.wall_step = 1 / 60
+        self.sim_step = 1 / 60
+        # Frames Path Tracing still owes after the feed's first, as _utils' _settle_frames reads them, and what their
+        # wait raises, if anything.
+        self.settle_frames = 0
+        self.settle_raises: Exception | None = None
+        # What the start did, in order: the frames it waited for, and its subscription.
+        self.events: list[str] = []
         self.feeds: list[FakeFeed] = []
         self.discarded: list[FakeFeed] = []
         self.discard_raises = False
@@ -91,11 +110,16 @@ class FakeKit:
 
     def subscribe(self, fn: Any, name: str = "") -> SimpleNamespace:
         self.subscriptions.append(fn)
+        self.events.append("subscribed")
         return SimpleNamespace(name=name)
 
     def update(self) -> None:
-        """One Kit update: the newest subscription's callback, as Kit calls it."""
+        """One Kit update: the newest subscription's callback, as Kit calls it; then the clock moves on, and the
+        simulation while it plays."""
         self.subscriptions[-1](None)
+        self.now += self.wall_step
+        if self.playing:
+            self.sim_time += self.sim_step
 
 
 def _module(name: str, **attrs: Any) -> ModuleType:
@@ -111,7 +135,7 @@ def kit() -> FakeKit:
 
 @pytest.fixture
 def recording(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
-    timeline = SimpleNamespace(get_time_codes_per_seconds=lambda: 60.0, get_current_time=lambda: kit.sim_time)
+    timeline = SimpleNamespace(get_current_time=lambda: kit.sim_time)
     context = SimpleNamespace(
         get_stage_id=lambda: kit.stage_id, get_stage_state=lambda: kit.stage_state, get_stage=lambda: kit.stage
     )
@@ -135,6 +159,7 @@ def recording(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
             "handlers_under_test._utils",
             _get_active_camera_path=lambda: "/OmniverseKit_Persp",
             _get_stage=lambda: kit.stage,
+            _settle_frames=lambda: kit.settle_frames,
             capture_feed_png=kit.capture_feed_png,
         ),
         "handlers_under_test.camera_feed": _module(
@@ -151,6 +176,7 @@ def recording(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "_monotonic", lambda: kit.now)
     return module
 
 
@@ -264,7 +290,7 @@ def test_a_stage_change_during_the_first_frame_is_an_error_that_leaves_nothing(r
 
 def test_frames_are_taken_every_few_updates_and_none_while_one_awaits_its_render(recording, kit, tmp_path):
     async def scenario() -> None:
-        await _start(recording, tmp_path)  # fps 30 at 60 time codes: a frame every 2 updates
+        await _start(recording, tmp_path)  # fps 30 at 60 updates a second: a frame every 2 updates
         feed = kit.feeds[0]
         kit.update()
         kit.update()
@@ -301,11 +327,109 @@ def test_no_more_than_four_frames_are_in_flight(recording, kit, tmp_path):
     asyncio.run(scenario())
 
 
+async def _updates_with_each_frame_written(kit: FakeKit, count: int) -> None:
+    """`count` updates, each frame taken written at once, so none waits on frames in flight."""
+    for _ in range(count):
+        kit.update()
+        await _settle()
+        for future in kit.captures:
+            if not future.done():
+                future.set_result(PNG)
+        await _settle()
+
+
+@pytest.mark.parametrize("updates_a_second", [60, 240])
+def test_a_stopped_recording_takes_a_frame_every_1_fps_seconds_by_the_clock(recording, kit, tmp_path, updates_a_second):
+    # Counting updates took one every 2 at fps=30, whatever the clock: 40 frames in a third of a second at 240 (#111).
+    async def scenario() -> dict[str, Any]:
+        kit.wall_step = 1 / updates_a_second
+        await _start(recording, tmp_path)  # fps 30
+        await _updates_with_each_frame_written(kit, updates_a_second // 3)
+        return await recording.handle_recording_stop({})
+
+    stop = asyncio.run(scenario())
+    assert stop["result"]["frame_count"] == 10  # at 0, 1/30, ... 9/30 s
+
+
+def test_a_playing_recording_takes_a_frame_every_1_fps_seconds_of_simulation(recording, kit, tmp_path):
+    # Kit four times faster than real time: 240 updates a second by the clock, each 1/60 s of simulation.
+    async def scenario() -> dict[str, Any]:
+        kit.wall_step = 1 / 240
+        kit.playing = True
+        await _start(recording, tmp_path, fps=10)
+        await _updates_with_each_frame_written(kit, 60)
+        return await recording.handle_recording_stop({})
+
+    meta = _metadata(asyncio.run(scenario()))
+    assert [f["sim_time"] for f in meta["frames"]] == pytest.approx([n / 10 for n in range(10)])
+
+
+def test_stop_says_how_much_simulation_played_and_how_long_it_stood_still(recording, kit, tmp_path):
+    async def scenario() -> dict[str, Any]:
+        kit.wall_step, kit.sim_step = 0.1, 0.05
+        await _start(recording, tmp_path, fps=1)
+        for _ in range(5):
+            kit.update()  # stopped: 0.4 s from the first update to the fifth
+        kit.playing = True
+        for _ in range(10):
+            kit.update()  # the first adds its 0.1 s by the clock, the simulation not yet moved; then 9 of 0.05 s
+        await _settle()
+        kit.captures[0].set_result(PNG)
+        return await recording.handle_recording_stop({})
+
+    stop = asyncio.run(scenario())
+    spans = {"simulation_seconds": 0.45, "idle_seconds": 0.5}
+    assert {k: stop["result"][k] for k in spans} == spans
+    meta = _metadata(stop)
+    assert {k: meta[k] for k in spans} == spans
+
+
+def test_each_step_a_recording_spans_counts_as_simulation(recording, kit, tmp_path):
+    # As sim_control's step: two updates playing, then a pause. The fake ticks the timeline after the recording's
+    # update, so the second 1/60 s shows on the update after the pause, and still counts (#111's code review).
+    async def scenario() -> dict[str, Any]:
+        await _start(recording, tmp_path, fps=1)
+        kit.update()
+        for _ in range(3):
+            kit.playing = True
+            kit.update()
+            kit.update()
+            kit.playing = False
+            kit.update()
+        await _settle()
+        kit.captures[0].set_result(PNG)
+        return await recording.handle_recording_stop({})
+
+    assert asyncio.run(scenario())["result"]["simulation_seconds"] == 0.1
+
+
+@pytest.mark.parametrize(("owed", "events"), [(63, ["settled 63", "subscribed"]), (0, ["subscribed"])])
+def test_the_start_waits_the_frames_path_tracing_still_owes_before_it_takes_any(recording, kit, tmp_path, owed, events):
+    # Frame 0 comes on the first update after the start: under Path Tracing at a low spp, the feed's second render
+    # would hold a fraction of its samples (#111's review P1). None are owed under RT 2.0.
+    kit.settle_frames = owed
+    r = asyncio.run(_start(recording, tmp_path))
+    assert r["status"] == "success", r
+    assert kit.events == events
+
+
+def test_a_settle_whose_frame_never_comes_is_an_error_that_leaves_nothing(recording, kit, tmp_path):
+    kit.settle_frames = 63
+    kit.settle_raises = capture.NoFrameError("The camera /World/RecCam rendered no frame in 30 s")
+    r = asyncio.run(_start(recording, tmp_path))
+    assert r["status"] == "error"
+    assert "rendered no frame in 30 s" in r["error"]
+    assert kit.discarded == kit.feeds
+    assert "subscribed" not in kit.events
+    assert not recording.recording_active()
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_frames_keep_the_numbers_of_their_ticks_whatever_order_they_end_in(recording, kit, tmp_path):
     async def scenario() -> dict[str, Any]:
         await _start(recording, tmp_path, track_prims=["/World/G1"])
-        for t in range(6):
-            kit.sim_time = t / 60
+        kit.playing = True
+        for _ in range(6):
             kit.update()
         await _settle()
         assert len(kit.captures) == 3
@@ -319,8 +443,8 @@ def test_frames_keep_the_numbers_of_their_ticks_whatever_order_they_end_in(recor
     assert [(folder / f"frame_{n:05d}.png").read_bytes() for n in range(3)] == [b"first", b"second", b"third"]
     meta = _metadata(stop)
     assert [f["frame"] for f in meta["frames"]] == [0, 1, 2]
-    # Each frame's sim_time is its tick's (updates 2, 4, 6), and so is its state, written in number order.
-    assert [round(f["sim_time"] * 60) for f in meta["frames"]] == [1, 3, 5]
+    # Each frame's sim_time is its tick's (updates 1, 3, 5), and so is its state, written in number order.
+    assert [round(f["sim_time"] * 60) for f in meta["frames"]] == [0, 2, 4]
     state = (folder / "state.txt").read_text()
     assert state.startswith("# Omniverse MCP Recording State")
     headers = [line for line in state.splitlines() if line.startswith("=== FRAME")]
@@ -507,3 +631,15 @@ def test_a_frame_comes_back_from_the_last_recording(recording, kit, tmp_path):
     assert r["status"] == "success"
     assert r["result"]["frame"] == 0
     assert r["result"]["image_base64"]
+
+
+def test_a_settle_that_runs_out_of_time_starts_anyway(recording, kit, tmp_path):
+    # The feed renders, as its first frame showed: a Kit too slow to give frame 0 every sample of Path Tracing within
+    # the settle's 30 s still records, where it did before the settle (#111's code review F1).
+    kit.settle_frames = 255
+    kit.settle_raises = capture.OutOfTimeError("The 30 s this call may take ran out")
+    r = asyncio.run(_start(recording, tmp_path))
+    assert r["status"] == "success", r
+    assert kit.events == ["settled 255", "subscribed"]
+    assert kit.discarded == []
+    assert recording.recording_active()

@@ -52,7 +52,14 @@ def _from_here(session_dir: str) -> str:
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @tool(mcp, EDITS)
     def start_recording(
-        fps: Annotated[int, Field(ge=1, description="Frames a second: 5 captures one every 0.2 s")] = 5,
+        fps: Annotated[
+            int,
+            Field(
+                ge=1,
+                description="Frames a second: 5 takes one every 0.2 s, of simulation while it plays and by the clock "
+                "while not",
+            ),
+        ] = 5,
         width: Annotated[int, Field(ge=1, description="Frame width in pixels, up to 4096")] = DEFAULT_WIDTH,
         height: Annotated[int, Field(ge=1, description="Frame height in pixels, up to 4096")] = DEFAULT_HEIGHT,
         camera_path: Annotated[
@@ -73,10 +80,15 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         through a render of its own: the viewport, its camera and its size stay as they are. The extra render runs
         while the recording does, and slows the app's updates, the more the larger the frames.
 
-        Captures a frame every few app updates, about 1/fps seconds, whether or not the simulation plays: play it to
-        record motion. Frames stop if the stage changes or the camera is deleted; stop_recording says so. Frames are
-        saved as PNGs in mcp_output/recordings/, by Kit itself. One recording runs at a time: another start is refused
-        until stop_recording. Use stop_recording when done, then get_recording_frame to review any frame.
+        Takes a frame every 1/fps seconds of the recording's own clock, at most one an app update. The clock runs with
+        the simulation while it plays, so a simulation faster than real time gives more than fps frames a wall second,
+        and with the wall clock while it is stopped or paused. Play it to record motion. Frames taken while it is
+        stopped or paused show Kit's grid, as the viewport does; Isaac Sim 6.2 hides the grid while it plays. Frames
+        stop if the stage changes or the camera is deleted; stop_recording says so. Frames are saved as PNGs in
+        mcp_output/recordings/, by Kit itself. One recording runs at a time: another start is refused until
+        stop_recording. Use stop_recording when done, then get_recording_frame to review any frame. Frames go on while
+        the simulation is stopped, and a stop puts the scene back: pause it, or call stop_recording, before stopping it
+        to end on the run's last state.
 
         Optionally tracks prim state (transforms, properties) alongside video frames, in state.txt.
         """
@@ -113,12 +125,20 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Stop the running recording: wait for the frames still being written, write metadata.json with each frame's
         simulation time, and delete the recording's render product.
 
-        Returns the frame count, the duration, the session folder and the state file, with a note when frames stopped
-        early or the cleanup failed in part. An error when no recording runs. Use get_recording_frame to review frames.
+        Returns the frame count, the duration, the seconds of simulation played and the seconds stopped or paused (the
+        frame count comes out near fps times their sum), the session folder and the state file, with a note when frames
+        stopped early or the cleanup failed in part. An error when no recording runs. Use get_recording_frame to review
+        frames.
         """
         resp = bridge_call(client.recording_stop)
         r = resp["result"]
-        msg = f"Stopped. {r['frame_count']} frames, {r['duration_seconds']}s -> {h.rel(r['output_dir'])}"
+        msg = f"Stopped. {r['frame_count']} frames, {r['duration_seconds']}s"
+        # An extension of 0.3.0 or older answers no spans.
+        if "simulation_seconds" in r:
+            msg += (
+                f": {r['simulation_seconds']:.2f} s of simulation played, {r['idle_seconds']:.2f} s stopped or paused"
+            )
+        msg += f" -> {h.rel(r['output_dir'])}"
         if r.get("state_file"):
             msg += f"\nState: {h.rel(r['state_file'])}"
         if r.get("note"):

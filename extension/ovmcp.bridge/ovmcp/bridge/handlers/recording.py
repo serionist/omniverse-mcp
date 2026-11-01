@@ -20,14 +20,18 @@ import omni.usd
 
 from ovmcp.core import capture
 from ovmcp.core.formatter import format_frame_state
-from ovmcp.core.recording import FrameClock, RecordingArgs, camera_error, recording_args, steps_per_frame
+from ovmcp.core.recording import FrameClock, RecordingArgs, camera_error, recording_args
 
-from ._utils import _get_active_camera_path, _get_stage, capture_feed_png
+from ._utils import _get_active_camera_path, _get_stage, _settle_frames, capture_feed_png
 from .camera_feed import CameraFeed, discard, forget
 
 # What the tools can follow: start_recording has no force, which only the route takes (#82).
 ALREADY_ACTIVE = "A recording is already running: call stop_recording first"
 STARTING = "A recording is starting: wait for its answer, then call stop_recording"
+
+# The recording's clock while the simulation doesn't move: monotonic, so a change to the system's time moves no frame.
+# A name of its own, so the tests can move it and leave asyncio's.
+_monotonic = time.monotonic
 
 
 class _Session:
@@ -41,8 +45,7 @@ class _Session:
         self.feed: CameraFeed | None = feed
         self.stage_id = omni.usd.get_context().get_stage_id()
         self.tracked: list[str] = []
-        timeline = omni.timeline.get_timeline_interface()
-        self.clock = FrameClock(steps_per_frame(timeline.get_time_codes_per_seconds() or 60.0, args.fps))
+        self.clock = FrameClock(args.fps)
         self.frames: list[dict] = []
         # Frames taken and not yet written, by number: their sim_time and wall_time.
         self.taking: dict[int, tuple[float, float]] = {}
@@ -139,6 +142,16 @@ async def _start(args: RecordingArgs) -> dict:
     try:
         # The bound a viewport frame gets, sized for a renderer's cold start (#27).
         await feed.first_frame(capture.FRAME_SECONDS)
+        # Path Tracing below its total samples renders frames still gathering them: frame 0, taken on the first update,
+        # waits for them as a capture does. None under RT 2.0, nor with Isaac Sim's 64 samples a frame of 64 (#111).
+        settle = _settle_frames()
+        if settle:
+            try:
+                await feed.wait_frames(settle)
+            except capture.OutOfTimeError as e:
+                # The feed renders, as its first frame showed: the settle only polishes frame 0, so a Kit too slow to
+                # give it every sample in time starts anyway. A frame that never comes (NoFrameError) still fails.
+                carb.log_warn(f"[MCP Recording] Started before Path Tracing reached its samples, frame 0 short: {e}")
         if _state.closed:
             # Shut down or hot-reloaded meanwhile: a recording started now would run where nothing could stop it.
             raise RuntimeError("The extension shut down while the recording started")
@@ -248,11 +261,11 @@ def _on_update(session: _Session) -> None:
     if reason:
         _stop_frames(session, reason)
         return
-    number = session.clock.tick(render_pending=feed.waiting)
-    if number is None:
-        return
     # Read now, not when the capture ends: the frame shows this update's simulation, give or take one (#25's E17).
     sim_time = omni.timeline.get_timeline_interface().get_current_time()
+    number = session.clock.tick(sim_time, _monotonic(), render_pending=feed.waiting)
+    if number is None:
+        return
     session.taking[number] = (sim_time, time.time() - session.started)
     if session.tracked:
         _write_state(session, number, sim_time)
@@ -321,6 +334,7 @@ async def _end(session: _Session, write_metadata: bool) -> tuple[str | None, lis
         "camera_path": session.camera_path,
         "frame_count": session.clock.taken,
         "duration_seconds": round(session.stopped - session.started, 2),
+        **_spans(session),
         "track_prims": session.tracked,
         "property_filter": args.property_filter,
         "frames": sorted(session.frames, key=lambda f: f["frame"]),
@@ -337,6 +351,13 @@ async def _end(session: _Session, write_metadata: bool) -> tuple[str | None, lis
     return meta_path, problems
 
 
+def _spans(session: _Session) -> dict[str, float]:
+    """What the frames span: the simulation played, and the wall seconds while it didn't move. The frame count comes
+    out near fps times their sum, which the duration alone doesn't show while a simulation runs faster than real time.
+    """
+    return {"simulation_seconds": round(session.clock.simulated, 2), "idle_seconds": round(session.clock.idle, 2)}
+
+
 async def handle_recording_stop(_body: dict) -> dict:
     session = _state.session
     if session is None:
@@ -349,6 +370,7 @@ async def handle_recording_stop(_body: dict) -> dict:
         "output_dir": session.folder,
         "frame_count": session.clock.taken,
         "duration_seconds": round(session.stopped - session.started, 2),
+        **_spans(session),
         "metadata_file": meta_path,
         "state_file": state_path if os.path.exists(state_path) else None,
     }

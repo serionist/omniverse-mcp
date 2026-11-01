@@ -901,10 +901,24 @@ Start recording simulation frames to disk. It records `camera_path`, or the acti
 too. A side of more than 4096 pixels is refused. The answer names the camera, the size and `render_product`, the
 prim the recording renders into, which it deletes at stop.
 
-- **When frames come:** every few app updates, about 1/`fps` seconds, whether or not the simulation plays: play it to
-  record motion. A frame shows the simulation within one update of its `sim_time`. Frames asked for faster than they
-  can be written are skipped, which the frames' `sim_time` in `metadata.json` shows; each frame keeps a number of its
-  own.
+- **When frames come:** one every 1/`fps` seconds of the recording's own clock, at most one an app update; play the
+  simulation to record motion.
+  - The clock runs with the simulation while it plays, `sim_control("step")`'s steps included: frames are 1/`fps` s
+    of `sim_time` apart. A simulation faster than real time, 1.25 to 2.5 times headless on Isaac Sim 6.2, so gives
+    more than `fps` frames a second by the wall clock.
+  - It runs with the wall clock while the simulation is stopped or paused, or plays a timeline whose time doesn't move
+    (a file with no time-code range): `fps` frames a second, whatever Kit's update rate.
+  - The first frame comes on the first update after the start, which waits for the camera's first render and, under
+    Path Tracing, for the samples a capture waits for.
+  - A frame shows the simulation within one update of its `sim_time`. Frames asked for faster than they can be
+    written, or than Kit updates, are skipped rather than sent late in a burst, which the frames' `sim_time` and
+    `wall_time` in `metadata.json` show; each frame keeps a number of its own.
+- **Ending a recording:** it takes frames while the simulation is stopped too, and `sim_control("stop")` puts the
+  scene back where it started. To end on the run's last state, pause the simulation, or call `stop_recording`, before
+  you stop it.
+- **Kit's grid:** frames taken while the simulation is stopped or paused show it, as the viewport does. Isaac Sim 6.2
+  hides it while the simulation plays, in the viewport and in the recording alike; other Kit apps show what their
+  viewport does.
 - **What it costs:** the extra render runs every update while the recording does, at the frame's size. Headless on
   Isaac Sim 6.2 it took a third of the app's updates at 640x480 and three quarters at 4096x4096; each update still
   advances the simulation as before, so the run takes longer, not differently.
@@ -918,7 +932,7 @@ prim the recording renders into, which it deletes at stop.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `fps` | int | `5` | Capture rate (frames per second), at least 1 |
+| `fps` | int | `5` | Frames a second, at least 1: of simulation while it plays, by the clock while not |
 | `width` | int | `640` | Frame width in pixels, 1 to 4096 |
 | `height` | int | `480` | Frame height in pixels, 1 to 4096 |
 | `camera_path` | string | `""` | The camera to record (a `UsdGeom.Camera`); the active viewport's camera when empty |
@@ -939,11 +953,19 @@ When `track_prims` is set, a `state.txt` file is written alongside frames in pri
 ### `stop_recording`
 
 Stop the active recording session. No parameters. It waits for the frames still being written, deletes the
-recording's render product and writes `metadata.json`: the frames' camera, size and times, and `ended` when frames
-stopped early.
+recording's render product and writes `metadata.json`: the frames' camera, size and times, what they span, and
+`ended` when frames stopped early.
 
 **Returns:** Frame count, duration, output directory, state file path (if tracking prims), and a `Note:` line when
-frames stopped early or the cleanup failed in part, saying why.
+frames stopped early or the cleanup failed in part, saying why. The first line also says what the frames span, as
+`Stopped. 33 frames, 4.99s: 3.00 s of simulation played, 2.00 s stopped or paused -> ...`; `metadata.json` has both
+as `simulation_seconds` and `idle_seconds`.
+
+- **`simulation_seconds`:** the simulation the recording played through.
+- **`idle_seconds`:** the wall seconds it ran while the simulation didn't move: stopped, paused, or playing a timeline
+  whose time doesn't move.
+- **The frame count** comes out near `fps` times their sum, fewer when frames were skipped. An extension of 0.3.0 or
+  older answers neither, and the line names the duration alone.
 
 ---
 
@@ -1189,9 +1211,23 @@ Get the latest entries of the Kit app's log, by level, channel or text.
 | `count` | int | `50` | Number of recent entries to return, at least 1 (the buffer keeps 2000) |
 | `min_level` | string | `""` | Minimum severity: `verbose`, `info`, `warn`, `error`, `fatal`, or `""` for every level |
 | `channel` | string | `""` | Filter by log channel substring (e.g. `"omni.physx"`, `"omni.usd"`) |
-| `search` | string | `""` | Filter by message substring (case-insensitive) |
+| `search` | string | `""` | Filter by message substring anywhere in the message (case-insensitive) |
 
 **When to use:** After any tool returns an error, call `get_logs(min_level="warn")` to see what Omniverse reported internally. PhysX errors, USD composition failures, missing extensions, and other diagnostics are captured here.
+
+**What an entry shows:** `[LEVEL] <channel>: <message>`, the channel whole and the message's first 200 characters.
+
+- **A longer message** ends its shown part with ` ... (+N characters)`, N the characters cut, such as
+  `(+2,345 characters)`.
+- **With `search`,** which matches the whole message, an entry whose match doesn't end within the first 200 gets a
+  `matched:` line: the line of the message that holds the match, cut to 80 characters either side of it, with `...`
+  at each end cut. A callstack, such as Kit's deprecation warnings, often matches only in a later frame.
+
+```
+  [INFO ] carb: `get_update_event_stream` is deprecated. Use Events 2.0. Callstack:   File "...\asyncio\events.py", line 88, in _run
+    self._context.run(self._ ... (+695 characters)
+    matched: File "c:/users/ada/kit/exts/omniverse-mcp/extension/ovmcp.bridge/ovmcp/bridge/handlers/camera_feed.py", line 161, in add
+```
 
 **How it works:** each call reads what Kit added to its log file since the last, from where the file ended when the
 extension started, into a ring of the latest 2000 entries.
