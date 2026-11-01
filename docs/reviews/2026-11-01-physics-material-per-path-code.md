@@ -92,8 +92,15 @@ main session:
   their own controls.
 - Both live suites whole, from a Z-up stage: 195 passed.
 
-Not shown by this run: the fixes after `5b56cb9` (F1 to F5, I1), which change the extension; the main session runs
-the live tests again on both up axes. Nor a stage of Isaac Lab's size in Kit, Kit's Duplicate, or USD Composer.
+Again after the fixes, on a fresh Kit with the extension at `9030362`:
+
+- The same tests: 6 passed on a Z-up stage and 6 on a Y-up one; `test_15_02c` printed the same "deleted" line both
+  times, so the walk's new checks (variant sets, inactive prims) met nothing on the suite's stage and the delete
+  still fired.
+- Both live suites whole, from a Z-up stage: 195 passed.
+
+Not shown: a stage of Isaac Lab's size in Kit (the walk's cost is measured on usd-core only), Kit's Duplicate, Isaac
+Sim 5.x, Linux, or USD Composer.
 
 ## Checks
 
