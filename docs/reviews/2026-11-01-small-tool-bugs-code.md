@@ -124,6 +124,12 @@ scratchpad, `105/`:
 | 3 | Y-up | `test_scenarios.py`: `test_02_01`, `test_02_02`, `test_10_01`, `test_15_02b`, `test_15_16` | 5 passed | `105-live-3-y-up.txt` |
 | 3, rerun at `e1a47f7` | Y-up | step 1's integration tests | 7 passed, 3 subtests | `105-live-3b-y-up-rerun.txt` |
 | 1, rerun at `e1a47f7` | Z-up | `test_12j` | 1 passed, 3 subtests | `105-live-1b-z-up-12j.txt` |
+| 1, after round 2, extension from `bc125ef` on a fresh Kit | Z-up | step 1's integration tests | 7 passed, 3 subtests | `105-live-4-z-up.txt` |
+| 3, after round 2, the same Kit | Y-up | step 1's integration tests | 7 passed, 3 subtests | `105-live-5-y-up.txt` |
+
+Round 2 changed `on_startup` (the Kit app's facts read after the log reader starts) and `rotation_of` (F7), so a
+fresh Kit took `bc125ef`'s extension: `test_01_health` and `test_02_sim_state` show the facts still read, `test_08c`
+the rotation, and Kit's log had no "read unknown" warning.
 
 - **The failure:** `test_12j` read `has_scene_lights` once, in the lighting mode it found, Default, which step 2's
   `test_23_06` leaves. A light rig puts lights of its own on the stage, and mode stage takes them away. So the read
