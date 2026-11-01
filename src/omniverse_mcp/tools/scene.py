@@ -10,6 +10,7 @@ from omniverse_mcp.client import BridgeClient
 from ._annotations import DESTROYS, EDITS, READS, tool
 from ._bridge import bridge_call
 from ._params import Position, PrimPath, Rotation, Scale
+from ._units import units_lines
 
 if TYPE_CHECKING:
     from omniverse_mcp.server import Helpers
@@ -173,10 +174,13 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         prim_type is a USD type name: Cube, Sphere, Cylinder, Cone, Capsule, Xform, Camera, DistantLight, DomeLight,
         SphereLight and the rest. Missing parents are made as typeless prims. A prim already at prim_path keeps its
         type: one of another type is refused, one of the same type takes the new transform, written as
-        set_prim_transform writes it. A transform it can't write makes nothing. usd_path adds its reference to a prim
-        already there. enable_physics puts the RigidBody and Collision APIs on the prim itself, so a shape falls and
-        collides while the simulation plays; the meshes under an Xform or a referenced file's root get no Collision
-        API of their own. To copy a prim, use clone_prim; for a robot, create_robot.
+        set_prim_transform writes it. A transform it can't write makes nothing. A usd_path file whose upAxis,
+        metersPerUnit or kilogramsPerUnit isn't the stage's is brought to the stage as create_robot brings a robot
+        file: turned upright, scaled, its physics values converted, and the answer says so; one that authors none is
+        left as it is. usd_path adds its reference to a prim already there as the file is. A file that can't be
+        opened is an error. enable_physics puts the RigidBody and Collision APIs on the prim itself, so a shape falls
+        and collides while the simulation plays; the meshes under an Xform or a referenced file's root get no
+        Collision API of their own. To copy a prim, use clone_prim; for a robot, create_robot.
         """
         kwargs = {}
         if usd_path:
@@ -192,7 +196,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         resp = bridge_call(client.create_prim, prim_path, prim_type, **kwargs)
         r = resp["result"]
-        return f"Created {r['type']} at {r['prim_path']}"
+        return "\n".join([f"Created {r['type']} at {r['prim_path']}", *units_lines(r, "its")])
 
     @tool(mcp, DESTROYS)
     def delete_prim(prim_path: PrimPath) -> str:

@@ -10,7 +10,7 @@ from omniverse_mcp.client import BridgeClient
 from ._annotations import EDITS, READS, tool
 from ._bridge import bridge_answer, bridge_call
 from ._params import Position, Rotation
-from ._units import scaled_lines, turned_line
+from ._units import units_lines
 
 if TYPE_CHECKING:
     from omniverse_mcp.server import Helpers
@@ -76,10 +76,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         r = resp["result"]
         parts = [f"Robot '{r['robot_type']}' created at {r['prim_path']}"]
         parts.append(f"USD: {r['usd_path']}")
-        if turn := r.get("up_axis_turn"):
-            parts.append(turned_line(turn))
-        if units := r.get("units_scale"):
-            parts.extend(scaled_lines(units))
+        parts.extend(units_lines(r, "the robot's"))
         if r.get("joints"):
             parts.append(f"Joints: {len(r['joints'])}")
             for j in r["joints"][:10]:
