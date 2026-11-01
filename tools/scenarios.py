@@ -381,9 +381,15 @@ def lock_path(runs: Path, port: int) -> Path:
     return runs / f".lock-{port}"
 
 
-def server_entry(port: int, run_dir: Path, checkout: Path = ROOT) -> dict[str, Any]:
+def session_output(run_dir: Path, session: Session) -> Path:
+    """A session's own output folder: each session starts a server whose file numbers start at 1, which would write
+    over the captures an earlier session's rows cite (step 9)."""
+    return run_dir / "mcp_output" / session.label
+
+
+def server_entry(port: int, output: Path, checkout: Path = ROOT) -> dict[str, Any]:
     """The tester's one MCP server: this checkout's, on the loopback at the port, with the port's token file (an
-    empty OMNIVERSE_MCP_TOKEN counts as unset) and the run's output folder."""
+    empty OMNIVERSE_MCP_TOKEN counts as unset) and the session's output folder."""
     return {
         "command": "uv",
         "args": ["run", "--no-sync", "--project", checkout.as_posix(), "omniverse-mcp"],
@@ -392,16 +398,16 @@ def server_entry(port: int, run_dir: Path, checkout: Path = ROOT) -> dict[str, A
             "OMNIVERSE_MCP_HOST": LOOPBACK,
             "OMNIVERSE_MCP_PORT": str(port),
             "OMNIVERSE_MCP_TOKEN": "",
-            "OMNIVERSE_MCP_OUTPUT_DIR": (run_dir / "mcp_output").as_posix(),
+            "OMNIVERSE_MCP_OUTPUT_DIR": output.as_posix(),
         },
     }
 
 
-def write_config(dest: Path, port: int, run_dir: Path, checkout: Path = ROOT) -> None:
+def write_config(dest: Path, port: int, output: Path, checkout: Path = ROOT) -> None:
     """A session's configuration, written afresh outside the runs folder: the plugin's skills without its server, and
     the server in mcp.json."""
     shutil.copytree(checkout / "plugin", dest / "plugin", ignore=shutil.ignore_patterns(".mcp.json"))
-    servers = {"mcpServers": {SERVER: server_entry(port, run_dir, checkout)}}
+    servers = {"mcpServers": {SERVER: server_entry(port, output, checkout)}}
     (dest / "mcp.json").write_text(json.dumps(servers, indent=2) + "\n", encoding="utf-8")
 
 
@@ -1151,7 +1157,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     def launch(session: Session, text: str, left: float | None) -> Outcome:
         config = Path(tempfile.mkdtemp(prefix="ovmcp-scenarios-"))
         try:
-            write_config(config, args.port, run_dir)
+            write_config(config, args.port, session_output(run_dir, session))
             cmd = tester_command(claude, text, config, rules, left, args.model)
             print(f"{session.label}: {', '.join(session.ids)}", flush=True)
             outcome = run_session(

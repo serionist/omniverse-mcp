@@ -199,9 +199,16 @@ def test_no_table_gives_no_rows():
 # ----- a session's configuration and command -----
 
 
+def test_each_session_writes_its_files_to_a_folder_of_its_own(suite, tmp_path):
+    # Each session's server numbers its files from 1: in one folder, Phase 16's captures replaced Phase 3's (step 9).
+    first, second = scenarios.plan(suite, {1, 2})[:2]
+    assert scenarios.session_output(tmp_path, first) == tmp_path / "mcp_output" / "phase-01"
+    assert scenarios.session_output(tmp_path, first) != scenarios.session_output(tmp_path, second)
+
+
 def test_the_config_holds_the_skills_without_their_server_and_the_server_pinned(tmp_path):
     run_dir = tmp_path / "run"
-    scenarios.write_config(tmp_path / "config", 8212, run_dir)
+    scenarios.write_config(tmp_path / "config", 8212, run_dir / "mcp_output" / "phase-03")
     plugin = tmp_path / "config" / "plugin"
     assert (plugin / "skills" / "scene" / "SKILL.md").is_file()
     assert not (plugin / ".mcp.json").exists()  # the strict MCP flag drops a plugin's server (step 2, S1)
@@ -212,7 +219,7 @@ def test_the_config_holds_the_skills_without_their_server_and_the_server_pinned(
         "OMNIVERSE_MCP_HOST": "127.0.0.1",
         "OMNIVERSE_MCP_PORT": "8212",
         "OMNIVERSE_MCP_TOKEN": "",
-        "OMNIVERSE_MCP_OUTPUT_DIR": (run_dir / "mcp_output").as_posix(),
+        "OMNIVERSE_MCP_OUTPUT_DIR": (run_dir / "mcp_output" / "phase-03").as_posix(),
     }
 
 

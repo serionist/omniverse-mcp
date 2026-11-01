@@ -222,7 +222,7 @@ every worktree's runs sit together and outlive the worktree (F15). One folder pe
 | `phase-NN.md`, `setup-NN.md` | the script, from the session's last message (a setup session is named for the phase it comes before) | Its rows, `\| ID \| Test \| Status \| Notes \|`, and its issues; a FAIL or WARN names its capture under `mcp_output/` |
 | `results.md` | the script | Run Info from `run.json`, the skill loads per session, every asked ID in order, `NOT RUN` where no row came, then the issues |
 | `transcript-phase-NN.jsonl`, `transcript-setup-NN.jsonl` | the client | Each session's stream |
-| `mcp_output/` | the server | Captures, recordings, dumps |
+| `mcp_output/<session>/` | the session's server | Captures, recordings, dumps: a folder per session, since each session's server numbers its files from 1 (step 9) |
 | `kit/` | Kit | The eight files the scenarios save or export (F4), at the `<run>/kit/...` paths the prompt gives |
 
 Statuses: PASS, FAIL, WARN, SKIP from the tester (F1's meanings); NOT RUN from the script.
@@ -405,7 +405,19 @@ row's notes match the calls the tester made and the answers it got:
 | 20.6 | WARN | `faces: +96576 (+0%)` in the delta |
 | 27.1 | PASS | stop, `get_sim_state` (no recording), `new_scene()`, a tree of a new stage's own prims |
 
-The rows that rest on an image (3.2, 12.8, 22.5) wait for the full run.
+**The rows that rest on an image,** from the full run: the transcripts hold the images the testers saw, either
+inline (`include_image=True`) or opened with Read.
+
+| Row | Status | What the image shows |
+|---|---|---|
+| 3.2 | WARN | Only the grid: the ground and the cube render black, as the row says, though the boxes put the cube in the middle |
+| 12.8 | FAIL | The same: the cube is in frame by its box, and black. The likely cause is 2.1's `DistantLight` at `rotation=[45,0,0]`: a UsdLux distant light shines along its local -Z, which that turns upward on a Y-up stage, so the tops the camera sees stay dark. A finding for a follow-up issue, with the others |
+
+22.5 waits for the rerun of phases 16 to 27.
+
+**Each session's server wrote over the last one's files:** a session's server numbers its files from 1, and all
+wrote to one `mcp_output/`, so the full run's `viewport_0001.png` is Phase 16's, beside a boxes file from Phase 12,
+while the rows of phases 3 and 12 cite that name. Each session now writes to `mcp_output/<session>/`.
 
 ## Tests
 
