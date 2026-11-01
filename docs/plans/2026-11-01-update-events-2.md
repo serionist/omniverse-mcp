@@ -1,9 +1,9 @@
 ---
 title: Move the bridge's update subscriptions to Kit's Events 2.0 update event
 issue: "#122"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-11-01
 ---
 
 # Move the bridge's update subscriptions to Kit's Events 2.0 update event
@@ -201,7 +201,7 @@ Each step builds and passes `uv run tools/gate.py quick`.
 | Step | What | Proven by |
 |---|---|---|
 | 0 | Done: the probe, run by the session on Isaac Sim 6.2 at 8212; its results are above, and settle `ORDER` (Q2), Q4 and the helper's error handling | `122-probe.out.txt` |
-| 1 | This plan, the branch's first commit; `review-plan`; the maintainer's answers | |
+| 1 | This plan, the branch's first commit; `review-plan`; the maintainer's answers | Plan review, round 1: approved |
 | 2 | Wait for #114 and #111 to merge; rebase onto `origin/main`; read `camera_feed.py`, `recording.py` and `debug_draw.py` again and list every update subscription; amend C1 to C3 and the roles if they moved | The guard's scan (Q5, step 7), run on the rebased tree before any edit: the files it names are the work |
 | 3 | `handlers/_updates.py`; `FakeUpdates` in `tests/conftest.py` | `tests/test_updates.py` |
 | 4 | U2: `debug_draw.py` through `on_update` | `tests/test_debug_draw_handler.py` |
