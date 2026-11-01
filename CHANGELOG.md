@@ -34,8 +34,16 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   inertia, drives, limits) and its cameras' focus distance and clipping range are converted to the stage's units, so
   it behaves as the same robot authored in them, but for an angular acceleration drive, which PhysX settles further
   on a centimetre stage. The answer says when. **A call that scaled the robot itself now scales it twice: drop that
-  scale.** `create_prim`'s `usd_path` doesn't yet (#119). The fix is in the Kit extension: run
-  `uvx omniverse-mcp extension install`, then restart Kit (#112).
+  scale.** The fix is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#112).
+- **`create_prim` brings a `usd_path` file of another up axis or other units to the stage's, as `create_robot`
+  does:** a Z-up prop on a Y-up stage lay on its side, and a centimetre asset on a metre stage came in 100 times too
+  large, its physics values in the file's units. It is now turned upright and scaled with the ops Kit's metrics
+  assembler writes, its physics values and its cameras' distances converted, and the answer says so. A file placed
+  inside an asset already turned or scaled, by either tool or by Kit, is measured against that asset's frame, as Kit
+  measures it, so it isn't turned or scaled twice. A reference added to a prim already there goes on as the file is,
+  and the answer says so. A file that can't be opened is now an error, where it made an empty prim. **A call that
+  turned or scaled such a prim itself, with `rotation` or `scale`, now turns or scales it twice: drop that.** The fix
+  is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#119).
 - **`get_prim_properties` reads a scaled prim's rotation:** `rot` came from the world matrix with its scale left in,
   so a 45° turn at scale 0.5 read as 84°, and a prim under a scaled parent could read as not turned. Recordings'
   `state.txt` and `get_scene_tree`'s file gave the same `rot`. A prim scaled to 0 on an axis, which has no rotation

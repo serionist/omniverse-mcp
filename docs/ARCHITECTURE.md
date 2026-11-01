@@ -423,7 +423,9 @@ The robot tools use a hybrid approach:
   (`core/usd_files.py` says from where), stands a file of another up axis upright with the turn Kit's metrics
   assembler writes, `xformOp:rotateX:unitsResolve`, and brings a file of other units to the stage's: Kit's scale,
   `xformOp:scale:unitsResolve`, and its values converted by the PhysX schema's table of units, which the handler
-  imports (`pxr.PhysicsSchemaTools.units`) and the Kit-free core takes as an argument (`core/metrics.py`)
+  imports (`pxr.PhysicsSchemaTools.units`) and the Kit-free core takes as an argument (`core/metrics.py`). Both are
+  measured against the frame the robot lands in, which the `:unitsResolve` ops above it make; `create_prim` brings a
+  `usd_path` file through the same core
 - **`get_robot_info`** asks two routes. `/robot/info` traverses the USD hierarchy to find joints, reading types and
   limits from USD properties. `/robot/joint_states` then finds the first articulation root at or under the prim
   (`core/robot.py`) and reads it through Isaac Sim's `isaacsim.core.experimental.prims.Articulation`, a new one per
