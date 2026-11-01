@@ -119,7 +119,10 @@ attribute's value.
 | `prim_path` | string | required | Full USD path (e.g., `"/World/Robot"`) |
 
 **Returns:** Prim type, position, bounding box, and all USD properties. Relationships, such as a material binding, are
-named without their targets.
+named without their targets. The world rotation, `rot`, is a quaternion `w, x, y, z` with any scale and shear taken
+out, so a 45° turn reads as 45° at any scale; a prim scaled to 0 on an axis, or so near it, under about 1e-15 of
+its other axes, that double precision can't tell its rotation, has no `rot` line. `get_scene_tree`'s file and `start_recording`'s `state.txt` give the same line. With an extension of 0.3.0 or
+older, a scaled prim's `rot` is off: Kit read it with the scale left in.
 
 **When to use:** to read one prim. `get_prim_bounds` when only its size and place matter, `get_scene_tree` to find
 paths, and with `include_properties` for many prims at once, written to a file.
@@ -337,8 +340,9 @@ A recording that stopped gives its `recording_note`, as `get_sim_state` does.
 
 ### `new_scene`
 
-Discard the open scene, unsaved changes too, and start an empty one with a `/World` prim. The new stage is Y-up, while
-Isaac Sim's robots and stages are Z-up: for robot work, open a Z-up stage with `open_scene` or set the axis with
+Discard the open scene, unsaved changes too, and start an empty one with a `/World` prim. The new stage is Y-up.
+`create_robot` stands Isaac Sim's Z-up robots upright on it, but Isaac Sim's other assets and its stages are Z-up:
+for robot work, open a Z-up stage with `open_scene` or set the axis with
 `execute_script` (`UsdGeom.SetStageUpAxis(omni.usd.get_context().get_stage(), UsdGeom.Tokens.z)`) before adding
 anything. Call `save_scene` first to keep the old stage. The new stage has no file, so `save_scene` needs a `file_path`
 for it. A recording that runs stops taking frames, and `draw_debug`'s drawings go.
@@ -402,7 +406,8 @@ Compare two prims or two variants: mesh counts, bounds, materials.
 | `variant_a` | string | `""` | First variant name (mode 2) |
 | `variant_b` | string | `""` | Second variant name (mode 2) |
 
-**Returns:** Side-by-side stats (faces, vertices, triangles, meshes, bounds, materials) with deltas and percentage change.
+**Returns:** Side-by-side stats (faces, vertices, triangles, meshes, bounds, materials), then B minus A, each with
+its own sign, and the change in faces as a percentage when A has faces; from 0 faces it says `A has 0 faces`.
 
 Mode 2 wins when all four of its parameters are given. It switches the selection to each variant in turn, then back to
 the one before. A variant name is not checked: one not in the set measures the prim with none of the set's variants.
@@ -583,6 +588,16 @@ is an error, and so is a prim already at `prim_path`. `position` and `rotation` 
 `set_prim_transform` writes them; a malformed one is refused before the robot is added, and one refused after it (an
 animated root op in the file) takes the robot away again.
 
+**Up axis:** a file whose `upAxis` isn't the stage's is stood upright on it, as Kit's metrics assembler stands a
+file dropped on the stage: a turn about X in `xformOp:rotateX:unitsResolve`, -90 for a Z-up file on a Y-up stage and
++90 the other way, before any inverse op on the robot's root, else last. Every robot of the table above is Z-up, so
+each is turned on a Y-up stage. `position` and `rotation` stay in the stage's frame, outside the turn:
+`rotation=[0, 90, 0]` on a Y-up stage turns the standing robot about Y. A file whose root holds that op already, as
+one Kit resolved and saved, gets the turn added to it. A file that authors no `upAxis` is left as it is. The answer
+says when it turned one, the turn added and the op's value after. `set_prim_transform` keeps the op where it is.
+Unlike Kit's metrics assembler, it doesn't scale a file whose `metersPerUnit` isn't the stage's: #112. With an
+extension of 0.3.0 or older, nothing is turned, and a library robot lies on its side on a Y-up stage.
+
 ---
 
 ### `get_robot_info`
@@ -714,7 +729,7 @@ installs this release's extension.
 
 *Cube corners (8):* `top_front_right`, `top_front_left`, `top_back_right`, `top_back_left`, `bottom_front_right`, `bottom_front_left`, `bottom_back_right`, `bottom_back_left`
 
-Each angle is saved as a separate PNG file. When `include_segmentation` is true, each angle also saves a segmentation image + legend; an angle without one says why (`seg: ERROR`), such as no data within 5 s of the sensor being enabled. Default captures all 14 angles for full coverage.
+Each angle is saved as a separate PNG file. An all-black angle gets `capture_viewport`'s warning, once a call; so does lighting that lights nothing, mode `off` or `stage` with no scene lights, though the images show Kit's grid. When `include_segmentation` is true, each angle also saves a segmentation image + legend; an angle without one says why (`seg: ERROR`), such as no data within 5 s of the sensor being enabled. Default captures all 14 angles for full coverage.
 
 A call takes about 90 s at most, under the server's 120 s timeout: 80 s for the angles, then up to 10 s to restore `isolate`. An angle that fails says why on its line; once the camera renders no frame (30 s with none) or the 80 s run out, the angles left say `Not captured`, so the angles already captured come back. Each angle waits 20 frames of the call's render after the camera moves before it is taken, so it holds the camera's new place and what was done before the call.
 
@@ -727,7 +742,7 @@ A call takes about 90 s at most, under the server's 120 s timeout: 80 s for the 
 Capture a camera at `width` x `height` and save **3 files** for full scene understanding:
 
 1. **Viewport image** (PNG) - what the camera sees
-2. **Bounding boxes** (TXT) - screen-space pixel coordinates for each visible mesh or shape under `/World`, plus world-space centre and dimensions. A prim behind the camera has none, and one across the camera's plane is boxed by its part in front
+2. **Bounding boxes** (TXT) - screen-space pixel coordinates for each visible mesh or shape under `/World`, plus world-space centre and dimensions. A box is the prim's world box where its outline lies on the image: a prim wholly outside the image has none, beside the view as behind the camera, and one across the camera's plane is boxed by its part in front. The box bounds the world box, not the prim's pixels, so a prim hidden behind another still has one; the segmentation shows what is seen. With an extension of 0.3.0 or older, a prim beside the view can get a box at the frame's edge
 3. **Instance segmentation** (PNG + legend TXT) - each prim rendered as a unique colour, with a legend mapping colours to prim paths
 
 Use files 2 and 3 to understand which object is where in the viewport image. Aim first with `set_camera`, at a point
@@ -759,7 +774,7 @@ world_dimensions = [1.0, 1.0, 1.0]
 
 > **Note:** Instance segmentation and the bounding boxes require `omni.syntheticdata` (included in Isaac Sim). Without it only the viewport image comes. When it gives no segmentation data, the image and bounding boxes are still returned, and `Segmentation: ERROR` says why. Each capture turns the sensor on for its own render and waits up to 5 s for its first data; when none comes, later captures of that camera at that size on that stage wait 1 s, until one gets data.
 
-> **Black image detection:** If the captured image is all-black, the response includes a `WARNING` with the lighting mode and whether scene lights exist. Use the `viewport_light` tool to check the lighting mode and change it if needed, then recapture. No automatic light changes are made.
+> **Black image detection:** If the captured image is all-black, the response includes a `WARNING` with the lighting mode and whether scene lights exist. Kit's grid shows in any lighting, so a scene the lighting leaves unlit is rarely all black: lighting mode `off`, or `stage` with no scene lights, gets a `WARNING` of its own that the scene's surfaces render black, though the grid shows. Use the `viewport_light` tool to check the lighting mode and change it if needed, then recapture. No automatic light changes are made. With an extension of 0.3.0 or older, only `off` gets that warning: the extension says whether the stage has lights only with a black image.
 
 > **An extension of 0.2.2 or older** captures the viewport at its own size and scales the boxes to the size asked for, so the two disagree. The `Viewport:` line gives the image's own size, read from its header, and a `WARNING` line says the boxes are for another size, with the command that installs this release's extension; `inspect_prim` says the same of its images.
 
@@ -784,7 +799,7 @@ Query or set the viewport's lighting mode. Non-destructive: it changes how the v
 - **set** - Switches the lighting mode. Light rigs need the viewport's lighting menu (`omni.kit.viewport.menubar.lighting`); without it, `"camera"` and `"stage"` still work, and anything else returns an error rather than a false success
 - **set_camera_light** - Legacy alias for `set` with `"camera"` or `"stage"`
 
-**When to use:** When `capture_viewport` reports a black image, use `viewport_light("get")` to diagnose, then `viewport_light(action="set", mode="Default")` (a light rig) or `mode="camera"` (a light that follows the camera) and recapture.
+**When to use:** When `capture_viewport` or `inspect_prim` reports a black image, or lighting that lights nothing, use `viewport_light("get")` to diagnose, then `viewport_light(action="set", mode="Default")` (a light rig) or `mode="camera"` (a light that follows the camera) and recapture.
 
 ---
 
@@ -824,6 +839,11 @@ Get the current simulation state. No parameters.
 - `fps` - the timeline's time codes per second, not the render rate
 - `prim_count` - Total number of prims in the scene
 - `meters_per_unit` - Stage scale factor
+- `kit_app` - the Kit app and its version, such as `Isaac-Sim Python 6.2.0`
+- `kit_version` - Kit's own version, such as `110.4.0+feature.386251.187cf21b.gl`
+- `kit_os` - the OS Kit runs on, as Python's `platform.platform()` names it there, such as `Windows-11-10.0.26300-SP0`;
+  on Linux the kernel and glibc, not the distribution
+  (the three read `unknown` with an extension of 0.3.0 or older: a bug report then asks the user, Help > About)
 - `extension_version`, `server_version` - the Kit extension's release, from the bridge's handshake, and this server's
 - `recording_note` - only while a recording runs whose frames stopped early: why
 - `note` - only when the bridge's release differs from the server's: the command that installs the matching one
@@ -920,8 +940,14 @@ Set a prim's mass or density, and its friction or restitution, for PhysX; a valu
 - **Mass or density** makes the prim a rigid body (`RigidBodyAPI`) if it isn't one, so a static collider starts to fall
   when the simulation plays.
 - **Friction or restitution** adds the Collision API if missing, and sets them on a physics material,
-  `/World/PhysicsMaterials/<prim name>_PhysMat`, bound to the prim for physics only: prims of the same name share it,
-  so setting one changes the rest.
+  `/World/PhysicsMaterials/<prim name>_PhysMat`, bound to the prim for physics only. That material starts from the
+  body's own: the physics material bound to it before (a physics binding, else an all-purpose one, with
+  `PhysicsMaterialAPI`), else the one bound to the physics scene, its default, else PhysX's own (friction 0.5,
+  restitution 0). So the friction or restitution left out stays as PhysX applied it, and so does everything else the
+  replaced material held: its density and `PhysxMaterialAPI`'s attributes, such as combine modes, are copied over.
+  Prims of the same name share the material, so setting one sets all its values on the rest; #113 gives each prim
+  its own. With an extension of 0.3.0 or older, a value left out on a new material is USD's 0, and a material bound
+  before is replaced with all it held.
 
 **Returns:** each value set, as the Kit extension set it, then the APIs applied:
 `Physics on /World/RedCube: mass=5.0; applied MassAPI`. Friction says `(static and dynamic)`, as it is set as both;
@@ -1096,6 +1122,8 @@ extension started, into a ring of the latest 2000 entries.
 - **What Kit's file holds:** Info and above by default, from `carb.log_*()`, Python `logging` and Kit's own
   extensions. Verbose lines need Kit started with both `--/log/level=verbose` and `--/log/fileLogLevel=verbose`.
   A Kit app whose `/log/file` setting is empty gets an error naming `--/log/file=<path>`.
+- **What it never holds:** an `execute_script` script's own exception, `print` and stderr, which come back in
+  that call's answer instead. A script's `carb.log_error()` and the other `carb.log_*()` calls do reach it.
 - **Kit's default line format:** `<time> [<elapsed>] [<Level>] [<channel>] <message>`. A `/log/include*` or
   `/log/detail` setting can change it; when Kit has written lines and none reads as an entry, the answer says
   so instead of coming back empty.

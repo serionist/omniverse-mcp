@@ -39,6 +39,120 @@ def _check_bridge(host: str, port: int) -> None:
         raise ConnectionError(f"Health check failed at {host}:{port}: {r}")
 
 
+# 15.2b's bodies (#105): a floor and two slopes whose physics material has friction and restitution 0, combined by max,
+# so each contact takes the body's own values; on each, a body the tool gives one value beside a control the tool
+# never touches, with the same material or none. UP is the stage's up axis, 1 or 2; positions are (along X, along the
+# up axis, along the third). Far from the scene's other prims, at x = -200.
+FRICTION_SCENE = """
+import math
+from pxr import Gf, PhysxSchema, UsdGeom, UsdPhysics, UsdShade
+stage = omni.usd.get_context().get_stage()
+ROOT = "/World/IntTestFriction"
+X = Gf.Vec3d(1, 0, 0)
+U = Gf.Vec3d(0, 1, 0) if UP == 1 else Gf.Vec3d(0, 0, 1)
+B = Gf.Cross(X, U)
+
+
+def point(x, h, b):
+    return X * x + U * h + B * b
+
+
+def frame(right, up, at):
+    third = Gf.Cross(right, up)
+    return Gf.Matrix4d(
+        right[0], right[1], right[2], 0, up[0], up[1], up[2], 0, third[0], third[1], third[2], 0, at[0], at[1], at[2], 1
+    )
+
+
+def material(name, friction, restitution, combine=None):
+    path = f"{ROOT}/Mats/{name}"
+    UsdShade.Material.Define(stage, path)
+    prim = stage.GetPrimAtPath(path)
+    api = UsdPhysics.MaterialAPI.Apply(prim)
+    api.CreateStaticFrictionAttr().Set(friction)
+    api.CreateDynamicFrictionAttr().Set(friction)
+    api.CreateRestitutionAttr().Set(restitution)
+    if combine:
+        physx = PhysxSchema.PhysxMaterialAPI.Apply(prim)
+        physx.CreateFrictionCombineModeAttr().Set(combine)
+        physx.CreateRestitutionCombineModeAttr().Set(combine)
+    return UsdShade.Material(prim)
+
+
+def cube(name, matrix, size, mat=None, velocity=None, body=True):
+    c = UsdGeom.Cube.Define(stage, f"{ROOT}/{name}")
+    c.CreateSizeAttr().Set(1.0)
+    UsdGeom.Xformable(c).AddTransformOp().Set(Gf.Matrix4d().SetScale(Gf.Vec3d(*size)) * matrix)
+    prim = c.GetPrim()
+    UsdPhysics.CollisionAPI.Apply(prim)
+    if body:
+        rigid = UsdPhysics.RigidBodyAPI.Apply(prim)
+        UsdPhysics.MassAPI.Apply(prim).CreateMassAttr().Set(1.0)
+        if velocity:
+            rigid.CreateVelocityAttr().Set(Gf.Vec3f(*(X * velocity)))
+    if mat:
+        UsdShade.MaterialBindingAPI.Apply(prim).Bind(mat, UsdShade.Tokens.weakerThanDescendants, "physics")
+
+
+ground = material("Ground", 0.0, 0.0, "max")
+rubber = material("Rubber", 0.9, 0.0)
+bouncy = material("Bouncy", 0.5, 0.8)
+cube("Floor", frame(X, U, point(-200, -0.5, 0)), (40, 1, 40), ground, body=False)
+box = (0.5, 0.5, 0.5)
+for name, b, mat in (("RubberControl", -6, rubber), ("RubberGiven", -3, rubber), ("BareControl", 0, None), ("BareGiven", 3, None)):
+    cube(f"Slide{name}", frame(X, U, point(-210, 0.25, b)), box, mat, velocity=4.0)
+for name, b, mat in (("BouncyControl", 6, bouncy), ("BouncyGiven", 9, bouncy), ("BareControl", 12, None), ("BareGiven", 15, None)):
+    cube(f"Drop{name}", frame(X, U, point(-195, 1.5, b)), box, mat)
+for degrees, b in ((24, 30), (29, 40)):
+    a = math.radians(degrees)
+    down, normal = X * math.cos(a) - U * math.sin(a), U * math.cos(a) + X * math.sin(a)
+    centre = point(-200, 0, b)
+    cube(f"Slope{degrees}", frame(down, normal, centre), (6, 1, 6), ground, body=False)
+    for name, offset in (("Control", -1.0), ("Given", 1.0)):
+        at = centre + normal * 0.751 + B * offset
+        cube(f"Slope{degrees}{name}", frame(down, normal, at), box)
+result = sorted(str(p.GetPath()) for p in stage.GetPrimAtPath(ROOT).GetChildren() if p.HasAPI(UsdPhysics.RigidBodyAPI))
+"""
+
+# Plays FRAMES updates from a stop and samples each of PATHS' PhysX poses, then pauses: per body its first and last
+# position, and how high it rose above rest (0.25 along UP) after first touching the floor.
+FRICTION_RUN = """
+import omni.kit.app
+import omni.timeline
+from omni.physx import get_physx_interface
+
+timeline = omni.timeline.get_timeline_interface()
+physx = get_physx_interface()
+track = {p: [] for p in PATHS}
+timeline.play()
+for _ in range(FRAMES):
+    await omni.kit.app.get_app().next_update_async()
+    for p in PATHS:
+        pose = physx.get_rigidbody_transformation(p)
+        if pose["ret_val"]:
+            track[p].append([float(v) for v in pose["position"]])
+timeline.pause()
+await omni.kit.app.get_app().next_update_async()
+result = {}
+for p, points in track.items():
+    heights = [q[UP] for q in points]
+    touch = next((i for i, h in enumerate(heights) if h <= 0.3), None)
+    result[p] = {
+        "first": points[0] if points else None,
+        "last": points[-1] if points else None,
+        "rebound": max(heights[touch:]) - 0.25 if touch is not None else None,
+    }
+"""
+
+# A prim's world rotation as USD composes it, its scale taken out, in PhysX's order x, y, z, w: what a body should hold
+# before PhysX has loaded it (#105).
+USD_ROTATION = """
+prim = omni.usd.get_context().get_stage().GetPrimAtPath(PATH)
+matrix = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+q = matrix.RemoveScaleShear().ExtractRotationQuat()
+result = [*(float(v) for v in q.GetImaginary()), float(q.GetReal())]
+"""
+
 # draw_debug's backend on Isaac Sim, and the lines it holds, ours and any other code's: 0 while it is off.
 DRAW_BACKEND = "isaacsim.util.debug_draw"
 LINE_COUNT = (
@@ -423,6 +537,10 @@ class TestScenarios(PhysicsChecks):
         self.assertEqual(r["status"], "success")
         r = self.c.set_transform("/World/RedCube", scale=[0.5, 0.5, 0.5])
         self.assertEqual(r["status"], "success")
+        # 45° about the up axis at scale 0.5: before #105 the scale left in the matrix read as an 84° turn.
+        text = self.c.prim_properties("/World/RedCube", fmt="text")["result"]["text"]
+        turned = "rot = 0.9239, 0.0000, 0.3827, 0.0000" if up == 1 else "rot = 0.9239, 0.0000, 0.0000, 0.3827"
+        self.assertIn(turned, text)
         print("  Transform updated")
         self._pass()
 
@@ -1024,9 +1142,13 @@ class TestScenarios(PhysicsChecks):
 
     def test_10_01_spawn_g1(self):
         """Phase 10.1: Spawn G1 Robot"""
-        r = self.c.create_robot("g1", "/World/G1", position=_along_up(self._up_axis(), 0.74, x=3))
+        up = self._up_axis()
+        r = self.c.create_robot("g1", "/World/G1", position=_along_up(up, 0.74, x=3))
         self.assertEqual(r["status"], "success", f"Failed: {r.get('error', '')}")
         self.assertIn("prim_path", r["result"])
+        # The G1's file is Z-up: on a Y-up stage it lay on its side, tallest along Z (#105).
+        dims = self.c.prim_bounds("/World/G1")["result"]["dimensions"]
+        self.assertEqual(max(range(3), key=lambda i: dims[i]), up, dims)
         joints = r["result"].get("joints", [])
         print(f"  G1 spawned at {r['result']['prim_path']}, {len(joints)} joints")
         self._pass()
@@ -1387,6 +1509,53 @@ class TestScenarios(PhysicsChecks):
         print(f"  Applied: {applied}")
         self._pass()
 
+    def test_15_02b_restitution_alone_keeps_the_friction(self):
+        """#105: given restitution alone, a body's friction went from PhysX's 0.5 to USD's 0, and a material bound
+        before lost all it held. Each body the tool gave one value behaves as its untouched control on the same floor:
+        no constant is asserted, so a PhysX whose defaults differ from the core's fails it."""
+        root = "/World/IntTestFriction"
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+        self.addCleanup(self.c.delete_prim, root)
+        self.addCleanup(self.c.sim_control, "stop")
+        up = self._up_axis()
+        r = self.c.execute(f"UP = {up}\n" + FRICTION_SCENE)
+        self.assertEqual(r["status"], "success", r)
+        paths = r["result"]["return_value"]
+        for name, values in (
+            ("SlideRubberGiven", {"restitution": 0.2}),
+            ("SlideBareGiven", {"restitution": 0.0}),
+            ("DropBouncyGiven", {"friction": 0.5}),
+            ("DropBareGiven", {"friction": 0.5}),
+            ("Slope24Given", {"restitution": 0.0}),
+            ("Slope29Given", {"restitution": 0.0}),
+        ):
+            done = self.c.set_physics_properties(f"{root}/{name}", **values)
+            self.assertEqual(done["status"], "success", done)
+            self.addCleanup(self.c.delete_prim, f"/World/PhysicsMaterials/{name}_PhysMat")
+        r = self.c.execute(f"UP, PATHS, FRAMES = {up}, {paths!r}, 60\n" + FRICTION_RUN)
+        self.assertEqual(r["status"], "success", r)
+        seen = {path.rsplit("/", 1)[1]: v for path, v in r["result"]["return_value"].items()}
+
+        def moved(name: str) -> float:
+            first, last = seen[name]["first"], seen[name]["last"]
+            return math.dist(first, last)
+
+        for pair in ("SlideRubber", "SlideBare"):
+            travel = [seen[f"{pair}{k}"]["last"][0] - seen[f"{pair}{k}"]["first"][0] for k in ("Control", "Given")]
+            self.assertAlmostEqual(travel[0], travel[1], delta=0.05, msg=f"{pair}: {travel}")
+        rebound = [seen[f"DropBouncy{k}"]["rebound"] for k in ("Control", "Given")]
+        self.assertGreater(rebound[0], 0.3, rebound)
+        self.assertAlmostEqual(rebound[0], rebound[1], delta=0.05, msg=f"rebound: {rebound}")
+        # Friction alone on a bare body: restitution stays PhysX's own, as the control's (review I9).
+        bare = [seen[f"DropBare{k}"]["rebound"] for k in ("Control", "Given")]
+        self.assertAlmostEqual(bare[0], bare[1], delta=0.05, msg=f"bare rebound: {bare}")
+        for slope in ("Slope24", "Slope29"):
+            control, given = moved(f"{slope}Control"), moved(f"{slope}Given")
+            self.assertAlmostEqual(control, given, delta=0.05, msg=f"{slope}: {control}, {given}")
+        print(f"  slides, rebound {rebound}, slopes as their controls")
+        self._pass()
+
     def test_15_03_set_physics_invalid_prim(self):
         """Phase 15.3: Physics on Invalid Prim"""
         r = self.c.set_physics_properties("/World/Nonexistent", mass=1.0)
@@ -1631,10 +1800,24 @@ class TestScenarios(PhysicsChecks):
         time.sleep(0.3)
         self.addCleanup(self.c.delete_prim, path)
         self.addCleanup(self.c.sim_control, "stop")
-        r = self.c.create_robot("franka", path, position=_along_up(self._up_axis(), 0, x=-50))
+        up = self._up_axis()
+        r = self.c.create_robot("franka", path, position=_along_up(up, 0, x=-50))
         self.assertEqual(r["status"], "success", r)
-        self._start_physics()
+        # On a Y-up stage it is turned upright (#105): tallest along the up axis, and its world-anchored root joint
+        # doesn't pull the base back to the file's orientation once physics runs. The pose to hold is USD's, read
+        # before PhysX loads the robot: one PhysX had already pulled back would hold its own pose.
+        dims = self.c.prim_bounds(path)["result"]["dimensions"]
+        self.assertEqual(max(range(3), key=lambda i: dims[i]), up, dims)
         base, hand = f"{path}/panda_link0", f"{path}/panda_hand"
+        r = self.c.execute(USD_ROTATION.replace("PATH", repr(base)))
+        self.assertEqual(r["status"], "success", r)
+        created = r["result"]["return_value"]
+        self._start_physics()
+        loaded = self._physx_pose(base)["rotation"]
+        self._run_frames(30)
+        ran = self._physx_pose(base)["rotation"]
+        self.assertLess(_turn_degrees(created, loaded), 1.0, f"PhysX loaded the base turned from {created}: {loaded}")
+        self.assertLess(_turn_degrees(created, ran), 1.0, f"30 steps turned the base from {created}: {ran}")
         r = self.c.apply_force(base, force=[100, 0, 0], impulse=True)
         self.assertEqual(r["status"], "error", r)
         held = f"{base} is held to the world by a fixed joint, as the base of the articulation at {path}"
@@ -2265,17 +2448,21 @@ class TestScenarios(PhysicsChecks):
 
     def test_23_06_black_image_warning(self):
         """Phase 23.6: Black Image Detection (no auto-fix)"""
-        # Set lighting to off
+        # Set lighting to off; Default again after, whatever fails, so phases 24 to 26 aren't left unlit (review I12).
         self.c.viewport_light("set", mode="off")
+        self.addCleanup(self.c.viewport_light, "set", mode="Default")
         time.sleep(0.5)
         cap = self.c.capture_viewport(320, 240)
         self.assertEqual(cap["status"], "success")
         # Should detect black but NOT auto-fix
         is_black = cap["result"].get("is_black", False)
         lighting_mode = cap["result"].get("lighting_mode", "")
+        self.assertEqual(lighting_mode, "off")
+        # Kit's grid keeps the image from being all black: the warning is the lighting's, through the server (#105).
+        erred, text = call_tool("capture_viewport", {"width": 160, "height": 120}, tempfile.mkdtemp(prefix="ovmcp-"))
+        self.assertFalse(erred, text)
+        self.assertIn("Lighting mode is 'off'", text)
         print(f"  Lighting off: is_black={is_black}, mode={lighting_mode}")
-        # Restore lighting
-        self.c.viewport_light("set", mode="Default")
         self._pass()
 
     # ===== Phase 26: Camera Frame Settling =====
@@ -2314,12 +2501,19 @@ class TestScenarios(PhysicsChecks):
         self.c.set_material("/World/SettleTest", color=[0, 1, 0])
         time.sleep(0.5)
 
+        if self._up_axis() == 1:
+            # Scenario 26.2's TestCube, 2 m at (3, 0.5, 0): beside this view on its Y-up stage, it had a box at the
+            # frame's corner (#105). test_integration's test_12i checks either axis.
+            self.c.create_prim("/World/SettleSide", "Cube", position=[3, 0.5, 0], scale=[1, 1, 1])
+            self.addCleanup(self.c.delete_prim, "/World/SettleSide")
         r = self.c.camera_look_at("/World/SettleTest", azimuth=45, elevation=30)
         self.assertEqual(r["status"], "success")
         # Immediately capture
         cap = self.c.capture_viewport(640, 480)
         self.assertEqual(cap["status"], "success")
         self.assertGreater(len(cap["result"]["image_base64"]), 100)
+        boxes = {b["prim_path"] for b in cap["result"]["screen_bboxes"]}
+        self.assertNotIn("/World/SettleSide", boxes)
 
         # Clean up
         self.c.delete_prim("/World/SettleTest")

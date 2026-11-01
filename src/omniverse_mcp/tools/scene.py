@@ -106,8 +106,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         every attribute's value.
 
         Use it to read one prim; get_prim_bounds when only its size and place matter, get_scene_tree to find paths, and
-        with include_properties for many prims at once, written to a file. Relationships, such as a material binding,
-        are named without their targets.
+        with include_properties for many prims at once, written to a file. The rotation, rot, is a quaternion w, x, y,
+        z with any scale taken out; a prim scaled to 0 has none. Relationships, such as a material binding, are named
+        without their targets.
         """
         resp = bridge_call(client.prim_properties, prim_path, fmt="text")
         text = resp["result"]["text"]
@@ -358,8 +359,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Discard the open stage, unsaved changes included, and open an empty one: Y-up, with a /World Xform as its
         default prim.
 
-        Call save_scene first to keep the old one. Isaac Sim's robots and stages are Z-up: for robot work, open a Z-up
-        stage with open_scene, or set the axis with execute_script (UsdGeom.SetStageUpAxis) before adding anything.
+        Call save_scene first to keep the old one. create_robot stands Isaac Sim's Z-up robots upright on it, but
+        Isaac Sim's other assets and its stages are Z-up: for robot work, open a Z-up stage with open_scene, or set
+        the axis with execute_script (UsdGeom.SetStageUpAxis) before adding anything.
         The new stage has no file, so save_scene needs a file_path for it. A recording that runs stops taking frames,
         and draw_debug's drawings go.
         """

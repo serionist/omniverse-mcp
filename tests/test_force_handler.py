@@ -174,6 +174,12 @@ def kit() -> FakeKit:
 
 @pytest.fixture
 def simulation(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
+    return load_simulation(kit, monkeypatch)
+
+
+def load_simulation(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """handlers/simulation.py against kit, as tests/test_physics_handler.py loads it too."""
+
     async def next_update() -> None:
         await asyncio.sleep(0)
 
@@ -185,7 +191,12 @@ def simulation(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
         log_error=kit.errors.append,
         log_warn=kit.warnings.append,
     )
-    timeline = SimpleNamespace(is_stopped=lambda: kit.stopped)
+    timeline = SimpleNamespace(
+        is_stopped=lambda: kit.stopped,
+        is_playing=lambda: not kit.stopped,
+        get_time_codes_per_seconds=lambda: 60.0,
+        get_current_time=lambda: 0.0,
+    )
     context = SimpleNamespace(get_stage_id=lambda: kit.stage_id, get_stage=lambda: kit.stage)
     omni_usd = _module("omni.usd", get_context=lambda: context)
     omni_timeline = _module("omni.timeline", get_timeline_interface=lambda: timeline)

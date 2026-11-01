@@ -113,6 +113,84 @@ def test_a_black_capture_suggests_camera_mode_first(tmp_path, mode, lights):
     assert "mode='Default' if viewport_light('get') lists it" in out
 
 
+def _lit_capture(lighting_mode, **extra):
+    """A capture that isn't all black: Kit 110's grid shows whatever the lighting."""
+    answer = _capture_answer(lighting_mode, None)
+    del answer["result"]["has_scene_lights"]
+    answer["result"].update(is_black=False, **extra)
+    return answer
+
+
+UNLIT = "the scene's surfaces render black, though Kit's grid still shows"
+NO_LIGHTS = "Lighting mode is 'stage' and the scene has no lights"
+
+
+@pytest.mark.parametrize(
+    ("mode", "extra", "says"),
+    [
+        # 23.6: lighting off, the prims black, the grid showing: no warning before #105.
+        ("off", {}, f"WARNING: Lighting mode is 'off': {UNLIT}"),
+        # An extension from before #105 sends has_scene_lights only with a black image: off still warns.
+        ("off", {"has_scene_lights": True}, f"WARNING: Lighting mode is 'off': {UNLIT}"),
+        ("stage", {"has_scene_lights": False}, f"WARNING: {NO_LIGHTS}"),
+    ],
+    ids=["off", "off-with-lights", "stage-without-lights"],
+)
+def test_lighting_that_lights_nothing_warns_though_the_image_isn_t_black(tmp_path, mode, extra, says):
+    fns, _ = _tools(tmp_path, {"capture_viewport": _lit_capture(mode, **extra)})
+
+    out = fns["capture_viewport"]()
+
+    assert says in out
+    assert "viewport_light(action='set', mode='camera')" in out
+    assert "all-black" not in out
+
+
+@pytest.mark.parametrize(
+    ("mode", "extra"),
+    [
+        ("camera", {}),
+        ("Default", {}),
+        ("stage", {"has_scene_lights": True}),
+        # Not sent: an older extension's stage answer, which can't say whether the stage has lights.
+        ("stage", {}),
+    ],
+    ids=["camera", "Default", "stage-with-lights", "stage-from-an-older-extension"],
+)
+def test_lit_or_unknown_lighting_doesn_t_warn(tmp_path, mode, extra):
+    fns, _ = _tools(tmp_path, {"capture_viewport": _lit_capture(mode, **extra)})
+
+    assert "WARNING" not in fns["capture_viewport"]()
+
+
+def test_a_black_capture_in_mode_off_gives_its_own_warning_and_not_a_second(tmp_path):
+    fns, _ = _tools(tmp_path, {"capture_viewport": _capture_answer("off", True)})
+
+    out = fns["capture_viewport"]()
+
+    assert out.count("WARNING") == 1
+    assert "Image is all-black. Lighting mode is 'off'." in out
+
+
+def test_an_inspection_in_mode_off_warns_once(tmp_path):
+    answer = _inspect_answer(lighting_mode="off")
+    answer["result"]["captures"].append({**answer["result"]["captures"][0], "angle": "right"})
+    fns, _ = _tools(tmp_path, {"camera_inspect": answer})
+
+    out = fns["inspect_prim"]("/World/Lamp", angles=["front", "right"])
+
+    assert out.count(f"WARNING: Lighting mode is 'off': {UNLIT}") == 1
+
+
+def test_a_black_inspection_in_mode_off_gives_only_the_black_warning(tmp_path):
+    fns, _ = _tools(tmp_path, {"camera_inspect": _inspect_answer(is_black=True, lighting_mode="off")})
+
+    out = fns["inspect_prim"]("/World/Lamp")
+
+    assert out.count("WARNING") == 1
+    assert "all-black" in out
+
+
 def test_a_black_inspect_gives_the_same_advice(tmp_path):
     fns, _ = _tools(tmp_path, {"camera_inspect": _inspect_answer(is_black=True)})
     out = fns["inspect_prim"]("/World/Lamp")

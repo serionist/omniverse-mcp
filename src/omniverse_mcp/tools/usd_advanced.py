@@ -172,7 +172,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         variant_b: Annotated[str, Field(description="Two variants: the second")] = "",
     ) -> str:
         """Compare two prims, or two variants of one prim, side by side: mesh, face, vertex and triangle counts, world
-        bounds and bound materials, with B minus A and the change in faces as a percentage.
+        bounds and bound materials, with B minus A, and the change in faces as a percentage when A has faces.
 
         Two modes:
         1. Two prims: prim_path_a and prim_path_b.
@@ -186,7 +186,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         r = resp["result"]
         a, b, d = r["a"], r["b"], r["delta"]
 
-        sign = "+" if d["faces"] >= 0 else ""
+        # A change from 0 faces has no percentage; the extension sends 0 for it, which read as "+0%" (#105).
+        faces_change = f"{d['face_reduction_pct']:+}%" if a["total_faces"] else "A has 0 faces"
         lines = [
             f"=== A: {a['label']} ===",
             f"meshes={a['mesh_count']}  faces={a['total_faces']}  vertices={a['total_vertices']}  triangles={a['total_triangles']}",
@@ -199,8 +200,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             f"materials: {', '.join(b['materials']) if b['materials'] else 'none'}",
             "",
             "=== Delta (B - A) ===",
-            f"faces: {sign}{d['faces']} ({sign}{d['face_reduction_pct']}%)",
-            f"vertices: {sign}{d['vertices']}  triangles: {sign}{d['triangles']}  meshes: {sign}{d['meshes']}",
+            # Each delta its own sign: one sign, the faces', read "+-5" for vertices that fell as faces rose (#105).
+            f"faces: {d['faces']:+} ({faces_change})",
+            f"vertices: {d['vertices']:+}  triangles: {d['triangles']:+}  meshes: {d['meshes']:+}",
         ]
         return "\n".join(lines)
 

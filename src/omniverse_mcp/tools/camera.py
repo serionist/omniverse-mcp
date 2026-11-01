@@ -87,6 +87,24 @@ CAMERA_LIGHT_ON_ADVICE = (
 )
 
 
+def _unlit_warning(lighting_mode: str, has_scene_lights: object) -> str | None:
+    """The warning for lighting that lights nothing: mode off, or stage on a stage without lights. Kit 110's captures
+    show its grid in any lighting, so an unlit scene no longer makes an all-black image, the case is_black was for
+    (#105). has_scene_lights is None when the extension didn't send it: one from before #105 sends it only with a black
+    image."""
+    if lighting_mode == "off":
+        return (
+            "WARNING: Lighting mode is 'off': the scene's surfaces render black, though Kit's grid still shows. "
+            f"{LIGHTING_ADVICE}"
+        )
+    if lighting_mode == "stage" and has_scene_lights is False:
+        return (
+            "WARNING: Lighting mode is 'stage' and the scene has no lights: its surfaces render black, though Kit's "
+            f"grid still shows. {LIGHTING_ADVICE}"
+        )
+    return None
+
+
 def _legend_beside(seg_path: str) -> str:
     """The legend file beside a segmentation image, from the path save_png gave: relative to the working folder, or
     absolute. Only the file's own suffix changes, whatever its folders are called."""
@@ -111,13 +129,15 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Render one frame from a camera at width x height and save 3 files to mcp_output/captures/:
 
         1. **Image** (PNG): what the camera sees.
-        2. **Bounding boxes** (TXT): each visible mesh or shape under /World, its box in pixels, world centre and size.
+        2. **Bounding boxes** (TXT): each mesh or shape under /World whose world box lies on the image, its box in
+           pixels, world centre and size.
         3. **Instance segmentation** (PNG): each prim in a colour of its own, with a legend naming them.
 
         Use it to see the scene and tell which prim is where: the boxes for places, the segmentation for prims that
         overlap. It renders camera_path, or the viewport's camera when empty, in a render of its own, so the viewport
         the user sees keeps its camera and size. Aim first with set_camera, at a point or a prim; for one prim from
-        every side, use inspect_prim. An all-black image comes with a warning saying what to change with viewport_light.
+        every side, use inspect_prim. An all-black image, or lighting that lights nothing (mode off, or stage with no
+        scene lights) though Kit's grid shows, comes with a warning saying what to change with viewport_light.
         Without omni.syntheticdata only the image comes: the boxes and segmentation need it.
         """
         resp = bridge_call(client.capture_viewport, width, height, camera_path)
@@ -147,6 +167,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
                     f"WARNING: Image is all-black (lighting: {lighting_mode}). The renderer may need warmup: "
                     f"try recapturing. If it stays black: {LIGHTING_ADVICE}"
                 )
+        elif unlit := _unlit_warning(lighting_mode, r.get("has_scene_lights")):
+            lines.append(unlit)
 
         # 2. Save screen-space bounding boxes
         bboxes = r.get("screen_bboxes", [])
@@ -309,7 +331,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         distance is fitted to the prim's size at width x height, then moved by zoom_offset. It moves whichever camera
         the viewport looks through, a scene camera included, and leaves it at the last angle. isolate hides everything
         but the prim and the lights while it captures, then shows them again. A call has about 80 s: an angle that
-        fails says why, and the angles after it say Not captured. An orthographic camera is refused.
+        fails says why, and the angles after it say Not captured. An orthographic camera is refused. An all-black angle,
+        or lighting that lights nothing (mode off, or stage with no scene lights) though Kit's grid shows, comes with a
+        warning, once a call, saying what to change with viewport_light.
         """
         resp = bridge_call(
             client.camera_inspect,
@@ -332,6 +356,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             lines.extend(_older_inspect_warning(r, width, height))
         for warning in r.get("isolate_warnings", []):
             lines.append(f"  WARNING (isolate): {warning}")
+        # Once a call, and not beside a black capture's warning, which names the lighting already.
+        unlit = _unlit_warning(r.get("lighting_mode", ""), r.get("has_scene_lights"))
+        if unlit and not any(cap.get("is_black") for cap in r["captures"]):
+            lines.append(f"  {unlit}")
         warned = False
         for cap in r["captures"]:
             if "error" in cap:
@@ -382,7 +410,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Read or set the viewport's lighting mode, which decides how the viewport and its captures are lit, without
         changing the scene.
 
-        Use it when a capture comes back black, then capture again. "get" (the default) answers the mode, the modes on
+        Use it when a capture comes back black, or warns that the lighting lights nothing (mode off, or stage with no
+        scene lights, though Kit's grid shows), then capture again. "get" (the default) answers the mode, the modes on
         offer, and the stage's lights with their intensity. "set" takes a mode "get" lists: "stage" (the stage's own
         lights), "camera" (a light that follows the camera), "off", or a light rig such as "Default", "Colored Lights"
         or "Grey Studio"; rigs need Kit's lighting menu, omni.kit.viewport.menubar.lighting, and a mode not on offer is

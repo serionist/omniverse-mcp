@@ -253,7 +253,7 @@ Kit app another port, and the server the same one ([The bridge](#the-bridge)).
 **The server doesn't start**: Claude Code's `/mcp` shows its error; other clients have an MCP log. Is `uvx` on the
 PATH the client starts with? Restart the client after installing uv.
 
-**A capture comes back black**: the answer says so, with the lighting mode. `viewport_light(action="set",
+**A capture comes back black, or its prims do**: the answer warns, with the lighting mode. `viewport_light(action="set",
 mode="Default")` lights the view, or `mode="camera"` for a light that follows the camera; Kit apps have no default
 light.
 

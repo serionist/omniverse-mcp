@@ -22,6 +22,36 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   `get_sim_state`'s two versions, the exact call and what came back, and Kit's warnings, any token and personal path
   taken out; it is posted only on your yes to the draft. In Claude Code the plugin's `/omniverse-mcp:report-bug`
   takes it step by step, and looks for the same issue first (#109).
+- **`get_sim_state` names the Kit app, its version and Kit's, and the OS Kit runs on:** `kit_app = Isaac-Sim Python
+  6.2.0`, `kit_version = 110.4.0+...`, `kit_os = Windows-11-...`. A bug report your assistant drafts takes them from
+  there. They come from the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit; until then
+  they read `unknown`, and the assistant asks you (#105).
+
+### Fixed
+
+- **`get_prim_properties` reads a scaled prim's rotation:** `rot` came from the world matrix with its scale left in,
+  so a 45° turn at scale 0.5 read as 84°, and a prim under a scaled parent could read as not turned. Recordings'
+  `state.txt` and `get_scene_tree`'s file gave the same `rot`. A prim scaled to 0 on an axis, which has no rotation
+  to read, has no `rot` line. The fix is in the Kit extension: run `uvx omniverse-mcp extension install`, then
+  restart Kit (#105).
+- **`capture_viewport` gives no box to a prim beside the view:** it boxed any prim whose corners' rectangle
+  reached the image, so a cube beside the view got a box at the frame's edge. A box is now the prim's outline where
+  it lies on the image. The fix is in the Kit extension (#105).
+- **`capture_viewport` and `inspect_prim` warn when the lighting lights nothing:** mode `off`, or `stage` with no
+  scene lights. The warning came only with an all-black image, and Kit's grid keeps one from being all black. With
+  an older Kit extension, only `off` warns (#105).
+- **`create_robot` stands a robot upright on a stage of the other up axis,** as Kit stands a dropped file: Isaac
+  Sim's robots are Z-up, and on a Y-up stage they lay on their side. The answer says when it turned one. **A call
+  that turned the robot itself, with `rotation=[-90, 0, 0]`, now turns it twice: drop that rotation.** The fix is in
+  the Kit extension (#105).
+- **`set_physics_properties` keeps the friction when given only restitution, and the reverse:** the physics material
+  it made held only the value given, so PhysX read USD's 0 for the other, and a body given a bounce slid as on ice.
+  A physics material the prim had before, such as an asset's, was replaced, and every value it held went with it.
+  The material now starts from the body's own, the one bound before, the physics scene's default or PhysX's.
+  Prims of one name still share the material, so a call on one now sets all its values for each of them, until
+  #113 gives each prim its own. The fix is in the Kit extension (#105).
+- **`compare_prims` gives no percentage from 0 faces,** where it said `+0%`, and each delta its own sign, where a
+  drop in vertices beside a rise in faces read `+-5` (#105).
 
 ### Changed
 

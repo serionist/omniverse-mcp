@@ -20,7 +20,7 @@ from typing import cast
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 
 from .bounds import center_and_size, world_bbox
-from .usd import Vec, children, has_api, is_a
+from .usd import Vec, children, has_api, is_a, rotation_of
 
 
 def _join(v: Vec, n: int) -> str:
@@ -107,9 +107,11 @@ def format_prim_block(
             lines.append(f"pos = {_join(world_xform.ExtractTranslation(), 3)}")
 
         world_xform = xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
-        rotation = world_xform.ExtractRotation()
-        if rotation:
-            quat = rotation.GetQuat()
+        # ExtractRotation reads the matrix as a pure rotation: a scale left in it gave a 45° turn at scale 0.5 as 84°,
+        # and none at all under a scaled parent (#105). A matrix a scale of 0 made singular has no rotation to read:
+        # Gf gives an arbitrary one, so its block has no rot line.
+        quat = rotation_of(world_xform)
+        if quat is not None:
             lines.append(f"rot = {float(quat.GetReal()):.4f}, {_join(quat.GetImaginary(), 3)}")
 
     if include_bounds:

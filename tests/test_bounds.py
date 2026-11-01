@@ -60,9 +60,32 @@ def test_an_outline_on_screen_is_scaled_to_the_image():
 
 
 def test_an_outline_partly_off_screen_is_clamped_to_the_viewport():
-    points = [[-0.5, -0.1, 1], [0.5, 1.4, 1]]
+    # A box's outline: before #105 its two corners stood for it, since only their rectangle counted.
+    points = [[-0.5, -0.1, 1], [0.5, -0.1, 1], [-0.5, 1.4, 1], [0.5, 1.4, 1]]
 
     assert screen_box(points, VIEWPORT, IMAGE) == [0.0, 0.0, 250.0, 250.0]
+
+
+def test_a_segment_partly_off_screen_is_boxed_by_its_part_on_it():
+    # From (-500, -50) to (500, 700) in the viewport's pixels: it enters at x = 0, y = 325, and leaves at y = 500,
+    # x = 233.3. Its rectangle, clamped, was the whole quarter [0, 0, 250, 250].
+    assert screen_box([[-0.5, -0.1, 1], [0.5, 1.4, 1]], VIEWPORT, IMAGE) == [0.0, 162.5, 116.7, 250.0]
+
+
+def test_an_outline_beyond_a_corner_whose_rectangle_reaches_in_is_none():
+    # Its hypotenuse runs from (-1, 0.5) to (0.5, -1), outside the frame, where x + y < 0 (#105).
+    assert screen_box([[-1, 0.5, 1], [0.5, -1, 1], [-1, -1, 1]], VIEWPORT, IMAGE) is None
+
+
+def test_an_outline_across_a_corner_is_boxed_by_its_part_on_the_frame():
+    # The triangle (-1, 1), (1, -1), (-1, -1) only touches the frame's corner, at (0, 0): no pixel of it shows.
+    assert screen_box([[-1, 1, 1], [1, -1, 1], [-1, -1, 1]], VIEWPORT, IMAGE) is None
+    # Moved in by 0.2 on both axes, its hypotenuse is x + y = 0.4: its part on the frame is (0, 0), (0.4, 0), (0, 0.4).
+    assert screen_box([[-0.8, 1.2, 1], [1.2, -0.8, 1], [-0.8, -0.8, 1]], VIEWPORT, IMAGE) == [0.0, 0.0, 200.0, 100.0]
+
+
+def test_an_outline_that_touches_only_an_edge_is_none():
+    assert screen_box([[-0.5, 0.2, 1], [0.0, 0.2, 1], [-0.5, 0.6, 1], [0.0, 0.6, 1]], VIEWPORT, IMAGE) is None
 
 
 @pytest.mark.parametrize(
@@ -131,3 +154,38 @@ def test_a_near_plane_at_the_eye_divides_no_corner_by_zero():
     points = project_in_front(_clip([-1, -1, -10], [1, 1, 0]), 0.0)
 
     assert screen_box(points, SQUARE, SQUARE) == [0.0, 0.0, 1000.0, 1000.0]
+
+
+# Scenario 26.2 as #105's probe measured it on Isaac Sim 6.2: the viewport camera's world matrix after set_camera
+# from (1.53, 2.25, 1.53) at (0, 1, 0), Kit's default lens, at 640 x 480. Kit's view-projection is the camera's
+# inverse times omni.syntheticdata's get_projection_matrix: -1/tan(fov/2) on x, its negation times the aspect on y.
+CAMERA_26_2 = Gf.Matrix4d(
+    (0.707107, 0.0, -0.707107, 0.0),
+    (-0.353715, 0.865894, -0.353715, 0.0),
+    (0.612279, 0.500228, 0.612279, 0.0),
+    (1.53, 2.25, 1.53, 1.0),
+)
+FOCAL, APERTURE, NEAR_26_2, FAR_26_2 = 18.14756202697754, 20.954999923706055, 0.01, 1.0e7
+FRAME = (640, 480)
+
+
+def _captured(min_pt: list[float], max_pt: list[float]) -> list[float] | None:
+    """The box /capture gives a world box from 26.2's camera, as handlers/camera.py builds it."""
+    a = -2.0 * FOCAL / APERTURE
+    b = -a * FRAME[0] / FRAME[1]
+    c = FAR_26_2 / (FAR_26_2 - NEAR_26_2)
+    d = NEAR_26_2 * FAR_26_2 / (FAR_26_2 - NEAR_26_2)
+    view_proj = CAMERA_26_2.GetInverse() * Gf.Matrix4d((a, 0, 0, 0), (0, b, 0, 0), (0, 0, c, 1), (0, 0, d, 0))
+    clip = [list(Gf.Vec4d(corner[0], corner[1], corner[2], 1.0) * view_proj) for corner in box_corners(min_pt, max_pt)]
+    return screen_box(project_in_front(clip, NEAR_26_2), FRAME, FRAME)
+
+
+def test_scenario_26_2_s_cube_beside_the_view_has_no_box():
+    # The 2 m TestCube at (3, 0.5, 0): 0 pixels in the probe's segmentation, and before #105 a box
+    # [597.5, 213.2, 640, 480] from this eye, where its corners' rectangle reached the frame's bottom right corner.
+    assert _captured([2, -0.5, -1], [4, 1.5, 1]) is None
+
+
+def test_scenario_26_2_s_cube_in_view_has_the_box_kit_measured():
+    # SettleTest, a 1 m cube at (0, 1, 0): the probe's capture boxed it [145.7, 87.6, 494.3, 444.1].
+    assert _captured([-0.5, 0.5, -0.5], [0.5, 1.5, 0.5]) == pytest.approx([145.7, 87.6, 494.3, 444.1], abs=0.5)

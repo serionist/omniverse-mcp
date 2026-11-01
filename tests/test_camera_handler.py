@@ -18,7 +18,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-from pxr import Gf, Sdf, Usd, UsdGeom
+from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux
 
 from ovmcp.core.png import encode_png
 from ovmcp.core.xform import aim, aim_error
@@ -208,6 +208,54 @@ def test_an_inspection_whose_isolate_restore_raises_still_lets_its_feed_go(handl
         _inspect(handler, width=320, height=240, isolate=True)
     (feed,) = kit.feeds
     assert kit.released == [feed]  # before ad47884 an error in the restore skipped the release
+
+
+# ---- whether the stage has lights, for the unlit warning (#105) ----
+
+
+@pytest.mark.parametrize("lights", [False, True], ids=["no-lights", "a-light"])
+def test_a_capture_in_mode_stage_says_whether_the_stage_has_lights(handler, kit, monkeypatch, lights):
+    # The image isn't black (the fake's is grey), as Kit 110's grid keeps an unlit one from being.
+    monkeypatch.setattr(handler, "_get_current_lighting_mode", lambda: "stage")
+    if lights:
+        UsdLux.DistantLight.Define(kit.stage, "/World/Sun")
+
+    r = _capture(handler, width=32, height=24)
+
+    assert r["result"]["is_black"] is False
+    assert r["result"]["has_scene_lights"] is lights
+
+
+def test_a_light_inside_an_instance_counts(handler, kit, monkeypatch):
+    # A lamp asset referenced as an instance: its light is reached only through the instance's proxies, and a walk
+    # without them warned of no lights in a lit scene (review I7).
+    monkeypatch.setattr(handler, "_get_current_lighting_mode", lambda: "stage")
+    source = kit.stage.CreateClassPrim("/_Lamps/Lamp")
+    UsdLux.DistantLight.Define(kit.stage, "/_Lamps/Lamp/Bulb")
+    lamp = kit.stage.DefinePrim("/World/Lamp")
+    lamp.GetReferences().AddInternalReference(source.GetPath())
+    lamp.SetInstanceable(True)
+
+    assert _capture(handler, width=32, height=24)["result"]["has_scene_lights"] is True
+
+
+def test_an_inspection_in_mode_stage_says_whether_the_stage_has_lights(handler, kit, monkeypatch):
+    monkeypatch.setattr(handler, "_get_current_lighting_mode", lambda: "stage")
+
+    r = _inspect(handler, width=32, height=24)
+
+    assert r["result"]["captures"][0]["is_black"] is False
+    assert r["result"]["has_scene_lights"] is False
+
+
+@pytest.mark.parametrize("mode", ["camera", "off", "Default"])
+def test_a_lit_capture_in_another_mode_leaves_the_stage_unwalked(handler, kit, monkeypatch, mode):
+    # The walk covers the whole stage on Kit's main thread; only stage mode's warning reads it.
+    monkeypatch.setattr(handler, "_get_current_lighting_mode", lambda: mode)
+    monkeypatch.setattr(handler, "_has_scene_lights", lambda: pytest.fail("the stage was walked"))
+
+    assert "has_scene_lights" not in _capture(handler, width=32, height=24)["result"]
+    assert "has_scene_lights" not in _inspect(handler, width=32, height=24)["result"]
 
 
 # ---- aiming the camera (#82) ----

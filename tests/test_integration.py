@@ -42,6 +42,42 @@ def Xform "Bot"
 }
 """
 
+# The Kit app /health and /sim/state name, for get_sim_state and a bug report (#105).
+_KIT_FACTS = ("kit_app_name", "kit_app_version", "kit_version", "kit_os")
+
+# A robot file of an up axis of its own (UP), its body tallest along it (TALL), for test_27b (#105).
+_UPRIGHT_USDA = """#usda 1.0
+(
+    defaultPrim = "Bot"
+    upAxis = "UP"
+)
+
+def Xform "Bot"
+{
+    def Cube "Body"
+    {
+        float3 xformOp:scale = TALL
+        uniform token[] xformOpOrder = ["xformOp:scale"]
+    }
+}
+"""
+
+# Kit's metrics assembler resolving PATH, as its "resolve" does: the ops after, and the turn's value. None without it.
+_RESOLVE = """
+try:
+    from omni.metrics.assembler.core import get_metrics_assembler_interface
+except ImportError:
+    result = None
+else:
+    context = omni.usd.get_context()
+    get_metrics_assembler_interface().resolve_hierarchy(context.get_stage_id(), PATH)
+    prim = context.get_stage().GetPrimAtPath(PATH)
+    result = {
+        "ops": [op.GetOpName() for op in UsdGeom.Xformable(prim).GetOrderedXformOps()],
+        "value": prim.GetAttribute("xformOp:rotateX:unitsResolve").Get(),
+    }
+"""
+
 # The live tests of the bounded capture waits (#27, #35) change Kit through execute_script, which is not behind the
 # viewport lock, and undo it in their cleanup. Each change also undoes itself on Kit's loop after 60 s, in case the
 # test process dies first, and only while it is still that test's own, so a late undo never removes a later test's.
@@ -348,12 +384,22 @@ class TestIsaacSimIntegration(unittest.TestCase):
         result = self.client.health()
         self.assertEqual(result["status"], "success")
         self.assertIn("up_axis", result["result"])
+        # The Kit app, for people, as /sim/state gives get_sim_state (#105).
+        for key in _KIT_FACTS:
+            self.assertNotIn(result["result"].get(key, "unknown"), ("", "unknown"), key)
         print(f"  Stage: {result['result']}")
 
     def test_02_sim_state(self):
         result = self.client.sim_state()
         self.assertEqual(result["status"], "success")
-        print(f"  State: {result['result']['state']}, Prims: {result['result']['prim_count']}")
+        facts = {key: result["result"].get(key, "unknown") for key in _KIT_FACTS}
+        for key, value in facts.items():
+            self.assertNotIn(value, ("", "unknown"), key)
+        erred, text = call_tool("get_sim_state", {}, self._output_folder())
+        self.assertFalse(erred, text)
+        app = f"kit_app = {facts['kit_app_name']} {facts['kit_app_version']}"
+        self.assertIn(f"{app}\nkit_version = {facts['kit_version']}\nkit_os = {facts['kit_os']}\n", text)
+        print(f"  State: {result['result']['state']}, Prims: {result['result']['prim_count']}, {app}")
 
     def test_03_scene_tree(self):
         result = self.client.scene_tree("/", 3)
@@ -537,6 +583,20 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         for got, want in zip(after["/World/IntTestXforms/Matrix/Box"]["world"], [5, 7, 7], strict=True):
             self.assertAlmostEqual(got, want, places=4)
         print(f"  Pivot kept: {pivoted['ops']}; the matrix moved and turned in place")
+
+    def test_08c_get_prim_properties_reads_a_scaled_prim_s_rotation(self):
+        """Scenario 2.2: rotateXYZ (0, 45, 0) at scale 0.5 read as 0.7428, 0, 0.6695, 0, an 84° turn, with the scale
+        left in the matrix the rotation was read from (#105)."""
+        path = "/World/IntTestScaled"
+        self.addCleanup(self.client.delete_prim, path)
+        self.assertEqual(self.client.create_prim(path, "Cube")["status"], "success")
+        done = self.client.set_transform(path, rotation=[0.0, 45.0, 0.0], scale=[0.5, 0.5, 0.5])
+        self.assertEqual(done["status"], "success", done)
+
+        erred, text = call_tool("get_prim_properties", {"prim_path": path}, self._output_folder())
+
+        self.assertFalse(erred, text)
+        self.assertIn("rot = 0.9239, 0.0000, 0.3827, 0.0000", text)
 
     # ===== Simulation =====
 
@@ -892,6 +952,79 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
             self.assertAlmostEqual(got, want, places=4)
         self.assertLess(unmoved["degrees"], 0.5, unmoved)
         print(f"  At a point, around {prim} at {centre}, and the mix refused with the camera where it was")
+
+    def test_12i_a_prim_beside_the_view_gets_no_screen_box(self):
+        """Scenario 26.2: a 2 m cube beside the view of a 1 m one got a box at the frame's corner, as the rectangle of
+        its projected corners reached it while its outline didn't, and no pixel of it showed (#105)."""
+        up = self.client.sim_state()["result"]["up_axis"]
+
+        def at(a: float, h: float, b: float) -> list[float]:
+            return [float(a), float(h), float(b)] if up == "Y" else [float(a), float(b), float(h)]
+
+        root = "/World/IntTestBeside"
+        near, side = f"{root}/Near", f"{root}/Side"
+        self.addCleanup(self.client.delete_prim, root)
+        for path, position, scale in ((near, at(0, 1, 0), 0.5), (side, at(3, 0.5, 0), 1.0)):
+            made = self.client.create_prim(path, "Cube", position=position, scale=scale)
+            self.assertEqual(made["status"], "success", made)
+        aimed = self.client.camera_set(at(1.53, 2.25, 1.53), at(0, 1, 0))
+        self.assertEqual(aimed["status"], "success", aimed)
+
+        result = self.client.capture_viewport(640, 480)
+
+        self.assertEqual(result["status"], "success", result)
+        boxes = {b["prim_path"]: b["screen_bbox"] for b in result["result"]["screen_bboxes"]}
+        self.assertNotIn(side, boxes)
+        # An empty legend from a segmentation that failed would pass for one without the side cube (I13).
+        self.assertIsNone(result["result"].get("segmentation_error"), result["result"].get("segmentation_error"))
+        self.assertNotIn(side, result["result"]["segmentation_legend"])
+        # The probe measured the near cube at [145.7, 87.6, 494.3, 444.1]; mirrored on a Z-up stage, it is centred.
+        self.assertLess(abs((boxes[near][0] + boxes[near][2]) / 2 - 320), 16, boxes[near])
+        print(f"  near {boxes[near]}, beside the view none")
+
+    def test_12j_an_unlit_capture_warns_though_the_grid_shows(self):
+        """Scenario 23.6: with lighting off the prims render black and the grid doesn't, so the image isn't all black
+        and no warning came. Lighting off, and stage on a stage without lights, now warn (#105)."""
+        found = self.client.viewport_light("get")
+        self.assertEqual(found["status"], "success", found)
+        self.addCleanup(self.client.viewport_light, "set", mode=found["result"]["lighting_mode"])
+        prim = "/World/IntTestUnlit"
+        self.addCleanup(self.client.delete_prim, prim)
+        self.assertEqual(self.client.create_prim(prim, "Cube", scale=0.5)["status"], "success")
+        out = self._output_folder()
+
+        for mode in ("off", "stage", "camera"):
+            with self.subTest(mode=mode):
+                self.assertEqual(self.client.viewport_light("set", mode=mode)["status"], "success")
+                # Whether the stage has lights is read in the mode the capture runs in: a light rig, such as Default,
+                # puts lights of its own on the stage, which mode stage takes away. Read before the switch, in the
+                # mode the test found, a rig's lights said the stage was lit (#105's live run, step 3).
+                lit = self.client.viewport_light("get")["result"]["has_scene_lights"]
+                warns = {"off": True, "stage": not lit, "camera": False}[mode]
+                erred, text = call_tool("capture_viewport", {"width": 160, "height": 120}, out)
+                self.assertFalse(erred, text)
+                # Kit 110's grid keeps an unlit image from being all black, so the lighting's warning comes; where a
+                # Kit renders it all black, the black image's warning names the lighting instead (review F6). Only
+                # the texts that name the lighting count: a lit stage's capture can be all black for a renderer not
+                # yet warm, which names neither (review round 2).
+                said = any(
+                    named in text
+                    for named in (
+                        "surfaces render black",
+                        "Lighting mode is 'off'",
+                        "No scene lights and mode is 'stage'",
+                    )
+                )
+                self.assertEqual(said, warns, text)
+                if mode == "off":
+                    erred, text = call_tool(
+                        "inspect_prim", {"prim_path": prim, "angles": ["front"], "width": 160, "height": 120}, out
+                    )
+                    self.assertFalse(erred, text)
+                    # Once a call: the lighting's warning, or the black one's where the angle is all black.
+                    self.assertEqual(
+                        text.count("Lighting mode is 'off'") + text.count("captures are all-black"), 1, text
+                    )
 
     def test_13_camera_inspect_auto_fit(self):
         """Inspect with auto-fit distance (no zoom_offset)."""
@@ -1369,6 +1502,37 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         body = self.client.prim_properties("/World/IntTestRobot/Body")
         self.assertEqual(body["status"], "success", body.get("error"))
         print(f"  Robot from {usd.name}: /World/IntTestRobot/Body loaded")
+
+    def test_27b_a_robot_file_of_the_other_up_axis_stands(self):
+        """A robot file that authors the up axis the stage hasn't stands upright on it, turned about X in Kit's own
+        op, as Kit's metrics assembler turns a dropped file; the assembler, run on it after, adds no second turn
+        (#105)."""
+        up = self.client.sim_state()["result"]["up_axis"]
+        other = "Z" if up == "Y" else "Y"
+        tall = "(0.5, 0.5, 1)" if other == "Z" else "(0.5, 1, 0.5)"
+        usd = Path(tempfile.mkdtemp(prefix="ovmcp-Robots-")) / "IntTestUpright.usda"
+        self.addCleanup(shutil.rmtree, usd.parent, True)
+        usd.write_text(_UPRIGHT_USDA.replace("UP", other).replace("TALL", tall), encoding="utf-8")
+        path = "/World/IntTestUpright"
+        self.addCleanup(self.client.delete_prim, path)
+
+        result = self.client.create_robot(str(usd))
+
+        self.assertEqual(result["status"], "success", result.get("error"))
+        turn = result["result"]["up_axis_turn"]
+        self.assertEqual((turn["file"], turn["stage"], turn["degrees"]), (other, up, -90.0 if up == "Y" else 90.0))
+        axis = 1 if up == "Y" else 2
+        dims = self.client.prim_bounds(path)["result"]["dimensions"]
+        self.assertEqual(max(range(3), key=lambda i: dims[i]), axis, dims)
+        resolved = self._kit(_RESOLVE.replace("PATH", repr(path)))
+        if resolved is None:
+            print(f"  stood upright on a {up}-up stage; no metrics assembler here")
+            return
+        self.assertEqual(resolved["ops"].count("xformOp:rotateX:unitsResolve"), 1, resolved)
+        self.assertEqual(resolved["value"], turn["op"], resolved)
+        dims = self.client.prim_bounds(path)["result"]["dimensions"]
+        self.assertEqual(max(range(3), key=lambda i: dims[i]), axis, dims)
+        print(f"  stood upright on a {up}-up stage, and Kit's assembler left it so: {resolved}")
 
     def test_28_create_robot_from_a_missing_file(self):
         missing = Path(tempfile.gettempdir()) / "ovmcp-No-Such-Robot.usd"

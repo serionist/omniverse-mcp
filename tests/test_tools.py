@@ -401,13 +401,25 @@ CASES = [
         "get_sim_state",
         {},
         "/sim/state",
-        {"state": "stopped", "up_axis": "Z", "sim_time": 0.0, "fps": 60.0, "prim_count": 3, "meters_per_unit": 1.0},
+        {
+            "state": "stopped",
+            "up_axis": "Z",
+            "sim_time": 0.0,
+            "fps": 60.0,
+            "prim_count": 3,
+            "meters_per_unit": 1.0,
+            "kit_app_name": "Isaac-Sim Python",
+            "kit_app_version": "6.2.0",
+            "kit_version": "110.4.0+feature.386251.187cf21b.gl",
+            "kit_os": "Windows-11-10.0.26300-SP0",
+        },
         {},
         # The mock bridge's handshake answers extension 1.0.0, another release than this server's.
         (
             "state = stopped",
             "up_axis = Z",
-            "extension_version = 1.0.0",
+            "kit_app = Isaac-Sim Python 6.2.0\nkit_version = 110.4.0+feature.386251.187cf21b.gl\n"
+            "kit_os = Windows-11-10.0.26300-SP0\nextension_version = 1.0.0",
             "note = the Kit extension is 1.0.0",
             f"install the server's, {kit_extension.install_advice()}",
         ),
@@ -970,6 +982,104 @@ def test_get_sim_state_says_why_a_recording_s_frames_stopped(bridge: MockIsaacSe
         bridge,
         tmp_path,
     )
+
+
+def test_get_sim_state_reads_an_older_extension_s_missing_kit_app_as_unknown(bridge: MockIsaacServer, tmp_path: Path):
+    # An extension from before #105 sends no Kit app: each line says unknown, and a bug report asks the user.
+    case = Case(
+        "get_sim_state",
+        {},
+        "/sim/state",
+        {"state": "stopped", "up_axis": "Y"},
+        {},
+        ("kit_app = unknown\nkit_version = unknown\nkit_os = unknown\nextension_version = ",),
+    )
+    _check(case, bridge, tmp_path)
+
+
+def _compared(faces_a: int, delta: dict[str, Any]) -> dict[str, Any]:
+    """/scene/compare's answer for an A of faces_a faces, with delta as B minus A."""
+    side = {
+        "label": "/World/A",
+        "mesh_count": 1,
+        "total_faces": faces_a,
+        "total_vertices": 9,
+        "total_triangles": 2,
+        "bounds_center": [0, 0, 0],
+        "bounds_dimensions": [1, 1, 1],
+        "materials": [],
+    }
+    return {"a": side, "b": {**side, "label": "/World/B"}, "delta": delta}
+
+
+@pytest.mark.parametrize(
+    ("faces_a", "delta", "says", "never"),
+    [
+        # 20.6: a Cube, which has no mesh, to a mesh. The extension's percentage from 0 faces is 0 (#105).
+        (
+            0,
+            {"faces": 4, "face_reduction_pct": 0, "vertices": 9, "triangles": 8, "meshes": 1},
+            ("faces: +4 (A has 0 faces)", "vertices: +9  triangles: +8  meshes: +1"),
+            "%",
+        ),
+        # Faces up, vertices down: one sign, the faces', read "+-5" (#105).
+        (
+            1,
+            {"faces": 1, "face_reduction_pct": 100.0, "vertices": -5, "triangles": 0, "meshes": 0},
+            ("faces: +1 (+100.0%)", "vertices: -5  triangles: +0  meshes: +0"),
+            "+-",
+        ),
+        # Faces down, vertices up: the rise read without its "+".
+        (
+            4,
+            {"faces": -2, "face_reduction_pct": -50.0, "vertices": 3, "triangles": -4, "meshes": 0},
+            ("faces: -2 (-50.0%)", "vertices: +3  triangles: -4  meshes: +0"),
+            "+-",
+        ),
+    ],
+    ids=["from-0-faces", "faces-up-vertices-down", "faces-down-vertices-up"],
+)
+def test_compare_prims_gives_each_delta_its_own_sign_and_no_percentage_from_0_faces(
+    faces_a: int, delta: dict[str, Any], says: tuple[str, ...], never: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    args = {"prim_path_a": "/World/A", "prim_path_b": "/World/B"}
+    case = Case("compare_prims", args, "/scene/compare", _compared(faces_a, delta), args, says)
+    text = _check(case, bridge, tmp_path)
+    assert never not in text.split("=== Delta (B - A) ===")[1]
+
+
+ROBOT = {"robot_type": "g1", "prim_path": "/World/G1", "usd_path": "g1.usd", "joints": []}
+OP = "xformOp:rotateX:unitsResolve"
+
+
+@pytest.mark.parametrize(
+    ("turn", "says"),
+    [
+        (
+            {"file": "Z", "stage": "Y", "degrees": -90.0, "op": -90.0, "op_name": OP},
+            f"Turned upright: the file is Z-up and the stage Y-up, so -90° about X went into {OP}, which now reads -90",
+        ),
+        # A file whose root held Kit's turn: the op reads 0, not the +90 added, and the answer says both (#105, P7).
+        (
+            {"file": "Y", "stage": "Z", "degrees": 90.0, "op": 0.0, "op_name": OP},
+            f"Turned upright: the file is Y-up and the stage Z-up, so +90° about X added to {OP}, which now reads 0",
+        ),
+    ],
+    ids=["new-op", "added-to-the-file-s-op"],
+)
+def test_create_robot_says_it_stood_the_robot_upright(
+    turn: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    case = Case("create_robot", {"robot_type": "g1"}, "/robot/create", {**ROBOT, "up_axis_turn": turn}, {}, (says,))
+    _check(case, bridge, tmp_path)
+
+
+@pytest.mark.parametrize("answer", [ROBOT, {**ROBOT, "up_axis_turn": None}], ids=["older-extension", "no-turn"])
+def test_create_robot_says_nothing_of_a_turn_it_didn_t_make(
+    answer: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path
+):
+    text = _check(Case("create_robot", {"robot_type": "g1"}, "/robot/create", answer, {}, ()), bridge, tmp_path)
+    assert "Turned upright" not in text
 
 
 @pytest.mark.parametrize("args", [{}, {"fps": 10}, {"width": 640, "height": 480, "camera_path": ""}])

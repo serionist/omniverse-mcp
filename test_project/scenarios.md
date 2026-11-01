@@ -51,7 +51,8 @@ Needs: none
 - Move the cube: `set_prim_transform("/World/RedCube", position=[2,2,0])`
 - Rotate it: `set_prim_transform("/World/RedCube", rotation=[0,45,0])`
 - Scale it: `set_prim_transform("/World/RedCube", scale=0.5)`
-- Verify: `get_prim_properties("/World/RedCube")` shows updated values
+- Verify: `get_prim_properties("/World/RedCube")` shows the three ops set, and `rot = 0.9239, 0.0000, 0.3827, 0.0000`:
+  the 45° turn about Y as a quaternion `w, x, y, z`, the 0.5 scale taken out
 
 ### 2.3 Transform Operations (Combined)
 - Set all 3 at once: `set_prim_transform("/World/RedCube", position=[0,1,0], rotation=[0,0,0], scale=0.3)`
@@ -307,7 +308,9 @@ Needs: 2.1, 4.5
 
 ### 10.1 Spawn G1 Robot
 - `create_robot("g1", position=[3, 0.74, 0])`
-- Verify: returns prim path and joint list
+- Verify: returns prim path and joint list. The G1 stands: `get_prim_bounds("/World/G1")` is tallest, about 1.32,
+  along the stage's up axis (`get_sim_state`); on a Y-up stage the answer says it was turned upright, its file
+  being Z-up
 
 ### 10.2 Inspect Robot
 - `inspect_prim("/World/G1", angles=["front", "right", "top_front_right"])`
@@ -726,7 +729,8 @@ Needs: 18.1, 18.2
 
 ### 20.6 Compare Prims (Direct)
 - `compare_prims(prim_path_a="/World/TestCube", prim_path_b="/World/Franka")`
-- Verify: returns a/b stats (faces, vertices, triangles, mesh_count, bounds, materials) and delta
+- Verify: returns a/b stats (faces, vertices, triangles, mesh_count, bounds, materials) and the deltas. TestCube is
+  a Cube, not a mesh, so A has 0 faces: the faces delta has no percentage, and each delta has its own sign
 
 ### 20.7 Compare Prims (Variant)
 - `compare_prims(prim_path="/World/TestCube", variant_set="detail", variant_a="high", variant_b="low")`
@@ -799,8 +803,9 @@ Needs: 18.2
 > **Lighting modes:** The MCP exposes all Omniverse viewport lighting options:
 > `"off"`, `"camera"`, `"stage"`, and light rig presets (`"Default"`, `"Colored Lights"`, `"Grey Studio"`).
 >
-> **No auto-fix:** The MCP never auto-switches lighting. It detects and warns about black images,
-> but the user/AI must explicitly set the desired mode.
+> **No auto-fix:** The MCP never auto-switches lighting. It warns about black images, and about lighting that
+> lights nothing (mode `off`, or `stage` with no scene lights) though Kit's grid shows, but the user/AI must
+> explicitly set the desired mode.
 
 ### 23.1 Get Lighting State
 - `viewport_light("get")`
@@ -830,7 +835,8 @@ Needs: 18.2
 
 ### 23.6 Black Image Detection (No Auto-Fix)
 - Set lighting to off: `viewport_light("set", mode="off")`
-- `capture_viewport()` → should include WARNING about all-black image
+- `capture_viewport()` → a WARNING naming lighting mode `off` and `viewport_light`: Kit's grid keeps the image from
+  being all black, so the warning is the lighting's; where a Kit renders it all black, the black image's names it
 - The MCP should NOT auto-enable camera light or change the mode
 - Response should include `lighting_mode` field showing current mode
 - Fix it manually: `viewport_light("set", mode="Default")`
@@ -990,7 +996,8 @@ Needs: 23.2
 - Create a test prim: `create_prim("/World/SettleTest", "Cube", position=[0, 1, 0], scale=0.5)`
 - `set_camera(prim_path="/World/SettleTest", azimuth=45, elevation=30)`
 - Immediately: `capture_viewport(640, 480)`
-- Verify: the cube is visible in the capture
+- Verify: the cube is visible in the capture, and `/World/TestCube`, beside this view, has no box in the boxes
+  file
 - Clean up: `delete_prim("/World/SettleTest")`
 
 ---

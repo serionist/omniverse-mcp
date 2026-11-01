@@ -10,14 +10,15 @@ body:
     id: kit
     attributes:
       label: Kit app and version
-      placeholder: Isaac Sim 5.1.0
+      description: "The `kit_app` and `kit_version` that `get_sim_state` reports; with an extension of 0.3.0 or older, Help > About in the Kit app."
+      placeholder: Isaac-Sim Python 6.2.0 (Kit 110.4.0+...)
     validations:
       required: true
   - type: input
     id: os
     attributes:
       label: Operating system
-      description: Both, if Kit and the MCP server run on different machines.
+      description: "Kit's is the `kit_os` that `get_sim_state` reports. Both, if Kit and the MCP server run on different machines."
       placeholder: Windows 11 24H2
     validations:
       required: true

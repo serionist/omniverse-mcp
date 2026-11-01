@@ -82,6 +82,84 @@ def test_a_rigid_body_takes_its_position_from_its_bounds(stage):
     assert lines[-2:] == ["articulation_root = true", "rigid_body = true"]
 
 
+def _rot(prim: Usd.Prim) -> list[float]:
+    """The block's rot line as numbers: the world rotation as a quaternion w, x, y, z."""
+    line = next(x for x in format_prim_block(prim, include_properties=False).splitlines() if x.startswith("rot = "))
+    return [float(v) for v in line.removeprefix("rot = ").split(", ")]
+
+
+def _turned(stage: Usd.Stage, path: str, angles: tuple[float, float, float], scale: tuple[float, float, float]):
+    xformable = UsdGeom.Xformable(UsdGeom.Cube.Define(stage, path))
+    xformable.AddRotateXYZOp().Set(Gf.Vec3f(*angles))
+    xformable.AddScaleOp().Set(Gf.Vec3f(*scale))
+    return xformable.GetPrim()
+
+
+def _xyz(angles: tuple[float, float, float]) -> Gf.Rotation:
+    """rotateXYZ's rotation, X first, as a row-vector product."""
+    x, y, z = (
+        Gf.Rotation(Gf.Vec3d(*axis), a) for axis, a in zip(((1, 0, 0), (0, 1, 0), (0, 0, 1)), angles, strict=True)
+    )
+    return x * y * z
+
+
+def _same_turn(got: list[float], want: Gf.Rotation) -> bool:
+    q = want.GetQuat()
+    w = [q.GetReal(), *q.GetImaginary()]
+    # q and -q are one turn.
+    return (
+        max(abs(a - b) for a, b in zip(got, w, strict=True)) < 1e-4
+        or max(abs(a + b) for a, b in zip(got, w, strict=True)) < 1e-4
+    )
+
+
+def test_rot_takes_a_scale_out_before_reading_the_rotation(stage):
+    # Scenario 2.2: rotateXYZ (0, 45, 0) at scale 0.5 read as 0.7428, 0, 0.6695, 0, an 84° turn (#105).
+    prim = _turned(stage, "/World/Scaled", (0, 45, 0), (0.5, 0.5, 0.5))
+
+    assert _rot(prim) == [0.9239, 0.0, 0.3827, 0.0]
+
+
+def test_rot_under_a_scaled_turned_parent_is_the_composed_rotation(stage):
+    # ExtractRotation read no turn at all here: (1, 0, 0, 0).
+    parent = _turned(stage, "/World/Parent", (10, 20, 30), (2, 2, 2))
+    child = _turned(stage, "/World/Parent/Child", (30, 45, 60), (1, 2, 3))
+
+    assert _rot(parent) and _same_turn(_rot(child), _xyz((30, 45, 60)) * _xyz((10, 20, 30)))
+
+
+def test_rot_of_an_unscaled_prim_is_its_turn(stage):
+    assert _same_turn(_rot(_turned(stage, "/World/Plain", (0, 0, 90), (1, 1, 1))), _xyz((0, 0, 90)))
+
+
+@pytest.mark.parametrize("scale", [0.0004, 1e-6])
+def test_rot_at_a_tiny_scale_is_its_turn(stage, scale):
+    # Factor's own tolerance called a uniform world scale below about 4.6e-4 singular: no rot line (review F4).
+    assert _rot(_turned(stage, "/World/Tiny", (0, 45, 0), (scale, scale, scale))) == [0.9239, 0.0, 0.3827, 0.0]
+
+
+def test_a_prim_too_flat_to_factor_has_no_rot_line(stage):
+    # Scale 1e-16 on one axis isn't singular at 1e-30, but Factor can't recover the ratio: it read rotateY 30 as
+    # rot = 1.0000, 0.0000, 2686424.8522, 0.0000 (review F7). At 1e-15 it still reads right.
+    lines = format_prim_block(_turned(stage, "/World/Flat", (0, 30, 0), (1, 1, 1e-16)), include_properties=False)
+    assert not any(line.startswith("rot = ") for line in lines.splitlines())
+    assert _rot(_turned(stage, "/World/Thin", (0, 30, 0), (1, 1, 1e-15))) == [0.9659, 0.0, 0.2588, 0.0]
+
+
+def test_a_prim_scaled_to_0_has_no_rot_line_and_no_error(stage):
+    # Its matrix is singular: Gf reads a 64° turn into rotateY 30, so no line is better than that one.
+    lines = format_prim_block(_turned(stage, "/World/Flat", (0, 30, 0), (0, 1, 1)), include_properties=False)
+
+    assert not any(line.startswith("rot = ") for line in lines.splitlines())
+    assert "pos = 0.0000, 0.0000, 0.0000" in lines.splitlines()
+
+
+def test_a_recording_frame_gives_the_same_rot(stage):
+    prim = _turned(stage, "/World/Scaled", (0, 45, 0), (0.5, 0.5, 0.5))
+
+    assert "rot = 0.9239, 0.0000, 0.3827, 0.0000" in format_frame_state([prim], 0, 0.0).splitlines()
+
+
 def test_a_relationship_is_unreadable_and_an_unset_attribute_is_left_out(stage):
     lines = format_prim_block(stage.GetPrimAtPath("/World/Group/Ball")).splitlines()
 

@@ -102,15 +102,37 @@ def xform_ops(xformable: UsdGeom.Xformable) -> list[UsdGeom.XformOp]:
 
 
 def add_xform_op(
-    xformable: UsdGeom.Xformable, op_type: Tf.Type, precision: UsdGeom.XformOp.Precision
+    xformable: UsdGeom.Xformable, op_type: Tf.Type, precision: UsdGeom.XformOp.Precision, suffix: str = ""
 ) -> UsdGeom.XformOp:
     """AddXformOp with an op type as the XformOp constants are typed."""
-    return xformable.AddXformOp(cast("UsdGeom.XformOp.Type", op_type), precision)
+    return xformable.AddXformOp(cast("UsdGeom.XformOp.Type", op_type), precision, suffix)
 
 
 def factors(matrix: Gf.Matrix4d) -> bool:
     """Whether the matrix factors into a rotation, a scale and a translation: a singular one doesn't."""
     return bool(cast("_Factors", matrix).Factor()[0])
+
+
+class _FactorsWithin(Protocol):
+    Factor: Callable[[float], tuple[bool, Gf.Matrix4d, Gf.Vec3d, Gf.Matrix4d, Gf.Vec3d, Gf.Matrix4d]]
+
+
+# Factor's own tolerance, 1e-10 on the determinant, calls a uniform scale below about 4.6e-4 singular: a millimetre
+# asset under a parent scaled 0.1 (#105, review F4). A far smaller one lets those through; a scale of 0 still fails.
+_SINGULAR = 1e-30
+# Below that, one axis's scale under about 3e-16 of the others' is past double precision: Factor answers a rotation
+# that isn't one, of length 2.7e6 at 1e-16 (review F7). A real one has length 1.
+_UNIT = 1e-6
+
+
+def rotation_of(matrix: Gf.Matrix4d) -> Gf.Quatd | None:
+    """matrix's rotation with its scale and shear taken out, or None when it has none to read: singular, or scaled
+    so flat on an axis that what Factor answers isn't a rotation."""
+    factored = cast("_FactorsWithin", matrix).Factor(_SINGULAR)
+    if not factored[0]:
+        return None
+    quat = factored[3].ExtractRotationQuat()
+    return quat if abs(quat.GetLength() - 1.0) <= _UNIT else None
 
 
 class ArcNode(Protocol):
