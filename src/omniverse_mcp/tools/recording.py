@@ -86,7 +86,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         stopped or paused show Kit's grid, as the viewport does; Isaac Sim 6.2 hides the grid while it plays. Frames
         stop if the stage changes or the camera is deleted; stop_recording says so. Frames are saved as PNGs in
         mcp_output/recordings/, by Kit itself. One recording runs at a time: another start is refused until
-        stop_recording. Use stop_recording when done, then get_recording_frame to review any frame.
+        stop_recording. Use stop_recording when done, then get_recording_frame to review any frame. Frames go on while
+        the simulation is stopped, and a stop puts the scene back: pause it, or call stop_recording, before stopping it
+        to end on the run's last state.
 
         Optionally tracks prim state (transforms, properties) alongside video frames, in state.txt.
         """

@@ -195,8 +195,8 @@ Needs: 2.1, 4.5
 - Verify: the answer says `320x240 from /OmniverseKit_Persp` (the viewport's camera), with no `WARNING` line
 - `sim_control("play")`
 - Wait ~2 seconds
-- `sim_control("stop")`
-- `stop_recording()`
+- `sim_control("pause")`, then `stop_recording()`, then `sim_control("stop")`: pausing keeps the cube where it landed,
+  where a stop puts it back and the recording, which takes frames while stopped too, would end on that
 - Verify: frame_count > 0, output_dir exists; the answer's first line names the seconds of simulation played and the
   seconds stopped or paused, and frame_count is near 5 times their sum
 - Verify: in `metadata.json`, the frames before play are about 0.2 s apart by `wall_time`, and those while playing
@@ -238,8 +238,7 @@ Needs: 2.1, 4.5
 - `start_recording(fps=10, width=320, height=240, track_prims=["/World/RedCube"])`
 - `sim_control("play")`
 - Wait ~2 seconds
-- `sim_control("stop")`
-- `stop_recording()`
+- `sim_control("pause")`, then `stop_recording()`, then `sim_control("stop")`, as 6.1 does
 - Verify: response includes `state_file` path
 
 ### 7.2 Validate state.txt Format
@@ -253,7 +252,7 @@ Needs: 2.1, 4.5
 ### 7.3 Record with property_filter
 - Reset cube: `set_prim_transform("/World/RedCube", position=[0,3,0])`
 - `start_recording(fps=10, track_prims=["/World/RedCube"], property_filter=["xformOp", "physics"])`
-- `sim_control("play")`, wait ~1s, `sim_control("stop")`, `stop_recording()`
+- `sim_control("play")`, wait ~1s, `sim_control("pause")`, `stop_recording()`, `sim_control("stop")`
 - Read `state.txt`: should only show properties matching "xformOp" or "physics"
 
 ---

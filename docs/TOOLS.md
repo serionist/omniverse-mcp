@@ -913,6 +913,9 @@ prim the recording renders into, which it deletes at stop.
   - A frame shows the simulation within one update of its `sim_time`. Frames asked for faster than they can be
     written, or than Kit updates, are skipped rather than sent late in a burst, which the frames' `sim_time` and
     `wall_time` in `metadata.json` show; each frame keeps a number of its own.
+- **Ending a recording:** it takes frames while the simulation is stopped too, and `sim_control("stop")` puts the
+  scene back where it started. To end on the run's last state, pause the simulation, or call `stop_recording`, before
+  you stop it.
 - **Kit's grid:** frames taken while the simulation is stopped or paused show it, as the viewport does. Isaac Sim 6.2
   hides it while the simulation plays, in the viewport and in the recording alike; other Kit apps show what their
   viewport does.

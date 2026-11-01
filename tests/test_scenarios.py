@@ -820,10 +820,10 @@ class TestScenarios(PhysicsChecks):
 
         self.c.sim_control("play")
         time.sleep(2.0)
-        self.c.sim_control("stop")
-        time.sleep(0.3)
-
+        # Paused, not stopped: a recording takes frames while stopped too, and a stop puts the cube back (#111).
+        self.c.sim_control("pause")
         r = self.c.recording_stop()
+        self.c.sim_control("stop")
         self.assertEqual(r["status"], "success", r)
         self.assertGreater(r["result"]["frame_count"], 0)
         # Every frame a whole PNG of the size asked for, whatever the viewport's own (#25).
@@ -1168,10 +1168,9 @@ class TestScenarios(PhysicsChecks):
 
         self.c.sim_control("play")
         time.sleep(1.0)
-        self.c.sim_control("stop")
-        time.sleep(0.3)
-
+        self.c.sim_control("pause")
         r = self.c.recording_stop()
+        self.c.sim_control("stop")
         self.assertEqual(r["status"], "success")
 
         state_file = r["result"].get("state_file")
