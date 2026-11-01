@@ -479,8 +479,8 @@ frame is reset and captured once more by itself, after 20 more of the feed's fra
   before, with a warning in Kit's log, when the frames don't come. A recording frame gets 30 s, then 10 s for its
   file, and is the empty marker when they run out.
 - **Kit versions:** run live on Isaac Sim 6.2 (Kit 110) on Windows and Linux, and on Isaac Sim 5.1 (Kit 107) on
-  Linux, where both live suites pass. 5.1 needs NVIDIA's 580 driver branch: on 595 its RTX scene library crashes in
-  its own start, before any extension loads.
+  Linux, where both live suites pass. 5.1 ran on NVIDIA's 580.178.04 driver; on 595.91.07 its RTX scene library
+  crashed in its own start, before any extension loaded. 5.1 on Windows is untested.
 - **Timers on Kit's loop:** they fire only while the loop runs, so a main thread blocked by a shader compile delays
   them.
 - **In Kit's log:** a failed capture's step and seconds (a warning); a capture over 2 s, how long its frame and file

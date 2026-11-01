@@ -8,7 +8,7 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 ### Changed
 
 - **Tested on Linux and on Isaac Sim 5.1:** both live suites pass on Isaac Sim 6.2 on Linux, and on 5.1 (Kit 107).
-  Isaac Sim 5.1 needs NVIDIA's 580 driver branch: on a 595 driver its renderer crashes as it starts (#99).
+  On Linux, Isaac Sim 5.1 runs on NVIDIA's 580 drivers; on a 595 driver its renderer crashes as it starts (#99).
 
 ## 0.3.0 (2026-11-01)
 

@@ -1894,7 +1894,7 @@ class TestColdCook(unittest.TestCase):
     def test_a_play_that_cooks_new_collision_meshes_returns(self):
         root = f"/World/IntTestCook_{secrets.token_hex(4)}"  # this run's own, so older cooking lines don't count
         seeds = [secrets.randbits(32) for _ in range(_SPHERES)]
-        mark = self.client.get_logs(count=1)["result"]["total_captured"]
+        mark = self.client.get_logs(count=1)["result"]["total_captured"] - 1  # the newest entry's index
         made = self.client.execute(f"ROOT = {root!r}\nSEEDS = {seeds!r}\n{_COLD_COOK_SCENE}")
         self.assertEqual(made["status"], "success", made.get("error"))
         self.assertGreater(made["result"]["return_value"], 2000)
@@ -1913,9 +1913,10 @@ class TestColdCook(unittest.TestCase):
         try:
             self.assertEqual(played["status"], "success", played.get("error"))
             # A cache hit starts no cooking task, so each cooking line logged since the scene was made is a sphere
-            # cooked from scratch, most in this play. Kit 110 names the prim in the line; Kit 107 (Isaac Sim 5.1) ends
-            # it at "Prim " with no path, so there the lines are counted instead.
-            # Kit writes its log file a little after the play answers, so the last lines may take a moment.
+            # cooked from scratch. Kit starts cooking as the prims are authored, and the play follows at once, with it
+            # still running. Kit 110 names the prim in the line; Kit 107 (Isaac Sim 5.1) ends it at "Prim " with no
+            # path, so there the lines are counted instead. Cooking may outlast the play's answer, so the last lines
+            # may take a moment.
             deadline = time.monotonic() + 5.0
             while True:
                 cooked = self.client.get_logs(

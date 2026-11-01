@@ -603,8 +603,8 @@ or is paused.
   and radians per second for revolute joints, stage units and stage units per second for prismatic ones;
   `set_joint_targets` takes degrees for revolute joints. They are the first articulation's at or under `prim_path`,
   found as `UsdPhysics.ArticulationRootAPI` marks it, and read through Isaac Sim's
-  `isaacsim.core.experimental.prims.Articulation`, which Isaac Sim 5.1 and 6.x ship; tested live on 6.2, not yet on
-  5.x. The tool never starts physics itself.
+  `isaacsim.core.experimental.prims.Articulation`, which Isaac Sim 5.1 and 6.x ship; tested live on 6.2 and 5.1. The
+  tool never starts physics itself.
 
 ```text
 Robot: /World/Franka
@@ -1037,8 +1037,8 @@ for a capture or the user to see; nothing is added to the stage.
 
 - **Drawings belong to their stage:** `new_scene`, `open_scene` or another stage opened drops them, and no drawing is
   made while a stage opens or closes.
-- **Captures:** on Isaac Sim 6.x, drawings show in `capture_viewport`'s image, headless too, with either extension,
-  however soon after `draw_debug` the capture comes (checked live on 6.2). On Isaac Sim 5.x this is untested live.
+- **Captures:** drawings show in `capture_viewport`'s image, headless too, with either extension, however soon after
+  `draw_debug` the capture comes (checked live on Isaac Sim 6.2 and 5.1).
 - **A wrong shape is an error:** an unknown `shape`, a vector that isn't three finite numbers, or a missing part, such
   as `start` for a line.
 - **The fix is in the Kit extension:** a bridge from 0.2.0 or before draws for one frame, and fails headless.
