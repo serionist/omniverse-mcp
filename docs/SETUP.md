@@ -70,17 +70,19 @@ and a server added by hand gives `mcp__omniverse__<tool>`. Add the read-only one
 ## From Kit's community registry
 
 The bridge is listed in Kit's community extension registry too, so a Kit app can install it from its Extensions
-window instead of `extension install`. NVIDIA doesn't review that registry: Kit marks the bridge *Community -
-Unverified* and asks before it installs it. The server still comes from PyPI, and must be the bridge's release.
+window instead of `extension install`. NVIDIA doesn't review that registry, and Kit lists the bridge as *Community -
+Unverified*. The server still comes from PyPI, and must be the bridge's release.
 
 1. **The registry, once.** Isaac Sim 5.1 lists it already. In Isaac Sim 6.2 and other Kit apps: **Window >
    Extensions**, the menu (☰) at the top right, **Settings**, then under **Extension Registries** the green **+**,
    with the name `kit/community` and the URL `https://dw290v42wisod.cloudfront.net/exts/kit/community`.
-2. **The bridge:** search for `ovmcp` under **THIRD PARTY**, open **Omniverse MCP Bridge**, **Install**, and accept
-   Kit's warning. Then turn it on, with **Autoload**. Kit offers it to Kit 107 and later.
-3. **The server, at the bridge's version:** Kit shows the version beside the bridge's name, and its Overview names the
-   server, `uvx omniverse-mcp==<that version>`. Pin it in your client's config, `"args": ["omniverse-mcp==<version>"]`,
-   so uvx doesn't move to another release on its own.
+2. **The bridge:** search for `ovmcp`. Its card, **OMNIVERSE MCP BRIDGE**, is under the **THIRD PARTY** tab, in the
+   group *Community - Unverified*, and reads *Remote | v<version>*. Select it, then **INSTALL** (Kit may warn first
+   that NVIDIA hasn't verified it); then turn on **ENABLED** and **AUTOLOAD**. The card then reads
+   *Installed | v<version>*. Kit offers it to Kit 107 and later.
+3. **The server, at the bridge's version:** the version on the card, which the bridge's **OVERVIEW** names once
+   installed: `uvx omniverse-mcp==<that version>`. Pin it in your client's config,
+   `"args": ["omniverse-mcp==<version>"]`, so uvx doesn't move to another release on its own.
 
 - **One source at a time.** A bridge from the registry and one from `extension install` are two copies of one
   extension, and Autoload starts one version of it. Keep one: uninstall the registry's in the Extensions window, or
@@ -88,7 +90,7 @@ Unverified* and asks before it installs it. The server still comes from PyPI, an
 - **After a release,** the registry lists it the next day, where PyPI has it at once. A server ahead of the bridge
   says so in `get_sim_state`'s `note`: keep the server pinned, and update the bridge once Kit lists the release.
 - **Headless Kit** takes the bridge from `extension install` ([Headless Kit](#headless-kit)): turning an extension
-  on doesn't download it from a registry, and only the window's **Install** does.
+  on doesn't download it from a registry, and only the window's **INSTALL** does.
 - **With the plugin,** use its setup: it installs the bridge of the plugin's own release, at once.
 
 ## Headless Kit

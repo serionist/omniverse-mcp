@@ -132,7 +132,7 @@ repository = "https://github.com/serionist/omniverse-mcp"
 keywords = ["mcp", "model context protocol", "ai", "agent", "assistant", "llm", "claude", "isaac sim", "automation"]
 readme = "docs/README.md"
 icon = "data/icon.png"
-preview_image = "data/preview.jpg"
+preview_image = "data/preview.png"
 
 # Kit 107 or later, as the README says. Kit takes a target as "this version or later", so neither the Extensions
 # window nor a folder on Kit's search path offers this release to an older Kit.
@@ -157,9 +157,9 @@ crawler to the tag's tree (R2) but required by NVIDIA's page.
 | File | What | Size |
 |---|---|---|
 | `extension/ovmcp.bridge/data/icon.png` | `plugin/.claude-plugin/icon.png`, the logo on a dark square, scaled to 256 pixels (K8) | about 10 KB |
-| `extension/ovmcp.bridge/data/preview.jpg` | `docs/images/hero-viewport.jpg`: the Franka workcell as `capture_viewport` returns it, 640 pixels square | 36 KB |
+| `extension/ovmcp.bridge/data/preview.png` | `docs/images/hero-viewport.jpg`: the Franka workcell as `capture_viewport` returns it, at 512 pixels in 256 colours: the window shows no other type from a registry (E4) | 66 KB |
 
-The wheel carries both (the extension is force-included), about 50 KB more. `docs/images/README.md` says how each was
+The wheel carries both (the extension is force-included), about 80 KB more. `docs/images/README.md` says how each was
 made.
 
 ### What a user sees
@@ -167,8 +167,9 @@ made.
 - **Isaac Sim 5.1** lists the registry already (K4); **6.2** and other Kit apps add it once, in **Extension
   Registries**: name `kit/community`, URL `https://dw290v42wisod.cloudfront.net/exts/kit/community`.
 - The Extensions window lists *Omniverse MCP Bridge* under **THIRD PARTY**, labelled "Community - Unverified", with
-  the icon, the readme as its Overview, the preview and the repository link. **Install** warns first (K5); then the
-  user turns it on with **Autoload**, as for a folder install. E4 confirms the clicks before the docs name them.
+  the icon, the description, the preview and the repository link; OVERVIEW shows the readme once installed, and
+  before only if Kit can fetch it (E4, Q9). **INSTALL** may warn first (K5); then the user turns it on with
+  **ENABLED** and **AUTOLOAD**, as for a folder install. E4 saw these labels.
 - The listing appears the day after the release (R11). Every version stays listed, and the window offers the newest
   that matches the Kit (K7).
 
@@ -226,6 +227,7 @@ to the release.
 | Q6 | The server's texts: (a) docs only; (b) the eight texts (C3) also name the registry's fix, through one helper | (b): a registry user who follows today's text installs a copy their Kit never loads, and reads the same note or warning again. The clause costs a line, and a plugin or uvx user skips it | (b) (2026-11-01) |
 | Q7 | A one-way door: AGENTS.md's line 114, `- the Kit extension id `ovmcp.bridge` and its settings;`, becomes `- the Kit extension id `ovmcp.bridge` and its settings; its release archives' names and layout, never deleted;` (110 characters; the file stays at 150 lines). The door starts with the first release that carries the archives, not at the list's "from `0.2.0`"; that release's CHANGELOG line says so | Yes: the crawler builds the names (R5) and Kit downloads every listed version from its release (K2); a rename stops the listing, a deleted asset breaks its installs | Yes, with the exact line (2026-11-01) |
 | Q8 | The plugin's setup: keep `extension install`, or offer the registry? | Keep it: pinned to the plugin's release and there at once, where the registry lags a day and needs a registry added on 6.2. It names a registry copy as another copy to turn off | As recommended (2026-11-01) |
+| Q9 | If Kit's client sends the `+` raw, OVERVIEW before Install shows Kit's template line for our `+107.0` id, in the real registry (E4's findings): (a) keep the Kit floor, and accept it; (b) drop the floor, for an id without `+`, at Q2's cost | Run `probe_metadata.py` first; when the README reaches the window, nothing changes. If it doesn't: (a). The card shows the title, description and icon, and the preview (now a PNG, from the index, not that file); the README shows once installed, and SETUP and the release notes give the server's pin. (b) would undo Q2 for the text of one tab | Open |
 
 ## Steps
 
@@ -324,8 +326,34 @@ install.
 |---|---|
 | E1 | Pass. Nothing enabled at start; `ovmcp-test` added after `kit/prod/default` and `kit/prod/sdk`; one version listed, `package_id` `ovmcp.bridge-0.3.0+107.0`, `version` `[0, 3, 0, "", "107.0"]`, and the solver took it. The log: `downloading: '.../registry-107/3/archives/serionist-omniverse-mcp-linux-x86_64-v0.3.0.zip'` into Kit's temp folder, `unpacking: ... -> <work>/extcache/v2/ovmcp.bridge-0.3.0+107.0`, `creating a link: <work>/extinstall/3/ovmcp.bridge-0.3.0+107.0 -> <work>/extcache/v2/ovmcp.bridge-0.3.0+107.0`, and `[ext: ovmcp.bridge-0.3.0] startup`, the id without `+107.0` (K3). The probe's real path was under `extcache`. `get_sim_state` on 8212: `extension_version = 0.3.0`, `server_version = 0.3.0`, no `note` |
 | E3 | Pass. With `registry-999`, Kit listed no version of `ovmcp.bridge` at all, and the solver refused: "No versions of ovmcp.bridge that satisfies ... (none found)"; the enable failed and no bridge started. With `registry-none`: `package_id` `ovmcp.bridge-0.3.0`, `version` `[0, 3, 0, "", ""]`, the archive downloaded and linked as in E1, the bridge started, and `get_sim_state` answered 0.3.0 and 0.3.0, no `note` |
+| E4 | Pass, with three findings below. The maintainer, Isaac Sim 6.2 with its window and `--portable-root`, a registry built from `release.py archives`' zip unchanged. The tabs **NVIDIA (0)** and **THIRD PARTY (1)**; under THIRD PARTY the group *Community - Unverified (1/1)*; the card **OMNIVERSE MCP BRIDGE**, *Simulation*, `ovmcp.bridge`, the cube icon, its footer *COMMUNITY* and *Remote \| v0.3.0*. The detail pane: **INSTALL**, the menu button, **AUTOLOAD**; the tabs OVERVIEW, CHANGELOG, DEPENDENCIES, PACKAGES, DEVELOPER, OMNIGRAPH. After **INSTALL**: *UP TO DATE*, **ENABLED** on, the footer *Installed \| v0.3.0*, the status bar "Installed successfully: ovmcp.bridge-0.3.0+107.0"; `get_sim_state` 0.3.0 and 0.3.0, no `note`. Whether Kit warned before installing wasn't reported |
 
 So Q2 (a) holds: `kit = ["107.0"]` is offered to Kit 110, and a target above the running Kit hides the package.
+
+What E4 found, and what changed:
+
+- **Before Install, OVERVIEW showed Kit's template line,** `**Extension**: {{ extension_version }},**Documentation
+  Generated**: ...`, and a stock picture, not the README and the preview. Two causes:
+  - **The preview was a JPEG.** Kit's Extensions window shows a registry's image only as PNG
+    (`REMOTE_IMAGE_SUPPORTED_EXTS = {".png"}` in `omni.kit.window.extensions`, 1.4.27 on 5.1 and 1.7.0 on 6.2), and
+    shows its placeholder otherwise: the real registry would do the same. Fixed: `data/preview.png`, the capture at
+    512 pixels in 256 colours (66 KB), and `archive_problems` refuses an icon or preview that isn't PNG.
+  - **The readme comes from a file the local registry lacked.** For an extension not installed, the window reads the
+    readme from a JSON file beside the archives, at URLs `omni.kit.registry.nucleus`'s
+    `get_extension_metadata_possible_urls` builds: `archives/<name>/<package id>.json` among them, where the crawler
+    writes it (meshy's `3/archives/ai.meshy.bridge/ai.meshy.bridge-0.1.0.json`, its readme inlined).
+    `local_registry.py` wrote only the index; it now writes that file too. After Install the window reads the
+    installed README, which it showed.
+  - **Open, Q9:** of the URLs the window builds for that file, the two the crawler writes hold the package id, and
+    ours holds a `+` (`ovmcp.bridge-X.Y.Z+107.0`, the target's build metadata, R10); the others, named after the
+    archive, the crawler doesn't write. The registry answers 404 to a raw `+` and 200 to `%2B` (curl, 2026-11-01);
+    403 of its 866 metadata files have a `+`. Whether Kit's client, `omni.client`, escapes it decides whether the
+    real registry shows our README before Install. `probe_metadata.py` (appendix) reads MPCDI's `+` id and meshy's
+    plain one through the window's own URLs and client.
+- **Kit's font has no ☰:** the extension README's "the menu (☰)" rendered as "(?)" in OVERVIEW. The README now says
+  "the menu button (three lines)"; SETUP, the README and the release notes keep ☰, which GitHub renders.
+- **The labels:** SETUP's section now names them as E4 saw them. The install warning (K5, from the window's code)
+  wasn't reported either way, so the docs say Kit *may* warn.
 
 What the runs showed beyond the pass:
 
@@ -458,7 +486,9 @@ release.yml makes it today, or `tools/release.py archives` once it exists. It is
 <registry>/3/archives/<owner>-<name>-linux-x86_64-v<version>.zip; --target-kit rewrites only its
 config/extension.toml, for a tree without the target, and copies every other entry as it is. The index,
 <registry>/3/index.zip, holds one entry built from the toml, readme and images inside the zip, and the images go to
-resources/, as the crawler does. Standard library only; it reads the zip and writes only under the registry folder.
+resources/, as the crawler does. The same entry goes to archives/<name>/<package id>.json and archives/<package id>.json,
+the crawler's two forms: Kit's Extensions window reads the readme from there before Install. Standard library only;
+it reads the zip and writes only under the registry folder.
 """
 
 import argparse
@@ -553,6 +583,11 @@ buffer = io.BytesIO()
 with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
     z.writestr("index.json", json.dumps(index, indent=1))
 (root / "index.zip").write_bytes(buffer.getvalue())
+# Where the window looks for an uninstalled extension's readme (omni.kit.registry.nucleus's
+# get_extension_metadata_possible_urls), as the crawler writes them (meshy's archives/ai.meshy.bridge/<id>.json).
+(root / "archives" / NAME).mkdir()
+for metadata in (root / "archives" / NAME / f"{package_id}.json", root / "archives" / f"{package_id}.json"):
+    metadata.write_text(json.dumps(entry), encoding="utf-8")
 print(f"{package_id}: {root / 'index.zip'}, {archive}")
 print(f"the archive is {'the zip unchanged' if same else 'the zip with only its extension.toml rewritten'}")
 print(f"registry url for Kit: {args.registry.resolve().as_posix()}")
@@ -709,5 +744,78 @@ if manager.get_enabled_extension_id(EXT):
     manager.set_extension_enabled_immediate(EXT, False)
 for _ in range(5):
     app.update()
+app.close()
+```
+
+`probe_metadata.py`, for Q9, in Isaac Sim's Python: what the window can fetch of an uninstalled community extension's
+readme, for a package id with a `+` and one without:
+
+```python
+"""#101's E4 finding: does Kit's Extensions window get an uninstalled community extension's readme when its package id
+holds a `+`, as ours will (`ovmcp.bridge-X.Y.Z+107.0`)?
+
+Usage: python probe_metadata.py
+
+Isaac Sim headless, no bridge, no port. It adds Kit's community registry after start, on the non-persistent key, the
+way the window adds one, and reads the metadata each package's OVERVIEW comes from, by the URLs the window builds
+(omni.kit.registry.nucleus's get_extension_metadata_possible_urls), with Kit's own client, omni.client:
+- MPCDI's `mf.ov.mpcdi_converter-1.1.1+105.1`: a `+` id with a 105.1 target, which Kit 110 takes;
+- meshy's `ai.meshy.bridge-0.1.0`: no `+`.
+The registry answers 404 to a raw `+` and 200 to `%2B` (curl, 2026-11-01): the question is what omni.client sends.
+Each line starts OVMCP-META. Nothing is written; Kit exits at the end.
+"""
+
+import json
+
+from isaacsim import SimulationApp  # noqa: E402
+
+app = SimulationApp({"headless": True, "width": 640, "height": 480})
+
+import carb.settings  # noqa: E402
+import omni.client  # noqa: E402
+import omni.kit.app  # noqa: E402
+from omni.kit.registry.nucleus import get_extension_metadata_possible_urls  # noqa: E402
+
+REGISTRIES = "exts/omni.kit.registry.nucleus/registries"
+COMMUNITY = "https://dw290v42wisod.cloudfront.net/exts/kit/community"
+BASE = f"{COMMUNITY}/3/archives/mf.ov.mpcdi_converter/mf.ov.mpcdi_converter-1.1.1"
+
+
+def say(*values):
+    print("OVMCP-META", *values, flush=True)
+
+
+tree = carb.settings.get_settings().get_settings_dictionary("")
+before = [{"name": r.get("name", ""), "url": r.get("url", "")} for r in tree.get(REGISTRIES, [])]
+if not any(r["url"] == COMMUNITY for r in before):
+    tree[REGISTRIES] = [*before, {"name": "kit/community", "url": COMMUNITY}]
+    omni.kit.app.queue_event("omni.kit.registry.nucleus.REGISTRIES_CHANGED_EVENT")
+    for _ in range(20):
+        app.update()
+manager = omni.kit.app.get_app().get_extension_manager()
+say("sync_registry", manager.sync_registry())
+
+for url in (f"{BASE}+105.1.json", f"{BASE}%2B105.1.json"):
+    result, _, _ = omni.client.read_file(url)
+    say("raw read", url.rsplit("/", 1)[1], result)
+
+for package_id in ("mf.ov.mpcdi_converter-1.1.1+105.1", "ai.meshy.bridge-0.1.0"):
+    entry = manager.get_registry_extension_dict(package_id)
+    if not entry:
+        say(package_id, "not in Kit's registries")
+        continue
+    say(package_id, "registryProviderName", entry.get("registryProviderName"))
+    urls = get_extension_metadata_possible_urls(entry)
+    say(package_id, "urls", json.dumps(list(urls)))
+    for url in urls:
+        result, _, content = omni.client.read_file(url)
+        readme = ""
+        if result == omni.client.Result.OK:
+            data = json.loads(memoryview(content).tobytes().decode("utf-8"))
+            readme = str(data.get("package", {}).get("readme", ""))[:60].replace("\n", " ")
+        say(package_id, result, url.rsplit("/", 2)[-2:], repr(readme))
+        if result == omni.client.Result.OK:
+            break
+
 app.close()
 ```
