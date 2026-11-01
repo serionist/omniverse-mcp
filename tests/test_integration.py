@@ -79,6 +79,192 @@ else:
     }
 """
 
+# test_27c's robot, in metres and kilograms, Z-up (#112): a base held to the world at its origin, and two arms 1 long
+# along X on hinges about Y, which gravity pulls down against their drives. Force hangs on an angular force drive, its
+# 1 kg from a density over its collider; Acceleration on an angular acceleration drive, its mass and inertia authored.
+# Sleep and stabilisation are off: their thresholds are in stage units, so one stage's arm would stop short of where
+# the other's settles.
+_UNITS_BOT_USDA = """#usda 1.0
+(
+    defaultPrim = "Bot"
+    kilogramsPerUnit = 1
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "Bot" (
+    prepend apiSchemas = ["PhysicsArticulationRootAPI", "PhysxArticulationAPI"]
+)
+{
+    bool physxArticulation:enabledSelfCollisions = 0
+    float physxArticulation:sleepThreshold = 0
+    float physxArticulation:stabilizationThreshold = 0
+
+    def Xform "Base" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+    )
+    {
+        float physics:mass = 5
+        float3 physics:diagonalInertia = (0.1, 0.1, 0.1)
+    }
+
+    def PhysicsFixedJoint "Bolt"
+    {
+        rel physics:body1 = </Bot/Base>
+    }
+
+    def Xform "Force" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+    )
+    {
+        float physics:density = 100
+        double3 xformOp:translate = (0.5, -0.5, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
+        def Cube "Shape" (
+            prepend apiSchemas = ["PhysicsCollisionAPI"]
+        )
+        {
+            double size = 1
+            float3 xformOp:scale = (1, 0.1, 0.1)
+            uniform token[] xformOpOrder = ["xformOp:scale"]
+        }
+    }
+
+    def PhysicsRevoluteJoint "ForceHinge" (
+        prepend apiSchemas = ["PhysicsDriveAPI:angular"]
+    )
+    {
+        uniform token physics:axis = "Y"
+        rel physics:body0 = </Bot/Base>
+        rel physics:body1 = </Bot/Force>
+        point3f physics:localPos0 = (0, -0.5, 0)
+        point3f physics:localPos1 = (-0.5, 0, 0)
+        uniform token drive:angular:physics:type = "force"
+        float drive:angular:physics:stiffness = 0.5
+        float drive:angular:physics:damping = 0.1
+    }
+
+    def Xform "Acceleration" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+    )
+    {
+        float physics:mass = 1
+        float3 physics:diagonalInertia = (0.0017, 0.0842, 0.0842)
+        double3 xformOp:translate = (0.5, 0.5, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def PhysicsRevoluteJoint "AccelerationHinge" (
+        prepend apiSchemas = ["PhysicsDriveAPI:angular"]
+    )
+    {
+        uniform token physics:axis = "Y"
+        rel physics:body0 = </Bot/Base>
+        rel physics:body1 = </Bot/Acceleration>
+        point3f physics:localPos0 = (0, 0.5, 0)
+        point3f physics:localPos1 = (-0.5, 0, 0)
+        uniform token drive:angular:physics:type = "acceleration"
+        float drive:angular:physics:stiffness = 1.5
+        float drive:angular:physics:damping = 0.3
+    }
+}
+"""
+
+# test_27c's stages: Z-up, in metres or centimetres (MPU), with earth's gravity in their units (GRAVITY), and a
+# timeline long enough to play past 4 s.
+_UNITS_STAGE_USDA = """#usda 1.0
+(
+    defaultPrim = "World"
+    endTimeCode = 1000
+    kilogramsPerUnit = 1
+    metersPerUnit = MPU
+    startTimeCode = 0
+    timeCodesPerSecond = 60
+    upAxis = "Z"
+)
+
+def Xform "World"
+{
+    def PhysicsScene "PhysicsScene"
+    {
+        vector3f physics:gravityDirection = (0, 0, -1)
+        float physics:gravityMagnitude = GRAVITY
+    }
+}
+"""
+
+# Plays to UNTIL seconds of simulation, then pauses: the timeline's time, whatever an update's length, bounded by a
+# count of updates so a timeline that doesn't move can't hold the call. The time reached.
+_PLAY_TO = """
+import omni.kit.app
+import omni.timeline
+
+timeline = omni.timeline.get_timeline_interface()
+timeline.play()
+updates = 0
+while timeline.get_current_time() < UNTIL and updates < 2000:
+    await omni.kit.app.get_app().next_update_async()
+    updates += 1
+timeline.pause()
+await omni.kit.app.get_app().next_update_async()
+result = timeline.get_current_time()
+"""
+
+# What PhysX holds for each joint of the articulation at PATH, read through its tensor API while the simulation is
+# paused: the drive's stiffness and damping, per radian, and the joint-space inertia, the mass matrix's diagonal.
+_PHYSX_DOFS = """
+import omni.physics.tensors as tensors
+
+view = tensors.create_simulation_view("warp", omni.usd.get_context().get_stage_id())
+articulation = view.create_articulation_view(PATH)
+names = list(articulation.shared_metatype.dof_names)
+stiffness = articulation.get_dof_stiffnesses().numpy()[0]
+damping = articulation.get_dof_dampings().numpy()[0]
+matrix = articulation.get_generalized_mass_matrices().numpy()[0]
+result = {}
+for i, name in enumerate(names):
+    result[name] = {"stiffness": float(stiffness[i]), "damping": float(damping[i]), "inertia": float(matrix[i][i])}
+"""
+
+# Kit's metrics assembler resolving PATH into an anonymous layer of its own, as #112's probe did, so neither the robot's
+# file nor the stage's layer is written: PATH's ops and scale, and the values NAMES lists, before and after, and which
+# of them Kit wrote into its layer. That layer is weaker than the stage's, which holds create_robot's converted values,
+# so only its specs show whether Kit converted one again. None without the assembler.
+_RESOLVE_UNITS = """
+try:
+    from omni.metrics.assembler.core import get_metrics_assembler_interface
+except ImportError:
+    result = None
+else:
+    context = omni.usd.get_context()
+    stage = context.get_stage()
+
+    def read():
+        prim = stage.GetPrimAtPath(PATH)
+        values = {}
+        for path, name in NAMES:
+            value = stage.GetPrimAtPath(path).GetAttribute(name).Get()
+            values[path + "." + name] = [float(v) for v in value] if hasattr(value, "__len__") else float(value)
+        return {
+            "ops": [op.GetOpName() for op in UsdGeom.Xformable(prim).GetOrderedXformOps()],
+            "scale": [float(v) for v in prim.GetAttribute("xformOp:scale:unitsResolve").Get()],
+            "values": values,
+        }
+
+    before = read()
+    layer = Sdf.Layer.CreateAnonymous("ovmcp-IntTest-resolve")
+    stage.GetRootLayer().subLayerPaths.insert(0, layer.identifier)
+    assembler = get_metrics_assembler_interface()
+    assembler.set_resolve_layer(layer.identifier)
+    try:
+        assembler.resolve_hierarchy(context.get_stage_id(), PATH)
+    finally:
+        assembler.set_resolve_layer(None)
+    written = [path + "." + name for path, name in NAMES if layer.GetAttributeAtPath(path + "." + name) is not None]
+    result = {"before": before, "after": read(), "written": written}
+"""
+
 # The live tests of the bounded capture waits (#27, #35) change Kit through execute_script, which is not behind the
 # viewport lock, and undo it in their cleanup. Each change also undoes itself on Kit's loop after 60 s, in case the
 # test process dies first, and only while it is still that test's own, so a late undo never removes a later test's.
@@ -1548,6 +1734,110 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         dims = self.client.prim_bounds(path)["result"]["dimensions"]
         self.assertEqual(max(range(3), key=lambda i: dims[i]), axis, dims)
         print(f"  stood upright on a {up}-up stage, and Kit's assembler left it so: {resolved}")
+
+    def test_27c_a_robot_file_of_other_units_behaves_as_in_the_stage_s(self):
+        """A metre robot file on a metre stage and on a centimetre stage the test writes and opens: on the centimetre
+        one it is scaled 100 times and its values converted, so the force arm sags as far as on the metre one; with
+        the scale alone its drive would be 10^4 times too weak. The acceleration drive's gains reach PhysX the same on
+        both stages, and its arm's inertia 10^4 times larger, as a centimetre stage reads it; with the PhysX schema's
+        table its gains would be 10^4 times too stiff. Its sags are printed, not compared: with those same inputs,
+        PhysX settles an acceleration drive about 1.5 times further on a centimetre stage (the plan's A5). Kit's
+        assembler, run on it after, writes none of the values create_robot converted (#112)."""
+        copy = self._saved_copy("IntTestUnitsBack.usda")
+        self.addCleanup(self._reopen, copy)
+        self.addCleanup(self.client.sim_control, "stop")
+        folder = Path(tempfile.mkdtemp(prefix="ovmcp-Robots-"))
+        self.addCleanup(shutil.rmtree, folder, True)
+        robot = folder / "IntTestUnitsBot.usda"
+        robot.write_text(_UNITS_BOT_USDA, encoding="utf-8")
+        path = "/World/IntTestUnitsBot"
+        sags: dict[str, dict[str, float]] = {}
+        boxes: dict[str, list[float]] = {}
+        dofs: dict[str, dict[str, dict[str, float]]] = {}
+        for name, meters in (("metres", 1.0), ("centimetres", 0.01)):
+            stage = folder / f"IntTestUnits_{name}.usda"
+            text = _UNITS_STAGE_USDA.replace("MPU", f"{meters:g}").replace("GRAVITY", f"{9.81 / meters:g}")
+            stage.write_text(text, encoding="utf-8")
+            self._reopen(stage)
+
+            result = self.client.create_robot(str(robot))
+
+            self.assertEqual(result["status"], "success", result.get("error"))
+            self.assertEqual(result["result"]["prim_path"], path)
+            scaled = result["result"].get("units_scale")
+            if meters == 1.0:
+                self.assertIsNone(scaled)
+            else:
+                self.assertIsNotNone(scaled, "an extension older than #112's scales nothing")
+                got = (scaled["factor"], scaled["op"], scaled["table"], scaled["left_count"])
+                self.assertEqual(got, (100.0, [100.0, 100.0, 100.0], True, 0), scaled)
+            boxes[name] = self.client.prim_bounds(f"{path}/Force")["result"]["dimensions"]
+            sags[name] = self._settled_sags(path)
+            dofs[name] = self._kit(_PHYSX_DOFS.replace("PATH", repr(path)))
+            self.assertEqual(self.client.sim_control("stop")["status"], "success")
+        self._kit_leaves_the_force_arm(path)
+
+        ratios = [round(c / m, 3) for c, m in zip(boxes["centimetres"], boxes["metres"], strict=True)]
+        self.assertEqual(ratios, [100.0, 100.0, 100.0], boxes)
+        metre, centimetre = sags["metres"]["ForceHinge"], sags["centimetres"]["ForceHinge"]
+        self.assertGreater(abs(metre), 0.02, f"the force arm didn't sag on the metre stage: {sags}")
+        self.assertAlmostEqual(centimetre, metre, delta=0.02 * abs(metre), msg=f"the force arm: {sags}")
+        metre_dof, centimetre_dof = dofs["metres"]["AccelerationHinge"], dofs["centimetres"]["AccelerationHinge"]
+        for gain in ("stiffness", "damping"):
+            self.assertAlmostEqual(centimetre_dof[gain], metre_dof[gain], delta=1e-4 * metre_dof[gain], msg=dofs)
+        for joint in ("ForceHinge", "AccelerationHinge"):
+            inertia = dofs["centimetres"][joint]["inertia"] / dofs["metres"][joint]["inertia"]
+            self.assertAlmostEqual(inertia, 1e4, delta=10.0, msg=f"{joint}'s joint-space inertia: {dofs}")
+        for name in ("metres", "centimetres"):
+            self.assertGreater(abs(sags[name]["AccelerationHinge"]), 0.02, f"the acceleration arm held rigid: {sags}")
+        ratio = sags["centimetres"]["AccelerationHinge"] / sags["metres"]["AccelerationHinge"]
+        print(f"  sags in radians, metres and centimetres: {sags}; the acceleration arm's, cm over m: {ratio:.3f}")
+
+    def _settled_sags(self, path: str) -> dict[str, float]:
+        """Each hinge's angle in radians, by its name, once the arms have settled: played to 3 s and to 4 s of
+        simulation, the two readings agreeing within 0.2%."""
+        readings = []
+        for until in (3.0, 4.0):
+            done = self.slow.execute(_PLAY_TO.replace("UNTIL", repr(until)))
+            self.assertEqual(done["status"], "success", done)
+            self.assertGreaterEqual(done["result"]["return_value"], until, "the simulation didn't reach its time")
+            states = self.client.get_joint_states(path)
+            self.assertEqual(states["status"], "success", states)
+            readings.append(dict(zip(states["result"]["names"], states["result"]["positions"], strict=True)))
+        first, last = readings
+        for joint, angle in last.items():
+            self.assertAlmostEqual(first[joint], angle, delta=0.002 * abs(angle) + 1e-5, msg=f"unsettled: {readings}")
+        return last
+
+    def _kit_leaves_the_force_arm(self, path: str) -> None:
+        """Kit's metrics assembler, resolving the robot on the centimetre stage, adds no op and writes none of the
+        values create_robot converted into its layer (P5). It does convert the acceleration drive's gains, by its
+        table, which create_robot leaves: printed, not checked."""
+        names = [
+            (f"{path}/Base", "physics:diagonalInertia"),
+            (f"{path}/Force", "physics:density"),
+            (f"{path}/ForceHinge", "drive:angular:physics:stiffness"),
+            (f"{path}/ForceHinge", "drive:angular:physics:damping"),
+            (f"{path}/Acceleration", "physics:diagonalInertia"),
+        ]
+        acceleration = (f"{path}/AccelerationHinge", "drive:angular:physics:stiffness")
+        script = _RESOLVE_UNITS.replace("PATH", repr(path)).replace("NAMES", repr([*names, acceleration]))
+        resolved = self._kit(script)
+        if resolved is None:
+            print("  no metrics assembler here")
+            return
+        before, after = resolved["before"], resolved["after"]
+        self.assertEqual(after["ops"], before["ops"], resolved)
+        self.assertEqual(after["ops"].count("xformOp:scale:unitsResolve"), 1, resolved)
+        self.assertEqual(after["scale"], [100.0, 100.0, 100.0], resolved)
+        for prim, name in names:
+            key = f"{prim}.{name}"
+            self.assertNotIn(key, resolved["written"], resolved)
+            self.assertEqual(after["values"][key], before["values"][key], key)
+        key = ".".join(acceleration)
+        print(
+            f"  Kit's assembler: the acceleration drive's stiffness {before['values'][key]} -> {after['values'][key]}"
+        )
 
     def test_28_create_robot_from_a_missing_file(self):
         missing = Path(tempfile.gettempdir()) / "ovmcp-No-Such-Robot.usd"

@@ -84,6 +84,8 @@ def test_every_tool_and_parameter_is_described(listed):
         ("set_physics_properties", "a child named PhysMat (/World/Cube/PhysMat for /World/Cube)"),
         ("set_physics_properties", "A copy made with clone_prim takes its own with it"),
         ("set_physics_properties", "follows the source's material until a call on the clone"),
+        # An agent reading this knows a robot of other units comes in at its size, its physics converted (#112).
+        ("create_robot", "A file whose metersPerUnit or kilogramsPerUnit isn't the stage's is brought to the stage's"),
     ],
 )
 def test_a_description_says_what_the_tool_now_does(listed, tool: str, says: str):

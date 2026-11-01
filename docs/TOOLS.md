@@ -608,8 +608,35 @@ each is turned on a Y-up stage. `position` and `rotation` stay in the stage's fr
 `rotation=[0, 90, 0]` on a Y-up stage turns the standing robot about Y. A file whose root holds that op already, as
 one Kit resolved and saved, gets the turn added to it. A file that authors no `upAxis` is left as it is. The answer
 says when it turned one, the turn added and the op's value after. `set_prim_transform` keeps the op where it is.
-Unlike Kit's metrics assembler, it doesn't scale a file whose `metersPerUnit` isn't the stage's: #112. With an
-extension of 0.3.0 or older, nothing is turned, and a library robot lies on its side on a Y-up stage.
+With an extension of 0.3.0 or older, nothing is turned, and a library robot lies on its side on a Y-up stage.
+
+**Units:** a file whose `metersPerUnit` or `kilogramsPerUnit` isn't the stage's is brought to the stage's units, as
+Kit's metrics assembler brings a dropped file with its physics rules, so it behaves as the same robot authored in
+them:
+
+- **The scale:** a file of other `metersPerUnit` is scaled by file over stage in `xformOp:scale:unitsResolve`, a
+  double op after the turn upright, before any inverse op, else last: a metre robot on a centimetre stage reads 100.
+  A file whose root holds that op already, as one Kit resolved and saved, gets it multiplied.
+- **The physics values:** converted by the PhysX schema's table of units, the one Kit's physics rules read: masses
+  from a density, inertia, drives, prismatic limits and targets, contact offsets and the rest. Each value is taken in
+  the units of the layer it is authored in; a sublayer that authors none, in its file's, and a file the robot
+  references that authors none, in the robot file's. A file of other `kilogramsPerUnit` has its masses, inertia and
+  forces converted and nothing scaled.
+- **Cameras:** a camera's `focusDistance` and `clippingRange` are converted too, as Kit's camera rules convert them.
+- **Left as they are:** an angular acceleration drive's stiffness and damping, which hold no distance, where the table
+  gives them square metres, which would hold the joint rigid on a centimetre stage. PhysX then holds the same gains
+  and inertia, in stage terms, as for the robot authored in the stage's units, yet it settles such a drive further
+  on a centimetre stage: an arm that sagged 0.169 rad on a metre stage sagged 0.262 on a centimetre one. So an angular
+  acceleration drive isn't shown to behave as in the stage's units; force drives do. Also left: values inside
+  instances, which no layer of the stage can override, as Kit leaves them, and values animated by value clips or
+  splines, and the answer names them; a file that authors neither unit, taken in the stage's units, as Kit takes it;
+  a file nested inside the robot's, of units of its own, gets no scale of its own.
+- **Where they go:** the stage's layer, with the robot. A later change to those values in the robot's file no longer
+  shows, and a drive target the file animates wins over `set_joint_targets`, whose value goes into the same layer,
+  where the converted samples are stronger.
+- **The answer** says when: the two units, the factor, the op's value after, how many values were converted, and those
+  left. A Kit app without the PhysX schema changes only the scale and the cameras, and the answer says so. With an
+  extension of 0.3.0 or older, nothing is scaled. `create_prim`'s `usd_path` does neither yet: #119.
 
 ---
 

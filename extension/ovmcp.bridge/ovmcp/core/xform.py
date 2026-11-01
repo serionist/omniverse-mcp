@@ -245,15 +245,21 @@ def _new_op(prim: Usd.Prim, op_type: Tf.Type) -> _New:
     return _New(op_type, precision, name)
 
 
-def add_local_op(prim: Usd.Prim, op_type: Tf.Type, suffix: str) -> UsdGeom.XformOp:
+def add_local_op(
+    prim: Usd.Prim,
+    op_type: Tf.Type,
+    suffix: str,
+    precision: UsdGeom.XformOp.Precision = UsdGeom.XformOp.PrecisionFloat,
+) -> UsdGeom.XformOp:
     """A new op of op_type and suffix, in the edit target's layer, where a part's new op goes: before the first inverse
     op, else last, so a pivot pair stays around it. An attribute of its name already there out of the order keeps its
-    precision, as _new_op's rule has it: AddXformOp raises for another. create_robot's turn upright is one (#105)."""
+    precision, as _new_op's rule has it: AddXformOp raises for another. create_robot's turn upright (#105) and its
+    scale to the stage's units (#112) are such ops."""
     xformable = UsdGeom.Xformable(prim)
     order: list[_Item] = [*xform_ops(xformable)]
     name = f"xformOp:{UsdGeom.XformOp.GetOpTypeToken(op_type)}:{suffix}"
     there = prim.GetAttribute(name)
-    precision = UsdGeom.XformOp(there).GetPrecision() if there else UsdGeom.XformOp.PrecisionFloat
+    precision = UsdGeom.XformOp(there).GetPrecision() if there else precision
     op = add_xform_op(xformable, op_type, precision, suffix)
     order.insert(_before(order, _is_inverse), op)
     xformable.SetXformOpOrder(cast("list[UsdGeom.XformOp]", order), xformable.GetResetXformStack())
