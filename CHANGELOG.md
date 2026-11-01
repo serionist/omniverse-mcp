@@ -29,6 +29,12 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ### Fixed
 
+- **`create_robot` brings a robot file of other units to the stage's:** a robot in metres on a centimetre stage
+  came in 100 times too small. It is now scaled, as Kit scales a dropped file, and its physics values (masses,
+  inertia, drives, limits) and its cameras' focus distance and clipping range are converted to the stage's units, so
+  it behaves as the same robot authored in them. The answer says when. **A call that scaled the robot itself now
+  scales it twice: drop that scale.** `create_prim`'s `usd_path` doesn't yet (#119). The fix is in the Kit extension:
+  run `uvx omniverse-mcp extension install`, then restart Kit (#112).
 - **`get_prim_properties` reads a scaled prim's rotation:** `rot` came from the world matrix with its scale left in,
   so a 45° turn at scale 0.5 read as 84°, and a prim under a scaled parent could read as not turned. Recordings'
   `state.txt` and `get_scene_tree`'s file gave the same `rot`. A prim scaled to 0 on an axis, which has no rotation

@@ -198,13 +198,13 @@ first 10 paths left, `left_count` all of them; `table` is false where the PhysX 
 `_scaled_line(units)`, after #105's turned line:
 
 ```text
-Scaled to the stage's units: the file's metersPerUnit is 1 and the stage's 0.01, so ×100 went into
+Scaled to the stage's units: the file's metersPerUnit is 1 and the stage's 0.01, so a factor of 100 went into
 xformOp:scale:unitsResolve, which now reads 100; 37 values (masses, inertia, drives, limits, camera distances) were
 converted to the stage's units, as Kit's metrics assembler converts them with its physics rules
 ```
 
-A root that held the op: "so ×0.01 was multiplied into xformOp:scale:unitsResolve, which now reads 1", the factor and
-the op named both, as #105's turned line names the turn and the op. Then, when they apply: "N values stay in the
+A root that held the op: "so a factor of 0.01 was multiplied into xformOp:scale:unitsResolve, which now reads 1",
+the factor and the op named both, as #105's turned line names the turn and the op. Then, when they apply: "N values stay in the
 file's units, inside instances, which USD lets no one override, or animated by value clips: <paths>", and "This Kit
 app has no PhysX schema to read units from, so the robot's physics values stay in the file's units". A mass-only case
 says "Converted to the stage's units: the file's kilogramsPerUnit is 0.001 and the stage's 1; ...". An older extension
@@ -312,7 +312,7 @@ distances, where `create_robot` converts them. Mimic joints' gearing (Risks).
     inertia, drives, limits) and its cameras' focus distance and clipping range are converted to the stage's units,
     so it behaves as the same robot authored in them. The answer says when. **A call that scaled the robot itself
     now scales it twice: drop that scale.** `create_prim`'s `usd_path` doesn't yet (#119). The fix is in the Kit
-    extension (#112).
+    extension: run `uvx omniverse-mcp extension install`, then restart Kit (#112).
   ```
 
 - **`AGENTS.md`:** nothing: `robot.py` is listed, as "robot files".
