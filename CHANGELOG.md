@@ -36,6 +36,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 - **`capture_viewport` and `inspect_prim` warn when the lighting lights nothing:** mode `off`, or `stage` with no
   scene lights. The warning came only with an all-black image, and Kit's grid keeps one from being all black. With
   an older Kit extension, only `off` warns (#105).
+- **`create_robot` stands a robot upright on a stage of the other up axis,** as Kit stands a dropped file: Isaac
+  Sim's robots are Z-up, and on a Y-up stage they lay on their side. The answer says when it turned one. **A call
+  that turned the robot itself, with `rotation=[-90, 0, 0]`, now turns it twice: drop that rotation.** The fix is in
+  the Kit extension (#105).
 - **`compare_prims` gives no percentage from 0 faces,** where it said `+0%`, and each delta its own sign, where a
   drop in vertices beside a rise in faces read `+-5` (#105).
 

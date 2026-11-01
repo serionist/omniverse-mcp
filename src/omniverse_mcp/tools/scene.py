@@ -359,8 +359,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Discard the open stage, unsaved changes included, and open an empty one: Y-up, with a /World Xform as its
         default prim.
 
-        Call save_scene first to keep the old one. Isaac Sim's robots and stages are Z-up: for robot work, open a Z-up
-        stage with open_scene, or set the axis with execute_script (UsdGeom.SetStageUpAxis) before adding anything.
+        Call save_scene first to keep the old one. create_robot stands Isaac Sim's Z-up robots upright on it, but
+        Isaac Sim's other assets and its stages are Z-up: for robot work, open a Z-up stage with open_scene, or set
+        the axis with execute_script (UsdGeom.SetStageUpAxis) before adding anything.
         The new stage has no file, so save_scene needs a file_path for it. A recording that runs stops taking frames,
         and draw_debug's drawings go.
         """

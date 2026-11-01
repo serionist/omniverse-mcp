@@ -340,8 +340,9 @@ A recording that stopped gives its `recording_note`, as `get_sim_state` does.
 
 ### `new_scene`
 
-Discard the open scene, unsaved changes too, and start an empty one with a `/World` prim. The new stage is Y-up, while
-Isaac Sim's robots and stages are Z-up: for robot work, open a Z-up stage with `open_scene` or set the axis with
+Discard the open scene, unsaved changes too, and start an empty one with a `/World` prim. The new stage is Y-up.
+`create_robot` stands Isaac Sim's Z-up robots upright on it, but Isaac Sim's other assets and its stages are Z-up:
+for robot work, open a Z-up stage with `open_scene` or set the axis with
 `execute_script` (`UsdGeom.SetStageUpAxis(omni.usd.get_context().get_stage(), UsdGeom.Tokens.z)`) before adding
 anything. Call `save_scene` first to keep the old stage. The new stage has no file, so `save_scene` needs a `file_path`
 for it. A recording that runs stops taking frames, and `draw_debug`'s drawings go.
@@ -586,6 +587,15 @@ path in Isaac Sim's asset library (`/Isaac/...`), which goes under the library's
 is an error, and so is a prim already at `prim_path`. `position` and `rotation` go into the robot's own root ops, as
 `set_prim_transform` writes them; a malformed one is refused before the robot is added, and one refused after it (an
 animated root op in the file) takes the robot away again.
+
+**Up axis:** a file whose `upAxis` isn't the stage's is stood upright on it, as Kit's metrics assembler stands a
+file dropped on the stage: a turn about X in `xformOp:rotateX:unitsResolve`, -90 for a Z-up file on a Y-up stage and
++90 the other way, before any inverse op on the robot's root, else last. Every robot of the table above is Z-up, so
+each is turned on a Y-up stage. `position` and `rotation` stay in the stage's frame, outside the turn:
+`rotation=[0, 90, 0]` on a Y-up stage turns the standing robot about Y. A file whose root holds that op already, as
+one Kit resolved and saved, gets the turn added to it. A file that authors no `upAxis` is left as it is. The answer
+says when it turned one, the turn added and the op's value after. `set_prim_transform` keeps the op where it is.
+With an extension of 0.3.0 or older, nothing is turned, and a library robot lies on its side on a Y-up stage.
 
 ---
 

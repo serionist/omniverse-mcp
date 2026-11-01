@@ -50,6 +50,18 @@ def _joint_states(resp: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _turned_line(turn: dict[str, Any]) -> str:
+    """The line for a robot create_robot stood upright: the turn this call added, and the op's value after it, which
+    differ when the file's root held the op already (#105). Both are named, so the op read back matches the answer."""
+    degrees, value = float(turn["degrees"]), float(turn["op"])
+    op = turn.get("op_name", "xformOp:rotateX:unitsResolve")
+    added = "went into" if degrees == value else "added to"
+    return (
+        f"Turned upright: the file is {turn['file']}-up and the stage {turn['stage']}-up, so {degrees:+g}° about X "
+        f"{added} {op}, which now reads {value:g}, as Kit's metrics assembler turns a dropped file"
+    )
+
+
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @tool(mcp, EDITS)
     def create_robot(
@@ -63,13 +75,17 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         Names, which need Isaac Sim: franka, ur10, carter, jetbot, g1, go1, go2, h1, spot, anymal. A USD file as
         robot_type is a path on the Kit app's machine, a URL, or a path in Isaac Sim's asset library (/Isaac/...).
         Without prim_path, the prim is named after the robot or the file: /World/Franka, or /World/MyBot for MyBot.usd.
-        A prim already at prim_path, or a file that can't be opened, is an error. For anything but a robot, use
-        create_prim; get_robot_info then lists the robot's joints.
+        A prim already at prim_path, or a file that can't be opened, is an error. A file whose upAxis isn't the
+        stage's is stood upright on it, as Kit stands a dropped file, and the answer says so: Isaac Sim's robots are
+        Z-up, so each is turned on a Y-up stage. position and rotation stay in the stage's frame. For anything but a
+        robot, use create_prim; get_robot_info then lists the robot's joints.
         """
         resp = bridge_call(client.create_robot, robot_type, prim_path, position, rotation)
         r = resp["result"]
         parts = [f"Robot '{r['robot_type']}' created at {r['prim_path']}"]
         parts.append(f"USD: {r['usd_path']}")
+        if turn := r.get("up_axis_turn"):
+            parts.append(_turned_line(turn))
         if r.get("joints"):
             parts.append(f"Joints: {len(r['joints'])}")
             for j in r["joints"][:10]:

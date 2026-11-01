@@ -6,9 +6,17 @@ Handles robot creation, info, joint states, and joint target setting.
 
 import os
 
-from pxr import Sdf, Tf, Usd, UsdPhysics
+from pxr import Sdf, Tf, Usd, UsdGeom, UsdPhysics
 
-from ovmcp.core.robot import articulation_root, is_usd_file, robot_prim_path
+from ovmcp.core.robot import (
+    UP_AXIS_OP,
+    articulation_root,
+    file_up_axis,
+    is_usd_file,
+    robot_prim_path,
+    stand_upright,
+    up_axis_turn,
+)
 from ovmcp.core.usd_files import LIBRARY_PREFIX, usd_file_url
 from ovmcp.core.xform import check_transform, write_transform
 
@@ -97,13 +105,22 @@ async def handle_create_robot(body: dict) -> dict:
     if layer is None:
         return {"status": "error", "error": f"Could not open {full_usd_path}"}
 
+    # A file of another up axis lies on its side here: Isaac Sim's robots are Z-up, and Kit stands one dropped on a
+    # Y-up stage with a turn this call writes as Kit does (#105).
+    file_axis, stage_axis = file_up_axis(layer), str(UsdGeom.GetStageUpAxis(stage))
+    degrees = up_axis_turn(file_axis, stage_axis)
+
     made = _first_missing(stage, prim_path)
     prim = stage.DefinePrim(prim_path)
     prim.GetReferences().AddReference(full_usd_path)
     if not prim.IsValid():
         return {"status": "error", "error": f"Failed to create robot at {prim_path}"}
 
+    turned = None
     try:
+        if degrees is not None:
+            value = stand_upright(prim, degrees)
+            turned = {"file": file_axis, "stage": stage_axis, "degrees": degrees, "op": value, "op_name": UP_AXIS_OP}
         write_transform(prim, parts)
     except ValueError as e:
         # Such as an animated root op in the file: what this call made goes, so a retry isn't refused as taken.
@@ -121,6 +138,7 @@ async def handle_create_robot(body: dict) -> dict:
             "prim_path": str(prim.GetPath()),
             "robot_type": robot_type,
             "usd_path": full_usd_path,
+            "up_axis_turn": turned,
             "joints": joint_info[:50],
         },
     }

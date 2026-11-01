@@ -281,8 +281,9 @@ So:
   refuses a name already in the order). A Z-up robot saved into a Y-up file, -90, given to a Z-up stage, +90, gets 0:
   its content was Z-up all along. The answer reports the turn added.
 
-The answer gains `up_axis_turn`: `{"file": "Z", "stage": "Y", "degrees": -90, "op": -90}`, or `null`, where
-`degrees` is the turn this call added and `op` the value the op holds after it. The server names both, so an agent
+The answer gains `up_axis_turn`: `{"file": "Z", "stage": "Y", "degrees": -90, "op": -90, "op_name":
+"xformOp:rotateX:unitsResolve"}`, or `null`, where `degrees` is the turn this call added, `op` the value the op
+holds after it, and `op_name` the op (built so, so the server names what the extension wrote). The server names both, so an agent
 that reads the op back finds what the answer said:
 `Turned upright: the file is Z-up and the stage Y-up, so -90° about X went into xformOp:rotateX:unitsResolve, which
 now reads -90, as Kit's metrics assembler turns a dropped file`. In P3's case, a Y-up file whose op holds -90 on a

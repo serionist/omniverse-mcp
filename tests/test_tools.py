@@ -1023,6 +1023,40 @@ def test_compare_prims_gives_each_delta_its_own_sign_and_no_percentage_from_0_fa
     assert never not in text.split("=== Delta (B - A) ===")[1]
 
 
+ROBOT = {"robot_type": "g1", "prim_path": "/World/G1", "usd_path": "g1.usd", "joints": []}
+OP = "xformOp:rotateX:unitsResolve"
+
+
+@pytest.mark.parametrize(
+    ("turn", "says"),
+    [
+        (
+            {"file": "Z", "stage": "Y", "degrees": -90.0, "op": -90.0, "op_name": OP},
+            f"Turned upright: the file is Z-up and the stage Y-up, so -90° about X went into {OP}, which now reads -90",
+        ),
+        # A file whose root held Kit's turn: the op reads 0, not the +90 added, and the answer says both (#105, P7).
+        (
+            {"file": "Y", "stage": "Z", "degrees": 90.0, "op": 0.0, "op_name": OP},
+            f"Turned upright: the file is Y-up and the stage Z-up, so +90° about X added to {OP}, which now reads 0",
+        ),
+    ],
+    ids=["new-op", "added-to-the-file-s-op"],
+)
+def test_create_robot_says_it_stood_the_robot_upright(
+    turn: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    case = Case("create_robot", {"robot_type": "g1"}, "/robot/create", {**ROBOT, "up_axis_turn": turn}, {}, (says,))
+    _check(case, bridge, tmp_path)
+
+
+@pytest.mark.parametrize("answer", [ROBOT, {**ROBOT, "up_axis_turn": None}], ids=["older-extension", "no-turn"])
+def test_create_robot_says_nothing_of_a_turn_it_didn_t_make(
+    answer: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path
+):
+    text = _check(Case("create_robot", {"robot_type": "g1"}, "/robot/create", answer, {}, ()), bridge, tmp_path)
+    assert "Turned upright" not in text
+
+
 @pytest.mark.parametrize("args", [{}, {"fps": 10}, {"width": 640, "height": 480, "camera_path": ""}])
 def test_start_recording_on_an_older_extension_warns_of_nothing_without_a_camera_or_a_size(
     args: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path

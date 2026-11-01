@@ -2,9 +2,17 @@
 (#50). Without Kit. Where a file loads from is tests/test_usd_files.py's."""
 
 import pytest
-from pxr import Usd, UsdGeom, UsdPhysics
+from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 
-from ovmcp.core.robot import articulation_root, is_usd_file, robot_prim_path
+from ovmcp.core.robot import (
+    UP_AXIS_OP,
+    articulation_root,
+    file_up_axis,
+    is_usd_file,
+    robot_prim_path,
+    stand_upright,
+    up_axis_turn,
+)
 
 
 @pytest.mark.parametrize(
@@ -61,3 +69,94 @@ def robots() -> Usd.Stage:
 )
 def test_the_articulation_root_at_or_under_a_prim(robots: Usd.Stage, prim: str, root: str | None):
     assert articulation_root(robots.GetPrimAtPath(prim)) == root
+
+
+# ---- standing a file of another up axis on the stage (#105) ----
+
+
+def _layer(up_axis: str | None) -> Sdf.Layer:
+    layer = Sdf.Layer.CreateAnonymous("bot.usda")
+    if up_axis is not None:
+        layer.pseudoRoot.SetInfo("upAxis", up_axis)
+    return layer
+
+
+@pytest.mark.parametrize(
+    ("file_axis", "stage_axis", "degrees"),
+    [("Z", "Y", -90.0), ("Y", "Z", 90.0), ("Z", "Z", None), ("Y", "Y", None), (None, "Y", None), (None, "Z", None)],
+)
+def test_the_turn_that_stands_a_file_on_the_stage(file_axis: str | None, stage_axis: str, degrees: float | None):
+    # Kit's metrics assembler turns a Z-up file on a Y-up stage by -90 about X; a file that doesn't say is left alone.
+    assert file_up_axis(_layer(file_axis)) == file_axis
+    assert up_axis_turn(file_up_axis(_layer(file_axis)), stage_axis) == degrees
+
+
+@pytest.fixture
+def stage() -> Usd.Stage:
+    return Usd.Stage.CreateInMemory()
+
+
+def _prim(stage: Usd.Stage, ops: list[str]) -> Usd.Prim:
+    xformable = UsdGeom.Xform.Define(stage, "/Bot")
+    for name in ops:
+        if name == "translate":
+            xformable.AddTranslateOp().Set(Gf.Vec3d(1, 2, 3))
+        elif name == "pivot":
+            xformable.AddTranslateOp(opSuffix="pivot").Set(Gf.Vec3d(0.2, 0, 0.3))
+        elif name == "rotateXYZ":
+            xformable.AddRotateXYZOp().Set(Gf.Vec3f(0, 30, 0))
+        elif name == "invert pivot":
+            xformable.AddTranslateOp(opSuffix="pivot", isInverseOp=True)
+        elif name == "units":
+            xformable.AddRotateXOp(opSuffix="unitsResolve").Set(-90.0)
+    return xformable.GetPrim()
+
+
+def _names(prim: Usd.Prim) -> list[str]:
+    return [op.GetOpName() for op in UsdGeom.Xformable(prim).GetOrderedXformOps()]
+
+
+def test_a_turn_goes_last_on_a_root_without_an_inverse_op(stage: Usd.Stage):
+    prim = _prim(stage, ["translate", "rotateXYZ"])
+
+    assert stand_upright(prim, -90.0) == -90.0
+    assert _names(prim) == ["xformOp:translate", "xformOp:rotateXYZ", UP_AXIS_OP]
+    assert prim.GetAttribute(UP_AXIS_OP).Get() == -90.0
+
+
+def test_a_turn_goes_before_an_inverse_op_as_kit_puts_it(stage: Usd.Stage):
+    # Appended after the inverse pivot, the robot would land off by Rx·p - p from where Kit puts it.
+    prim = _prim(stage, ["translate", "pivot", "rotateXYZ", "invert pivot"])
+
+    stand_upright(prim, -90.0)
+
+    assert _names(prim) == [
+        "xformOp:translate",
+        "xformOp:translate:pivot",
+        "xformOp:rotateXYZ",
+        UP_AXIS_OP,
+        "!invert!xformOp:translate:pivot",
+    ]
+    matrix = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+    pivot = Gf.Matrix4d().SetTranslate(Gf.Vec3d(0.2, 0, 0.3))
+    turn = Gf.Matrix4d().SetRotate(Gf.Rotation(Gf.Vec3d(1, 0, 0), -90)) * Gf.Matrix4d().SetRotate(
+        Gf.Rotation(Gf.Vec3d(0, 1, 0), 30)
+    )
+    want = pivot.GetInverse() * turn * pivot * Gf.Matrix4d().SetTranslate(Gf.Vec3d(1, 2, 3))
+    assert Gf.IsClose(matrix, want, 1e-6)
+
+
+def test_a_root_that_holds_the_op_gets_the_sum_in_place(stage: Usd.Stage):
+    # A Z-up robot Kit saved into a Y-up file (-90), given to a Z-up stage (+90): its content was Z-up all along.
+    prim = _prim(stage, ["translate", "units"])
+
+    assert stand_upright(prim, 90.0) == 0.0
+    assert _names(prim) == ["xformOp:translate", UP_AXIS_OP]
+
+
+def test_an_animated_op_is_refused(stage: Usd.Stage):
+    prim = _prim(stage, ["units"])
+    prim.GetAttribute(UP_AXIS_OP).Set(-90.0, 1.0)
+
+    with pytest.raises(ValueError, match="animated"):
+        stand_upright(prim, 90.0)
