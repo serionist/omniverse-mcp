@@ -1,9 +1,9 @@
 ---
 title: Fix the small tool bugs the first AI scenario runs found
 issue: "#105"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-11-01
 ---
 
 # Fix the small tool bugs the first AI scenario runs found
@@ -39,12 +39,12 @@ thing #109's skill still asks the user is the Kit app.
 
 | In scope | Out of scope |
 |---|---|
-| The five bugs, and `compare_prims`' signs, found reading R1's code | A robot file whose `metersPerUnit` isn't the stage's (Q6) |
+| The five bugs, and `compare_prims`' signs, found reading R1's code | A robot file whose `metersPerUnit` isn't the stage's (Q6): #112 |
 | `inspect_prim`'s warning, which has R4's blind spot (Q2) | The extension's `face_reduction_pct` for A's 0 faces: it stays `0`, and the server, its only reader, ignores it then |
 | Five scenarios' Verify lines: 2.2, 10.1, 20.6, 23.6, 26.2 | Scenario 2.1's DistantLight, which points up on a Y-up stage: #103's (see The probe, R4) |
 | Descriptions, `docs/TOOLS.md`, `docs/ARCHITECTURE.md`, the READMEs, the scene skill, `CHANGELOG.md` | Scenarios 24.5's `since_index` and 24.6's text: #103's; 24.6 there now logs one error and raises another (`a65189f`) |
 | R7, in the Kit extension; the server's answer stays as #108 made it | A whole-frame `is_black`, which stays as it is: the renderer warming up still needs it |
-| R8, on both sides, and its follow-on in #109's texts: the `report-bug` skill, the server's instructions, `docs/AI_GUIDE.md`, `tests/test_bug_reports.py` | R7's material name, shared by prims of the same name, which the description already says: Q9 and a follow-up issue |
+| R8, on both sides, and its follow-on in #109's texts: the `report-bug` skill, the server's instructions, `docs/AI_GUIDE.md`, `tests/test_bug_reports.py` | R7's material name, shared by prims of the same name, which the description already says: Q9, and #113 gives each prim its own |
 | | `tools/scenarios.py`'s `KIT_FACTS`, which could read R8's `/health` fields but still needs `/execute` for the bridge's folder |
 
 ## What the code, the sources and the probe say
@@ -330,7 +330,7 @@ with `AddAppliedSchema("PhysxMaterialAPI")`, and copies each attribute by its na
 **The shared material (Q9):** the material is `/World/PhysicsMaterials/<prim name>_PhysMat`, shared by every prim of
 that name, as the description says. Writing all three values makes that sharing reach further: a call on one prim now
 writes values nobody named into a material another prim of the same name uses (Risks). Q9 asks whether to keep the
-name now and give each prim its own in a follow-up.
+name now and give each prim its own in a follow-up: #113.
 
 All of it is Kit-free in `core/material.py`, beside `set_material`'s material: `physics_values(prim)` (the three, and
 the material they come from), `start_from(material, source)` (Q8's copy) and the PhysX defaults. The answer stays as
@@ -392,18 +392,18 @@ The Kit app can't change while Kit runs, so the extension reads it once:
 
 ### Decisions for the maintainer
 
-| Q | Question | Options | Recommendation |
-|---|---|---|---|
-| Q1 | R4: what finds the unlit scene? | **A.** The lighting: mode `off`, or `stage` with no scene lights. Certain of its cause, cheap, and without the segmentation. It misses a light that points away. **B.** The pixels: the median brightness of the segmentation's prim pixels at 5 or less (the probe: 0 when unlit, 152 or more when lit). It catches a light aimed away too, but needs `omni.syntheticdata`, and a scene of black materials would warn. **C.** Both | A: it is the case the check was made for, and its warning can name the fix with certainty |
-| Q2 | R4: `inspect_prim` too? | Yes, through the same helper; or `capture_viewport` alone, as the issue's row says | Yes: the same blind spot, one helper, and `inspect_prim` already sends the lighting mode |
-| Q3 | R5: what changes? | **A.** A sentence in `get_logs`' description and `docs/TOOLS.md`; #103's 24.6 already expects a raised error not to be found. **B.** Also, the bridge logs a script's exception to Kit's log as a warning, so `get_logs` finds it | A: the exception is already in the answer the agent reads, and B would put every failed experiment in the user's Kit log |
-| Q4 | R6: how is the robot stood up? | **A.** The op Kit's assembler writes, written by the core. **B.** Kit's `resolve_hierarchy` where the assembler loads, A elsewhere | A (Design, R6) |
-| Q5 | R6: a file that authors no `upAxis`? | **A.** Leave it as it is. **B.** Take USD's fallback, Y, as Kit's `CreateReferenceCommand` does (K3): on Isaac Sim's Z-up stages such a file is turned | A: a turn on a guess lays down a robot that stood. The answer says nothing then, as today |
-| Q6 | R6: a file of other `metersPerUnit`? | **A.** Out of scope, a new issue. **B.** A line in the answer naming the two. **C.** Scale it too (`xformOp:scale:unitsResolve`), physics' values unscaled | A: no file in Isaac Sim's library differs, and C scales the geometry without its masses and drives |
-| Q7 | R6: someone who stood a robot themselves, with `rotation=[-90, 0, 0]` on a Y-up stage, now gets it turned twice | **A.** CHANGELOG's Fixed entry says so, and to drop that rotation. **B.** Under Breaking changes | A: the schema doesn't change, and the answer's line names the turn |
-| Q8 | R7: what does the material the call binds take from one it replaces? The probe: a body with a material of its own lost all of it, Rubber's friction 0.9 to a restitution-only call and Bouncy's restitution 0.8 to a friction-only one | **A.** Every authored `physics:` and `physxMaterial:` attribute, and `PhysxMaterialAPI`, of the material the values come from: the one bound before, or the physics scene's default material when they come from it, so a scene default's combine mode survives too. Then the values given. **B.** The friction and restitution alone; a replaced material's density and PhysX attributes go, as today | A: the description promises a value left out stays as it is, B keeps that only for the two values the tool names, and a lost density changes the body's mass |
-| Q9 | R7: the material stays `<prim name>_PhysMat`, shared by prims of one name, and now each call writes all its values (P5) | **A.** Keep the name now: a Risks row, a CHANGELOG sentence, and a follow-up issue for B. **B.** Name the material after the prim's whole path, so each prim has its own; the description and `docs/TOOLS.md` change | A in this change, B as a follow-up best landed in the same release, since R7 widens the cross-talk. B costs less than it looks (round 2): R7's step 1 reads from whatever `<name>_PhysMat` a prim is bound to, so the next call moves an old binding over to the prim's own material |
-| Q10 | R8: report the OS Kit runs on as well, `kit_os`, from Python's `platform.platform()` in Kit's process (`Windows-11-10.0.26300-SP0`)? | **A.** Yes: the bug form asks for both machines' OS when Kit runs on another one (`OMNIVERSE_MCP_HOST`), and the skill would no longer ask. **B.** No: the app and its version only, as the issue's row asks | A: one more line, and the remote case reports itself too. On Linux it names the kernel and glibc, not the distribution, which is enough for a report (round 2) |
+| Q | Question | Options | Recommendation | Answer (serionist, 2026-11-01) |
+|---|---|---|---|---|
+| Q1 | R4: what finds the unlit scene? | **A.** The lighting: mode `off`, or `stage` with no scene lights. Certain of its cause, cheap, and without the segmentation. It misses a light that points away. **B.** The pixels: the median brightness of the segmentation's prim pixels at 5 or less (the probe: 0 when unlit, 152 or more when lit). It catches a light aimed away too, but needs `omni.syntheticdata`, and a scene of black materials would warn. **C.** Both | A: it is the case the check was made for, and its warning can name the fix with certainty | A |
+| Q2 | R4: `inspect_prim` too? | Yes, through the same helper; or `capture_viewport` alone, as the issue's row says | Yes: the same blind spot, one helper, and `inspect_prim` already sends the lighting mode | Yes |
+| Q3 | R5: what changes? | **A.** A sentence in `get_logs`' description and `docs/TOOLS.md`; #103's 24.6 already expects a raised error not to be found. **B.** Also, the bridge logs a script's exception to Kit's log as a warning, so `get_logs` finds it | A: the exception is already in the answer the agent reads, and B would put every failed experiment in the user's Kit log | A |
+| Q4 | R6: how is the robot stood up? | **A.** The op Kit's assembler writes, written by the core. **B.** Kit's `resolve_hierarchy` where the assembler loads, A elsewhere | A (Design, R6) | A |
+| Q5 | R6: a file that authors no `upAxis`? | **A.** Leave it as it is. **B.** Take USD's fallback, Y, as Kit's `CreateReferenceCommand` does (K3): on Isaac Sim's Z-up stages such a file is turned | A: a turn on a guess lays down a robot that stood. The answer says nothing then, as today | A |
+| Q6 | R6: a file of other `metersPerUnit`? | **A.** Out of scope, a new issue. **B.** A line in the answer naming the two. **C.** Scale it too (`xformOp:scale:unitsResolve`), physics' values unscaled | A: no file in Isaac Sim's library differs, and C scales the geometry without its masses and drives | A: #112 |
+| Q7 | R6: someone who stood a robot themselves, with `rotation=[-90, 0, 0]` on a Y-up stage, now gets it turned twice | **A.** CHANGELOG's Fixed entry says so, and to drop that rotation. **B.** Under Breaking changes | A: the schema doesn't change, and the answer's line names the turn | A |
+| Q8 | R7: what does the material the call binds take from one it replaces? The probe: a body with a material of its own lost all of it, Rubber's friction 0.9 to a restitution-only call and Bouncy's restitution 0.8 to a friction-only one | **A.** Every authored `physics:` and `physxMaterial:` attribute, and `PhysxMaterialAPI`, of the material the values come from: the one bound before, or the physics scene's default material when they come from it, so a scene default's combine mode survives too. Then the values given. **B.** The friction and restitution alone; a replaced material's density and PhysX attributes go, as today | A: the description promises a value left out stays as it is, B keeps that only for the two values the tool names, and a lost density changes the body's mass | A |
+| Q9 | R7: the material stays `<prim name>_PhysMat`, shared by prims of one name, and now each call writes all its values (P5) | **A.** Keep the name now: a Risks row, a CHANGELOG sentence, and a follow-up issue for B. **B.** Name the material after the prim's whole path, so each prim has its own; the description and `docs/TOOLS.md` change | A in this change, B as a follow-up best landed in the same release, since R7 widens the cross-talk. B costs less than it looks (round 2): R7's step 1 reads from whatever `<name>_PhysMat` a prim is bound to, so the next call moves an old binding over to the prim's own material | A now, B in #113 |
+| Q10 | R8: report the OS Kit runs on as well, `kit_os`, from Python's `platform.platform()` in Kit's process (`Windows-11-10.0.26300-SP0`)? | **A.** Yes: the bug form asks for both machines' OS when Kit runs on another one (`OMNIVERSE_MCP_HOST`), and the skill would no longer ask. **B.** No: the app and its version only, as the issue's row asks | A: one more line, and the remote case reports itself too. On Linux it names the kernel and glibc, not the distribution, which is enough for a report (round 2) | A |
 
 ## Compatibility
 
@@ -565,8 +565,8 @@ No scenario covers R7 (15.2 gives both values), so no Verify line changes for it
   it made held only the value given, so PhysX read USD's 0 for the other, and a body given a bounce slid as on ice.
   A physics material the prim had before, such as an asset's, was replaced, and every value it held went with it.
   The material now starts from the body's own, the one bound before, the physics scene's default or PhysX's.
-  Prims of one name still share the material, so a call on one now sets all its values for each of them. The fix is
-  in the Kit extension (#105).
+  Prims of one name still share the material, so a call on one now sets all its values for each of them, until
+  #113 gives each prim its own. The fix is in the Kit extension (#105).
 
 ### Added
 
@@ -588,7 +588,7 @@ No scenario covers R7 (15.2 gives both values), so no Verify line changes for it
 | R4's warning on every capture while the user keeps lighting `off` on purpose | Accepted: one line, which says why the prims are black |
 | R2 changes `rot` in recordings compared across releases | Accepted: the old value was wrong; CHANGELOG says so |
 | R7's PhysX default is a constant the probe measured on Isaac Sim 6.2's PhysX (dynamic friction 0.5, restitution 0), the static one taken as 0.5; another PhysX could differ | Accepted: `test_15_02b` compares bodies the tool gave one value with controls that had none, on each run of the suites, so a difference fails it (P1) |
-| R7 writes all three values into `<prim name>_PhysMat`, which prims of one name share: two Frankas, `friction=1.0` on `/World/Franka_1/panda_leftfinger`, then `restitution=0.2` on `/World/Franka_2/panda_leftfinger`, and the second writes Franka_2's old friction over Franka_1's 1.0. Cloned environments, as Isaac Lab makes them, hit it (P5) | Accepted for now (Q9's A): a CHANGELOG sentence, and a follow-up issue to name the material after the prim's whole path |
+| R7 writes all three values into `<prim name>_PhysMat`, which prims of one name share: two Frankas, `friction=1.0` on `/World/Franka_1/panda_leftfinger`, then `restitution=0.2` on `/World/Franka_2/panda_leftfinger`, and the second writes Franka_2's old friction over Franka_1's 1.0. Cloned environments, as Isaac Lab makes them, hit it (P5) | Accepted for now (Q9's A): a CHANGELOG sentence, and #113 names the material after the prim's whole path |
 | R8: a Kit app whose `IApp` lacks a getter, or one that raises | Accepted: each fact reads `unknown` on its own, and the others still come |
 | R7 on a stage of several physics scenes: the default material is read from the first | Accepted: one scene is the usual case, and which scene owns a body is PhysX's to say |
 
@@ -631,8 +631,8 @@ plan says; K1, K2 and K5 match the installed code; Kit's assembler re-resolves o
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 to Q8 | Decisions for the maintainer | The reviewer agrees with each: Q1 A, Q2 yes, Q3 A, Q4 A with P3 and P4 fixed, Q5 A (the probe shows Isaac Sim 6.2's fallback up axis is Y), Q6 A, Q7 A with its CHANGELOG sentence in bold (done). Q8 A, copying from the physics scene's default material too when the values come from it (taken into Q8) | open |
-| Q9 | P5: the shared `<prim name>_PhysMat` that R7 widens | A now, B in a follow-up issue | open |
+| Q1 to Q8 | Decisions for the maintainer | The reviewer agrees with each: Q1 A, Q2 yes, Q3 A, Q4 A with P3 and P4 fixed, Q5 A (the probe shows Isaac Sim 6.2's fallback up axis is Y), Q6 A, Q7 A with its CHANGELOG sentence in bold (done). Q8 A, copying from the physics scene's default material too when the values come from it (taken into Q8) | As recommended: Q6's issue is #112 (serionist, 2026-11-01) |
+| Q9 | P5: the shared `<prim name>_PhysMat` that R7 widens | A now, B in a follow-up issue | A now, B in #113 (serionist, 2026-11-01) |
 
 **Improvements:**
 
@@ -673,8 +673,8 @@ taken, in the commit after `cb9ef59`. Q1 to Q10 wait on the maintainer.
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q9 | The shared `<prim name>_PhysMat` | The reviewer agrees: A now, B as a follow-up best landed in the same release, and cheaper than it looked, since R7's step 1 reads from whatever `<name>_PhysMat` a prim is bound to and the next call moves it over (taken into Q9) | open |
-| Q10 | `kit_os` | The reviewer agrees with A; on Linux it names the kernel and glibc, not the distribution, which is enough (taken into Q10) | open |
+| Q9 | The shared `<prim name>_PhysMat` | The reviewer agrees: A now, B as a follow-up best landed in the same release, and cheaper than it looked, since R7's step 1 reads from whatever `<name>_PhysMat` a prim is bound to and the next call moves it over (taken into Q9) | A now, B in #113 (serionist, 2026-11-01) |
+| Q10 | `kit_os` | The reviewer agrees with A; on Linux it names the kernel and glibc, not the distribution, which is enough (taken into Q10) | A (serionist, 2026-11-01) |
 
 **Improvements:**
 
