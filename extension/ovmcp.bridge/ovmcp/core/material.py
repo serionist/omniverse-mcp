@@ -303,21 +303,28 @@ def _counted(prims: list[Sdf.Path]) -> str:
     return named + (f" and {len(prims) - NAMED} more" if len(prims) > NAMED else "")
 
 
-def _only_in(prim: Usd.Prim, layer: Sdf.Layer) -> Sdf.Layer | None:
-    """The first layer other than layer that holds a spec of prim, or a spec of it at another path; None when every
-    spec is layer's own at prim's path, so RemovePrim there takes it off the stage."""
+def _held_elsewhere(prim: Usd.Prim, layer: Sdf.Layer) -> str | None:
+    """Why RemovePrim in layer wouldn't take prim off the stage whole: another layer holds a spec of it, or it is
+    composed from a spec at another path, through a reference, inherit, specialize or payload, even in layer itself.
+    None when every spec is layer's own at prim's path."""
     for spec in prim.GetPrimStack():
-        if spec.layer.identifier != layer.identifier or spec.path != prim.GetPath():
-            return spec.layer
+        if spec.layer.identifier != layer.identifier:
+            return f"another layer holds it too: {layer_name(prim.GetStage(), spec.layer)}"
+        if spec.path != prim.GetPath():
+            return f"it is composed from {spec.path} too"
     return None
 
 
 def _why_kept(stage: Usd.Stage, old: Usd.Prim, layer: Sdf.Layer, bindings: Bindings) -> str | None:
     """Why the older material stays, or None when deleting it changes no prim the walk could see or not see."""
-    other = _only_in(old, layer)
-    if other is not None:
-        return f"another layer holds it too: {layer_name(stage, other)}"
+    held = _held_elsewhere(old, layer)
+    if held is not None:
+        return held
     path = old.GetPath()
+    # RemovePrim takes the whole subtree, which an older extension never wrote: what is under it is someone's own.
+    under = [path.AppendChild(name) for name in old.GetAllChildrenNames()]
+    if under:
+        return f"it holds prims of its own: {_counted(under)}"
     binding = list(bindings.binders.get(path, []))
     for target, prims in bindings.binders.items():
         if target != path and (bound := stage.GetPrimAtPath(target)) and _holds_spec(bound, layer, path):
@@ -334,7 +341,8 @@ def drop_old_material(
 ) -> dict[str, object] | None:
     """The older extension's shared material the call moved prim off, deleted when nothing could still bind it (Q4):
     exactly /World/PhysicsMaterials/<prim's name>_PhysMat, a Material with MaterialAPI, its specs all the edit
-    layer's, which after the rebinding no prim binds, nor a material composed from it, on a stage the walk saw whole.
+    layer's at its path, holding no prim of its own, which after the rebinding no prim binds, nor a material composed
+    from it, on a stage the walk saw whole.
     /World/PhysicsMaterials goes too when that leaves it empty and it is typeless or a Scope of the edit layer's alone.
 
     The answer's old_material, {"path", "deleted"} or {"path", "kept"} with why; None when prim wasn't bound to such a
@@ -355,7 +363,7 @@ def drop_old_material(
         folder
         and not folder.GetAllChildrenNames()
         and folder.GetTypeName() in ("", "Scope")
-        and _only_in(folder, layer) is None
+        and _held_elsewhere(folder, layer) is None
     ):
         stage.RemovePrim(OLD_FOLDER)
         deleted.append(str(OLD_FOLDER))

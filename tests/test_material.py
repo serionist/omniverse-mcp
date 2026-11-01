@@ -549,6 +549,40 @@ def test_the_material_stays_while_another_layer_holds_it(old_stage):
     assert old_stage.GetPrimAtPath(OLD)
 
 
+def test_the_material_composed_from_another_path_in_the_edit_layer_says_so(old_stage):
+    # An inherit to a template in the edit layer itself: no other layer, and the answer says what it is (review E5).
+    old_stage.DefinePrim("/World/Templates/Grip")
+    old_stage.GetPrimAtPath(OLD).GetInherits().AddInherit("/World/Templates/Grip")
+
+    assert _drop(old_stage) == {"path": OLD, "kept": "it is composed from /World/Templates/Grip too"}
+
+
+def test_the_material_stays_while_it_holds_a_prim_of_its_own(old_stage):
+    # RemovePrim takes the subtree: a material under it, bound by another prim, went with it (review E1).
+    inner = _physics_material(old_stage, f"{OLD}/Inner", staticFriction=0.2)
+    _bind(old_stage.GetPrimAtPath("/World/Other"), inner)
+
+    assert _drop(old_stage) == {"path": OLD, "kept": f"it holds prims of its own: {OLD}/Inner"}
+    assert old_stage.GetPrimAtPath(f"{OLD}/Inner")
+
+
+def test_the_material_stays_while_a_descendant_of_the_called_prim_binds_it(old_stage):
+    # The descendants are left out of the warning, not out of what keeps the old material (review S2).
+    _bind(UsdGeom.Cube.Define(old_stage, "/World/Box/Lid").GetPrim(), old_stage.GetPrimAtPath(OLD))
+
+    assert _drop(old_stage) == {"path": OLD, "kept": "1 prim still binds it: /World/Box/Lid"}
+
+
+def test_the_folder_stays_while_another_layer_holds_it(old_stage):
+    # The material goes, but the folder has a spec beyond the edit layer, which RemovePrim would leave (review S2).
+    sub = Sdf.Layer.CreateAnonymous("sub.usda")
+    old_stage.GetRootLayer().subLayerPaths.append(sub.identifier)
+    Sdf.CreatePrimInLayer(sub, "/World/PhysicsMaterials").specifier = Sdf.SpecifierDef
+
+    assert _drop(old_stage) == {"path": OLD, "deleted": [OLD]}
+    assert old_stage.GetPrimAtPath("/World/PhysicsMaterials")
+
+
 def test_an_inactive_prim_keeps_the_material(old_stage):
     old_stage.GetPrimAtPath("/World/Other").SetActive(False)
 
