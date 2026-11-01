@@ -41,11 +41,12 @@ def _check_bridge(host: str, port: int) -> None:
 
 # 15.2b's bodies (#105): a floor and two slopes whose physics material has friction and restitution 0, combined by max,
 # so each contact takes the body's own values; on each, a body the tool gives one value beside a control the tool
-# never touches, with the same material or none. UP is the stage's up axis, 1 or 2; positions are (along X, along the
-# up axis, along the third). Far from the scene's other prims, at x = -200.
+# never touches, with the same material or none. Two bare boxes of one name under two parents, which shared one
+# material before #113. UP is the stage's up axis, 1 or 2; positions are (along X, along the up axis, along the
+# third). Far from the scene's other prims, at x = -200. The result is every rigid body under ROOT, at any depth.
 FRICTION_SCENE = """
 import math
-from pxr import Gf, PhysxSchema, UsdGeom, UsdPhysics, UsdShade
+from pxr import Gf, PhysxSchema, Usd, UsdGeom, UsdPhysics, UsdShade
 stage = omni.usd.get_context().get_stage()
 ROOT = "/World/IntTestFriction"
 X = Gf.Vec3d(1, 0, 0)
@@ -101,6 +102,8 @@ cube("Floor", frame(X, U, point(-200, -0.5, 0)), (40, 1, 40), ground, body=False
 box = (0.5, 0.5, 0.5)
 for name, b, mat in (("RubberControl", -6, rubber), ("RubberGiven", -3, rubber), ("BareControl", 0, None), ("BareGiven", 3, None)):
     cube(f"Slide{name}", frame(X, U, point(-210, 0.25, b)), box, mat, velocity=4.0)
+for parent, b in (("TwinA", -9), ("TwinB", -12)):
+    cube(f"{parent}/SlideTwin", frame(X, U, point(-210, 0.25, b)), box, velocity=4.0)
 for name, b, mat in (("BouncyControl", 6, bouncy), ("BouncyGiven", 9, bouncy), ("BareControl", 12, None), ("BareGiven", 15, None)):
     cube(f"Drop{name}", frame(X, U, point(-195, 1.5, b)), box, mat)
 for degrees, b in ((24, 30), (29, 40)):
@@ -111,7 +114,32 @@ for degrees, b in ((24, 30), (29, 40)):
     for name, offset in (("Control", -1.0), ("Given", 1.0)):
         at = centre + normal * 0.751 + B * offset
         cube(f"Slope{degrees}{name}", frame(down, normal, at), box)
-result = sorted(str(p.GetPath()) for p in stage.GetPrimAtPath(ROOT).GetChildren() if p.HasAPI(UsdPhysics.RigidBodyAPI))
+result = sorted(str(p.GetPath()) for p in Usd.PrimRange(stage.GetPrimAtPath(ROOT)) if p.HasAPI(UsdPhysics.RigidBodyAPI))
+"""
+
+# 15.2c's prims (#113), none of them bodies: a box in env_0 that env_1 inherits, as Isaac Sim's cloner makes clones,
+# and a box bound to the material an extension of 0.3.0 or older gave it. Then what the extension's walk would note on
+# this stage, the first inactive prim or unloaded payload, and what /World/PhysicsMaterials holds.
+CLONE_SCENE = """
+from pxr import Usd, UsdGeom, UsdPhysics, UsdShade
+stage = omni.usd.get_context().get_stage()
+ROOT = "/World/IntTestClones"
+UsdPhysics.CollisionAPI.Apply(UsdGeom.Cube.Define(stage, f"{ROOT}/env_0/Box").GetPrim())
+stage.DefinePrim(f"{ROOT}/env_1").GetInherits().AddInherit(f"{ROOT}/env_0")
+old_box = UsdGeom.Cube.Define(stage, f"{ROOT}/Old/IntTestOldBox").GetPrim()
+UsdPhysics.CollisionAPI.Apply(old_box)
+old = UsdShade.Material.Define(stage, OLD)
+UsdPhysics.MaterialAPI.Apply(old.GetPrim()).CreateStaticFrictionAttr().Set(0.7)
+UsdShade.MaterialBindingAPI.Apply(old_box).Bind(old, UsdShade.Tokens.weakerThanDescendants, "physics")
+unseen = next(
+    (
+        str(p.GetPath())
+        for p in Usd.PrimRange.Stage(stage, Usd.PrimAllPrimsPredicate)
+        if not p.IsActive() or (p.HasAuthoredPayloads() and not p.IsLoaded())
+    ),
+    None,
+)
+result = {"unseen": unseen, "folder": list(stage.GetPrimAtPath("/World/PhysicsMaterials").GetAllChildrenNames())}
 """
 
 # Plays FRAMES updates from a stop and samples each of PATHS' PhysX poses, then pauses: per body its first and last
@@ -1522,6 +1550,7 @@ class TestScenarios(PhysicsChecks):
         r = self.c.execute(f"UP = {up}\n" + FRICTION_SCENE)
         self.assertEqual(r["status"], "success", r)
         paths = r["result"]["return_value"]
+        # Each material is a child of its box, so it goes with root (#113).
         for name, values in (
             ("SlideRubberGiven", {"restitution": 0.2}),
             ("SlideBareGiven", {"restitution": 0.0}),
@@ -1529,21 +1558,32 @@ class TestScenarios(PhysicsChecks):
             ("DropBareGiven", {"friction": 0.5}),
             ("Slope24Given", {"restitution": 0.0}),
             ("Slope29Given", {"restitution": 0.0}),
+            # #113: on main both twins bound SlideTwin_PhysMat, and the second call wrote PhysX's 0.5 over the 0.9.
+            ("TwinA/SlideTwin", {"friction": 0.9}),
+            ("TwinB/SlideTwin", {"restitution": 0.0}),
         ):
             done = self.c.set_physics_properties(f"{root}/{name}", **values)
             self.assertEqual(done["status"], "success", done)
-            self.addCleanup(self.c.delete_prim, f"/World/PhysicsMaterials/{name}_PhysMat")
+            self.assertEqual(done["result"].get("material"), f"{root}/{name}/PhysMat", done)
         r = self.c.execute(f"UP, PATHS, FRAMES = {up}, {paths!r}, 60\n" + FRICTION_RUN)
         self.assertEqual(r["status"], "success", r)
-        seen = {path.rsplit("/", 1)[1]: v for path, v in r["result"]["return_value"].items()}
+        # Keyed by the path under root: by the last name alone, the twins were one key (#113).
+        seen = {path.removeprefix(f"{root}/"): v for path, v in r["result"]["return_value"].items()}
 
         def moved(name: str) -> float:
             first, last = seen[name]["first"], seen[name]["last"]
             return math.dist(first, last)
 
+        def travel(name: str) -> float:
+            return seen[name]["last"][0] - seen[name]["first"][0]
+
         for pair in ("SlideRubber", "SlideBare"):
-            travel = [seen[f"{pair}{k}"]["last"][0] - seen[f"{pair}{k}"]["first"][0] for k in ("Control", "Given")]
-            self.assertAlmostEqual(travel[0], travel[1], delta=0.05, msg=f"{pair}: {travel}")
+            travels = [travel(f"{pair}{k}") for k in ("Control", "Given")]
+            self.assertAlmostEqual(travels[0], travels[1], delta=0.05, msg=f"{pair}: {travels}")
+        # The first twin slides as the Rubber control, friction 0.9; the second as the bare one, friction PhysX's.
+        for twin, control in (("TwinA/SlideTwin", "SlideRubberControl"), ("TwinB/SlideTwin", "SlideBareControl")):
+            travels = [travel(control), travel(twin)]
+            self.assertAlmostEqual(travels[0], travels[1], delta=0.05, msg=f"{twin}: {travels}")
         rebound = [seen[f"DropBouncy{k}"]["rebound"] for k in ("Control", "Given")]
         self.assertGreater(rebound[0], 0.3, rebound)
         self.assertAlmostEqual(rebound[0], rebound[1], delta=0.05, msg=f"rebound: {rebound}")
@@ -1554,6 +1594,38 @@ class TestScenarios(PhysicsChecks):
             control, given = moved(f"{slope}Control"), moved(f"{slope}Given")
             self.assertAlmostEqual(control, given, delta=0.05, msg=f"{slope}: {control}, {given}")
         print(f"  slides, rebound {rebound}, slopes as their controls")
+        self._pass()
+
+    def test_15_02c_a_call_names_its_clones_and_drops_the_old_shared_material(self):
+        """#113: a call on a source names the clone that inherits its material, until a call on the clone gives it its
+        own; a box bound to an older extension's shared material moves to its own, and the old one goes unless the
+        stage holds an inactive prim or an unloaded payload, under which a prim could bind it."""
+        root = "/World/IntTestClones"
+        old = "/World/PhysicsMaterials/IntTestOldBox_PhysMat"
+        self.addCleanup(self.c.delete_prim, root)
+        self.addCleanup(self.c.delete_prim, old)
+        stage = self._run_in_kit(CLONE_SCENE, OLD=old)
+
+        source = self.c.set_physics_properties(f"{root}/env_0/Box", friction=0.7)
+        self.assertEqual(source["status"], "success", source)
+        self.assertEqual(source["result"].get("also_changes"), {"count": 1, "prims": [f"{root}/env_1/Box"]}, source)
+        clone = self.c.set_physics_properties(f"{root}/env_1/Box", restitution=0.1)
+        self.assertEqual(clone["status"], "success", clone)
+        self.assertEqual(clone["result"]["material"], f"{root}/env_1/Box/PhysMat")
+        again = self.c.set_physics_properties(f"{root}/env_0/Box", friction=0.6)
+        self.assertNotIn("also_changes", again["result"], again)
+
+        moved = self.c.set_physics_properties(f"{root}/Old/IntTestOldBox", restitution=0.2)
+        self.assertEqual(moved["status"], "success", moved)
+        dropped = moved["result"]["old_material"]
+        if stage["unseen"] is None:
+            # The folder goes too when this material was all it held.
+            folder = ["/World/PhysicsMaterials"] if stage["folder"] == ["IntTestOldBox_PhysMat"] else []
+            self.assertEqual(dropped, {"path": old, "deleted": [old, *folder]}, moved)
+            print(f"  clone named, then not; deleted {dropped['deleted']}")
+        else:
+            self.assertIn(stage["unseen"], dropped.get("kept", ""), moved)
+            print(f"  clone named, then not; old material kept: {dropped['kept']}")
         self._pass()
 
     def test_15_03_set_physics_invalid_prim(self):
