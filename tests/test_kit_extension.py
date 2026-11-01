@@ -3,6 +3,7 @@ checkout or from the wheel; an install that fails leaves the one before it in pl
 
 import shutil
 import sys
+import tomllib
 import zipfile
 from importlib.metadata import version
 from pathlib import Path
@@ -60,6 +61,18 @@ def test_a_checkout_installs_its_own_extension(data: Path, capsys: pytest.Captur
     assert f"Installed ovmcp.bridge {kit_extension.extension_version(EXTENSION_ROOT)} in {target}." in out
     # Quoted, as a shell takes it: a profile folder may hold a space.
     assert f"--ext-folder {kit_extension._quoted(data / 'exts')} --enable ovmcp.bridge" in out
+
+
+def test_the_listing_s_files_are_in_the_extension():
+    # Kit's Extensions window, and Kit's community registry, show what the toml names (#101); `exchange` would label the
+    # extension verified by NVIDIA.
+    with (EXTENSION_ROOT / "config" / "extension.toml").open("rb") as f:
+        package = tomllib.load(f)["package"]
+    for key in ("readme", "icon", "preview_image"):
+        assert (EXTENSION_ROOT / package[key]).is_file(), key
+    assert package["repository"] == "https://github.com/serionist/omniverse-mcp"
+    assert package["keywords"]
+    assert "exchange" not in package
 
 
 def test_an_install_replaces_the_one_before_whole(data: Path, capsys: pytest.CaptureFixture[str]):

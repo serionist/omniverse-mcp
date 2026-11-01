@@ -5,7 +5,13 @@ category = "Simulation"
 title = "Omniverse MCP Bridge"
 description = "HTTP bridge enabling AI assistants to control Omniverse applications via the Model Context Protocol"
 authors = ["Soma Osvay"]
+# What Kit's Extensions window shows of the extension, in Kit's community registry too (#101). No `exchange`: it would
+# label the listing verified by NVIDIA, which it isn't. No `changelog`: the repo's CHANGELOG.md, the README links it.
+repository = "https://github.com/serionist/omniverse-mcp"
+keywords = ["mcp", "model context protocol", "ai", "agent", "assistant", "llm", "claude", "isaac sim", "automation"]
 readme = "docs/README.md"
+icon = "data/icon.png"
+preview_image = "data/preview.jpg"
 
 [dependencies]
 "omni.kit.uiapp" = { optional = true }
