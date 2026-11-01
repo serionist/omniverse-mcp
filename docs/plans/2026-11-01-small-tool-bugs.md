@@ -10,8 +10,9 @@ approved_at:
 
 #105 lists six things the first AI scenario runs (#102) saw on Isaac Sim 6.2. A live probe ran each of them before
 any code, on the session's headless Isaac Sim 6.2 at port 8212 with main's 0.3.0 extension. Five are real bugs, in
-four tools. The sixth, the log search, is the scenario's mistake. This plan fixes the five, on the server and in
-the Kit extension, and corrects the six scenarios' Verify lines.
+four tools. The sixth, the log search, is the scenario's mistake. A seventh, R7, came from #104's code review (PR
+#108): `set_physics_properties` with restitution alone leaves the body's friction at USD's 0. This plan fixes the
+real ones, on the server and in the Kit extension, and corrects the six scenarios' Verify lines.
 
 ## Goal
 
@@ -25,10 +26,11 @@ When this is done, with this release's Kit extension:
 | R4 | 23.6 | `capture_viewport`, `inspect_prim` (Q2) | yes | Lighting that leaves the scene unlit, mode `off` or `stage` with no scene lights, gives a warning even when the grid keeps the image from being all black (Q1) | `test_tools_camera.py`, `test_camera_handler.py`; live `test_12j`, `test_23_06` |
 | R5 | 24.6 | `get_logs` | no | Expected behaviour. A script's exception, `print` and stderr come back in `execute_script`'s answer and never reach Kit's log; `carb.log_*` calls do. The scenario says so, and so do `get_logs`' description and `docs/TOOLS.md` (Q3) | live `test_24_06` |
 | R6 | 10.1 | `create_robot` | yes | A robot whose file authors another up axis than the stage's stands upright on it, as Kit stands a dropped file. On a Y-up stage that is every robot in Isaac Sim's library, all Z-up. The answer says when it turned one (Q4 to Q7) | `test_robot.py`, `test_robot_handler.py`, `test_tools.py`; live `test_27b`, `test_10_01`, `test_15_16` |
+| R7 | none; #108's review | `set_physics_properties` | by the code and usd-core (U4); PhysX's side awaits `105-probe-r7.py` | A call that makes the prim's physics material writes friction and restitution both: the values given, and for one left out, the value the body had, from its bound physics material or PhysX's default, so "a value left out stays as it is" holds (Q8) | `test_material.py`, `test_physics_handler.py` (new); live `test_15_02b` |
 
 Why: each answer misleads an agent that trusts it. A rotation is off by 39°, a prim seems on screen when it isn't, an
 unlit capture comes with no word on the light, and a percentage is made up. A robot lies on its side and falls over
-when the simulation plays.
+when the simulation plays. A body given only a bounce slides as on ice.
 
 | In scope | Out of scope |
 |---|---|
@@ -36,11 +38,12 @@ when the simulation plays.
 | `inspect_prim`'s warning, which has R4's blind spot (Q2) | The extension's `face_reduction_pct` for A's 0 faces: it stays `0`, and the server, its only reader, ignores it then |
 | The six scenarios' Verify lines: 2.2, 10.1, 20.6, 23.6, 24.6, 26.2 | Scenario 2.1's DistantLight, which points up on a Y-up stage: #103's (see The probe, R4) |
 | Descriptions, `docs/TOOLS.md`, `CHANGELOG.md` | Scenario 24.5's `since_index`, which the tool doesn't take: #103's |
-| | A whole-frame `is_black`, which stays as it is: the renderer warming up still needs it |
+| R7, in the Kit extension; the server's answer stays as #108 made it | A whole-frame `is_black`, which stays as it is: the renderer warming up still needs it |
+| | R7's material name, shared by prims of the same name, which the description already says |
 
 ## What the code, the sources and the probe say
 
-### The code, at `876caca`
+### The code, at `3b2b0cf` (#108 merged)
 
 | Row | Where | What it does |
 |---|---|---|
@@ -53,6 +56,8 @@ when the simulation plays.
 | R4 | server `tools/camera.py:137-149` (`capture_viewport`), `:358-367` (`inspect_prim`) | A warning only when `is_black`; its text then names the lighting mode |
 | R5 | `handlers/misc.py:96-114`, `handle_execute` | Swaps stdout and stderr for buffers, catches the script's exception and returns it with its traceback: nothing reaches Kit's log. `core/http.py:236` logs only a handler's own exception |
 | R6 | `handlers/robot.py:101-109`, `handle_create_robot` | `DefinePrim`, then a plain `GetReferences().AddReference(url)`, then `write_transform`. No up axis is read |
+| R7 | `handlers/simulation.py:134-162`, `handle_set_physics_properties` | With friction or restitution, it defines `/World/PhysicsMaterials/<prim name>_PhysMat` with `MaterialAPI` when it isn't there, writes only the values given, and binds it to the prim for physics, in place of any physics material bound before. A value left out is unauthored on a new material, so PhysX reads USD's fallback, 0 (U4), not the value the body had. A material bound before, an asset's for example, loses all its values, its density and PhysX's own attributes too |
+| R7 | server `tools/simulation.py`, `_physics_values` (#108) | Prints the values the route echoes, the ones given; one left out "stays as it was", which the description says too |
 
 ### The sources
 
@@ -64,6 +69,7 @@ Read on disk in Isaac Sim 6.2's install:
 | K2 | In mode Auto (`/metricsAssembler/operationMode` 3) it runs from the POST_DO callbacks of Kit's `CreateReferenceCommand`, `CreatePayloadCommand`, `AddReferenceCommand` and `AddPayloadCommand`: a drag and drop. A plain `AddReference` never reaches it. It also offers `resolve_hierarchy(stage_id, path)` to scripts | `omni.usd.metrics.assembler.ui-110.1.3`: `metricsAssemblerManager.py:164-200`, `:344-402` |
 | K3 | With the assembler off, `CreateReferenceCommand` turns a file of another up axis itself when `/exts/omni.usd/commands/rotateOnCreatingReference` is set: a matrix that cycles the axes, so +Z goes to +Y and +X to +Z. The asset's up axis is `UsdGeom.GetStageUpAxis` of the file's stage, so an unauthored one counts as USD's fallback, Y | `omni.usd-1.19.11`: `usd_commands.py:5833-5850` |
 | K4 | `xform.py` keeps a `:unitsResolve` op where it is, most local, and adds no op after one | `core/xform.py:7`, `:195` |
+| K5 | A physics material bound to the physics scene prim is the scene's default material, which PhysX gives a collider bound to none; omni.physx's own demo binds one so, with friction 0.5 | `omni.physx.demos-110.4.4`: `scenes/MaterialRestitutionDemo.py:25-34` |
 
 ### usd-core 26.11 (a scratch check, not kept)
 
@@ -72,6 +78,7 @@ Read on disk in Isaac Sim 6.2's install:
 | U1 | Scenario 2.2's cube through `format_prim_block`: `rot = 0.7428, 0.0000, 0.6695, 0.0000`, 84.06°. `RemoveScaleShear().ExtractRotation()` and `Gf.Transform(m).GetRotation()` give `0.9239, 0, 0.3827, 0`, 45°. A cube turned (30, 45, 60) and scaled (1, 2, 3) under a parent turned (10, 20, 30) and scaled 2: `ExtractRotation` gives no rotation, `(1, 0, 0, 0)`; both others give the composed rotation (1e-12). A mirror, scale (-1, 1, 1), factors as a 180° rotation and scale (-1, -1, -1), both ways alike. A scale of 0 gives `(1, 0, 0, 0)` in all three |
 | U2 | A layer's `upAxis` and `metersPerUnit` read from `layer.pseudoRoot.GetInfo(...)`, and `HasInfo` tells an unauthored one, whose fallback, `UsdGeom.GetFallbackUpAxis()`, is Y |
 | U3 | Scenario 26.2's TestCube corners in front of the camera, projected by hand with the probe's camera (below), give the reported box `[597.5, 213.2, 640, 480]`. Their outline's left edge crosses y = 480 at x = 844, and the points where its edges cross the near plane lie far to the right, so no part of it lies on the 640 x 480 image |
+| U4 | `UsdPhysics.MaterialAPI` applied with nothing authored: `physics:staticFriction`, `physics:dynamicFriction`, `physics:restitution` and `physics:density` all read 0, unauthored |
 
 ### The probe: R1 to R6
 
@@ -114,6 +121,26 @@ stages Z-up (`/persistent/app/stage/upAxis`). `g1.usd` and `panda_instanceable.u
 | A plain reference, then the assembler's `resolve_hierarchy` | the same op, in the root layer; no layer added | 0.496, 1.323, 0.371 | yes |
 | `create_robot("franka")`, Y-up | `translate` | 0.335, 0.259, 1.115 | no |
 | `create_robot("g1", position=[0, 0, 0.74])`, Z-up | `translate`, `orient`, `scale` | 0.496, 0.371, 1.323 | yes |
+
+### The probe: R7 (to run)
+
+`105-probe-r7.py`, beside the first, through `105-probe-r7.sh`. On a Y-up stage with gravity 9.81, a ground whose
+physics material has friction and restitution 0 with combine mode `max`, so each contact takes the body's own values.
+Then 1 kg boxes, each with or without a bound physics material and the tool called with one value:
+
+| Body | What it has | Measures |
+|---|---|---|
+| `SlideDefault` | no material | PhysX's default friction: its deceleration along X over g, sent at 4 units/s |
+| `SlideRestitutionOnly` | the tool with `restitution=0` alone | R7: friction 0 expected |
+| `SlideFriction05` | the tool with `friction=0.5` | the control for 0.5 |
+| `SlideRubber` | a bound material of friction 0.9 | the control for 0.9 |
+| `SlideRubberThenRestitution` | that material, then the tool with `restitution=0` | R7 on a bound material: 0.9 lost, 0 expected |
+| `DropDefault` | no material | PhysX's default restitution: the rebound after a drop of 1.25 |
+| `DropFrictionOnly` | the tool with `friction=0.5` alone | whether friction alone loses restitution |
+| `DropBouncy` | a bound material of restitution 0.8 | the control for 0.8 |
+| `DropBouncyThenFriction` | that material, then the tool with `friction=0.5` | the bound material's 0.8 lost, 0 expected |
+
+Before playing, each body's bound physics material and its three values as USD reads them, authored or not.
 
 ## Design
 
@@ -214,12 +241,40 @@ mode Auto, adds a layer to the user's stage (the probe) and does nothing in mode
 testable only live, and absent where the assembler doesn't load. The op written here is the same op, in every Kit
 app, and tested on usd-core.
 
+### R7: the material the call binds starts from the body's values (`core/material.py`, Q8)
+
+Settled by the R7 probe; the design assumes it shows friction 0 for `SlideRestitutionOnly`. The tool's promise, "a
+value left out stays as it is", is kept by writing every value, the left-out ones as PhysX applies them now. Before
+it binds its material, the handler reads, for static friction, dynamic friction and restitution, what the body has:
+
+1. **The physics material bound to it:** `UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial("physics")`, which
+   falls back to an all-purpose binding, when that material has `MaterialAPI`: its values as USD reads them, authored
+   or the fallback 0, which is what PhysX reads.
+2. **Else the physics scene's default material** (K5): the one bound to the stage's `UsdPhysics.Scene` prim.
+3. **Else PhysX's own default:** constants in the core, as the probe measures them (friction 0.5 expected, restitution
+   0).
+
+It then writes all three into its material: the value given, else the one read. The rule is the same whether the
+call makes the material, rebinds it in place of another, or finds it bound already. In the last case a value read is
+the material's own, so nothing left out changes. A material an older extension made with a value unauthored reads 0
+and keeps it, which is what PhysX gave the body.
+
+**What else it takes (Q8):** the material it replaces may hold more than the three values: a density, which sets the
+mass of a body without one, and `PhysxMaterialAPI`'s combine modes and compliant contact. With Q8's A the new
+material copies every authored `physics:` and `physxMaterial:` attribute of the one it replaces, and its
+`PhysxMaterialAPI`, before writing the values given, so the body behaves as before in everything the call didn't
+name.
+
+All of it is Kit-free in `core/material.py`, beside `set_material`'s material: `physics_values(prim)` (the three, and
+where from), `start_from(material, replaced)` (Q8's copy) and the PhysX defaults. The answer stays as #108 made it:
+the values given, and the APIs applied.
+
 ### Older extensions
 
 | Row | With an extension of 0.3.0 or older |
 |---|---|
 | R1 | Fixed: the server alone |
-| R2, R3, R6 | As today; the server can't tell |
+| R2, R3, R6, R7 | As today; the server can't tell |
 | R4 | `off` warns; `stage` with no lights doesn't |
 
 `docs/TOOLS.md` says so in each section, and CHANGELOG names the extension install, as #82 did.
@@ -235,6 +290,7 @@ app, and tested on usd-core.
 | Q5 | R6: a file that authors no `upAxis`? | **A.** Leave it as it is. **B.** Take USD's fallback, Y, as Kit's `CreateReferenceCommand` does (K3): on Isaac Sim's Z-up stages such a file is turned | A: a turn on a guess lays down a robot that stood. The answer says nothing then, as today |
 | Q6 | R6: a file of other `metersPerUnit`? | **A.** Out of scope, a new issue. **B.** A line in the answer naming the two. **C.** Scale it too (`xformOp:scale:unitsResolve`), physics' values unscaled | A: no file in Isaac Sim's library differs, and C scales the geometry without its masses and drives |
 | Q7 | R6: someone who stood a robot themselves, with `rotation=[-90, 0, 0]` on a Y-up stage, now gets it turned twice | **A.** CHANGELOG's Fixed entry says so, and to drop that rotation. **B.** Under Breaking changes | A: the schema doesn't change, and the answer's line names the turn |
+| Q8 | R7: what does the material the call binds take from one it replaces? | **A.** Every authored `physics:` and `physxMaterial:` attribute, and `PhysxMaterialAPI`, then the values given. **B.** The friction and restitution alone; a replaced material's density and PhysX attributes go, as today | A: the description promises a value left out stays as it is, and a lost density changes the body's mass |
 
 ## Compatibility
 
@@ -250,6 +306,8 @@ app, and tested on usd-core.
   - On a Y-up stage, every library robot, and any file authoring Z-up, now stands where it lay: its links' positions,
     its bounds and what it does when the simulation plays change. A robot already in a scene is left as it is.
     Q7 for someone who turned one themselves.
+  - `set_physics_properties` with one of friction or restitution keeps the other, where it set it to 0: a body given
+    a bounce no longer slides as on ice. A body that did so already keeps what it has.
 - **Kit apps:** R6's op is plain USD, so every Kit app gets it. It is the op Kit's assembler writes; whether the
   assembler, run on the stage later, leaves it alone is checked live (Risks).
 
@@ -259,16 +317,17 @@ Each step builds and passes `uv run tools/gate.py quick`; the PR ends with `fini
 
 | Step | What | Proven by |
 |---|---|---|
-| 0 | Done: the probe, R1 to R6, and this plan settled on it | `105-probe.out.txt` in the session's scratchpad |
+| 0 | Done: the probe, R1 to R6, and this plan settled on it. To run: R7's probe | `105-probe.out.txt` and `105-probe-r7.out.txt` in the session's scratchpad |
 | 1 | This plan, the branch's first commit | `review-plan`, then the maintainer |
 | 2 | R1: the server's deltas | `tests/test_tools.py` |
 | 3 | R2: `core/formatter.py` | `tests/test_formatter.py` |
 | 4 | R3: `core/bounds.py` | `tests/test_bounds.py` |
 | 5 | R4: `has_scene_lights` on every answer; the server's `_unlit_warning` for both tools | `tests/test_camera_handler.py`, `tests/test_tools_camera.py`, `tests/test_tools.py` |
 | 6 | R6: `core/robot.py`'s `up_axis_turn`, `handle_create_robot`, the server's line | `tests/test_robot.py`, `tests/test_robot_handler.py`, `tests/test_tools.py` |
-| 7 | Docs, and the six scenarios' Verify lines (Docs, below) | The gate's checks; `tests/test_contract.py` unchanged |
-| 8 | The live tests below, run by the session on Isaac Sim 6.2 headless at 8212: the new and changed tests alone on a fresh Kit's Z-up stage and again on a Y-up one, then both suites whole | No failure beyond `main`'s on the same Kit |
-| 9 | `finish-work`: the gate in full, `review-code` | |
+| 7 | R7: `core/material.py`'s physics values, `handle_set_physics_properties` | `tests/test_material.py`, `tests/test_physics_handler.py` |
+| 8 | Docs, and the six scenarios' Verify lines (Docs, below) | The gate's checks; `tests/test_contract.py` unchanged |
+| 9 | The live tests below, run by the session on Isaac Sim 6.2 headless at 8212: the new and changed tests alone on a fresh Kit's Z-up stage and again on a Y-up one, then both suites whole | No failure beyond `main`'s on the same Kit |
+| 10 | `finish-work`: the gate in full, `review-code` | |
 
 ## Tests
 
@@ -285,6 +344,8 @@ Each fix has a test that fails at `876caca`, named first.
 | `tests/test_tools_camera.py` | R4: `off` warns, with `is_black` false and with `has_scene_lights` absent (an older extension); `stage` with `has_scene_lights` false warns, with it absent doesn't; `camera`, `Default` and `stage` with lights don't; an all-black image gives today's warning and not a second; `inspect_prim` warns once for `off` |
 | `tests/test_robot.py` | R6: `up_axis_turn` for Z on Y (-90), Y on Z (+90), the same axis and an unauthored one (None), from layers made in memory |
 | `tests/test_robot_handler.py` | R6: a file authoring Z-up, tall along its Z, on a Y-up stage: the prim's last op is `xformOp:rotateX:unitsResolve` = -90, its world box tallest along Y, its base at `position`; `rotation=[0, 90, 0]` turns it about the stage's Y; a Y-up file on a Z-up stage gets +90; the same axis and an unauthored file get no op; a refusal after the reference leaves no op and no prim; the answer's `up_axis_turn`; a later `set_transform` keeps the op last |
+| `tests/test_material.py` | R7: `physics_values` reads a bound material's authored values and its unauthored ones as 0; an all-purpose binding when there is no physics one; a bound material without `MaterialAPI` as none; the physics scene's default material; PhysX's default with neither. `start_from` copies the `physics:` and `physxMaterial:` attributes and `PhysxMaterialAPI` (Q8), and nothing from the material it is given as its own |
+| `tests/test_physics_handler.py` (new) | `handlers/simulation.py` loaded with Kit faked, as `tests/test_force_handler.py` loads it, on a usd-core stage. R7: restitution alone on a bare prim writes PhysX's default friction, static and dynamic, and the restitution given (friction unauthored at `3b2b0cf`); on a prim bound to a material of friction 0.9 and density 1000 with a combine mode, keeps all three; friction alone keeps a bound material's restitution 0.8; a second call keeps the first call's values; both given, as today; the answer is as #108's server reads it |
 | `tests/test_contract.py` | Unchanged |
 
 **Live,** on Isaac Sim 6.2 headless at port 8212, run by the session:
@@ -298,6 +359,7 @@ Each fix has a test that fails at `876caca`, named first.
 | `test_27b_a_robot_file_of_the_other_up_axis_stands` | A file the test writes, as `test_27` does, authoring the up axis the stage hasn't: it stands, tallest along the stage's up axis, with the op; then, where `omni.metrics.assembler.core` imports, `resolve_hierarchy` on it leaves one turn and the robot standing |
 | `test_scenarios.py` `test_02_02` | Asserts the `rot` line, as scenario 2.2 now verifies |
 | `test_10_01` | The G1's bounds are tallest along the up axis, on either |
+| `test_15_02b_restitution_alone_keeps_the_friction` | R7 probe's sliders, as a test: a box bound to a material of friction 0.9, then given restitution alone, decelerates as 0.9 does (within 0.05); a bare box given restitution alone, as PhysX's default |
 | `test_15_16` | Unchanged; on a Y-up stage it now pushes a turned Franka, whose base the fixed joint still holds |
 | `test_23_06` | Through the server: the `off` warning, the mode left as set |
 | `test_24_06` | The raised sentinel isn't found; a `carb.log_error` sentinel is, at level error |
@@ -324,6 +386,9 @@ doesn't go through it.
 | R4 | `capture_viewport`, `inspect_prim`, `viewport_light`'s When to use: a warning for an all-black image, and for lighting that lights nothing (mode `off`, or `stage` with no scene lights) though Kit's grid still shows |
 | R5 | `get_logs`: Q3's sentence |
 | R6 | `create_robot`: a file whose `upAxis` isn't the stage's stands upright on it, turned about X by `xformOp:rotateX:unitsResolve` as Kit's metrics assembler turns a dropped file, and the answer says so; `position` and `rotation` stay in the stage's frame; Isaac Sim's robots are Z-up, so each is turned on a Y-up stage; a file that authors no `upAxis` is left as it is |
+| R7 | `set_physics_properties`: the material it binds starts from the body's own: the physics material bound to it before, or PhysX's default with none, so the friction or restitution left out stays as it is (and with Q8's A, the material's density and PhysX attributes too) |
+
+No scenario covers R7 (15.2 gives both values), so no Verify line changes for it.
 
 | Scenario | Its Verify line becomes |
 |---|---|
@@ -355,19 +420,26 @@ doesn't go through it.
   Sim's robots are Z-up, and on a Y-up stage they lay on their side. The answer says when it turned one. A call that
   turned the robot itself, with `rotation=[-90, 0, 0]`, now turns it twice: drop that rotation. The fix is in the
   Kit extension (#105).
+- **`set_physics_properties` keeps the friction when given only restitution, and the reverse:** the physics material
+  it made held only the value given, so PhysX read USD's 0 for the other, and a body given a bounce slid as on ice.
+  A physics material the prim had before, such as an asset's, was replaced with all its values. The material now
+  starts from the body's own, the one bound before or PhysX's default. The fix is in the Kit extension (#105).
 ```
 
 ## Risks
 
 | Risk | Status |
 |---|---|
-| Kit's assembler, run later on the stage (a user's "resolve", or its change listener), adds a second turn to a robot `create_robot` turned | Checked by `test_27b` where the assembler loads; if it does, the fix moves to Q4's B. Open until step 8 |
+| Kit's assembler, run later on the stage (a user's "resolve", or its change listener), adds a second turn to a robot `create_robot` turned | Checked by `test_27b` where the assembler loads; if it does, the fix moves to Q4's B. Open until step 9 |
 | A robot under a turned parent: the turn compares the file with the stage, not with the parent's frame | Accepted: Kit's assembler compares layers the same way |
 | A fixed-base robot turned at its root: PhysX holds a fixed base where it starts, so the turn holds | Checked live by `test_15_16` on a Y-up stage |
 | R3's hull for a fisheye camera approximates its curved projection | Accepted: as the rectangle did; Isaac Sim's cameras are pinhole by default |
 | R3 drops a box an agent relied on, for a prim whose world box reaches the frame's corner only through its rectangle | Accepted: that prim wasn't on the image |
 | R4's warning on every capture while the user keeps lighting `off` on purpose | Accepted: one line, which says why the prims are black |
 | R2 changes `rot` in recordings compared across releases | Accepted: the old value was wrong; CHANGELOG says so |
+| R7's PhysX default is a constant the probe measures on Isaac Sim 6.2's PhysX; another PhysX could differ | Accepted: `test_15_02b` measures it live on each run of the suites |
+| R7 on a stage of several physics scenes: the default material is read from the first | Accepted: one scene is the usual case, and which scene owns a body is PhysX's to say |
+| R7's probe shows PhysX applying something other than 0 for an unauthored value | Open until the probe: the row then says what PhysX does, and the fix shrinks to what it shows |
 
 ## Plan review
 
