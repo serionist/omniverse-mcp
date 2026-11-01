@@ -8,21 +8,7 @@ import os
 
 from pxr import Sdf, Tf, Usd, UsdGeom, UsdPhysics
 
-from ovmcp.core.metrics import (
-    UNITS_OP,
-    UP_AXIS_OP,
-    Converted,
-    Exponents,
-    Factors,
-    Units,
-    convert_units,
-    file_up_axis,
-    layer_units,
-    scale_to_stage,
-    stand_upright,
-    units_factors,
-    up_axis_turn,
-)
+from ovmcp.core.metrics import StepError, Units, bring_to_stage, frame_of
 from ovmcp.core.robot import articulation_root, is_usd_file, robot_prim_path
 from ovmcp.core.usd_files import LIBRARY_PREFIX, usd_file_url
 from ovmcp.core.xform import check_transform, write_transform
@@ -59,26 +45,6 @@ def _assets_root() -> str | None:
     except ImportError:
         return None
     return get_assets_root_path()
-
-
-def _no_table(_name: str, _prim: Usd.Prim) -> Exponents | None:
-    return None
-
-
-def _units_answer(file: Units, stage: Units, factors: Factors, op: list[float] | None, done: Converted, table: bool):
-    """create_robot's units_scale: the units that differ, the factor and the op's value after, which differ when the
-    file's root held the op, and what was converted and left."""
-    return {
-        "meters_per_unit": None if factors.distance == 1.0 else {"file": file.meters, "stage": stage.meters},
-        "kilograms_per_unit": None if factors.mass == 1.0 else {"file": file.kilograms, "stage": stage.kilograms},
-        "factor": None if op is None else factors.distance,
-        "op": op,
-        "op_name": None if op is None else UNITS_OP,
-        "converted": done.values,
-        "left": done.left[:10],
-        "left_count": len(done.left),
-        "table": table,
-    }
 
 
 async def handle_create_robot(body: dict) -> dict:
@@ -132,15 +98,11 @@ async def handle_create_robot(body: dict) -> dict:
     if layer is None:
         return {"status": "error", "error": f"Could not open {full_usd_path}"}
 
-    # A file of another up axis lies on its side here: Isaac Sim's robots are Z-up, and Kit stands one dropped on a
-    # Y-up stage with a turn this call writes as Kit does (#105).
-    file_axis, stage_axis = file_up_axis(layer), str(UsdGeom.GetStageUpAxis(stage))
-    degrees = up_axis_turn(file_axis, stage_axis)
-    # A file of other units comes in at its own scale, and a scale alone would leave its drives and inertia in its
-    # units: Kit's metrics assembler scales it and, with its physics rules, converts them (#112).
-    file_units = layer_units(layer)
+    # A file of another up axis lies on its side here, and one of other units comes in at its own scale: Isaac Sim's
+    # robots are Z-up, and Kit stands one dropped on a Y-up stage and scales one of other units with ops this call
+    # writes as Kit does, and converts its drives and inertia as Kit's physics rules do (#105, #112).
+    stage_axis = str(UsdGeom.GetStageUpAxis(stage))
     stage_units = Units(float(UsdGeom.GetStageMetersPerUnit(stage)), float(UsdPhysics.GetStageKilogramsPerUnit(stage)))
-    factors = units_factors(file_units, stage_units)
 
     made = _first_missing(stage, prim_path)
     prim = stage.DefinePrim(prim_path)
@@ -148,21 +110,11 @@ async def handle_create_robot(body: dict) -> dict:
     if not prim.IsValid():
         return {"status": "error", "error": f"Failed to create robot at {prim_path}"}
 
-    turned = scaled = None
-    step = "Turning the robot upright"
+    step = "Bringing the robot to the stage's units"
     try:
-        if degrees is not None:
-            value = stand_upright(prim, degrees)
-            turned = {"file": file_axis, "stage": stage_axis, "degrees": degrees, "op": value, "op_name": UP_AXIS_OP}
-        if factors is not None:
-            op = None
-            if factors.distance != 1.0:
-                step = "Scaling the robot to the stage's units"
-                op = scale_to_stage(prim, factors.distance)
-            step = "Converting the robot's values to the stage's units"
-            table = _physics_exponents()
-            done = convert_units(prim, file_units, stage_units, table or _no_table)
-            scaled = _units_answer(file_units, stage_units, factors, op, done, table is not None)
+        # Measured against the frame it lands in, so a robot inside an asset already brought isn't turned twice (#119).
+        frame = frame_of(prim.GetParent(), stage_axis, float(UsdGeom.GetStageMetersPerUnit(stage)))
+        brought = bring_to_stage(prim, layer, frame, stage_axis, stage_units, _physics_exponents(), "robot")
         step = "Placing the robot"
         write_transform(prim, parts)
     except (ValueError, Tf.ErrorException) as e:
@@ -170,8 +122,11 @@ async def handle_create_robot(body: dict) -> dict:
         # refused as taken. The converted values go with it: they sit under the prim's path in the same layer.
         stage.RemovePrim(made)
         return {"status": "error", "error": f"{e}. The robot was not added"}
-    except Exception as e:
+    except StepError as e:
         # Any other, such as the PhysX schema's table changed in a later Kit: the same cleanup, the step named.
+        stage.RemovePrim(made)
+        return {"status": "error", "error": f"{e}. The robot was not added"}
+    except Exception as e:
         stage.RemovePrim(made)
         return {"status": "error", "error": f"{step} failed: {type(e).__name__}: {e}. The robot was not added"}
 
@@ -186,8 +141,9 @@ async def handle_create_robot(body: dict) -> dict:
             "prim_path": str(prim.GetPath()),
             "robot_type": robot_type,
             "usd_path": full_usd_path,
-            "up_axis_turn": turned,
-            "units_scale": scaled,
+            "up_axis_turn": brought.up_axis_turn,
+            "units_scale": brought.units_scale,
+            "frame": brought.frame,
             "joints": joint_info[:50],
         },
     }

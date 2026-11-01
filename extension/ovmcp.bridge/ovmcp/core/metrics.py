@@ -10,7 +10,7 @@ import re
 from collections.abc import Callable
 from typing import NamedTuple, cast
 
-from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
+from pxr import Gf, Sdf, Tf, Usd, UsdGeom, UsdPhysics
 
 from .usd import attribute_spec, floats, xform_ops
 from .xform import add_local_op
@@ -302,3 +302,201 @@ def convert_units(root: Usd.Prim, file: Units, stage: Units, table: Table) -> Co
         for time, value in writes:
             attr.Set(value, time)
     return Converted(len(planned), left)
+
+
+# ---- the frame a prim lands in, and a file brought to it (#119) ----
+
+_UP = {"Y": Gf.Vec3d(0, 1, 0), "Z": Gf.Vec3d(0, 0, 1)}
+
+
+def _up_under(turn: float, up: str | None) -> str | None:
+    """The axis, Y or Z, that a turn of `turn` degrees about X takes to `up`: what stands up inside a frame so turned.
+    None when neither does, or up is none of them."""
+    target = _UP.get(up or "")
+    if target is None:
+        return None
+    rotation = Gf.Rotation(Gf.Vec3d.XAxis(), turn)
+    return next((axis for axis, v in _UP.items() if Gf.IsClose(rotation.TransformDir(v), target, 1e-6)), None)
+
+
+class Frame(NamedTuple):
+    """The frame a prim lands in, or the one inside a prim: its up axis, None when its turn stands neither Y nor Z
+    up; its metersPerUnit; and the prims whose :unitsResolve ops make it differ from the stage's."""
+
+    up_axis: str | None
+    meters: float
+    prims: list[str]
+
+
+def frame_of(start: Usd.Prim, stage_axis: str, stage_meters: float) -> Frame:
+    """The frame inside start: the stage's, turned and scaled by the :unitsResolve ops of start and its ancestors, as
+    Kit's metrics assembler measures a file referenced inside a prim it brought to the stage. For a new prim, start is
+    its parent; for a prim already there, the prim itself, its own ops counted.
+
+    Only those ops count: a prim's own scale is the user's, which scales what is under it as asked, and a prim that
+    composes a file of other units but holds no op hasn't changed the frame. The walk stops after a prim whose op
+    order resets the transform stack, since the ops above it don't reach what is under it.
+    """
+    turn, scale, prims = 0.0, 1.0, list[str]()
+    prim = start
+    while prim and not prim.IsPseudoRoot():
+        xformable = UsdGeom.Xformable(prim)
+        if xformable:
+            held = False
+            for op in xform_ops(xformable):
+                if op.GetOpName() == UP_AXIS_OP:
+                    turn += float(cast("float", op.GetAttr().Get() or 0.0))
+                    held = True
+                elif op.GetOpName() == UNITS_OP:
+                    value = op.GetAttr().Get()
+                    scale *= 1.0 if value is None else floats(cast("Gf.Vec3d", value))[0]
+                    held = True
+            if held:
+                prims.append(str(prim.GetPath()))
+            if xformable.GetResetXformStack():
+                break
+        prim = prim.GetParent()
+    prims.reverse()
+    return Frame(_up_under(turn, stage_axis), stage_meters * scale, prims)
+
+
+class Brought(NamedTuple):
+    """What bring_to_stage did, as the answer's fields: the turn, the scale and the values converted, and the frame
+    they were measured against when it isn't the stage's; each None when there was nothing to say."""
+
+    up_axis_turn: dict[str, object] | None
+    units_scale: dict[str, object] | None
+    frame: dict[str, object] | None
+
+
+class StepError(Exception):
+    """bring_to_stage's failure, other than a ValueError's or a USD error's, which pass as they are: the step under
+    way, and the exception it raised, so the handler's error names both."""
+
+    def __init__(self, step: str, cause: Exception) -> None:
+        super().__init__(f"{step} failed: {type(cause).__name__}: {cause}")
+        self.step = step
+        self.cause = cause
+
+
+def _no_table(_name: str, _prim: Usd.Prim) -> Exponents | None:
+    return None
+
+
+def _units_answer(
+    file: Units, stage: Units, frame_meters: float | None, factor: float, op: list[float] | None, done: Converted | None
+) -> dict[str, object]:
+    """The answer's units_scale: the units that differ, with the frame's under a frame; the factor, against the frame,
+    and the op's value after, which differ when the file's root held the op; what was converted to the stage's units
+    and what was left, or None for converted when the file's units are the stage's."""
+    meters = _ratio(file.meters, stage.meters) != 1.0 or (
+        frame_meters is not None and _ratio(file.meters, frame_meters) != 1.0
+    )
+    pair: dict[str, float | None] = {"file": file.meters, "stage": stage.meters}
+    if frame_meters is not None:
+        pair["frame"] = frame_meters
+    kilograms = None
+    if _ratio(file.kilograms, stage.kilograms) != 1.0:
+        kilograms = {"file": file.kilograms, "stage": stage.kilograms}
+    return {
+        "meters_per_unit": pair if meters else None,
+        "kilograms_per_unit": kilograms,
+        "factor": None if op is None else factor,
+        "op": op,
+        "op_name": None if op is None else UNITS_OP,
+        "converted": None if done is None else done.values,
+        "left": [] if done is None else done.left[:10],
+        "left_count": 0 if done is None else len(done.left),
+    }
+
+
+def bring_to_stage(
+    prim: Usd.Prim, layer: Sdf.Layer, frame: Frame, stage_axis: str, stage: Units, table: Table | None, noun: str
+) -> Brought:
+    """Brings prim, which references layer's file, to the stage as Kit's metrics assembler brings a dropped file: the
+    turn from the file's up axis to the frame's, the scale by the file's metersPerUnit over the frame's, and its values
+    converted from the file's units to the stage's, whatever the frame, as Kit converts them. In the edit target's
+    layer, where a refusal's RemovePrim takes them all.
+
+    noun, "robot" or "file", names what a failed step was working on. table None, a Kit app without the PhysX schema,
+    converts only the cameras' distances, and the answer says so. A frame whose turn stands neither axis up is taken
+    as the stage's.
+    """
+    file_axis, file_units = file_up_axis(layer), layer_units(layer)
+    axis = frame.up_axis or stage_axis
+    framed = axis != stage_axis or _ratio(frame.meters, stage.meters) != 1.0
+    degrees = up_axis_turn(file_axis, axis)
+    factor = _ratio(file_units.meters, frame.meters)
+    turned: dict[str, object] | None = None
+    op: list[float] | None = None
+    done: Converted | None = None
+    step = f"Turning the {noun} upright"
+    try:
+        if degrees is not None:
+            value = stand_upright(prim, degrees)
+            turned = {"file": file_axis, "stage": stage_axis, "degrees": degrees, "op": value, "op_name": UP_AXIS_OP}
+            if framed:
+                turned["frame"] = axis
+        if factor != 1.0:
+            step = f"Scaling the {noun} to the stage's units"
+            op = scale_to_stage(prim, factor)
+        if units_factors(file_units, stage) is not None:
+            step = f"Converting the {noun}'s values to the stage's units"
+            done = convert_units(prim, file_units, stage, table or _no_table)
+    except (ValueError, Tf.ErrorException):
+        raise
+    except Exception as e:
+        raise StepError(step, e) from e
+    scaled = None
+    if op is not None or done is not None:
+        scaled = _units_answer(file_units, stage, frame.meters if framed else None, factor, op, done)
+        scaled["table"] = table is not None
+    where: dict[str, object] | None = None
+    # A file that authors neither is left as it is, wherever it lands: no frame to name.
+    if framed and (file_axis is not None or file_units.meters is not None):
+        where = {"up_axis": axis, "meters_per_unit": frame.meters, "prims": frame.prims}
+    return Brought(turned, scaled, where)
+
+
+def _root_ops(layer: Sdf.Layer) -> tuple[float, float]:
+    """The turn and the scale the :unitsResolve ops of the file's default prim hold in its own layer, as a file Kit
+    resolved and saved holds them: (0, 1) where it holds none."""
+    if not layer.defaultPrim:
+        return 0.0, 1.0
+    root = Sdf.Path.absoluteRootPath.AppendChild(layer.defaultPrim)
+    order_spec = attribute_spec(layer, root.AppendProperty("xformOpOrder"))
+    order = [] if order_spec is None else [str(name) for name in cast("list[str]", order_spec.default or [])]
+
+    def held(name: str) -> object:
+        spec = attribute_spec(layer, root.AppendProperty(name)) if name in order else None
+        return None if spec is None else spec.default
+
+    turn, scale = held(UP_AXIS_OP), held(UNITS_OP)
+    return (
+        0.0 if turn is None else float(cast("float", turn)),
+        1.0 if scale is None else floats(cast("Gf.Vec3d", scale))[0],
+    )
+
+
+def not_brought(prim: Usd.Prim, layer: Sdf.Layer, stage_axis: str, stage_meters: float) -> dict[str, object] | None:
+    """For a prim that was there before the call and holds layer's file: what the file's content needs and the frame
+    inside the prim doesn't give, else None. The file's content is its upAxis and metersPerUnit as its root's own
+    :unitsResolve ops leave them; the frame counts the prim's own ops, so a prim this call or an earlier one brought,
+    or Kit's drop, isn't reported, and a reference an older extension left as it was is. A file that authors neither
+    is left as it is, so never reported."""
+    file_axis, file_meters = file_up_axis(layer), layer_units(layer).meters
+    if file_axis is None and file_meters is None:
+        return None
+    turn, scale = _root_ops(layer)
+    content_axis = None if file_axis is None else _up_under(turn, file_axis)
+    content_meters = None if file_meters is None else file_meters * scale
+    inside = frame_of(prim, stage_axis, stage_meters)
+    off_axis = file_axis is not None and content_axis != inside.up_axis
+    off_units = content_meters is not None and _ratio(content_meters, inside.meters) != 1.0
+    if not (off_axis or off_units):
+        return None
+    return {
+        "prim_path": str(prim.GetPath()),
+        "file": {"up_axis": content_axis, "meters_per_unit": content_meters},
+        "frame": {"up_axis": inside.up_axis, "meters_per_unit": inside.meters},
+    }

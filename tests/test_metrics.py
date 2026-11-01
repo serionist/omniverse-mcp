@@ -7,19 +7,27 @@ from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 from ovmcp.core.metrics import (
     UNITS_OP,
     UP_AXIS_OP,
+    Brought,
     Converted,
     Exponents,
     Factors,
+    Frame,
+    StepError,
+    Table,
     Units,
+    bring_to_stage,
     convert_units,
     file_up_axis,
+    frame_of,
     layer_units,
+    not_brought,
     scale_to_stage,
     stand_upright,
     unit_exponents,
     units_factors,
     up_axis_turn,
 )
+from ovmcp.core.usd import floats
 from ovmcp.core.xform import add_local_op
 
 # ---- standing a file of another up axis on the stage (#105) ----
@@ -511,3 +519,349 @@ def test_a_value_from_value_clips_is_left_and_named():
 
     assert _convert(stage, prim, Units(1.0, None)) == Converted(values=0, left=["/World/Bot.physics:upperLimit"])
     assert _get(prim, "physics:upperLimit", 0) == pytest.approx(0.04)
+
+
+# ---- the frame a prim lands in, and a file brought to it (#119) ----
+
+
+def _box(
+    up_axis: str | None = None,
+    meters: float | None = None,
+    turn: float | None = None,
+    scale: float | None = None,
+) -> Sdf.Layer:
+    """A file whose default prim, /Box, holds a box 0.5 by 0.5 by 1, tall along the file's up axis, its base at the
+    origin, with a contact offset of 0.02; its root holds Kit's turn and Kit's scale if asked, as a file Kit resolved
+    and saved has."""
+    layer = Sdf.Layer.CreateAnonymous("box.usda")
+    held = Usd.Stage.Open(layer)
+    if up_axis is not None:
+        UsdGeom.SetStageUpAxis(held, up_axis)
+    if meters is not None:
+        UsdGeom.SetStageMetersPerUnit(held, meters)
+    root = UsdGeom.Xform.Define(held, "/Box")
+    if turn is not None:
+        root.AddRotateXOp(opSuffix="unitsResolve").Set(turn)
+    if scale is not None:
+        root.AddScaleOp(UsdGeom.XformOp.PrecisionDouble, "unitsResolve").Set(Gf.Vec3d(scale, scale, scale))
+    shape = UsdGeom.Cube.Define(held, "/Box/Shape")
+    z = up_axis == "Z"
+    shape.AddTranslateOp().Set(Gf.Vec3d(0, 0, 0.5) if z else Gf.Vec3d(0, 0.5, 0))
+    shape.AddScaleOp().Set(Gf.Vec3f(0.25, 0.25, 0.5) if z else Gf.Vec3f(0.25, 0.5, 0.25))
+    shape.GetPrim().CreateAttribute("physxCollision:contactOffset", Sdf.ValueTypeNames.Float).Set(0.02)
+    held.SetDefaultPrim(root.GetPrim())
+    return layer
+
+
+def _scene(up_axis: str, meters: float) -> Usd.Stage:
+    stage = Usd.Stage.CreateInMemory()
+    UsdGeom.SetStageUpAxis(stage, up_axis)
+    UsdGeom.SetStageMetersPerUnit(stage, meters)
+    UsdPhysics.SetStageKilogramsPerUnit(stage, 1.0)
+    UsdGeom.Xform.Define(stage, "/World")
+    return stage
+
+
+def _placed(stage: Usd.Stage, path: str, layer: Sdf.Layer) -> Usd.Prim:
+    prim = stage.DefinePrim(path)
+    prim.GetReferences().AddReference(layer.identifier)
+    return prim
+
+
+def _bring(
+    stage: Usd.Stage, prim: Usd.Prim, layer: Sdf.Layer, table: Table | None = _small_table, noun: str = "file"
+) -> Brought:
+    axis, meters = str(UsdGeom.GetStageUpAxis(stage)), float(UsdGeom.GetStageMetersPerUnit(stage))
+    frame = frame_of(prim.GetParent(), axis, meters)
+    return bring_to_stage(prim, layer, frame, axis, Units(meters, 1.0), table, noun)
+
+
+def _size(prim: Usd.Prim) -> list[float]:
+    box = UsdGeom.BBoxCache(Usd.TimeCode.Default(), ["default"]).ComputeWorldBound(prim)
+    return [round(v, 6) for v in floats(box.ComputeAlignedRange().GetSize())]
+
+
+def _brought_outer(stage: Usd.Stage, layer: Sdf.Layer) -> Usd.Prim:
+    """layer's file at /World/Outer, brought to the stage as create_prim brings it."""
+    outer = _placed(stage, "/World/Outer", layer)
+    _bring(stage, outer, layer)
+    return outer
+
+
+def test_a_frame_without_units_ops_is_the_stage_s():
+    # A prim's own scale is the user's: it scales what is under it as asked, and doesn't change the frame (N3).
+    stage = _scene("Y", 0.01)
+    parent = UsdGeom.Xform.Define(stage, "/World/Scaled")
+    parent.AddScaleOp().Set(Gf.Vec3f(100, 100, 100))
+    # An op's attribute out of the order does nothing, so it doesn't count either.
+    parent.GetPrim().CreateAttribute(UNITS_OP, Sdf.ValueTypeNames.Double3).Set(Gf.Vec3d(100, 100, 100))
+
+    assert frame_of(parent.GetPrim(), "Y", 0.01) == Frame("Y", 0.01, [])
+
+
+def test_an_ancestor_that_brought_a_file_makes_the_frame_under_it():
+    # A Z-up metre file brought to a Y-up centimetre stage: -90 and x100, so under it the frame is Z-up in metres.
+    stage = _scene("Y", 0.01)
+    _brought_outer(stage, _box("Z", 1.0))
+    child = stage.DefinePrim("/World/Outer/Part")
+
+    assert frame_of(child, "Y", 0.01) == Frame("Z", 1.0, ["/World/Outer"])
+
+
+def test_two_ancestors_multiply_their_scales_and_add_their_turns():
+    stage = _scene("Y", 0.01)
+    outer = UsdGeom.Xform.Define(stage, "/World/A")
+    outer.AddRotateXOp(opSuffix="unitsResolve").Set(-90.0)
+    outer.AddScaleOp(UsdGeom.XformOp.PrecisionDouble, "unitsResolve").Set(Gf.Vec3d(100, 100, 100))
+    inner = UsdGeom.Xform.Define(stage, "/World/A/B")
+    inner.AddRotateXOp(opSuffix="unitsResolve").Set(90.0)
+    inner.AddScaleOp(UsdGeom.XformOp.PrecisionDouble, "unitsResolve").Set(Gf.Vec3d(0.1, 0.1, 0.1))
+
+    frame = frame_of(inner.GetPrim(), "Y", 0.01)
+
+    assert frame.up_axis == "Y"
+    assert frame.meters == pytest.approx(0.1)
+    assert frame.prims == ["/World/A", "/World/A/B"]
+
+
+@pytest.mark.parametrize(
+    ("turn", "stage_axis", "up_axis"),
+    [(-90.0, "Y", "Z"), (90.0, "Z", "Y"), (180.0, "Y", None), (-90.0, "Z", None)],
+    ids=["z-in-y", "y-in-z", "upside-down", "sideways"],
+)
+def test_a_frame_s_up_axis_is_what_its_turn_stands_up(turn: float, stage_axis: str, up_axis: str | None):
+    stage = _scene(stage_axis, 1.0)
+    prim = UsdGeom.Xform.Define(stage, "/World/Turned")
+    prim.AddRotateXOp(opSuffix="unitsResolve").Set(turn)
+
+    assert frame_of(prim.GetPrim(), stage_axis, 1.0).up_axis == up_axis
+
+
+def test_a_prim_that_resets_the_transform_stack_stops_the_walk():
+    # The ops above it don't reach what is under it.
+    stage = _scene("Y", 1.0)
+    _brought_outer(stage, _box("Z", 1.0))
+    reset = UsdGeom.Xform.Define(stage, "/World/Outer/Reset")
+    reset.SetResetXformStack(True)
+
+    assert frame_of(reset.GetPrim(), "Y", 1.0) == Frame("Y", 1.0, [])
+
+
+def test_a_file_of_another_up_axis_and_units_is_turned_then_scaled_and_its_values_converted():
+    stage = _scene("Y", 1.0)
+    layer = _box("Z", 0.01)
+    prim = _placed(stage, "/World/Box", layer)
+
+    brought = _bring(stage, prim, layer)
+
+    assert _names(prim) == [UP_AXIS_OP, UNITS_OP]
+    assert brought.up_axis_turn == {"file": "Z", "stage": "Y", "degrees": -90.0, "op": -90.0, "op_name": UP_AXIS_OP}
+    assert brought.units_scale == {
+        "meters_per_unit": {"file": 0.01, "stage": 1.0},
+        "kilograms_per_unit": None,
+        "factor": 0.01,
+        "op": [0.01, 0.01, 0.01],
+        "op_name": UNITS_OP,
+        "converted": 1,
+        "left": [],
+        "left_count": 0,
+        "table": True,
+    }
+    assert brought.frame is None
+    assert _size(stage.GetPrimAtPath("/World/Box/Shape")) == [0.005, 0.01, 0.005]
+    assert _get(stage.GetPrimAtPath("/World/Box/Shape"), "physxCollision:contactOffset") == pytest.approx(0.0002)
+
+
+def test_a_file_inside_an_asset_brought_to_the_stage_is_measured_against_its_frame():
+    # U2, and Kit's own recursive test (K1, N1): the metre file under the metre asset needs no op of its own, and its
+    # values are converted against the stage, as Kit converts them.
+    stage = _scene("Y", 0.01)
+    layer = _box("Z", 1.0)
+    _brought_outer(stage, layer)
+    inner = _placed(stage, "/World/Outer/Inner", layer)
+
+    brought = _bring(stage, inner, layer)
+
+    assert _names(inner) == []
+    assert _size(stage.GetPrimAtPath("/World/Outer/Inner/Shape")) == _size(stage.GetPrimAtPath("/World/Outer/Shape"))
+    assert _size(stage.GetPrimAtPath("/World/Outer/Inner/Shape")) == [50.0, 100.0, 50.0]
+    assert _get(stage.GetPrimAtPath("/World/Outer/Inner/Shape"), "physxCollision:contactOffset") == pytest.approx(2.0)
+    assert brought.up_axis_turn is None
+    assert brought.frame == {"up_axis": "Z", "meters_per_unit": 1.0, "prims": ["/World/Outer"]}
+    scaled = brought.units_scale
+    assert scaled is not None
+    assert scaled["meters_per_unit"] == {"file": 1.0, "stage": 0.01, "frame": 1.0}
+    assert (scaled["factor"], scaled["op"], scaled["converted"]) == (None, None, 1)
+
+
+def test_a_file_of_the_stage_s_axis_inside_a_turned_asset_is_stood_upright():
+    # N2: Kit leaves this one lying along -Z; the plan's rule turns it back (Q2).
+    stage = _scene("Y", 1.0)
+    _brought_outer(stage, _box("Z", 1.0))
+    layer = _box("Y", 1.0)
+    inner = _placed(stage, "/World/Outer/Native", layer)
+
+    brought = _bring(stage, inner, layer)
+
+    assert brought.up_axis_turn == {
+        "file": "Y",
+        "stage": "Y",
+        "degrees": 90.0,
+        "op": 90.0,
+        "op_name": UP_AXIS_OP,
+        "frame": "Z",
+    }
+    size = _size(stage.GetPrimAtPath("/World/Outer/Native/Shape"))
+    assert max(range(3), key=lambda i: size[i]) == 1, size
+    assert brought.units_scale is None
+
+
+def test_a_millimetre_file_in_a_metre_frame_on_a_centimetre_stage_names_the_frame_and_the_stage():
+    # P3: the factor against the frame, the values against the stage.
+    stage = _scene("Y", 0.01)
+    _brought_outer(stage, _box("Y", 1.0))
+    layer = _box("Y", 0.001)
+    inner = _placed(stage, "/World/Outer/Part", layer)
+
+    brought = _bring(stage, inner, layer)
+
+    scaled = brought.units_scale
+    assert scaled is not None
+    assert scaled["meters_per_unit"] == {"file": 0.001, "stage": 0.01, "frame": 1.0}
+    assert scaled["factor"] == pytest.approx(0.001)
+    assert _get(stage.GetPrimAtPath("/World/Outer/Part/Shape"), "physxCollision:contactOffset") == pytest.approx(0.002)
+    assert _size(stage.GetPrimAtPath("/World/Outer/Part/Shape")) == [0.05, 0.1, 0.05]
+
+
+def test_a_file_of_the_stage_s_units_in_a_frame_of_others_is_scaled_and_nothing_converted():
+    stage = _scene("Y", 1.0)
+    _brought_outer(stage, _box("Y", 0.01))
+    layer = _box("Y", 1.0)
+    inner = _placed(stage, "/World/Outer/Part", layer)
+
+    brought = _bring(stage, inner, layer)
+
+    scaled = brought.units_scale
+    assert scaled is not None
+    assert (scaled["factor"], scaled["op"], scaled["converted"]) == (100.0, [100.0, 100.0, 100.0], None)
+    assert _get(stage.GetPrimAtPath("/World/Outer/Part/Shape"), "physxCollision:contactOffset") == pytest.approx(0.02)
+    assert _size(stage.GetPrimAtPath("/World/Outer/Part/Shape")) == [0.5, 1.0, 0.5]
+
+
+def test_a_file_that_authors_neither_is_left_as_it_is_wherever_it_lands():
+    stage = _scene("Y", 0.01)
+    _brought_outer(stage, _box("Z", 1.0))
+    layer = _box()
+    inner = _placed(stage, "/World/Outer/Part", layer)
+
+    assert _bring(stage, inner, layer) == Brought(None, None, None)
+    assert _names(inner) == []
+    assert stage.GetRootLayer().GetPrimAtPath("/World/Outer/Part/Shape") is None
+
+
+def test_without_the_physx_schema_only_the_cameras_convert_and_the_answer_says_so():
+    stage = _scene("Y", 0.01)
+    layer = _units_layer(1.0, None, _BOT)
+    prim = stage.DefinePrim("/World/Bot")
+    prim.GetReferences().AddReference(layer.identifier, "/Bot")
+
+    brought = _bring(stage, prim, layer, table=None)
+
+    scaled = brought.units_scale
+    assert scaled is not None
+    assert (scaled["op"], scaled["converted"], scaled["table"]) == ([100.0, 100.0, 100.0], 1, False)
+    assert _get(stage.GetPrimAtPath("/World/Bot/Eye"), "clippingRange") == Gf.Vec2f(100, 100000)
+    assert _get(stage.GetPrimAtPath("/World/Bot"), "physics:density") == pytest.approx(1000.0)
+
+
+@pytest.mark.parametrize("noun", ["file", "robot"])
+def test_a_failure_while_converting_names_its_step(noun: str):
+    # P2: bring_to_stage does every step, so the handler can't tell which failed; the error says.
+    def broken(name: str, _prim: Usd.Prim) -> Exponents | None:
+        raise KeyError(name)
+
+    stage = _scene("Y", 0.01)
+    layer = _box("Y", 1.0)
+    prim = _placed(stage, "/World/Box", layer)
+
+    with pytest.raises(StepError) as raised:
+        _bring(stage, prim, layer, table=broken, noun=noun)
+
+    assert raised.value.step == f"Converting the {noun}'s values to the stage's units"
+    assert str(raised.value).startswith(f"Converting the {noun}'s values to the stage's units failed: KeyError: '")
+    assert isinstance(raised.value.cause, KeyError)
+
+
+def test_an_animated_held_op_is_refused_as_it_is():
+    stage = _scene("Z", 1.0)
+    layer = _box("Y", 1.0)
+    held = Usd.Stage.Open(layer)
+    UsdGeom.Xformable(held.GetPrimAtPath("/Box")).AddRotateXOp(opSuffix="unitsResolve").Set(-90.0, 1.0)
+    prim = _placed(stage, "/World/Box", layer)
+
+    with pytest.raises(ValueError, match="is animated"):
+        _bring(stage, prim, layer)
+
+
+def test_a_prim_brought_for_another_file_reports_the_file_added_to_it():
+    # P1: the shelf brought in (-90, x0.01); a Y-up metre file on it would lie along -Z at 1/100.
+    stage = _scene("Y", 1.0)
+    shelf = _brought_outer(stage, _box("Z", 0.01))
+    added = _box("Y", 1.0)
+    shelf.GetReferences().AddReference(added.identifier)
+
+    assert not_brought(shelf, added, "Y", 1.0) == {
+        "prim_path": "/World/Outer",
+        "file": {"up_axis": "Y", "meters_per_unit": 1.0},
+        "frame": {"up_axis": "Z", "meters_per_unit": 0.01},
+    }
+
+
+def test_a_prim_brought_for_its_own_file_is_not_reported():
+    stage = _scene("Y", 1.0)
+    layer = _box("Z", 0.01)
+    shelf = _brought_outer(stage, layer)
+
+    assert not_brought(shelf, layer, "Y", 1.0) is None
+
+
+def test_a_file_kit_saved_is_reported_until_it_is_brought():
+    # A Z-up metre box Kit dropped on a Y-up centimetre stage and saved: its root holds -90 and x100, in a Y-up
+    # centimetre file. On a Z-up metre stage its content is upright and its size right only once brought.
+    stage = _scene("Z", 1.0)
+    layer = _box("Z", 1.0)
+    saved = Sdf.Layer.CreateAnonymous("saved.usda")
+    held = Usd.Stage.Open(saved)
+    UsdGeom.SetStageUpAxis(held, "Y")
+    UsdGeom.SetStageMetersPerUnit(held, 0.01)
+    root = UsdGeom.Xform.Define(held, "/Box")
+    root.AddRotateXOp(opSuffix="unitsResolve").Set(-90.0)
+    root.AddScaleOp(UsdGeom.XformOp.PrecisionDouble, "unitsResolve").Set(Gf.Vec3d(100, 100, 100))
+    root.GetPrim().GetReferences().AddReference(layer.identifier)
+    held.SetDefaultPrim(root.GetPrim())
+    prim = _placed(stage, "/World/Saved", saved)
+
+    assert not_brought(prim, saved, "Z", 1.0) == {
+        "prim_path": "/World/Saved",
+        "file": {"up_axis": "Z", "meters_per_unit": 1.0},
+        "frame": {"up_axis": None, "meters_per_unit": 100.0},
+    }
+    _bring(stage, prim, saved)
+    assert not_brought(prim, saved, "Z", 1.0) is None
+    size = _size(stage.GetPrimAtPath("/World/Saved/Shape"))
+    assert size == [0.5, 0.5, 1.0]
+
+
+def test_a_reference_an_older_extension_left_is_reported_and_a_file_that_says_nothing_is_not():
+    stage = _scene("Y", 1.0)
+    layer = _box("Z", 1.0)
+    prim = _placed(stage, "/World/Old", layer)
+    plain = _box()
+    other = _placed(stage, "/World/Plain", plain)
+
+    assert not_brought(prim, layer, "Y", 1.0) == {
+        "prim_path": "/World/Old",
+        "file": {"up_axis": "Z", "meters_per_unit": 1.0},
+        "frame": {"up_axis": "Y", "meters_per_unit": 1.0},
+    }
+    assert not_brought(other, plain, "Y", 1.0) is None
