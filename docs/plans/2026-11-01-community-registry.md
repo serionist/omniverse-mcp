@@ -219,7 +219,7 @@ to the release.
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
 | Q1 | The release's files: (a) add the two crawler names beside `ovmcp.bridge-X.Y.Z.zip`, three identical zips; (b) replace `ovmcp.bridge-X.Y.Z.zip` with the two; (c) add nothing and let the crawler take the source zipball | (a): the documented name stays for people and scripts that fetch it (SETUP's "A Kit machine without uv"), the crawler gets its own; (c) serves the whole repo, 10 times the size. | (a), as recommended (2026-11-01) |
-| Q2 | The Kit floor: (a) `[package.target] kit = ["107.0"]`; (b) no target, as meshy and 324 others; (c) `writeTarget.kit = true` | (a), once step 1's runs hold: the listing then matches the README's Kit 107 or later. (b) offers the release to Kit 106 apps it was never tested on; (c) writes the crawler's 106.4.0 (R10) | (a), once the experiment holds (2026-11-01) |
+| Q2 | The Kit floor: (a) `[package.target] kit = ["107.0"]`; (b) no target, as meshy and 324 others; (c) `writeTarget.kit = true` | (a), once step 1's runs hold: the listing then matches the README's Kit 107 or later. (b) offers the release to Kit 106 apps it was never tested on; (c) writes the crawler's 106.4.0 (R10) | (a), once the experiment holds (2026-11-01); it held (E1, E3) |
 | Q3 | The listing's fields: `repository`, `keywords`, `icon`, `preview_image` as designed; `changelog` or not; `exchange` or not; the icon as a 256 px PNG of the plugin's icon, or the logo's SVG | The four fields; no `changelog` (a copy of the repo's would drift, and the README links it); never `exchange`, which claims a verification NVIDIA hasn't made (K5); the PNG, the size Kit recommends | As recommended (2026-11-01) |
 | Q4 | The topic: (a) after the first release with the archives; (b) now; (c) as (a), but first attach the crawler-named archive, with the 107.0 target, to the releases v0.2.0 to v0.3.0, so the crawler lists them from those assets with the floor and offers Kit 106 none (round 1's improvement 6) | (a). Either way the crawler lists 0.2.0 to 0.3.0 from their source zipballs, without the floor (R4, R11, round 1). (b) would do it now, before the docs that explain the listing. Not (c): published releases stay as they are, and the old versions' listing without a floor is harmless, since Kit 106 isn't supported | (a), not (c) (2026-11-01) |
 | Q5 | Testing before a release: (a) the local-registry experiment once, its scripts in this plan, and CI building and checking the archives on every PR; (b) keep the registry builder in `tools/release.py` for every release; (c) a public test repo of the maintainer's | (a): Kit's side is proven once (E1, E3, E4) and the archive's layout is what can regress, which CI checks; (b) is code kept for a format the crawler, not Kit, defines; (c) leaves a test entry in the public registry for good and waits a day each try | (a) (2026-11-01) |
@@ -317,11 +317,40 @@ The case on Kit 107.3 follows without a run of its own (round 1's improvement 1)
 targets in the index (R10). The one 5.1 session at finish-work (step 10) then shows the target doesn't hide the folder
 install.
 
-If `--enable` doesn't fetch from a registry headless, the probe still shows what Kit sees, and E1 and E3 run with the
-window's **Install** instead, by the maintainer, with the same flags.
+**Results.** Run on 2026-11-01 by the main session, with the maintainer's yes, on Isaac Sim 6.2 headless (Kit
+110.4.0), port 8212, from `run_registry_experiment.py` (appendix) and the scratch registries above:
 
-**Undoing it.** The headless runs leave only the two scratch folders: delete `<scratchpad>/101/extcache` and
-`<scratchpad>/101/extinstall`. A run with the window (E4, or the fallback) can leave two persistent settings behind,
+| # | Result |
+|---|---|
+| E1 | Pass. Nothing enabled at start; `ovmcp-test` added after `kit/prod/default` and `kit/prod/sdk`; one version listed, `package_id` `ovmcp.bridge-0.3.0+107.0`, `version` `[0, 3, 0, "", "107.0"]`, and the solver took it. The log: `downloading: '.../registry-107/3/archives/serionist-omniverse-mcp-linux-x86_64-v0.3.0.zip'` into Kit's temp folder, `unpacking: ... -> <work>/extcache/v2/ovmcp.bridge-0.3.0+107.0`, `creating a link: <work>/extinstall/3/ovmcp.bridge-0.3.0+107.0 -> <work>/extcache/v2/ovmcp.bridge-0.3.0+107.0`, and `[ext: ovmcp.bridge-0.3.0] startup`, the id without `+107.0` (K3). The probe's real path was under `extcache`. `get_sim_state` on 8212: `extension_version = 0.3.0`, `server_version = 0.3.0`, no `note` |
+| E3 | Pass. With `registry-999`, Kit listed no version of `ovmcp.bridge` at all, and the solver refused: "No versions of ovmcp.bridge that satisfies ... (none found)"; the enable failed and no bridge started. With `registry-none`: `package_id` `ovmcp.bridge-0.3.0`, `version` `[0, 3, 0, "", ""]`, the archive downloaded and linked as in E1, the bridge started, and `get_sim_state` answered 0.3.0 and 0.3.0, no `note` |
+
+So Q2 (a) holds: `kit = ["107.0"]` is offered to Kit 110, and a target above the running Kit hides the package.
+
+What the runs showed beyond the pass:
+
+- **Enabling doesn't download.** `set_extension_enabled_immediate` answered False while the registry's version was
+  listed and solvable; `pull_extension` downloaded and linked it, and the enable then held. The window's **Install**
+  is that pull. A headless Kit with `--enable` at start was not run, so the docs give a headless Kit
+  `extension install` only.
+- **Where the install lands:** a link in `<registryCache>/3/`, the registry version's folder, to Kit's download cache.
+- **A port clash:** E1's first run met an older Kit still on 8212. Its bridge logged "Failed to start server", and
+  `get_sim_state` answered from the other Kit. E1 ran again on a free port; the results above are that run's. The
+  launcher now refuses a taken port before it starts.
+
+How the launcher differs from the flags above:
+
+- Isaac Sim's `SimulationApp`, with `extra_args` for `cachePath`, `registryCache` and the port.
+- The registry is added after start, as the Extensions window adds one (it writes the list and queues
+  `omni.kit.registry.nucleus.REGISTRIES_CHANGED_EVENT`), on the non-persistent key, in place of the `registries/2`
+  flag, which might not append to 6.2's two entries.
+- The probe runs inline, in place of `--exec probe.py`.
+- The bridge is enabled through the extension manager, with a pull when the enable doesn't fetch, in place of
+  `--enable`: a refusal at start (E3) could have ended Kit before the probe printed.
+- It checks the port is free before it starts.
+
+**Undoing it.** The headless runs leave only their work folders, `extcache` and `extinstall`: delete them; Kit removes
+its own temp download. A run with the window (E4) can leave two persistent settings behind,
 each undone at the next start: a registry added under **Extension Registries** instead of by flag (K4), removed there;
 and **Autoload** set on the registry's copy, which turns the folder copy's off (K6): set Autoload on the folder copy
 again.
@@ -355,7 +384,7 @@ archives (step 11); R1 to R13 stand in for it until then.
 | The day's lag: unpinned `uvx` moves at PyPI's pace, the registry's listing the next day | Accepted: SETUP says to pin the server to the version Kit shows; Q6's text names the fix |
 | A release's archive replaced after the release: GitHub lets a maintainer delete and re-upload an asset, and the index holds no hash | Accepted, as for today's zip: only the maintainer can; GitHub's immutable releases would lock the assets, an issue of its own |
 | The archive's layout regresses (a toml at the root, R7) | Resolved: `archive_problems` on every PR and every tag |
-| `target.kit` means something else in practice, or hides a folder install | Open until step 1's runs, before any code; Q2 waits for them. The 5.1 session at finish-work checks the folder install on Kit 107.3 |
+| `target.kit` means something else in practice, or hides a folder install | Resolved on Kit 110.4.0 by E1 and E3; the 5.1 session at finish-work checks the folder install on Kit 107.3 |
 | The experiment changes the maintainer's Kit | Resolved: step 1 waits for the maintainer's yes to the start command; no user-config edits; non-persistent flags; Undoing it (Tests) for the window's runs |
 | `exchange` set by mistake | Resolved: Q3 leaves it out, and the design says why |
 | AGENTS.md is at 150 lines | Resolved: Q7 gives the exact line, 110 characters in place of line 114's 55; the rows edit theirs |
@@ -551,4 +580,132 @@ manager.sync_registry()
 for found in manager.fetch_extension_versions("ovmcp.bridge"):
     print("OVMCP-PROBE version:", json.dumps(found, default=str))
 print("OVMCP-PROBE solve:", manager.solve_extensions(["ovmcp.bridge"], add_enabled=False, return_only_disabled=False))
+```
+
+`run_registry_experiment.py`, which ran E1 and E3 in Isaac Sim's Python (Results, above, says how it differs from
+the flags):
+
+```python
+"""Step 1 of the #101 plan: Isaac Sim headless, with ovmcp.bridge only in a local registry, on a port of its own.
+
+Usage: python run_registry_experiment.py <registry folder> <work folder> <stop file> [port]
+
+- No extension folder is added: the bridge can come only from the registry, which local_registry.py built.
+- Kit's download cache (cachePath) and the folder it links installs into (registryCache) go under <work folder>, as
+  extcache/ and extinstall/, so nothing lands in Kit's own folders; delete <work folder> afterwards.
+- The registry is added after start, on the non-persistent key, the way the Extensions window adds one (it writes the
+  list, then queues REGISTRIES_CHANGED_EVENT), so Kit's user config isn't changed.
+- Then the probe: what Kit sees of ovmcp.bridge, the solver's answer, an enable through the extension manager (the
+  same solve and pull as --enable, which is not passed: a refusal at start could end Kit before the probe prints),
+  and where the enabled copy really lives. Each line starts OVMCP-PROBE; the last says whether it came from the
+  registry.
+- RUN_ISAAC_READY once it serves; it exits when the stop file appears.
+"""
+
+import json
+import os
+import socket
+import sys
+
+registry, work, stop_file = (os.path.abspath(a).replace("\\", "/") for a in sys.argv[1:4])
+port = int(sys.argv[4]) if len(sys.argv) > 4 else 8212
+NAME = "ovmcp-test"
+REGISTRIES = "exts/omni.kit.registry.nucleus/registries"
+EXT = "ovmcp.bridge"
+
+# A Kit app already on the port keeps it: this run's bridge would log "Failed to start server", and get_sim_state would
+# answer from the other Kit. Refuse before starting.
+try:
+    with socket.create_connection(("127.0.0.1", port), timeout=1):
+        sys.exit(f"port {port} is taken, by another Kit app's bridge or another program: stop it, or pass another port")
+except OSError:
+    pass
+
+from isaacsim import SimulationApp  # noqa: E402
+
+app = SimulationApp(
+    {
+        "headless": True,
+        "width": 1280,
+        "height": 720,
+        "extra_args": [
+            f"--/exts/omni.kit.registry.nucleus/cachePath={work}/extcache",
+            f"--/app/extensions/registryCache={work}/extinstall",
+            f"--/exts/{EXT}/port={port}",
+        ],
+    }
+)
+
+import carb.settings  # noqa: E402
+import omni.kit.app  # noqa: E402
+import omni.usd  # noqa: E402
+
+
+def probe(label, *values):
+    print(f"OVMCP-PROBE {label}:", *values, flush=True)
+
+
+def plain(value):
+    return json.dumps(value, default=str)
+
+
+settings = carb.settings.get_settings()
+manager = omni.kit.app.get_app().get_extension_manager()
+probe("kit", omni.kit.app.get_app().get_kit_version())
+probe("registryCache", settings.get("/app/extensions/registryCache"))
+probe("cachePath", settings.get("/exts/omni.kit.registry.nucleus/cachePath"))
+
+enabled = manager.get_enabled_extension_id(EXT)
+probe("enabled at start", enabled, manager.get_extension_path(enabled) if enabled else None)
+if enabled:
+    probe("WARNING", "a local copy is enabled at start: this run proves nothing about the registry")
+
+tree = settings.get_settings_dictionary("")
+before = [{"name": r.get("name", ""), "url": r.get("url", "")} for r in tree.get(REGISTRIES, [])]
+probe("registries before", plain(before))
+tree[REGISTRIES] = [*before, {"name": NAME, "url": registry}]
+omni.kit.app.queue_event("omni.kit.registry.nucleus.REGISTRIES_CHANGED_EVENT")
+for _ in range(20):
+    app.update()
+probe("registries after", plain([{"name": r.get("name", ""), "url": r.get("url", "")} for r in tree.get(REGISTRIES, [])]))
+
+probe("sync_registry", manager.sync_registry())
+versions = manager.fetch_extension_versions(EXT)
+for found in versions:
+    probe("version", plain(found))
+probe("solve", plain(manager.solve_extensions([EXT], add_enabled=False, return_only_disabled=False)))
+
+if not enabled:
+    probe("enable", manager.set_extension_enabled_immediate(EXT, True))
+    if not manager.get_enabled_extension_id(EXT):
+        # The enable didn't fetch it: pull the registry's version by its id, then enable again.
+        for found in versions:
+            ext_id = found.get("id") if isinstance(found, dict) else None
+            if ext_id:
+                probe("pull", ext_id, manager.pull_extension(ext_id))
+                probe("enable after pull", manager.set_extension_enabled_immediate(EXT, True))
+                break
+for _ in range(10):
+    app.update()
+
+enabled = manager.get_enabled_extension_id(EXT)
+path = manager.get_extension_path(enabled) if enabled else None
+real = os.path.realpath(path).replace("\\", "/") if path else None
+probe("enabled now", enabled, path, real)
+probe("from the registry", bool(real and real.lower().startswith(f"{work}/extcache".lower())))
+
+omni.usd.get_context().new_stage()
+for _ in range(10):
+    app.update()
+print("RUN_ISAAC_READY", flush=True)
+
+while app.is_running() and not os.path.exists(stop_file):
+    app.update()
+
+print("RUN_ISAAC_STOPPING", flush=True)
+if manager.get_enabled_extension_id(EXT):
+    manager.set_extension_enabled_immediate(EXT, False)
+for _ in range(5):
+    app.update()
+app.close()
 ```
