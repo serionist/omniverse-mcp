@@ -167,8 +167,8 @@ made.
 - **Isaac Sim 5.1** lists the registry already (K4); **6.2** and other Kit apps add it once, in **Extension
   Registries**: name `kit/community`, URL `https://dw290v42wisod.cloudfront.net/exts/kit/community`.
 - The Extensions window lists *Omniverse MCP Bridge* under **THIRD PARTY**, labelled "Community - Unverified", with
-  the icon, the description, the preview and the repository link; OVERVIEW shows the readme once installed, and
-  before only if Kit can fetch it (E4, Q9). **INSTALL** may warn first (K5); then the user turns it on with
+  the icon, the description, the preview and the repository link; OVERVIEW shows the readme before Install too,
+  from the crawler's metadata file (E4, Q9). **INSTALL** may warn first (K5); then the user turns it on with
   **ENABLED** and **AUTOLOAD**, as for a folder install. E4 saw these labels.
 - The listing appears the day after the release (R11). Every version stays listed, and the window offers the newest
   that matches the Kit (K7).
@@ -227,7 +227,7 @@ to the release.
 | Q6 | The server's texts: (a) docs only; (b) the eight texts (C3) also name the registry's fix, through one helper | (b): a registry user who follows today's text installs a copy their Kit never loads, and reads the same note or warning again. The clause costs a line, and a plugin or uvx user skips it | (b) (2026-11-01) |
 | Q7 | A one-way door: AGENTS.md's line 114, `- the Kit extension id `ovmcp.bridge` and its settings;`, becomes `- the Kit extension id `ovmcp.bridge` and its settings; its release archives' names and layout, never deleted;` (110 characters; the file stays at 150 lines). The door starts with the first release that carries the archives, not at the list's "from `0.2.0`"; that release's CHANGELOG line says so | Yes: the crawler builds the names (R5) and Kit downloads every listed version from its release (K2); a rename stops the listing, a deleted asset breaks its installs | Yes, with the exact line (2026-11-01) |
 | Q8 | The plugin's setup: keep `extension install`, or offer the registry? | Keep it: pinned to the plugin's release and there at once, where the registry lags a day and needs a registry added on 6.2. It names a registry copy as another copy to turn off | As recommended (2026-11-01) |
-| Q9 | If Kit's client sends the `+` raw, OVERVIEW before Install shows Kit's template line for our `+107.0` id, in the real registry (E4's findings): (a) keep the Kit floor, and accept it; (b) drop the floor, for an id without `+`, at Q2's cost | Run `probe_metadata.py` first; when the README reaches the window, nothing changes. If it doesn't: (a). The card shows the title, description and icon, and the preview (now a PNG, from the index, not that file); the README shows once installed, and SETUP and the release notes give the server's pin. (b) would undo Q2 for the text of one tab | Open |
+| Q9 | If Kit's client sends the `+` raw, OVERVIEW before Install shows Kit's template line for our `+107.0` id, in the real registry (E4's findings): (a) keep the Kit floor, and accept it; (b) drop the floor, for an id without `+`, at Q2's cost | Run `probe_metadata.py` first; when the README reaches the window, nothing changes. If it doesn't: (a). The card shows the title, description and icon, and the preview (now a PNG, from the index, not that file); the README shows once installed, and SETUP and the release notes give the server's pin. (b) would undo Q2 for the text of one tab | Moot (2026-11-01): Kit's client read the `+` URL, so the README shows before Install; closed without an owner call, and the floor stays |
 
 ## Steps
 
@@ -344,12 +344,16 @@ What E4 found, and what changed:
     writes it (meshy's `3/archives/ai.meshy.bridge/ai.meshy.bridge-0.1.0.json`, its readme inlined).
     `local_registry.py` wrote only the index; it now writes that file too. After Install the window reads the
     installed README, which it showed.
-  - **Open, Q9:** of the URLs the window builds for that file, the two the crawler writes hold the package id, and
+  - **Q9, settled:** of the URLs the window builds for that file, the two the crawler writes hold the package id, and
     ours holds a `+` (`ovmcp.bridge-X.Y.Z+107.0`, the target's build metadata, R10); the others, named after the
-    archive, the crawler doesn't write. The registry answers 404 to a raw `+` and 200 to `%2B` (curl, 2026-11-01);
-    403 of its 866 metadata files have a `+`. Whether Kit's client, `omni.client`, escapes it decides whether the
-    real registry shows our README before Install. `probe_metadata.py` (appendix) reads MPCDI's `+` id and meshy's
-    plain one through the window's own URLs and client.
+    archive, the crawler doesn't write. The registry answers 404 to curl's raw `+` and 200 to `%2B`; 403 of its 866
+    metadata files have a `+`. `probe_metadata.py` (appendix), run by the main session on Isaac Sim 6.2 headless,
+    read the real registry's `mf.ov.mpcdi_converter-1.1.1+105.1.json` with Kit's own client, `omni.client`:
+    `Result.OK` for the `+` URL and for the `%2B` one. So the real registry shows a `+` id's README before Install,
+    ours included, and the floor stays. The run's per-id lines failed on a carb dictionary's `get`, which takes a
+    default, and didn't print; they would have added the crawler's `registryProviderName`, which 70 of the 75
+    entries indexed since June 2026 don't carry (meshy, telekinesis and VicOne among them), and which our local
+    entry lacked too while its icon resolved: no rerun.
 - **Kit's font has no ☰:** the extension README's "the menu (☰)" rendered as "(?)" in OVERVIEW. The README now says
   "the menu button (three lines)"; SETUP, the README and the release notes keep ☰, which GitHub renders.
 - **The labels:** SETUP's section now names them as E4 saw them. The install warning (K5, from the window's code)
@@ -754,7 +758,7 @@ readme, for a package id with a `+` and one without:
 """#101's E4 finding: does Kit's Extensions window get an uninstalled community extension's readme when its package id
 holds a `+`, as ours will (`ovmcp.bridge-X.Y.Z+107.0`)?
 
-Usage: python probe_metadata.py
+Usage: python probe_metadata.py <work folder>
 
 Isaac Sim headless, no bridge, no port. It adds Kit's community registry after start, on the non-persistent key, the
 way the window adds one, and reads the metadata each package's OVERVIEW comes from, by the URLs the window builds
@@ -762,18 +766,33 @@ way the window adds one, and reads the metadata each package's OVERVIEW comes fr
 - MPCDI's `mf.ov.mpcdi_converter-1.1.1+105.1`: a `+` id with a 105.1 target, which Kit 110 takes;
 - meshy's `ai.meshy.bridge-0.1.0`: no `+`.
 The registry answers 404 to a raw `+` and 200 to `%2B` (curl, 2026-11-01): the question is what omni.client sends.
-Each line starts OVMCP-META. Nothing is written; Kit exits at the end.
+Each line starts OVMCP-META. Nothing is written outside the work folder, Kit's registry cache; delete it afterwards.
+Kit exits at the end.
 """
 
 import json
+import os
+import sys
 
 from isaacsim import SimulationApp  # noqa: E402
 
-app = SimulationApp({"headless": True, "width": 640, "height": 480})
+# Kit's registry cache goes to a folder of the run's own, so the sync leaves nothing in Kit's data folder.
+WORK = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "meta-work").replace("\\", "/")
+app = SimulationApp(
+    {
+        "headless": True,
+        "width": 640,
+        "height": 480,
+        "extra_args": [f"--/exts/omni.kit.registry.nucleus/cachePath={WORK}/extcache"],
+    }
+)
 
 import carb.settings  # noqa: E402
 import omni.client  # noqa: E402
 import omni.kit.app  # noqa: E402
+
+# A headless app loads the registry extension only when something needs it; the URL helper lives in it.
+omni.kit.app.get_app().get_extension_manager().set_extension_enabled_immediate("omni.kit.registry.nucleus", True)
 from omni.kit.registry.nucleus import get_extension_metadata_possible_urls  # noqa: E402
 
 REGISTRIES = "exts/omni.kit.registry.nucleus/registries"
@@ -804,7 +823,8 @@ for package_id in ("mf.ov.mpcdi_converter-1.1.1+105.1", "ai.meshy.bridge-0.1.0")
     if not entry:
         say(package_id, "not in Kit's registries")
         continue
-    say(package_id, "registryProviderName", entry.get("registryProviderName"))
+    # A carb dictionary item, whose get takes a default.
+    say(package_id, "registryProviderName", entry.get("registryProviderName", None))
     urls = get_extension_metadata_possible_urls(entry)
     say(package_id, "urls", json.dumps(list(urls)))
     for url in urls:
