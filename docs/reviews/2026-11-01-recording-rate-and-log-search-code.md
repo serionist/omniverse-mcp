@@ -82,13 +82,15 @@ or test_07 or test_24"` and `test_integration.py -k test_24_get_logs`.
 | 4 | `85c1677` | Z-up | the changed tests | 22 passed; 1 passed. `test_06_10`: median gaps 0.201 s, 0.200 s and 0.197 s; 1.72 s simulated, 2.2 s idle; frame 0 against frame 1 0.482. `test_06_11` as in step 3 |
 | 5 | `85c1677` | Z-up | both live suites whole | 196 passed |
 | AI | `85c1677` | Y-up | `scenarios.py run --phases 6,24`, run `20261101-200054` | 12 PASS, 1 WARN. 6.1, 6.3 and 24.3 went from WARN to PASS: 6.1's stop line read "27 frames, 5.66s: 4.15 s of simulation played, 1.19 s stopped or paused", the frames before play 0.2 s apart by `wall_time` and those while playing 0.2 s apart in `sim_time`; 24.3's five callstacks ended `... (+695 characters)` with a `matched:` line each |
+| 6 | `853c748` | Z-up | `test_scenarios.py -k "test_02_01 or test_04_05 or test_06 or test_07"`, after the scenarios' pause before `stop_recording` | 16 passed |
+| AI | `853c748` | Z-up | `scenarios.py run --phases 6,7`, run `20261101-201321` | 10 PASS, no FAIL or WARN; 6.2 went from WARN to PASS. 6.1 paused, then stopped the recording: 64 frames, "8.52 s of simulation played and 4.25 s stopped or paused", 5 x 12.77 = 63.85; frame 63, taken while paused, shows the cube on the ground |
 
 **The WARN, 6.2** (PASS before): its last frame, 26, came after 6.1's `sim_control("stop")` had put the cube back at
 3 m, so it showed the cube high, where frame 25, the last while playing, showed it on the ground. The clock does as
 designed: a stopped update takes a frame at `fps` by the clock. Fixed in the scenario text in the commit after
 `85c1677`: 6.1, 7.1 and 7.3 pause, then call `stop_recording`, then stop, as 6.4 and `test_07_01` already did, and
 `test_06_01` and `test_07_03` follow. TOOLS.md and `start_recording`'s description say to pause, or stop the
-recording, before stopping the simulation to end on the run's last state. AI phase 6 is to be run again on it.
+recording, before stopping the simulation to end on the run's last state. Steps 6 and AI's last row ran on it.
 
 Frame 0 against frame 1 read 0.48 to 0.62 of 255 across the runs: more than #51's E14 (0.21 to 0.24) but under the
 test's 1.0, against 6 to 8 for #111's grid. What the runs couldn't show: Isaac Sim 5.x, Linux, USD Composer, and Path
