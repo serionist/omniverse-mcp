@@ -144,6 +144,15 @@ for p, points in track.items():
     }
 """
 
+# A prim's world rotation as USD composes it, its scale taken out, in PhysX's order x, y, z, w: what a body should hold
+# before PhysX has loaded it (#105).
+USD_ROTATION = """
+prim = omni.usd.get_context().get_stage().GetPrimAtPath(PATH)
+matrix = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+q = matrix.RemoveScaleShear().ExtractRotationQuat()
+result = [*(float(v) for v in q.GetImaginary()), float(q.GetReal())]
+"""
+
 # draw_debug's backend on Isaac Sim, and the lines it holds, ours and any other code's: 0 while it is off.
 DRAW_BACKEND = "isaacsim.util.debug_draw"
 LINE_COUNT = (
@@ -1791,14 +1800,20 @@ class TestScenarios(PhysicsChecks):
         r = self.c.create_robot("franka", path, position=_along_up(up, 0, x=-50))
         self.assertEqual(r["status"], "success", r)
         # On a Y-up stage it is turned upright (#105): tallest along the up axis, and its world-anchored root joint
-        # doesn't pull the base back to the file's orientation once physics runs.
+        # doesn't pull the base back to the file's orientation once physics runs. The pose to hold is USD's, read
+        # before PhysX loads the robot: one PhysX had already pulled back would hold its own pose.
         dims = self.c.prim_bounds(path)["result"]["dimensions"]
         self.assertEqual(max(range(3), key=lambda i: dims[i]), up, dims)
-        self._start_physics()
         base, hand = f"{path}/panda_link0", f"{path}/panda_hand"
-        before = self._physx_pose(base)["rotation"]
+        r = self.c.execute(USD_ROTATION.replace("PATH", repr(base)))
+        self.assertEqual(r["status"], "success", r)
+        created = r["result"]["return_value"]
+        self._start_physics()
+        loaded = self._physx_pose(base)["rotation"]
         self._run_frames(30)
-        self.assertLess(_turn_degrees(before, self._physx_pose(base)["rotation"]), 1.0)
+        ran = self._physx_pose(base)["rotation"]
+        self.assertLess(_turn_degrees(created, loaded), 1.0, f"PhysX loaded the base turned from {created}: {loaded}")
+        self.assertLess(_turn_degrees(created, ran), 1.0, f"30 steps turned the base from {created}: {ran}")
         r = self.c.apply_force(base, force=[100, 0, 0], impulse=True)
         self.assertEqual(r["status"], "error", r)
         held = f"{base} is held to the world by a fixed joint, as the base of the articulation at {path}"
