@@ -24,6 +24,23 @@ def _rounded(values: list[float]) -> list[float]:
     return [round(v, 4) for v in values]
 
 
+def _physics_values(r: dict[str, Any]) -> list[str]:
+    """Each value set_physics_properties wrote, as the extension echoes it, so the model can confirm the call without
+    reading the prim again; one left out comes back null and stays as it was."""
+    values: list[str] = []
+    if r.get("mass") is not None:
+        mass = float(r["mass"])
+        values.append(f"mass={mass}" + (" (unset, so density decides)" if mass == 0 else ""))
+    if r.get("density") is not None:
+        density = float(r["density"])
+        values.append(f"density={density}" + (" (unset)" if density == 0 else ""))
+    if r.get("friction") is not None:
+        values.append(f"friction={float(r['friction'])} (static and dynamic)")
+    if r.get("restitution") is not None:
+        values.append(f"restitution={float(r['restitution'])}")
+    return values
+
+
 def _unit(direction: list[float]) -> list[float]:
     """direction scaled to length 1, as raycast_closest's unit_dir asks. Isaac Sim 6.2's PhysX scales it itself;
     other builds are untried, and a zero one has no direction to cast along."""
@@ -111,12 +128,21 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         Mass or density goes through MassAPI and makes the prim a rigid body (RigidBodyAPI) if it isn't one, so a
         static collider starts to fall when the simulation plays. Friction or restitution adds the Collision API if
         missing, and sets them on a physics material, /World/PhysicsMaterials/<prim name>_PhysMat, bound to the prim
-        for physics only: prims of the same name share it, so setting one changes the rest. For the prim's look, use
-        set_material; to make a new prim physical in one call, create_prim with enable_physics.
+        for physics only: prims of the same name share it, so setting one changes the rest. The answer gives each value
+        set and the APIs applied. For the prim's look, use set_material; to make a new prim physical in one call,
+        create_prim with enable_physics.
         """
         resp = bridge_call(client.set_physics_properties, prim_path, mass, density, friction, restitution)
         r = resp["result"]
-        return f"Physics on {r['prim_path']}: {', '.join(r['applied'])}"
+        values = _physics_values(r)
+        if not values:
+            return f"Nothing set on {r['prim_path']}: give mass, density, friction or restitution"
+        text = f"Physics on {r['prim_path']}: {', '.join(values)}"
+        # The extension names RigidBodyAPI and CollisionAPI only when it added them: the prim became a body or a
+        # collider in this call.
+        if r.get("applied"):
+            text += f"; applied {', '.join(r['applied'])}"
+        return text
 
     @tool(mcp, EDITS)
     def apply_force(
@@ -140,20 +166,25 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Push a rigid body through PhysX with a force or an impulse, so its mass counts. The simulation must be
         playing or paused. A push on an articulation's link, such as a robot's, moves the robot through its joints: a
         floating robot touching nothing changes speed by the impulse over its whole mass; a fixed robot's link turns
-        about its joints, and on the ground friction takes some of the push. With /physics/suppressReadback on, as
-        Isaac Sim's GPU device sets it for PhysX's Direct GPU API, the push goes through PhysX's tensor API. Under that
-        API a second push on a body before the next physics step replaces the first, so push once per body per step,
-        combining pushes into one; pushes on different bodies each land. Refused for a prim without RigidBodyAPI, a
-        disabled or kinematic body, and one a fixed joint holds to the world (a fixed robot's base). To place a body
+        about its joints, and on the ground friction takes some of the push. The answer gives the point pushed at and
+        the path the push took: method: physx, PhysX's own push, or method: tensor. With /physics/suppressReadback on,
+        as Isaac Sim's GPU device sets it for PhysX's Direct GPU API, the push goes through PhysX's tensor API. Under
+        that API a second push on a body before the next physics step replaces the first, so push once per body per
+        step, combining pushes into one; pushes on different bodies each land. Refused for a prim without RigidBodyAPI,
+        a disabled or kinematic body, and one a fixed joint holds to the world (a fixed robot's base). To place a body
         rather than push it, use set_prim_transform."""
         resp = bridge_call(client.apply_force, prim_path, force, position, impulse)
         r = resp["result"]
         mode = "impulse" if r.get("impulse") else "force"
         text = f"Applied {mode} {_rounded(r['force'])} to {r['prim_path']}"
+        details: list[str] = []
         # A 0.2.0 extension answers no `at`, and its `method` says whether PhysX or a velocity nudge did it.
         if r.get("at") and r.get("position") is not None:
-            return f"{text} at {_rounded(r['position'])} ({r['at']})"
-        return f"{text} (method: {r.get('method', 'unknown')})"
+            text += f" at {_rounded(r['position'])}"
+            details.append(r["at"])
+        # physx or tensor: under the tensor API a second push on the body before the next step replaces this one.
+        details.append(f"method: {r.get('method', 'unknown')}")
+        return f"{text} ({', '.join(details)})"
 
     @tool(mcp, READS)
     def raycast(

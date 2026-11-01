@@ -917,13 +917,17 @@ Set a prim's mass or density, and its friction or restitution, for PhysX; a valu
 | `friction` | float | `null` | Friction coefficient, not negative (usually 0-1), set as both static and dynamic friction |
 | `restitution` | float | `null` | Bounciness, 0 (no bounce) to 1 (full bounce) |
 
-Automatically applies the required USD physics APIs (`MassAPI`, `PhysicsMaterialAPI`, etc.) if not already present.
-
 - **Mass or density** makes the prim a rigid body (`RigidBodyAPI`) if it isn't one, so a static collider starts to fall
   when the simulation plays.
 - **Friction or restitution** adds the Collision API if missing, and sets them on a physics material,
   `/World/PhysicsMaterials/<prim name>_PhysMat`, bound to the prim for physics only: prims of the same name share it,
   so setting one changes the rest.
+
+**Returns:** each value set, as the Kit extension set it, then the APIs applied:
+`Physics on /World/RedCube: mass=5.0; applied MassAPI`. Friction says `(static and dynamic)`, as it is set as both;
+a mass or density of 0 says it is unset. `RigidBodyAPI` and `CollisionAPI` are named only when the call added them,
+so the prim became a rigid body or a collider; `MassAPI` and `PhysicsMaterial` whenever their values were set. A call
+without a value sets nothing and says so.
 
 **When to use:** for how a prim behaves in physics. Its look is `set_material`'s; to make a new prim physical in one
 call, use `create_prim` with `enable_physics`.
@@ -972,9 +976,11 @@ different bodies each land.
 | a fixed joint holds the body to the world, or welds it to a body one holds | no force moves it, as measured on the Franka's base. That is an enabled `UsdPhysics.FixedJoint` whose other end is the world, a static prim, a disabled body or a kinematic one, excluded from articulations or not. The error names the articulation when the body is a robot's fixed base or welded to one |
 | `position` is left out and PhysX gives the body no mass | no centre of mass to push at: give a `position` |
 
-**Returns:** `position`, the world point pushed at; `at`, `given` or `centre of mass`; `method`, `physx`, or `tensor`
-with `/physics/suppressReadback` on. A point off the centre of mass turns the body as well as moving it. Newtons
-assume a stage in metres and kilograms: PhysX works in the stage's units (`meters_per_unit` in `get_sim_state`). The
+**Returns:** the push, the world point pushed at, whether that was the point `given` or the `centre of mass`, and the
+path the push took: `method: physx`, PhysX's own push, or `method: tensor`, its tensor API with
+`/physics/suppressReadback` on. For example,
+`Applied impulse [0.0, 0.0, 10.0] to /World/Cube at [0.0, 0.1, 2.0] (centre of mass, method: physx)`. A point off
+the centre of mass turns the body as well as moving it. Newtons assume a stage in metres and kilograms: PhysX works in the stage's units (`meters_per_unit` in `get_sim_state`). The
 centre of mass comes from PhysX's unit-tests interface (`get_mass_information`), which NVIDIA may change between Kit
 releases, or with the setting on from the tensor API's view of the body; without it the call is an error, never a
 push at another point. All of this is the Kit extension's: one from 0.2.0 nudges `physics:velocity` instead, and its
