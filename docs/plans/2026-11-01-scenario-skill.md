@@ -359,6 +359,40 @@ Each step passes `uv run tools/gate.py full`. The skill, `finish-work` and `writ
 | 9 | Live, on Isaac Sim 6.2 headless on 8212 with this branch's bridge: `check` refusing a stage saved outside the runs folder and a bridge copy that differs (8211 is proven by step 4's unit test alone, never live); phase 1 alone; `--phases 15,20`; every phase; `compare` twice. The run's time and cost go into the skill, the per-session limit is set from them | The run folders, read by the session; skill loads above none; ten rows checked against their transcripts (Tests) |
 | 10 | `finish-work` | The PR, with the full run's `compare` output |
 
+**Step 9, live,** on 2026-11-01, run by the coordinating session: Isaac Sim 6.2.0 headless (Kit 110.4.0) at 8212,
+loading a copy of the branch's bridge from a folder of its own; Claude Code 2.1.316; the testers on
+`claude-opus-5-5`. Runs are named by their folders in the main checkout's `test_project/results/runs/`.
+
+| What | Result |
+|---|---|
+| `check`, a copy of `main`'s bridge | Refused, though the code was the same: the copy came from an older Windows checkout whose files kept CRLF. Fixed in `f3ad7c8`, which hashes files as git stores them; a unit test holds a CRLF copy, and the main checkout's own CRLF bridge now passes |
+| `check`, the branch's bridge | Passed: `Isaac-Sim Python 6.2.0 (Kit 110.4.0...)`, ovmcp.bridge 0.3.0, stage `(unsaved)` with 11 prims |
+| The stage rule | Refused a stage saved to the scratchpad and opened (`refused: the Kit app has ...\elsewhere.usda open ...`); `new_scene()` put a new one back |
+| `--phases 1`, `20261101-033741` | 2 sessions, 20 s, $0.18: 1.1, 1.2 and 27.1 PASS; neither session loaded a skill |
+| `--phases 15,20`, `20261101-033809` | 5 sessions in the order the plan resolves (setup 2.1, 4.5, 10.1; Phase 15; setup 18.1, 18.2; Phase 20; Phase 27), 224 s, $1.47; skills loaded in 4 of 5 (`scene`, `simulate`, `geometry` twice). 25 PASS, 4 FAIL, 1 WARN; `compare`: 29 new, exit 0 |
+| Every phase | Pending |
+
+The FAILs and the WARN are findings about the tools' answers or stale Verify lines, which follow-up issues take, not
+this change: `set_physics_properties` answers `Physics on /World/RedCube: MassAPI` (or `PhysicsMaterial`) with no
+values, though USD holds them (15.1 to 15.3); `apply_force`'s answer names no `method: physx`, which 15.5's Verify
+line asks for; `compare_prims` gives `faces: +96576 (+0%)` from a base of 0 (20.6, WARN).
+
+**The spot-check:** eleven rows from those two runs against their transcripts, every FAIL and WARN among them. Each
+row's notes match the calls the tester made and the answers it got:
+
+| Row | Status | The transcript shows |
+|---|---|---|
+| 1.1, 1.2 | PASS | `new_scene()` first, then `get_sim_state` (stopped, Y-up, 12 prims, 0.3.0 on both sides) and the tree the notes list |
+| 15.1, 15.2, 15.3 | FAIL | The three answers word for word, and a script reading mass 5.0, density 1000.0, friction 0.8 and restitution 0.3 from USD |
+| 15.5 | FAIL | `Applied force [100.0, 0.0, 0.0] to /World/RedCube at [0.0054, 0.35, 0.0073] (centre of mass)`, with no method |
+| 15.6 | PASS | Speeds of 1.99997 after the impulse and 0.0334 after the force, against 2 and 0.0333 |
+| 15.11 | PASS | Mass 34.236 kg from PhysX's tensor view, then the centre of mass's speed from 2.921 to 2.927 against 100 / 34.236 |
+| 18.1 | PASS | Totals of 22 meshes and 96,576 faces, and a depth-6 tree whose two meshes sum to the hand's 6,658 |
+| 20.6 | WARN | `faces: +96576 (+0%)` in the delta |
+| 27.1 | PASS | stop, `get_sim_state` (no recording), `new_scene()`, a tree of a new stage's own prims |
+
+The rows that rest on an image (3.2, 12.8, 22.5) wait for the full run.
+
 ## Tests
 
 - **Unit, in CI:** `tests/test_scenario_runs.py`, as `tests/test_release.py` tests `tools/release.py`: parsing the real
