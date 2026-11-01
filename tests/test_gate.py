@@ -704,7 +704,7 @@ def test_a_plugin_server_without_its_pin_fails(tmp_path, monkeypatch):
             "omniverse-mcp==9.9.9",
             "docs/README.md (pin 1) has version '9.9.9'",
         ),
-        (gate.EXTENSION_README, "omniverse-mcp=={version}", "omniverse-mcp", "(no omniverse-mcp== pin)"),
+        (gate.EXTENSION_README, None, "# Omniverse MCP Bridge\n", "(no omniverse-mcp== pin)"),
         (
             gate.SERVER_JSON,
             '"{version}",\n      "runtimeHint"',
