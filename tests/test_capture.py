@@ -367,6 +367,7 @@ def test_segmentation_waits_briefly_after_a_wait_that_got_nothing_until_data():
 
 def test_the_waits_read_their_seconds_when_called(monkeypatch):
     # A live test shortens them through execute_script, after the module was imported.
+    frame_seconds = capture.FRAME_SECONDS
     monkeypatch.setattr(capture, "FRAME_SECONDS", 0.02)
     monkeypatch.setattr(capture, "FILE_SECONDS", 3.0)
     monkeypatch.setattr(capture, "SEGMENTATION_SECONDS", 2.0)
@@ -374,6 +375,10 @@ def test_the_waits_read_their_seconds_when_called(monkeypatch):
     with pytest.raises(NoFrameError, match=r"0\.02 s"):
         _run(frames(lambda: asyncio.get_running_loop().create_future(), 1))
 
+    # The file wait below runs behind Kit's own capture, which FRAME_SECONDS also bounds, on the real clock: 0.02 s is
+    # about one tick of Windows' monotonic clock before Python 3.13, so that bound could win the race with the fake's
+    # hand-over and fail the test by chance (#128).
+    monkeypatch.setattr(capture, "FRAME_SECONDS", frame_seconds)
     kit = _Kit([None])
     with pytest.raises(CaptureError, match="in 3 s"):
         _run(kit.png())
