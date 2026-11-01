@@ -58,6 +58,15 @@ Improvements, with the coordinator's answers:
 - IB5, the PR cites Q13 beside the settings: taken in the PR draft.
 - IB6, the plan's Tests line on the spot-check and its Risks row on scripts: taken in `575adf8`.
 
+## Live run
+
+Phase 25 alone on `7006994`, run `20261101-045626`, under F7's wording, on Isaac Sim 6.2.0 headless (Kit 110.4.0) at
+8212 with the branch's bridge, the tester on `claude-opus-5-5`: phase-25 in 16 s for $0.15, loading
+`omniverse-mcp:script`, then phase-27 in 10 s for $0.08; 9 PASS, and `compare` exited 0. The transcript shows 25.3
+and 25.4 run as the scenarios write them, two awaited handlers in one script each: 25.3 read the new cube's centre
+as [0, 1, 0], 25.4 captured with `has_image` true. No script imported `ovmcp.*` or waited for time. The other fixes
+after `f310ef4` change the script, which the unit tests cover, or the docs, and need no live run.
+
 ## Checks
 
 - `tests/test_scenario_runs.py`: 77 passed, twice.
