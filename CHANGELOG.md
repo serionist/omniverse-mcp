@@ -37,6 +37,12 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 - **`capture_viewport` gives no box to a prim beside the view:** it boxed any prim whose corners' rectangle
   reached the image, so a cube beside the view got a box at the frame's edge. A box is now the prim's outline where
   it lies on the image. The fix is in the Kit extension (#105).
+- **`viewport_light("get")` counts the stage's own lights, never the viewport's light rig:** in a rig mode such as
+  Default it listed the rig's `DomeLight` and `DistantLight` and said the stage had lights, though mode `stage`, or
+  another app, showed it unlit. It now leaves them out, and a line names the rig and says what mode `stage` would
+  show. Lights inside instances, a lamp asset's, now count, marked read only, and the list stops at 20 with the
+  count of the rest. The fix is in the Kit extension and the server: run `uvx omniverse-mcp extension install`,
+  then restart Kit (#117).
 - **`capture_viewport` and `inspect_prim` warn when the lighting lights nothing:** mode `off`, or `stage` with no
   scene lights. The warning came only with an all-black image, and Kit's grid keeps one from being all black. With
   an older Kit extension, only `off` warns (#105).

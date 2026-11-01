@@ -795,7 +795,7 @@ Query or set the viewport's lighting mode. Non-destructive: it changes how the v
 | `enabled` | bool | `true` | For `set_camera_light`: `true` is mode `"camera"`, `false` is `"stage"` |
 
 **Actions:**
-- **get** - Returns the current lighting mode, the available modes, whether the scene has lights, and a list of all scene light prims (path, type, intensity)
+- **get** - Returns the current lighting mode, the available modes, whether the stage has lights of its own, and those lights (path, type, intensity): the first 20, then `... and N more`. A light inside an instance counts, marked `inside an instance, read only`, since USD refuses edits there. A light rig's lights never count: Kit puts them on the stage under `/OmniKit_Viewport_LightRig`, and they light the viewport, not the stage. In a rig mode a line names the rig, and says the stage's surfaces render black in mode `"stage"` when the stage has no lights of its own
 - **set** - Switches the lighting mode. Light rigs need the viewport's lighting menu (`omni.kit.viewport.menubar.lighting`); without it, `"camera"` and `"stage"` still work, and anything else returns an error rather than a false success
 - **set_camera_light** - Legacy alias for `set` with `"camera"` or `"stage"`
 

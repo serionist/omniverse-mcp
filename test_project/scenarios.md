@@ -811,11 +811,15 @@ Needs: 18.2
 - `viewport_light("get")`
 - Verify: returns `lighting_mode` (string), `available_modes` (list), `has_scene_lights` (bool), `scene_lights` (list)
 - `available_modes` should include at least `"off"`, `"camera"`, `"stage"`; the scene has lights, and the list names
-  18.2's `/World/DomeLight` with its intensity, 1000
+  18.2's `/World/DomeLight` with its intensity, 1000, and no path under `/OmniKit_Viewport_LightRig`, the viewport's
+  light rig, whatever the mode
 
 ### 23.2 Set Lighting Mode — Default Rig
 - `viewport_light("set", mode="Default")`
 - Verify: `lighting_mode="Default"` in response
+- `viewport_light("get")`: a line names the light rig 'Default', which lights the viewport in place of the stage's
+  lights; the scene still has lights, and the list still names 18.2's `/World/DomeLight` and no path under
+  `/OmniKit_Viewport_LightRig`
 - `capture_viewport()` → scene should be lit with the Default light rig
 
 ### 23.3 Set Lighting Mode — Camera Light

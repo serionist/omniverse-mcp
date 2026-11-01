@@ -2420,6 +2420,9 @@ class TestScenarios(PhysicsChecks):
         r = self.c.viewport_light("set", mode="Default")
         self.assertEqual(r["status"], "success")
         self.assertEqual(r["result"]["lighting_mode"], "Default")
+        # The rig's lights, which Kit puts on the stage under /OmniKit_Viewport_LightRig, aren't the stage's (#117).
+        listed = [light["path"] for light in self.c.viewport_light("get")["result"]["scene_lights"]]
+        self.assertFalse([p for p in listed if p.startswith("/OmniKit_Viewport_LightRig")], listed)
         print("  Set to Default rig")
         self._pass()
 

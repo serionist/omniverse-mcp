@@ -984,7 +984,8 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
 
     def test_12j_an_unlit_capture_warns_though_the_grid_shows(self):
         """Scenario 23.6: with lighting off the prims render black and the grid doesn't, so the image isn't all black
-        and no warning came. Lighting off, and stage on a stage without lights, now warn (#105)."""
+        and no warning came. Lighting off, and stage on a stage without lights, now warn (#105). The stage's lights
+        read the same in every mode, a light rig's never among them (#117)."""
         found = self.client.viewport_light("get")
         self.assertEqual(found["status"], "success", found)
         self.addCleanup(self.client.viewport_light, "set", mode=found["result"]["lighting_mode"])
@@ -993,13 +994,26 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(self.client.create_prim(prim, "Cube", scale=0.5)["status"], "success")
         out = self._output_folder()
 
+        def light_paths() -> list[str]:
+            got = self.client.viewport_light("get")
+            self.assertEqual(got["status"], "success", got)
+            paths = [light["path"] for light in got["result"]["scene_lights"]]
+            self.assertEqual(got["result"]["has_scene_lights"], bool(paths), got)
+            return paths
+
+        # Read first in a light rig, whose lights Kit puts on the stage under /OmniKit_Viewport_LightRig, and which
+        # mode stage takes away: the get counted them, and said a stage without lights was lit (#117). The lists of
+        # paths are compared, not yes or no: on a stage with lights of its own, a rig counted again still reads yes.
+        if "Default" in found["result"]["available_modes"]:
+            self.assertEqual(self.client.viewport_light("set", mode="Default")["status"], "success")
+        stage_lights = light_paths()
+        self.assertFalse([p for p in stage_lights if p.startswith("/OmniKit_Viewport_LightRig")], stage_lights)
+        lit = bool(stage_lights)
+
         for mode in ("off", "stage", "camera"):
             with self.subTest(mode=mode):
                 self.assertEqual(self.client.viewport_light("set", mode=mode)["status"], "success")
-                # Whether the stage has lights is read in the mode the capture runs in: a light rig, such as Default,
-                # puts lights of its own on the stage, which mode stage takes away. Read before the switch, in the
-                # mode the test found, a rig's lights said the stage was lit (#105's live run, step 3).
-                lit = self.client.viewport_light("get")["result"]["has_scene_lights"]
+                self.assertEqual(light_paths(), stage_lights)
                 warns = {"off": True, "stage": not lit, "camera": False}[mode]
                 erred, text = call_tool("capture_viewport", {"width": 160, "height": 120}, out)
                 self.assertFalse(erred, text)
