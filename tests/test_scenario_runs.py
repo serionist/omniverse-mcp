@@ -127,8 +127,8 @@ def test_a_first_half_phase_alone_ends_with_the_cleanup_and_no_second_half(suite
 
 
 def test_needs_resolve_through_the_phases_they_name(suite):
-    # 26 needs 23.2, whose phase needs 18.2.
-    assert labels(scenarios.plan(suite, {26}))[0] == ("setup-26", ("18.2", "23.2"), True)
+    # 26 needs 23.2, whose phase needs 18.1 (the light) and 18.2.
+    assert labels(scenarios.plan(suite, {26}))[0] == ("setup-26", ("18.1", "18.2", "23.2"), True)
 
 
 def test_a_full_run_needs_no_setup_and_starts_two_stages(suite):
