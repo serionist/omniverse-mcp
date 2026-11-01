@@ -14,7 +14,7 @@ import pytest
 from mcp import Client, MCPError
 
 from omniverse_mcp.client import BridgeClient
-from omniverse_mcp.kit_extension import install_command
+from omniverse_mcp.kit_extension import install_advice
 from omniverse_mcp.server import Helpers, create_server
 
 from .mock_bridge import MockIsaacServer
@@ -88,7 +88,7 @@ def test_a_route_an_older_extension_lacks_names_the_command_that_installs_this_s
     assert result.is_error
     text = result.content[0].text
     assert "Unknown endpoint: /scene/open. The Kit extension is older than this MCP server" in text
-    assert f"{install_command()}, then restart Kit" in text
+    assert f"install the server's, {install_advice()}" in text
 
 
 def test_a_value_out_of_range_is_refused_before_the_bridge(bridge, client, tmp_path):

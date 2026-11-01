@@ -148,6 +148,16 @@ def test_the_install_command_fits_the_install(tmp_path: Path, monkeypatch: pytes
     assert kit_extension.install_command() == release
 
 
+def test_the_advice_names_the_command_and_the_registry_s_way(monkeypatch: pytest.MonkeyPatch):
+    # A bridge from Kit's community registry isn't in the folder the command fills: its user picks the version in Kit.
+    monkeypatch.setattr(kit_extension, "install_command", lambda: "uvx omniverse-mcp==9.8.7 extension install")
+    monkeypatch.setattr(kit_extension, "carried_version", lambda: "9.8.7")
+    assert kit_extension.install_advice() == (
+        "uvx omniverse-mcp==9.8.7 extension install, then restart Kit; with the extension from Kit's community "
+        "registry, install 9.8.7 in Kit's Extensions window instead"
+    )
+
+
 @pytest.mark.parametrize(
     ("platform", "env", "base"),
     [

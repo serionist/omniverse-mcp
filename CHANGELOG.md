@@ -9,6 +9,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 - **Tested on Linux and on Isaac Sim 5.1:** both live suites pass on Isaac Sim 6.2 on Linux, and on 5.1 (Kit 107).
   On Linux, Isaac Sim 5.1 runs on NVIDIA's 580 drivers; on a 595 driver its renderer crashes as it starts (#99).
+- **The texts that find another release's Kit extension name Kit's community registry too:** `get_sim_state`'s
+  note, the connection errors and the warnings of `capture_viewport`, `inspect_prim` and `start_recording` still give
+  the `extension install` command, and add that an extension from the community registry is updated in Kit's
+  Extensions window instead, since the command's folder never reaches it (#101).
 
 ## 0.3.0 (2026-11-01)
 

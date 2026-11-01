@@ -404,7 +404,13 @@ CASES = [
         {"state": "stopped", "up_axis": "Z", "sim_time": 0.0, "fps": 60.0, "prim_count": 3, "meters_per_unit": 1.0},
         {},
         # The mock bridge's handshake answers extension 1.0.0, another release than this server's.
-        ("state = stopped", "up_axis = Z", "extension_version = 1.0.0", "note = the Kit extension is 1.0.0"),
+        (
+            "state = stopped",
+            "up_axis = Z",
+            "extension_version = 1.0.0",
+            "note = the Kit extension is 1.0.0",
+            f"install the server's, {kit_extension.install_advice()}",
+        ),
     ),
     Case(
         "set_physics_properties",
@@ -793,7 +799,8 @@ def test_start_recording_warns_an_older_extension_ignores_the_camera_and_size(br
             (
                 "WARNING: this Kit extension records the active viewport, from its camera at its own size: "
                 "camera_path /World/RecCam, width 320 and height 240 are ignored.",
-                f"Install the extension of this server's release, {kit_extension.install_command()}, then restart Kit",
+                "To record from a camera at a size, install the extension of this server's release, "
+                f"{kit_extension.install_advice()}.",
             ),
         ),
         bridge,

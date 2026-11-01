@@ -8,7 +8,7 @@ from mcp.server.mcpserver import MCPServer
 from pydantic import Field
 
 from omniverse_mcp.client import BridgeClient
-from omniverse_mcp.kit_extension import install_command
+from omniverse_mcp.kit_extension import install_advice
 
 from ._annotations import EDITS, READS, tool
 from ._bridge import bridge_call
@@ -35,8 +35,8 @@ def _ignored_warning(camera_path: str, width: int, height: int) -> str | None:
     named = ignored[0] if len(ignored) == 1 else f"{', '.join(ignored[:-1])} and {ignored[-1]}"
     return (
         f"WARNING: this Kit extension records the active viewport, from its camera at its own size: {named} "
-        f"{'is' if len(ignored) == 1 else 'are'} ignored. Install the extension of this server's release, "
-        f"{install_command()}, then restart Kit, to record from a camera at a size."
+        f"{'is' if len(ignored) == 1 else 'are'} ignored. To record from a camera at a size, install the extension of "
+        f"this server's release, {install_advice()}."
     )
 
 
