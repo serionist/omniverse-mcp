@@ -7,11 +7,14 @@ beside it, as tests/test_camera_handler.py and tests/test_camera_feed.py load th
 import asyncio
 import importlib.util
 import sys
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade
+
+from ovmcp.core.usd import floats
 
 from .conftest import EXTENSION_ROOT
 
@@ -240,6 +243,236 @@ def test_create_prim_without_a_transform_leaves_a_prim_without_one(scene, kit):
     # A material has no transform: nothing is checked when none is given.
     r = _run(scene, "handle_create_prim", prim_path="/World/Looks/Mat", prim_type="Material")
     assert r["status"] == "success", r
+
+
+# ---- create_prim's usd_path brought to the stage's up axis and units (#119) ----
+
+TURN, SCALE = "xformOp:rotateX:unitsResolve", "xformOp:scale:unitsResolve"
+
+
+def _box_file(
+    folder: Path, up_axis: str | None = None, meters: float | None = None, name: str = "box.usda", animated=False
+) -> str:
+    """A file whose default prim, /Box, holds a box 0.5 by 0.5 by 1, tall along the file's up axis, its base at the
+    origin, with a contact offset of 0.02 and a density of 1000; its root's own translate animated if asked."""
+    path = folder / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    layer = Sdf.Layer.CreateNew(str(path))
+    held = Usd.Stage.Open(layer)
+    if up_axis is not None:
+        UsdGeom.SetStageUpAxis(held, up_axis)
+    if meters is not None:
+        UsdGeom.SetStageMetersPerUnit(held, meters)
+    root = UsdGeom.Xform.Define(held, "/Box")
+    if animated:
+        root.AddTranslateOp().Set(Gf.Vec3d(0, 0, 1), 1.0)
+    shape = UsdGeom.Cube.Define(held, "/Box/Shape")
+    z = up_axis == "Z"
+    shape.AddTranslateOp().Set(Gf.Vec3d(0, 0, 0.5) if z else Gf.Vec3d(0, 0.5, 0))
+    shape.AddScaleOp().Set(Gf.Vec3f(0.25, 0.25, 0.5) if z else Gf.Vec3f(0.25, 0.5, 0.25))
+    shape.GetPrim().CreateAttribute("physxCollision:contactOffset", Sdf.ValueTypeNames.Float).Set(0.02)
+    shape.GetPrim().CreateAttribute("physics:density", Sdf.ValueTypeNames.Float).Set(1000.0)
+    held.SetDefaultPrim(root.GetPrim())
+    layer.Save()
+    return layer.realPath
+
+
+_TABLE = {"physxCollision:contactOffset": (0, 1, 0, 0, 0), "physics:density": (1, -3, 0, 0, 0)}
+
+
+@pytest.fixture
+def table(monkeypatch: pytest.MonkeyPatch) -> None:
+    """pxr.PhysicsSchemaTools.units, which only Kit's PhysX schema ships, faked with two of its entries."""
+    units = _module("pxr.PhysicsSchemaTools.units", get_attribute_unit_exponents=lambda name, _prim: _TABLE.get(name))
+    monkeypatch.setitem(sys.modules, "pxr.PhysicsSchemaTools", _module("pxr.PhysicsSchemaTools", units=units))
+    monkeypatch.setitem(sys.modules, "pxr.PhysicsSchemaTools.units", units)
+
+
+def _units(kit: FakeKit, up_axis: str, meters: float) -> None:
+    UsdGeom.SetStageUpAxis(kit.stage, up_axis)
+    UsdGeom.SetStageMetersPerUnit(kit.stage, meters)
+
+
+def _size(kit: FakeKit, path: str) -> list[float]:
+    box = UsdGeom.BBoxCache(Usd.TimeCode.Default(), ["default"]).ComputeWorldBound(kit.stage.GetPrimAtPath(path))
+    return [round(v, 6) for v in floats(box.ComputeAlignedRange().GetSize())]
+
+
+def _offset(kit: FakeKit, path: str) -> float:
+    return kit.stage.GetPrimAtPath(path).GetAttribute("physxCollision:contactOffset").Get()
+
+
+def test_create_prim_brings_a_file_of_another_up_axis_and_units_to_the_stage(scene, kit, tmp_path, table):
+    # A Z-up centimetre prop on a Y-up metre stage lay on its side, 100 times too large, its values in centimetres.
+    _units(kit, "Y", 1.0)
+    box = _box_file(tmp_path, "Z", 0.01)
+
+    r = _run(scene, "handle_create_prim", prim_path="/World/Box", usd_path=box, position=[1, 2, 3])
+
+    assert r["status"] == "success", r
+    assert _ops(kit.stage.GetPrimAtPath("/World/Box")) == ["xformOp:translate", TURN, SCALE]
+    assert _size(kit, "/World/Box/Shape") == [0.005, 0.01, 0.005]
+    assert _world(kit.stage.GetPrimAtPath("/World/Box")) == Gf.Vec3d(1, 2, 3)
+    assert _offset(kit, "/World/Box/Shape") == pytest.approx(0.0002)
+    assert kit.stage.GetPrimAtPath("/World/Box/Shape").GetAttribute("physics:density").Get() == pytest.approx(1e9)
+    result = r["result"]
+    assert result["up_axis_turn"] == {"file": "Z", "stage": "Y", "degrees": -90.0, "op": -90.0, "op_name": TURN}
+    assert (result["units_scale"]["factor"], result["units_scale"]["converted"]) == (0.01, 2)
+    assert (result["frame"], result["not_brought"]) == (None, None)
+
+
+def test_create_prim_s_rotation_and_scale_stay_outside_the_units_ops(scene, kit, tmp_path):
+    # rotation turns the standing file about the stage's Y, and scale=2 makes it twice its real size.
+    _units(kit, "Y", 1.0)
+
+    r = _run(
+        scene,
+        "handle_create_prim",
+        prim_path="/World/Box",
+        usd_path=_box_file(tmp_path, "Z", 1.0),
+        rotation=[0, 90, 0],
+        scale=2,
+    )
+
+    assert r["status"] == "success", r
+    assert _ops(kit.stage.GetPrimAtPath("/World/Box"))[-1] == TURN
+    assert _size(kit, "/World/Box/Shape") == [1.0, 2.0, 1.0]
+
+
+@pytest.mark.parametrize(("up_axis", "meters"), [("Y", 1.0), (None, None)], ids=["the-stage-s", "unsaid"])
+def test_create_prim_leaves_a_file_of_the_stage_s_axis_and_units_or_none_as_it_is(
+    scene, kit, tmp_path, table, up_axis, meters
+):
+    _units(kit, "Y", 1.0)
+
+    r = _run(scene, "handle_create_prim", prim_path="/World/Box", usd_path=_box_file(tmp_path, up_axis, meters))
+
+    assert r["status"] == "success", r
+    assert _ops(kit.stage.GetPrimAtPath("/World/Box")) == []
+    assert kit.stage.GetRootLayer().GetPrimAtPath("/World/Box/Shape") is None
+    assert [r["result"][k] for k in ("up_axis_turn", "units_scale", "frame", "not_brought")] == [None] * 4
+
+
+def test_create_prim_inside_an_asset_brought_to_the_stage_measures_against_its_frame(scene, kit, tmp_path, table):
+    # Kit's own recursive test and the plan's N1 and N2: the same file under it needs no op of its own; a file of the
+    # stage's axis is turned back, where Kit would leave it lying down.
+    _units(kit, "Y", 0.01)
+    box = _box_file(tmp_path, "Z", 1.0)
+    assert _run(scene, "handle_create_prim", prim_path="/World/Box", usd_path=box)["status"] == "success"
+
+    same = _run(scene, "handle_create_prim", prim_path="/World/Box/Inner", usd_path=box)
+    native = _run(
+        scene, "handle_create_prim", prim_path="/World/Box/Native", usd_path=_box_file(tmp_path, "Y", 0.01, "y.usda")
+    )
+
+    assert same["status"] == "success", same
+    assert _ops(kit.stage.GetPrimAtPath("/World/Box/Inner")) == []
+    assert _size(kit, "/World/Box/Inner/Shape") == _size(kit, "/World/Box/Shape") == [50.0, 100.0, 50.0]
+    assert _offset(kit, "/World/Box/Inner/Shape") == pytest.approx(2.0)
+    assert same["result"]["frame"] == {"up_axis": "Z", "meters_per_unit": 1.0, "prims": ["/World/Box"]}
+    assert native["result"]["up_axis_turn"]["degrees"] == 90.0
+    assert native["result"]["up_axis_turn"]["frame"] == "Z"
+    assert _size(kit, "/World/Box/Native/Shape") == [0.5, 1.0, 0.5]
+
+
+def test_create_prim_on_a_prim_already_there_adds_the_file_as_it_is_and_says_so(scene, kit, tmp_path, table):
+    # The prim may hold other content, which a turn or a scale would move too (Q1).
+    _units(kit, "Y", 1.0)
+    kit.stage.DefinePrim("/World/Shelf", "Xform")
+
+    r = _run(scene, "handle_create_prim", prim_path="/World/Shelf", usd_path=_box_file(tmp_path, "Z", 0.01))
+
+    assert r["status"] == "success", r
+    assert _ops(kit.stage.GetPrimAtPath("/World/Shelf")) == []
+    assert kit.stage.GetRootLayer().GetPrimAtPath("/World/Shelf/Shape") is None
+    assert r["result"]["up_axis_turn"] is None
+    assert r["result"]["not_brought"] == {
+        "prim_path": "/World/Shelf",
+        "file": {"up_axis": "Z", "meters_per_unit": 0.01},
+        "frame": {"up_axis": "Y", "meters_per_unit": 1.0},
+    }
+
+
+def test_create_prim_measures_a_file_added_to_a_brought_prim_against_the_frame_inside_it(scene, kit, tmp_path):
+    # The plan's P1: a shelf brought in (-90, x0.01), then a Y-up metre file on it, which lies along -Z at 1/100.
+    _units(kit, "Y", 1.0)
+    brought = _run(scene, "handle_create_prim", prim_path="/World/Shelf", usd_path=_box_file(tmp_path, "Z", 0.01))
+    assert brought["status"] == "success", brought
+
+    r = _run(scene, "handle_create_prim", prim_path="/World/Shelf", usd_path=_box_file(tmp_path, "Y", 1.0, "y.usda"))
+
+    assert r["result"]["not_brought"]["frame"] == {"up_axis": "Z", "meters_per_unit": 0.01}
+
+
+def test_create_prim_called_again_on_its_file_moves_it_and_turns_it_once(scene, kit, tmp_path):
+    _units(kit, "Y", 1.0)
+    body = {"prim_path": "/World/Box", "usd_path": _box_file(tmp_path, "Z", 0.01)}
+    assert _run(scene, "handle_create_prim", **body)["status"] == "success"
+
+    r = _run(scene, "handle_create_prim", **body, position=[5, 0, 0])
+
+    assert r["status"] == "success", r
+    prim = kit.stage.GetPrimAtPath("/World/Box")
+    assert _ops(prim) == ["xformOp:translate", TURN, SCALE]
+    assert (prim.GetAttribute(TURN).Get(), prim.GetAttribute(SCALE).Get()) == (-90.0, Gf.Vec3d(0.01, 0.01, 0.01))
+    assert _world(prim) == Gf.Vec3d(5, 0, 0)
+    assert (r["result"]["up_axis_turn"], r["result"]["not_brought"]) == (None, None)
+
+
+def test_create_prim_that_refuses_after_the_turn_leaves_no_prim_and_no_override(scene, kit, tmp_path):
+    _units(kit, "Y", 1.0)
+    box = _box_file(tmp_path, "Z", 0.01, animated=True)
+
+    r = _run(scene, "handle_create_prim", prim_path="/World/Group/Box", usd_path=box, position=[1, 0, 0])
+
+    assert r["status"] == "error"
+    assert r["error"].endswith(". Nothing was created")
+    assert kit.stage.GetRootLayer().GetPrimAtPath("/World/Group") is None
+
+
+def test_create_prim_that_fails_converting_names_the_step_and_leaves_nothing(scene, kit, tmp_path, monkeypatch):
+    def broken(name: str, _prim: Usd.Prim) -> tuple[int, ...]:
+        raise KeyError(name)
+
+    units = _module("pxr.PhysicsSchemaTools.units", get_attribute_unit_exponents=broken)
+    monkeypatch.setitem(sys.modules, "pxr.PhysicsSchemaTools", _module("pxr.PhysicsSchemaTools", units=units))
+    monkeypatch.setitem(sys.modules, "pxr.PhysicsSchemaTools.units", units)
+    _units(kit, "Y", 1.0)
+
+    r = _run(scene, "handle_create_prim", prim_path="/World/Box", usd_path=_box_file(tmp_path, "Y", 0.01))
+
+    assert r["status"] == "error"
+    assert r["error"].startswith("Converting the file's values to the stage's units failed: KeyError: ")
+    assert r["error"].endswith(". Nothing was created")
+    assert kit.stage.GetRootLayer().GetPrimAtPath("/World/Box") is None
+
+
+def test_create_prim_with_a_file_that_can_t_be_opened_makes_nothing(scene, kit, tmp_path):
+    # It made an empty prim, answered as created (Q3).
+    missing = str(tmp_path / "No Such Box.usda")
+
+    r = _run(scene, "handle_create_prim", prim_path="/World/Box", usd_path=missing)
+
+    assert r["status"] == "error"
+    assert r["error"].startswith(f"Could not open {missing}")
+    assert not kit.stage.GetPrimAtPath("/World/Box").IsValid()
+
+
+def test_create_prim_reads_a_relative_usd_path_beside_the_stage_s_file(scene, kit, tmp_path, monkeypatch):
+    # The reference reads it there, whatever folder Kit was started in (U1).
+    (tmp_path / "scene").mkdir()
+    kit.stage = Usd.Stage.CreateNew(str(tmp_path / "scene" / "stage.usda"))
+    UsdGeom.Xform.Define(kit.stage, "/World")
+    _units(kit, "Y", 1.0)
+    _box_file(tmp_path / "scene" / "props", "Z", 1.0)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    r = _run(scene, "handle_create_prim", prim_path="/World/Box", usd_path="props/box.usda")
+
+    assert r["status"] == "success", r
+    assert r["result"]["up_axis_turn"]["degrees"] == -90.0
 
 
 # ---- clone_prim ----
