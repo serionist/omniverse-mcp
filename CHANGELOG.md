@@ -95,8 +95,25 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   200 characters, so a hit could show no match at all, as Kit's deprecation callstacks did for `search="MCP"`. A
   message cut short now ends ` ... (+N characters)`, an entry whose match ends past the cut gets a `matched:` line
   with the match in its line, and the channel shows whole, where it was cut at 40. The fix is in the server (#111).
+- **Kit hangs less often during captures, and a Kit that stopped answering is named in seconds:** Kit 110 (Isaac
+  Sim 6.2) can hang for good inside NVIDIA's renderer while it sets up a new camera view, and every `capture_viewport`
+  and `inspect_prim` call set one up: about one call in 300 to 400 hung Kit. The two now share one render, kept for
+  30 s after the last capture, so a capture at the last one's size, of any camera, sets up none. When Kit stops
+  answering anyway, a call fails after its 120 s with a message that Kit may be busy with a long script or stuck in
+  NVIDIA's renderer, and to restart it if it stays silent for minutes; each later call fails in 5 s while Kit stays
+  silent, where each waited 120 s. The render's fix is in the Kit extension: run `uvx omniverse-mcp extension
+  install`, then restart Kit; the message is the server's (#114, #54).
 
 ### Changed
+
+- **A capture's render is kept for 30 s, and costs the GPU meanwhile:** while it is kept, Kit renders one view more.
+  Idle on headless Isaac Sim 6.2 and an RTX 5090, Kit's updates a second fell from 183 to 157 at 640x480, 153 at
+  1920x1080 and 69 at 4096x4096, its share of the GPU's 3D engine rose from 9 % to 25 %, 28 % and 65 %, and it took
+  about 0.3, 1.0 and 5.5 GB more video memory. It goes when the stage closes, when a capture fails, and when the
+  extension is turned off. `save_scene`, `flatten_usd`, `export_prim_as_file` and Kit's own Save let it go before they
+  write; Kit's File > Save Flattened As without the session layer, and a script that writes the root layer itself,
+  write it while it is kept. Every capture now waits 20 frames of its render after it sets the camera, so a camera
+  moved or a drawing made just before the call shows, as it did with a render made for each call (#114).
 
 - **Tested on Linux and on Isaac Sim 5.1:** both live suites pass on Isaac Sim 6.2 on Linux, and on 5.1 (Kit 107).
   On Linux, Isaac Sim 5.1 runs on NVIDIA's 580 drivers; on a 595 driver its renderer crashes as it starts (#99).

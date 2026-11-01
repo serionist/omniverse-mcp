@@ -247,6 +247,13 @@ from different releases. Run the command the message names, then restart Kit.
 `[ext: ovmcp.bridge-<version>] startup`. The server looks on port 8211 unless `OMNIVERSE_MCP_PORT` says otherwise. On
 its first start Isaac Sim compiles shaders for several minutes, and answers slowly until then.
 
+**"Kit at ... stopped answering"**: a call got no answer in 120 s, and `/health` none in 5 s either. Kit may be busy
+with a long script that never awaits, or hung: Kit 110 (Isaac Sim 6.2) can hang for good inside NVIDIA's renderer
+while it sets up a new camera view, its log silent from then on
+([#114](https://github.com/serionist/omniverse-mcp/issues/114)). Later calls fail in 5 s while Kit stays silent, and
+go again once it answers. If it stays silent for minutes, restart the Kit app. The bridge keeps one capture render
+between calls, so it sets up few new views.
+
 **Kit logs `[MCP Bridge] Failed to start server`**: another program, or a second Kit app, holds port 8211. Give this
 Kit app another port, and the server the same one ([The bridge](#the-bridge)).
 

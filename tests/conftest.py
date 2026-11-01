@@ -205,6 +205,14 @@ name = SyntheticData.convert_sensor_type_to_rendervar("InstanceSegmentation") + 
 result = SyntheticData.Get().is_node_template_activated(name, get_active_viewport().render_product_path)
 """
 
+# execute_script code for the live suites: releases the capture feed the bridge keeps between calls (#114), so a test
+# compares stages with no feed kept. A feed released this way goes as an idle one does, in release's order.
+RELEASE_KEPT_FEED = """
+from ovmcp.bridge.handlers import camera_feed
+await camera_feed.release_kept()
+result = True
+"""
+
 # execute_script code that puts a limit SET_LIMIT set back, from a test's cleanup.
 RESTORE_LIMIT = """
 from ovmcp.core import capture

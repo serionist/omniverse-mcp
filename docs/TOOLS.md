@@ -39,7 +39,7 @@ it runs one; they are hints, never security (the bridge's token is what keeps ot
 
 | Hints | What they mean | Tools |
 |---|---|---|
-| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs, and leaves Kit's unsaved-edits flag set) | `get_scene_tree`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
+| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs and while it is kept for the next capture, up to 30 s after, and leaves Kit's unsaved-edits flag set; the bridge's saves and Kit's own Save leave it out of the file) | `get_scene_tree`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
 | not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `inspect_prim`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug` |
 | destructive | Deletes or overwrites prims, the whole stage, or USD files on disk | `delete_prim`, `save_scene`, `open_scene`, `new_scene`, `flatten_usd`, `export_prim_as_file`, `update_material_paths` |
 | destructive, open world | Runs Python or loads extensions inside the Kit app: anything can happen | `execute_script`, `manage_extensions` |
@@ -325,6 +325,8 @@ Write the open stage's root layer to a USD file: back to the stage's own file, o
   it would lose them; one with none is read again after the write, so the next open gets the new file.
 - **Only the root layer** is written: sublayers and referenced files stay as they are, still referenced. For one
   self-contained file, use `flatten_usd`; for one prim's subtree, `export_prim_as_file`.
+- **The render a capture keeps** ([`capture_viewport`](#capture_viewport)) is let go first, so the file never holds
+  it; a capture asked for meanwhile waits for the save. `flatten_usd` and `export_prim_as_file` do the same.
 
 ---
 
@@ -780,8 +782,8 @@ a prim from up to 14 sides in one call; to capture from another camera without m
 Orbit-capture: take screenshots from 14 systematic angles around a prim using a cube-based approach (6 face centres + 8 cube corners). The camera distance is fitted so the prim's bounding sphere fills the captured frame with a 10px margin, at `width` x `height`. Optionally includes instance segmentation at each angle.
 
 The orbit moves whichever camera the viewport looks through, a scene camera included, as the user sees, and leaves it at
-the last angle; each angle is rendered from that camera at `width` x `height` in a render of the call's own, as
-`capture_viewport`'s is. It aims the camera at each angle as `set_camera` does, Kit's own camera in Kit's session layer;
+the last angle; each angle is rendered from that camera at `width` x `height` in a render of the bridge's own, kept
+between calls, as `capture_viewport`'s is. It aims the camera at each angle as `set_camera` does, Kit's own camera in Kit's session layer;
 an angle it can't aim says why. An extension of 0.2.3 or older aims only in Isaac Sim, so elsewhere every angle shows
 the view the camera had. The first line gives the distance in stage units and the size; with an extension of 0.2.2 or
 older, whose images are the viewport's size, a `WARNING` says so when it isn't the size asked for, with the command that
@@ -805,7 +807,7 @@ installs this release's extension.
 
 Each angle is saved as a separate PNG file. An all-black angle gets `capture_viewport`'s warning, once a call; so does lighting that lights nothing, mode `off` or `stage` with no scene lights, though the images show Kit's grid. When `include_segmentation` is true, each angle also saves a segmentation image + legend; an angle without one says why (`seg: ERROR`), such as no data within 5 s of the sensor being enabled. Default captures all 14 angles for full coverage.
 
-A call takes about 90 s at most, under the server's 120 s timeout: 80 s for the angles, then up to 10 s to restore `isolate`. An angle that fails says why on its line; once the camera renders no frame (30 s with none) or the 80 s run out, the angles left say `Not captured`, so the angles already captured come back. Each angle waits 20 frames of the call's render after the camera moves before it is taken, so it holds the camera's new place and what was done before the call.
+A call takes about 90 s at most, under the server's 120 s timeout: 80 s for the angles, then up to 10 s to restore `isolate`. An angle that fails says why on its line; once the camera renders no frame (30 s with none) or the 80 s run out, the angles left say `Not captured`, so the angles already captured come back. Each angle waits 20 frames of the render after the camera moves before it is taken, so it holds the camera's new place and what was done before the call. The render is kept for the next capture and costs the GPU while kept, as `capture_viewport`'s does.
 
 `angles` also takes `[azimuth, elevation]` pairs in degrees. An unknown angle name, a `width` or `height` that isn't a whole number from 1 to 4096, a non-numeric `zoom_offset`, or an orthographic viewport camera (such as `/OmniverseKit_Top`; switch to `/OmniverseKit_Persp`) is refused with an error.
 
@@ -822,7 +824,7 @@ Capture a camera at `width` x `height` and save **3 files** for full scene under
 Use files 2 and 3 to understand which object is where in the viewport image. Aim first with `set_camera`, at a point
 or a prim; for one prim from every side, use `inspect_prim`.
 
-All three come from one frame of `camera_path`, rendered at `width` x `height` in a render of the call's own, so the boxes are in the image's pixels and from the camera captured. The viewport the user sees keeps its camera and size. That render uses the viewport's renderer settings, but it is a view of its own: not pixel for pixel what the viewport shows (on average about 2 of 255 apart). While it runs the app renders one view more: about a third fewer updates a second at 640x480, headless.
+All three come from one frame of `camera_path`, rendered at `width` x `height` in a render of the bridge's own, so the boxes are in the image's pixels and from the camera captured. The viewport the user sees keeps its camera and size. That render uses the viewport's renderer settings, but it is a view of its own: not pixel for pixel what the viewport shows (on average about 2 of 255 apart).
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -852,9 +854,29 @@ world_dimensions = [1.0, 1.0, 1.0]
 
 > **An extension of 0.2.2 or older** captures the viewport at its own size and scales the boxes to the size asked for, so the two disagree. The `Viewport:` line gives the image's own size, read from its header, and a `WARNING` line says the boxes are for another size, with the command that installs this release's extension; `inspect_prim` says the same of its images.
 
-> **What was done just before shows:** a capture's render is made for the call, and its first frame comes some 15
-> updates later, so a drawing or any change made just before the call is in the image. Path Tracing gets the frames
-> it needs for all its samples (none more with Isaac Sim's 64 a frame).
+> **What was done just before shows:** every capture waits 20 frames of its render after it sets the camera, so a
+> camera move, a drawing or any change made just before the call is in the image. Path Tracing gets the frames it
+> needs for all its samples on top (none more with Isaac Sim's 64 a frame).
+
+> **The render is kept between captures:** Kit 110 (Isaac Sim 6.2) can hang for good while it sets up a new view's
+> first frames, so `capture_viewport` and `inspect_prim` share one render, kept for 30 s after the last capture, at
+> any size. A capture at the last one's size, of any camera, sets up no new view; one at another size resizes the
+> render, one new view. While it is kept, Kit renders one view more. Idle, on headless Isaac Sim 6.2 and an RTX 5090,
+> with no capture running:
+>
+> | Size | Kit's updates a second | Kit's share of the GPU's 3D engine | Video memory |
+> |---|---|---|---|
+> | none kept | 183 | 9 % | |
+> | 640x480 | 157 | 25 % | about 0.3 GB more |
+> | 1920x1080 | 153 | 28 % | about 1.0 GB more |
+> | 4096x4096 | 69 | 65 % | about 5.5 GB more |
+>
+> Segmentation is on only during a capture: left on, it cost a 640x480 render another 47 updates a second while idle.
+> The render goes 30 s after the last capture, when the stage closes, when a capture fails, and when the extension
+> is turned off. `save_scene`, `flatten_usd`, `export_prim_as_file` and Kit's own Save (File > Save) let it go before
+> they write, so their files don't hold it. Two writes do while it is kept: a script that writes the stage's root
+> layer through USD itself, in `execute_script`, and Kit's File > Save Flattened As when it leaves the session layer
+> out.
 
 ---
 
@@ -1312,7 +1334,9 @@ Execute arbitrary Python code inside the running Omniverse application.
 
 Set `result = <value>` to return JSON-serialisable data to the AI assistant; anything else comes back as its `str`.
 stdout and stderr come back too, and an exception as an error with the traceback's last lines. The script runs on
-Kit's main thread, so one that blocks freezes Kit: the call gives up after 120 s, and the script runs on.
+Kit's main thread, so one that blocks freezes Kit: the call gives up after 120 s, and the script runs on. Kit then
+answers nothing, `/health` included, so the call fails with "Kit at ... stopped answering", and every later call fails
+the same way in 5 s until the script ends and Kit answers again.
 
 **Example (sync):**
 ```python

@@ -314,10 +314,11 @@ class Call:
 class SegmentationWaits:
     """Where a wait for instance segmentation ended with no data, so a capture there waits only briefly.
 
-    Kept per (stage id, camera, size): each capture renders through a feed of its own, whose render product is new
-    every time, so the stage, the camera and the size are what one capture shares with the last. A new or opened stage
-    has a new id, so it waits afresh. After a wait that got nothing the next is SEGMENTATION_RETRY_SECONDS, not none:
-    a new feed's sensor needs a frame or two for its first data. A read with data clears the record.
+    Kept per (stage id, camera, size): the feed a capture renders through is kept between calls only for a while, and
+    takes each call's camera and size, so the stage, the camera and the size are what one capture shares with the
+    last. A new or opened stage has a new id, so it waits afresh. After a wait that got nothing the next is
+    SEGMENTATION_RETRY_SECONDS, not none: each capture turns the sensor on for its own call, and it needs a frame or
+    two for its first data. A read with data clears the record.
     """
 
     def __init__(self) -> None:

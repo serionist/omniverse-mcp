@@ -6,6 +6,7 @@ import base64
 import math
 import time
 import traceback
+from typing import NamedTuple
 
 import carb
 import omni.kit.app
@@ -19,7 +20,7 @@ from ovmcp.core.isolation import LIGHT_TYPES, Hidden, prims_to_hide
 from ovmcp.core.lighting import camera_light_switch, current_mode, scene_lights
 from ovmcp.core.png import encode_png, png_size
 from ovmcp.core.recording import camera_error
-from ovmcp.core.serial import LazyLock, serial
+from ovmcp.core.serial import serial
 from ovmcp.core.xform import (
     Snapshot,
     aim,
@@ -40,17 +41,13 @@ from ._utils import (
     _settle_viewport,
     capture_feed_png,
 )
-from .camera_feed import CameraFeed, enable_segmentation, release
+from .camera_feed import CameraFeed, _viewport, enable_segmentation, kept_feed, put_back
 
 # Where a wait for instance segmentation got nothing, per stage, camera and size, so the next waits only briefly there.
 _segmentation_waits = capture.SegmentationWaits()
 
 # A request that names no size, from a Kit app whose viewport can't say its own: Isaac Sim's default.
 _FALLBACK_SIZE = (1280, 720)
-
-# Held for the whole of every handler that moves the viewport camera, hides prims or captures, so one request never
-# sees another's half-done viewport. Not re-entrant: these handlers call _capture_frame, never each other.
-_viewport = LazyLock()
 
 _warned: set[str] = set()
 
@@ -243,27 +240,47 @@ def _viewport_size() -> tuple[int, int]:
     return _FALLBACK_SIZE
 
 
-def _new_feed(camera_path: str, width: int, height: int) -> CameraFeed:
-    """A feed of `camera_path` at the size asked for, for one call: the image, its segmentation and its boxes all come
-    from it, so they agree with each other and with the size (#51); the user's viewport is never touched."""
+def _feed(camera_path: str, width: int, height: int) -> CameraFeed:
+    """The feed of `camera_path` at the size asked for, for one call, kept between calls (camera_feed.kept_feed): the
+    image, its segmentation and its boxes all come from it, so they agree with each other and with the size (#51); the
+    user's viewport is never touched."""
     try:
-        return CameraFeed(camera_path, width, height, prefix="ovmcp_capture")
+        return kept_feed(camera_path, width, height)
     except ImportError as e:
         raise RuntimeError(f"This Kit app can't render a camera into a texture of its own: {e}") from None
 
 
-def _turn_segmentation_on(feed: CameraFeed) -> str | None:
-    """enable_segmentation, whose failure costs the segmentation alone, never the capture: why there is none, or
-    None."""
+class _SegmentationOn(NamedTuple):
+    """What turning a call's segmentation on gave: why the call has none, or None; and whether the sensor raised,
+    which leaves the feed in doubt."""
+
+    problem: str | None
+    raised: bool
+
+
+# A call that asks for no segmentation.
+_NO_SEGMENTATION = _SegmentationOn(None, False)
+
+
+def _turn_segmentation_on(feed: CameraFeed) -> _SegmentationOn:
+    """enable_segmentation, whose failure costs the segmentation alone, never the capture. A Kit without
+    omni.syntheticdata, or whose registry can't free its graphs, gets the reason and turns nothing on."""
     try:
-        return enable_segmentation(feed)
+        return _SegmentationOn(enable_segmentation(feed), False)
     except Exception as e:
         carb.log_warn(f"[MCP Bridge] Instance segmentation could not be turned on: {e}")
-        return f"Instance segmentation failed: {e}"
+        return _SegmentationOn(f"Instance segmentation failed: {e}", True)
+
+
+def _segmentation_in_doubt(turned_on: _SegmentationOn, png: bytes | None) -> bool:
+    """Whether a call's segmentation leaves its feed in doubt, so it isn't kept: the sensor raised as it was turned on,
+    or, turned on, gave no data. A legend of no prims, from an empty view, is data."""
+    return turned_on.raised or (turned_on.problem is None and png is None)
 
 
 def _segmentation_key(feed: CameraFeed) -> tuple:
-    """What a capture's segmentation waits are kept by: its feed's render product is new with every call."""
+    """What a capture's segmentation waits are kept by: its stage, camera and size, which a kept feed's next call may
+    change."""
     return (omni.usd.get_context().get_stage_id(), feed.camera_path, feed.resolution)
 
 
@@ -415,7 +432,7 @@ async def _segmentation(feed: CameraFeed, budget: capture.Budget) -> tuple[bytes
     """Instance segmentation of the feed's last frame, each prim its own colour: (png, legend, None), where the legend
     maps prim_path -> [R, G, B], or (None, {}, why there is none).
 
-    The sensor, turned on when the feed was made (enable_segmentation), gives data only once a frame has rendered
+    The sensor, turned on for the call (enable_segmentation), gives data only once a frame has rendered
     after that, so it is read after each app update for SEGMENTATION_SECONDS: a count of updates was too few on a cold
     start (#27). Data counts only at the feed's size. After a wait that got nothing with this camera and size on this
     stage, the next waits SEGMENTATION_RETRY_SECONDS, until a read gets data.
@@ -594,10 +611,10 @@ async def handle_camera_inspect(body: dict) -> dict:
     Use isolate=True to hide all other scene content during capture.
     Optionally includes instance segmentation at each angle.
 
-    Every frame comes from one camera feed of the viewport's camera at that size, made for the call (#51), as the orbit
-    moves the camera. Each wait is bounded, and the call has CALL_SECONDS (ovmcp.core.capture), under the server's
-    120 s: an angle that fails says why, and once the feed gives no frame or the time runs out, the angles left say
-    "Not captured".
+    Every frame comes from one camera feed of the viewport's camera at that size (#51), kept between calls (#114), as
+    the orbit moves the camera. Each wait is bounded, and the call has CALL_SECONDS (ovmcp.core.capture), under the
+    server's 120 s: an angle that fails says why, and once the feed gives no frame or the time runs out, the angles
+    left say "Not captured". A call with any such error, or segmentation that failed, releases the feed.
     """
     prim_path = body.get("prim_path", "")
     if not prim_path:
@@ -627,7 +644,7 @@ async def handle_camera_inspect(body: dict) -> dict:
     up_axis = UsdGeom.GetStageUpAxis(stage)
 
     try:
-        feed = _new_feed(camera_path, width, height)
+        feed = _feed(camera_path, width, height)
     except RuntimeError as e:
         return {"status": "error", "error": str(e)}
     call = capture.Call(capture.CALL_SECONDS)
@@ -637,8 +654,11 @@ async def handle_camera_inspect(body: dict) -> dict:
     captures = []
     # A camera move restarts Path Tracing's samples, so each angle waits for them on top of its settle.
     settle = CAMERA_SETTLE_FRAMES + _settle_frames()
+    # Until the angles are done: whatever escapes the call leaves the feed in doubt.
+    in_doubt = True
     try:
-        segmentation_problem = _turn_segmentation_on(feed) if args.include_segmentation else None
+        segmentation = _turn_segmentation_on(feed) if args.include_segmentation else _NO_SEGMENTATION
+        doubted = segmentation.raised
         if isolate:
             paths, isolate_warnings = prims_to_hide(stage, prim_path)
             hidden.hide(paths)
@@ -648,6 +668,7 @@ async def handle_camera_inspect(body: dict) -> dict:
             except capture.CaptureError as e:
                 # No frame with the prims hidden: every angle would wait the same, so none is tried.
                 call.failed(e)
+                doubted = True
 
         for angle_name, az, el in args.angles:
             skipped = call.skipped(angle_name)
@@ -692,10 +713,11 @@ async def handle_camera_inspect(body: dict) -> dict:
                 }
 
                 if args.include_segmentation:
-                    if segmentation_problem:
-                        seg_png, legend, seg_error = None, {}, segmentation_problem
+                    if segmentation.problem:
+                        seg_png, legend, seg_error = None, {}, segmentation.problem
                     else:
                         seg_png, legend, seg_error = await _segmentation(feed, call.budget)
+                    doubted = doubted or _segmentation_in_doubt(segmentation, seg_png)
                     if seg_png:
                         cap_entry["segmentation_base64"] = base64.b64encode(seg_png).decode("utf-8")
                         cap_entry["segmentation_legend"] = legend
@@ -706,12 +728,14 @@ async def handle_camera_inspect(body: dict) -> dict:
             except Exception as e:
                 # A frame that never came, or the call's time running out, stops the angles after this one.
                 call.failed(e)
+                doubted = True
                 captures.append(
                     {
                         "angle": angle_name,
                         "error": str(e),
                     }
                 )
+        in_doubt = doubted
     finally:
         try:
             # Put each hidden prim's session-layer visibility back as it was
@@ -724,9 +748,12 @@ async def handle_camera_inspect(body: dict) -> dict:
                         await _settle_viewport(budget=capture.Budget(capture.CLEANUP_SECONDS))
                     except capture.CaptureError as e:
                         carb.log_warn(f"[MCP Bridge] inspect_prim: the viewport did not settle after isolate: {e}")
+        except BaseException:
+            in_doubt = True
+            raise
         finally:
-            # Whatever the restore did: the feed's render product and graphs must not outlive the call.
-            await release(feed)
+            # Whatever the restore did: a feed in doubt, its render product and graphs, must not outlive the call.
+            await put_back(feed, healthy=not in_doubt)
 
     lighting_mode = _get_current_lighting_mode()
     return {
@@ -751,8 +778,9 @@ async def handle_camera_inspect(body: dict) -> dict:
 @serial(_viewport)
 async def handle_capture(body: dict) -> dict:
     """The image, screen boxes and instance segmentation of one frame of `camera_path` (the viewport's camera when
-    empty) at the size asked for (the viewport's when none is), from a camera feed made for the call: all three agree,
-    in the image's pixels, and the user's viewport never changes (#51)."""
+    empty) at the size asked for (the viewport's when none is), from one camera feed, kept between calls (#114): all
+    three agree, in the image's pixels, and the user's viewport never changes (#51). A call that fails, or whose
+    segmentation does, releases the feed."""
     try:
         size = capture.capture_size(body)
     except ValueError as e:
@@ -768,15 +796,18 @@ async def handle_capture(body: dict) -> dict:
     call = capture.Call(capture.CALL_SECONDS)
 
     feed = None
+    healthy = False
     try:
-        feed = _new_feed(camera_path, width, height)
-        # Turned on with the feed, so a capture that fails after it still frees its graphs on the way out.
-        segmentation_problem = _turn_segmentation_on(feed)
+        feed = _feed(camera_path, width, height)
+        # Turned on before the frames, so it has data by the time the image is taken; off again as the feed is put
+        # back, whatever the capture does.
+        segmentation = _turn_segmentation_on(feed)
         # The bound a viewport frame gets, sized for a renderer's cold start (#27).
         await feed.first_frame(capture.FRAME_SECONDS)
-        settle = _settle_frames()
-        if settle:
-            await feed.wait_frames(settle, call.budget)
+        # Every capture, a kept feed's too, waits frames of its own after the call set the camera, plus Path Tracing's
+        # settle: a camera moved, or a stage edited or drawn on just before the call, shows only frames later (#51's
+        # E14, #57), and the handler can't tell whether it was.
+        await feed.wait_frames(CAMERA_SETTLE_FRAMES + _settle_frames(), call.budget)
 
         # 1. The image
         png_bytes, is_black = await _capture_frame(feed, call.budget)
@@ -805,8 +836,8 @@ async def handle_capture(body: dict) -> dict:
             result["screen_bboxes"] = []
 
         # 3. Instance segmentation of the same feed
-        if segmentation_problem:
-            seg_png, color_legend, seg_error = None, {}, segmentation_problem
+        if segmentation.problem:
+            seg_png, color_legend, seg_error = None, {}, segmentation.problem
         else:
             seg_png, color_legend, seg_error = await _segmentation(feed, call.budget)
         if seg_png:
@@ -817,13 +848,14 @@ async def handle_capture(body: dict) -> dict:
             result["segmentation_legend"] = {}
             result["segmentation_error"] = seg_error
 
+        healthy = not _segmentation_in_doubt(segmentation, seg_png)
         return {"status": "success", "result": result}
     except Exception as e:
         tb = traceback.format_exc()
         return {"status": "error", "error": str(e), "traceback": tb}
     finally:
         if feed is not None:
-            await release(feed)
+            await put_back(feed, healthy)
 
 
 @serial(_viewport)

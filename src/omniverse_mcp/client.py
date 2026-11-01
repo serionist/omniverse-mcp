@@ -9,6 +9,7 @@ import logging
 import os
 import socket
 import threading
+import time
 from typing import Any
 
 from .bridge_token import ENV_TOKEN, read_token, token_path
@@ -20,9 +21,18 @@ logger = logging.getLogger(__name__)
 # ovmcp.core.protocol.PROTOCOL, and tests/test_bridge_token.py keeps them equal.
 PROTOCOL = 1
 
+# How long /health may take to answer once a call has timed out, and before each call while Kit stays silent (#114).
+# Read when it is used, so the tests can shorten it.
+HEALTH_SECONDS = 5.0
+
 
 class BridgeError(RuntimeError):
     """The bridge refused the request, or speaks another protocol. The message says what to do."""
+
+
+class KitSilentError(TimeoutError):
+    """Kit stopped answering: a call timed out on a connected socket and /health got no answer either, or a later call
+    found /health still silent. The message says what happened; tools/_bridge.py adds what it may mean."""
 
 
 class BridgeClient:
@@ -34,6 +44,10 @@ class BridgeClient:
         self.timeout = timeout
         self._sock: socket.socket | None = None
         self._received = False  # any bytes back for the request in flight
+        # A socket open for the request in flight, so a timeout was the answer's, not the connect's.
+        self._connected = False
+        # Set when a call timed out and /health got no answer either: Kit may be stuck, so each call asks /health first.
+        self._silent = False
         # A token handed in stays. Otherwise it comes from the environment or the token file, and is read again
         # after a 401: Kit may start after this server, and makes a new token at every start.
         self._fixed_token = token is not None
@@ -60,14 +74,55 @@ class BridgeClient:
             self._sock = None
 
     def request(self, path: str, body: dict[str, Any] | None = None, method: str = "POST") -> dict[str, Any]:
-        """Send an HTTP request and return the parsed JSON response."""
+        """Send an HTTP request and return the parsed JSON response.
+
+        KitSilentError when the answer doesn't come in time and /health then gets none in HEALTH_SECONDS either: Kit's
+        main thread may be stuck, where every later call would wait out its own timeout. Each later call asks /health
+        first, and fails as fast while Kit stays silent; once /health answers, calls go as before.
+        """
         with self._lock:
-            status, data = self._exchange(path, body, method)
-            if status == 401 and self._reload_token():
+            if self._silent:
+                if not self._answers():
+                    raise KitSilentError(
+                        f"Kit at {self.host}:{self.port} is still silent: /health got no answer in {HEALTH_SECONDS:g} "
+                        "s, as it has been since a call timed out"
+                    )
+                self._silent = False
+            try:
                 status, data = self._exchange(path, body, method)
+                if status == 401 and self._reload_token():
+                    status, data = self._exchange(path, body, method)
+            except TimeoutError as e:
+                # A connect that timed out is a host that is down, which the error says as it is; and a call that
+                # timed out while /health answers is one that took too long, not a stuck Kit.
+                if not self._connected or self._answers():
+                    raise
+                self._silent = True
+                raise KitSilentError(
+                    f"Kit at {self.host}:{self.port} stopped answering: a call got no answer in {self.timeout:g} s, "
+                    f"and /health none in {HEALTH_SECONDS:g} s"
+                ) from e
         if status in (401, 403):
             raise BridgeError(self._refusal(status, data))
         return data
+
+    def _answers(self) -> bool:
+        """Whether Kit isn't silent: it answers GET /health within HEALTH_SECONDS, on a connection of its own, where any
+        answer, a refusal too, shows its loop runs; or nothing listens on its port, as while a hung Kit is restarted,
+        which the request's own connection error then names better than "silent"."""
+        deadline = time.monotonic() + HEALTH_SECONDS
+        try:
+            with socket.create_connection((self.host, self.port), timeout=HEALTH_SECONDS) as sock:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return False
+                sock.settimeout(left)
+                sock.sendall(self._build("/health", None, "GET"))
+                return bool(sock.recv(1))
+        except ConnectionRefusedError:
+            return True
+        except OSError:
+            return False
 
     def _reload_token(self) -> bool:
         """Read the token again; True when it changed."""
@@ -152,9 +207,11 @@ class BridgeClient:
             sock = self._sock
             reused = sock is not None
             self._received = False
+            self._connected = reused
             try:
                 if sock is None:
                     sock = self._connect()
+                    self._connected = True
                     # Every new connection starts with the handshake, a request without a body: a stale token is
                     # refused there, and a Kit restarted with another extension is caught before the request runs.
                     sock.sendall(self._build("/bridge", None, "GET"))

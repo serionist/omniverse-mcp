@@ -23,7 +23,7 @@ import pytest
 
 from omniverse_mcp.client import BridgeClient
 
-from .conftest import CAMERA_AIM, VIEWPORT_SEGMENTATION_ON, call_tool, live_bridge
+from .conftest import CAMERA_AIM, RELEASE_KEPT_FEED, VIEWPORT_SEGMENTATION_ON, call_tool, live_bridge
 from .physics_checks import PhysicsChecks, _along_up, _turn_degrees
 
 pytestmark = pytest.mark.scenario
@@ -319,11 +319,96 @@ RENDER_PRODUCT = (
     "layers = [l.identifier for l in stage.GetLayerStack(includeSessionLayers=True) if l.GetPrimAtPath(PATH)]\n"
     "result = [bool(stage.GetPrimAtPath(PATH)), layers, name in stage.GetRootLayer().ExportToString()]\n"
 )
-# The render products under Kit's textures: one more while a recording runs.
+# The render products under Kit's textures: one more while a recording runs, or while a capture's feed is kept.
 HYDRA_TEXTURES = (
     "prim = omni.usd.get_context().get_stage().GetPrimAtPath('/Render/OmniverseKit/HydraTextures')\n"
     "result = sorted(str(p.GetPath()) for p in prim.GetChildren()) if prim else []\n"
 )
+# Kit's log file's size now, so a later read counts only what came after it.
+KIT_LOG_SIZE = """
+import os
+import carb.settings
+result = os.path.getsize(carb.settings.get_settings().get("/log/file"))
+"""
+# What Kit's log gained after MARK of the RTX views it set up (#114's K15): each new view's createViewport, and each
+# view assignment of a capture feed's render product, which a feed's first camera change logs too.
+KIT_LOG_VIEWS = r"""
+import re
+import carb.settings
+with open(carb.settings.get_settings().get("/log/file"), "rb") as f:
+    f.seek(MARK)
+    text = f.read().decode("utf-8", "replace")
+assigned = r"View \d+ \(/Render/OmniverseKit/HydraTextures/ovmcp_capture_[0-9a-f]+\) assigned to device"
+result = {"created": text.count("createViewport - handle"), "assigned": len(re.findall(assigned, text))}
+"""
+# How long the bridge keeps a capture's feed with no other capture.
+KEPT_SECONDS = "from ovmcp.bridge.handlers import camera_feed\nresult = camera_feed.IDLE_SECONDS\n"
+# In one execute_script (#114), at W x H: camera B captured straight after camera A, through the kept feed, against a
+# fresh feed's capture of B; then the blue prim PRIM moved to MOVED through set_transform and captured at once through
+# the kept feed, against a fresh feed's; each fresh feed after release_kept. A is "" for the viewport's camera. The
+# result: each pair's mean and 99th percentile difference out of 255, and the switch's and the move's own; the pixels
+# of the prim's old place (blue before, not after), and of them those the kept capture still shows blue, a ghost; the
+# pixels of its new place, and of them those the kept capture shows it in. A ghost is the prim's colour where it was:
+# pixels there that only differ by more than 8 are the edge's noise (19 of 1,694 in the suites, by up to 37, along a
+# grid line behind the old edge, none of them blue; #114's K19).
+KEPT_AGAINST_FRESH = """
+import base64, io
+import numpy as np
+from PIL import Image
+from ovmcp.bridge.handlers import camera_feed
+
+
+async def rgb(camera):
+    cap = await mcp.capture_viewport(width=W, height=H, camera_path=camera)
+    if cap["status"] != "success":
+        raise RuntimeError(cap["error"])
+    png = base64.b64decode(cap["result"]["image_base64"])
+    return np.asarray(Image.open(io.BytesIO(png)).convert("RGB")).astype(np.int32)
+
+
+def apart(a, b):
+    d = np.abs(a - b)
+    return {"mean": float(d.mean()), "p99": float(np.percentile(d, 99))}
+
+
+def blue(im):
+    return (im[..., 2] > im[..., 0] + 40) & (im[..., 2] > im[..., 1] + 40)
+
+
+await camera_feed.release_kept()
+first_a = await rgb(A)
+switched = await rgb(B)
+await camera_feed.release_kept()
+fresh_b = await rgb(B)
+await camera_feed.release_kept()
+before = await rgb(A)
+moved = await mcp.set_transform(PRIM, position=MOVED)
+if moved["status"] != "success":
+    raise RuntimeError(moved["error"])
+after = await rgb(A)
+await camera_feed.release_kept()
+fresh_after = await rgb(A)
+await camera_feed.release_kept()
+old_place = blue(before) & ~blue(fresh_after)
+new_place = blue(fresh_after) & ~blue(before)
+result = {
+    "switch": apart(switched, fresh_b),
+    "switch_itself": apart(first_a, fresh_b),
+    "move": apart(after, fresh_after),
+    "move_itself": apart(before, fresh_after),
+    "old_place": int(old_place.sum()),
+    "ghost": int((blue(after) & old_place).sum()),
+    "new_place": int(new_place.sum()),
+    "shown_there": int((blue(after) & new_place).sum()),
+}
+"""
+# A kept feed's capture against a fresh feed's, straight after its camera changed or a prim moved: edge and face noise
+# that fades over the next frames, a mean of 0.16 to 0.61 out of 255 and a 99th percentile of 4 to 10, where two fresh
+# feeds differ by 0.09 and 2 (#114's K19). Well under the change itself, so a stale frame still fails it.
+KEPT_MEAN, KEPT_P99 = 1.0, 12.0
+# The most of the change itself (the move's mean of 1.9 to 2.1, the switch's far more) a kept capture may differ by; the
+# probe's kept capture after the move differed by 0.11 of it, and test_26_04's worst run, 0.49, is about a quarter.
+KEPT_SHARE = 1 / 3
 
 
 def _png_size(path: str) -> tuple[int, int] | None:
@@ -440,14 +525,21 @@ class TestScenarios(PhysicsChecks):
 
     def _a_capture_at_once_holds_the_drawing(self, zigzag: list[list[float]]) -> None:
         """Every capture made at once after a drawing holds it: through the viewport it missed every time before #57,
-        and since #51 a capture renders through a feed of its own, whose first frame comes after the drawing (#51's
-        E19). Each feed's render product goes with its capture."""
+        and since #51 a capture renders through a feed of its own, whose frame comes 20 of its frames after the call
+        starts, a kept feed's too (#114). Once the kept feed is released, no render product of theirs stays; each read
+        compares stages with no feed kept."""
+        self._run_in_kit(RELEASE_KEPT_FEED)
         textures = self._run_in_kit(HYDRA_TEXTURES)
         captured = self._drawn_then_captured(zigzag)
         print(f"  Captured at once: red pixels and seconds {_shown(captured)}")
         for red, _ in captured:
             self.assertGreater(red, 100, "a capture made just after the drawing doesn't hold it")
+        self._run_in_kit(RELEASE_KEPT_FEED)
         self.assertEqual(self._run_in_kit(HYDRA_TEXTURES), textures, "a capture's render product stayed")
+
+    def _kept_feeds(self) -> list[str]:
+        """The render products of capture feeds on the stage: one while a feed is kept (#114)."""
+        return [path for path in self._run_in_kit(HYDRA_TEXTURES) if "ovmcp_capture_" in path]
 
     def _choose_backend(self, *names: str) -> str:
         """The bridge's choose_backend, through execute: the first of `names` it can draw with, or the default."""
@@ -911,6 +1003,8 @@ class TestScenarios(PhysicsChecks):
     def test_06_05_record_from_a_prim_that_isnt_a_camera(self):
         """Phase 6.5: A prim that isn't a camera, or none, is refused, and leaves nothing (#25)"""
         self._stop_recording_after()  # one that started after all mustn't block the next test
+        # A capture's feed kept from an earlier test could be released between the two reads (#114).
+        self._run_in_kit(RELEASE_KEPT_FEED)
         before = self._run_in_kit(HYDRA_TEXTURES)
         for path, says in (("/World/RedCube", "not a Camera"), ("/World/NoSuchCamera", "No prim at")):
             r = self.c.recording_start(self._recordings("recordings_refused"), camera_path=path)
@@ -2700,6 +2794,135 @@ class TestScenarios(PhysicsChecks):
         self.c.delete_prim("/World/SettleTest")
         self.c.delete_prim("/World/SettleLight2")
         print("  Look-at + immediate capture OK")
+        self._pass()
+
+    def _kept_scene(self) -> tuple[int, str, str]:
+        """For phase 26's kept feed: the stage's up axis, a cube of the test's own at the column a second camera,
+        /World/KeptCam, looks at, lit, and that camera; each deleted after, any kept feed released after too."""
+        up = self._up_axis()
+        self._run_in_kit(RELEASE_KEPT_FEED)
+        self.addCleanup(self._run_in_kit, RELEASE_KEPT_FEED)
+        cube = "/World/KeptCube"
+        made = self.c.create_prim(cube, "Cube", position=_along_up(up, 1.5), scale=0.4)
+        self.assertEqual(made["status"], "success", made)
+        self.addCleanup(self.c.delete_prim, cube)
+        self.c.set_material(cube, color=[0, 0, 1])
+        self.c.create_prim("/World/KeptLight", "DistantLight", rotation=[45, 0, 0])
+        self.addCleanup(self.c.delete_prim, "/World/KeptLight")
+        return up, cube, self._recording_camera("/World/KeptCam")
+
+    def test_26_03_captures_share_one_kept_feed(self):
+        """Phase 26.3: Five inspect_prim and capture_viewport calls at one size, two cameras between them, make one RTX
+        view; another size makes one more; the feed goes once no capture came for its idle time (#114)"""
+        _up, cube, camera = self._kept_scene()
+        mark = self._run_in_kit(KIT_LOG_SIZE)
+        for call in (
+            lambda: self.c.capture_viewport(320, 240),
+            lambda: self.c.capture_viewport(320, 240, camera_path=camera),
+            lambda: self.c.camera_inspect(cube, angles=["front"], width=320, height=240),
+            lambda: self.c.capture_viewport(320, 240, camera_path=camera),
+            lambda: self.c.capture_viewport(320, 240),
+        ):
+            r = call()
+            self.assertEqual(r["status"], "success", r)
+        # The feed made, and its first camera change; no other switch sets the view up again (K15).
+        views = self._run_in_kit(KIT_LOG_VIEWS, MARK=mark)
+        self.assertEqual(views, {"created": 1, "assigned": 2}, "five captures at one size")
+        r = self.c.capture_viewport(640, 480)
+        self.assertEqual(r["status"], "success", r)
+        self.assertEqual(self._run_in_kit(KIT_LOG_VIEWS, MARK=mark)["created"], 2, "a capture at another size")
+        self.assertEqual(len(self._kept_feeds()), 1, "one feed, resized in place")
+
+        idle = float(self._run_in_kit(KEPT_SECONDS))
+        time.sleep(idle - 5)
+        self.assertEqual(len(self._kept_feeds()), 1, f"the feed went before {idle:g} s with no capture")
+        time.sleep(7)
+        self.assertEqual(self._kept_feeds(), [], f"the feed stayed {idle:g} s after the last capture")
+        print(f"  6 captures, {views['created']} view at one size and one more at another; gone after {idle:g} s")
+        self._pass()
+
+    def test_26_04_a_kept_feed_captures_what_a_fresh_one_does(self):
+        """Phase 26.4: A capture through the kept feed, of another camera or of a prim moved just before it in the same
+        script, shows what a fresh feed's does: no ghost of the prim's old place, the prim at its new one, and the rest
+        within a kept feed's noise, well under the change itself (#114's K19)"""
+        up, cube, camera = self._kept_scene()
+        r = self.c.camera_set(_along_up(up, 2.5, x=-6), _along_up(up, 1.5))
+        self.assertEqual(r["status"], "success", r)
+        moved = _along_up(up, 1.5)
+        moved[3 - up] = 1.5  # sideways, across the viewport's view
+        values = {"W": 320, "H": 240, "A": "", "B": camera, "PRIM": cube, "MOVED": moved}
+        code = "".join(f"{name} = {value!r}\n" for name, value in values.items()) + KEPT_AGAINST_FRESH
+        host, port = live_bridge()
+        client = BridgeClient(host=host, port=port, timeout=60.0)  # six captures come close to the usual 10 s
+        try:
+            r = client.execute(code)
+        finally:
+            client.close()
+        self.assertEqual(r["status"], "success", r)
+        done = r["result"]["return_value"]
+        print(f"  camera switched {done['switch']} (the switch {done['switch_itself']})")
+        print(f"  prim moved {done['move']} (the move {done['move_itself']})")
+        print(
+            f"  old place {done['old_place']} px, {done['ghost']} a ghost; new {done['new_place']}, {done['shown_there']}"
+        )
+        self.assertGreater(done["old_place"], 0, "the move doesn't show: the cube is out of the view")
+        self.assertGreater(done["new_place"], 0, "the move doesn't show: the cube is out of the view")
+        self.assertEqual(done["ghost"], 0, "the kept capture shows the cube where it was")
+        # Its edges may differ from the fresh capture's by more than the blue test allows: most of its new place, not all.
+        self.assertGreaterEqual(done["shown_there"], 0.8 * done["new_place"], "the kept capture lacks the moved cube")
+        for name in ("switch", "move"):
+            self.assertLessEqual(done[name]["mean"], KEPT_MEAN, name)
+            self.assertLessEqual(done[name]["p99"], KEPT_P99, name)
+            itself = done[f"{name}_itself"]["mean"]
+            self.assertLessEqual(
+                done[name]["mean"], KEPT_SHARE * itself, f"{name}: as far from the fresh one as the change"
+            )
+        self._pass()
+
+    def test_26_05_saves_after_a_capture_write_no_capture_feed(self):
+        """Phase 26.5: save_scene, flatten_usd, export_prim of /Render and Kit's own Save, each straight after a
+        capture, write no capture feed's render product (#114)"""
+        self._run_in_kit(RELEASE_KEPT_FEED)
+        self.addCleanup(self._run_in_kit, RELEASE_KEPT_FEED)
+        folder = Path(tempfile.mkdtemp(prefix="ovmcp-kept-"))
+        self.addCleanup(shutil.rmtree, folder, True)
+        host, port = live_bridge()
+        client = BridgeClient(host=host, port=port, timeout=120.0)  # open_scene's calls get the server's own 120 s
+        self.addCleanup(client.close)
+
+        def captured() -> None:
+            r = self.c.capture_viewport(320, 240)
+            self.assertEqual(r["status"], "success", r)
+            self.assertEqual(len(self._kept_feeds()), 1, "no feed kept after the capture: nothing to leave out")
+
+        # /Render holds Kit's render products, and the kept feed's among them until it is released.
+        for name, write in (
+            ("save_scene", client.save_scene),
+            ("flatten_usd", client.flatten_usd),
+            ("export_prim", lambda path: client.export_prim("/Render", path)),
+        ):
+            captured()
+            path = folder / f"{name}.usda"
+            r = write(str(path))
+            self.assertEqual(r["status"], "success", r)
+            self.assertNotIn("ovmcp_capture_", path.read_text(encoding="utf-8"), f"{name} wrote the kept feed")
+            self.assertEqual(self._kept_feeds(), [], f"{name} left the feed on the stage")
+
+        # Kit's own Save, of a copy of the stage opened from its file; the stage as it was is opened again after.
+        before = folder / "before.usda"
+        self.assertEqual(client.save_scene(str(before))["status"], "success")
+        self.addCleanup(client.open_scene, str(before))
+        scene = folder / "scene.usda"
+        self.assertEqual(client.save_scene(str(scene))["status"], "success")
+        opened = client.open_scene(str(scene))
+        self.assertEqual(opened["status"], "success", opened)
+        captured()
+        r = client.execute("import omni.usd\nresult = list(await omni.usd.get_context().save_stage_async())")
+        self.assertEqual(r["status"], "success", r)
+        self.assertTrue(r["result"]["return_value"][0], r)
+        self.assertNotIn("ovmcp_capture_", scene.read_text(encoding="utf-8"), "Kit's Save wrote the kept feed")
+        self.assertEqual(self._kept_feeds(), [], "the feed outlived Kit's Save")
+        print("  save_scene, flatten_usd, export_prim of /Render and Kit's Save wrote no capture feed")
         self._pass()
 
 

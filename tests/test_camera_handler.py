@@ -1,7 +1,8 @@
 """The camera handlers against a fake Kit.
 
-capture_viewport and inspect_prim each make one camera feed of the camera at the size asked for, and let it go
-whatever happens, after a capture that succeeds, one that raises, and a restore of isolate that raises (#51).
+capture_viewport and inspect_prim each render through one camera feed of the camera at the size asked for (#51),
+kept between calls (#114): put back to be kept after a call that succeeds, released after one that raises, whose
+segmentation fails, or whose restore of isolate raises; every capture waits its settle, a kept feed's too.
 The handlers of /camera/set, /camera/look_at and /camera/inspect aim the camera without Isaac Sim, and after an Isaac
 Sim call that left it unaimed (#82).
 
@@ -21,6 +22,7 @@ import pytest
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux
 
 from ovmcp.core.png import encode_png
+from ovmcp.core.serial import LazyLock
 from ovmcp.core.xform import aim, aim_error
 
 from .conftest import EXTENSION_ROOT
@@ -31,23 +33,30 @@ CAMERA, BOX = "/World/Cam", "/World/Box"
 
 
 class FakeFeed:
-    """A camera feed as the handlers use it."""
+    """A camera feed as the handlers use it, and the frames each call waited for."""
 
-    def __init__(self, camera_path: str, width: int, height: int, prefix: str = "ovmcp_recording") -> None:
-        self.camera_path, self.width, self.height, self.prefix = camera_path, width, height, prefix
-        self.resolution = (width, height)
-        self.render_product_path = f"/Render/OmniverseKit/HydraTextures/{prefix}_0"
-        self.segmented = False
+    def __init__(self, camera_path: str, width: int, height: int) -> None:
+        self.camera_path, self.width, self.height = camera_path, width, height
+        self.render_product_path = "/Render/OmniverseKit/HydraTextures/ovmcp_capture_0"
+        self.frames = 0
+        self.waits: list[int] = []
+
+    @property
+    def resolution(self) -> tuple[int, int]:
+        return self.width, self.height
 
     async def first_frame(self, seconds: float) -> None:
-        pass
+        self.frames = max(self.frames, 1)
 
     async def wait_frames(self, count: int, budget: Any = None) -> None:
-        pass
+        self.waits.append(count)
+        self.frames += count
 
 
 class FakeKit:
-    """What the handlers read of Kit, and what they did: the feeds made and released, and what a capture gives."""
+    """What the handlers read of Kit, and what they did: the feeds made, kept and released, and what a capture
+    gives. The kept feed is camera_feed's, as simple as it can be: one feed, kept while each call puts it back
+    healthy, its camera and size set to the next call's."""
 
     def __init__(self) -> None:
         self.stage = Usd.Stage.CreateInMemory()
@@ -57,20 +66,29 @@ class FakeKit:
         UsdGeom.Sphere.Define(self.stage, "/World/Other")  # something for isolate to hide
         self.active = CAMERA  # the viewport's camera
         self.feeds: list[FakeFeed] = []
+        self.kept: FakeFeed | None = None
+        self.put_back: list[tuple[FakeFeed, bool]] = []
         self.released: list[FakeFeed] = []
         self.capture_error: Exception | None = None
 
-    def make_feed(self, *args: Any, **kwargs: Any) -> FakeFeed:
-        self.feeds.append(FakeFeed(*args, **kwargs))
-        return self.feeds[-1]
+    def kept_feed(self, camera_path: str, width: int, height: int) -> FakeFeed:
+        if self.kept is None:
+            self.feeds.append(FakeFeed(camera_path, width, height))
+            self.kept = self.feeds[-1]
+        else:
+            self.kept.camera_path, self.kept.width, self.kept.height = camera_path, width, height
+        return self.kept
 
     async def capture_feed_png(self, feed: FakeFeed, budget: Any = None) -> bytes:
         if self.capture_error is not None:
             raise self.capture_error
         return encode_png(np.full((feed.height, feed.width, 3), 128, dtype=np.uint8))
 
-    async def release(self, feed: FakeFeed) -> None:
-        self.released.append(feed)
+    async def put_feed_back(self, feed: FakeFeed, healthy: bool) -> None:
+        self.put_back.append((feed, healthy))
+        if not healthy:
+            self.released.append(feed)
+            self.kept = None
 
 
 def _module(name: str, **attrs: Any) -> ModuleType:
@@ -121,9 +139,11 @@ def handler(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
         ),
         "handlers_under_test.camera_feed": _module(
             "handlers_under_test.camera_feed",
-            CameraFeed=kit.make_feed,
+            CameraFeed=FakeFeed,
+            _viewport=LazyLock(),
             enable_segmentation=lambda _feed: "no segmentation in this test",
-            release=kit.release,
+            kept_feed=kit.kept_feed,
+            put_back=kit.put_feed_back,
         ),
     }
     for name, module in fakes.items():
@@ -144,22 +164,78 @@ def _inspect(handler: Any, **body: Any) -> dict[str, Any]:
     return asyncio.run(handler.handle_camera_inspect({"prim_path": BOX, "angles": ["front"], **body}))
 
 
-def test_a_capture_renders_its_camera_at_its_size_in_one_feed_and_lets_it_go(handler, kit):
+def test_a_capture_renders_its_camera_at_its_size_in_one_feed_and_puts_it_back(handler, kit):
     r = _capture(handler, width=320, height=240, camera_path=CAMERA)
     assert r["status"] == "success", r
     assert (r["result"]["width"], r["result"]["height"], r["result"]["camera_path"]) == (320, 240, CAMERA)
     (feed,) = kit.feeds
-    assert (feed.camera_path, feed.resolution, feed.prefix) == (CAMERA, (320, 240), "ovmcp_capture")
-    assert kit.released == [feed]
+    assert (feed.camera_path, feed.resolution) == (CAMERA, (320, 240))
+    assert kit.put_back == [(feed, True)]
 
 
-def test_a_capture_that_raises_still_lets_its_feed_go(handler, kit):
+def test_a_second_capture_renders_through_the_kept_feed_at_its_own_camera(handler, kit):
+    UsdGeom.Camera.Define(kit.stage, "/World/Other")
+    first = _capture(handler, width=320, height=240, camera_path=CAMERA)
+    second = _capture(handler, width=320, height=240, camera_path="/World/Other")
+    assert (first["status"], second["status"]) == ("success", "success")
+    (feed,) = kit.feeds  # no feed made for the second call, so no new RTX view (#114)
+    assert second["result"]["camera_path"] == feed.camera_path == "/World/Other"
+
+
+def test_every_capture_waits_its_settle_a_kept_feed_with_frames_too(handler, kit, monkeypatch):
+    # A camera moved or a stage drawn on just before the call shows frames later (#51's E14, #57), and the handler
+    # can't tell; a kept feed's first_frame returns at once.
+    monkeypatch.setattr(handler, "_settle_frames", lambda: 7)  # Path Tracing's, on top
+    for _ in range(2):
+        assert _capture(handler, width=320, height=240)["status"] == "success"
+    (feed,) = kit.feeds
+    assert feed.waits == [27, 27]
+
+
+def test_a_capture_that_raises_releases_its_feed(handler, kit):
     kit.capture_error = RuntimeError("Kit wrote no whole image")
     r = _capture(handler, width=320, height=240)
     assert r["status"] == "error"
     assert "no whole image" in r["error"]
     assert kit.released == kit.feeds
     assert len(kit.feeds) == 1
+
+
+def _segments(handler: Any, monkeypatch: pytest.MonkeyPatch, turned_on: Any, read: Any) -> None:
+    """enable_segmentation and the segmentation's read, as a test has them."""
+    monkeypatch.setattr(handler, "enable_segmentation", turned_on)
+
+    async def segmentation(_feed: Any, _budget: Any) -> Any:
+        return read
+
+    monkeypatch.setattr(handler, "_segmentation", segmentation)
+
+
+def _sensor_raised(_feed: Any) -> None:
+    raise RuntimeError("the sensor's node is gone")
+
+
+SEGMENTED = (encode_png(np.zeros((24, 32, 3), dtype=np.uint8)), {}, None)  # a view of no prims: data all the same
+
+
+@pytest.mark.parametrize(
+    ("turned_on", "read", "kept"),
+    [
+        (lambda _feed: None, SEGMENTED, True),
+        (lambda _feed: "omni.syntheticdata is not loaded", None, True),
+        (lambda _feed: None, (None, {}, "Instance segmentation gave no data"), False),
+        (_sensor_raised, None, False),
+    ],
+    ids=["an-empty-legend", "no-syntheticdata", "no-data", "the-sensor-raised"],
+)
+def test_a_capture_whose_segmentation_failed_releases_its_feed(handler, kit, monkeypatch, turned_on, read, kept):
+    # A half-made sensor or one that gives nothing must not be kept for the next call; a Kit without
+    # omni.syntheticdata turned nothing on, so it keeps its feed.
+    _segments(handler, monkeypatch, turned_on, read)
+    r = _capture(handler, width=32, height=24)
+    assert r["status"] == "success", r
+    (feed,) = kit.feeds
+    assert kit.put_back == [(feed, kept)]
 
 
 def test_a_camera_path_that_isn_t_a_camera_makes_no_feed(handler, kit):
@@ -169,7 +245,7 @@ def test_a_camera_path_that_isn_t_a_camera_makes_no_feed(handler, kit):
     assert kit.feeds == []
 
 
-def test_an_inspection_renders_one_feed_at_its_size_and_lets_it_go(handler, kit):
+def test_an_inspection_renders_one_feed_at_its_size_and_puts_it_back(handler, kit):
     r = _inspect(handler, width=320, height=240)
     assert r["status"] == "success", r
     (cap,) = r["result"]["captures"]
@@ -177,10 +253,13 @@ def test_an_inspection_renders_one_feed_at_its_size_and_lets_it_go(handler, kit)
     assert (r["result"]["width"], r["result"]["height"]) == (320, 240)
     (feed,) = kit.feeds
     assert (feed.camera_path, feed.resolution) == (CAMERA, (320, 240))
-    assert kit.released == [feed]
+    assert kit.put_back == [(feed, True)]
+    assert _inspect(handler, width=320, height=240)["status"] == "success"
+    assert kit.feeds == [feed]  # the second call renders through the kept feed
 
 
-def test_an_inspection_whose_capture_raises_still_lets_its_feed_go(handler, kit):
+def test_an_inspection_whose_capture_raises_releases_its_feed(handler, kit):
+    # The angle's error is recorded in the answer, which succeeds; the feed is in doubt all the same.
     kit.capture_error = RuntimeError("Kit wrote no whole image")
     r = _inspect(handler, width=320, height=240)
     assert r["status"] == "success", r
@@ -189,7 +268,24 @@ def test_an_inspection_whose_capture_raises_still_lets_its_feed_go(handler, kit)
     assert kit.released == kit.feeds
 
 
-def test_an_inspection_whose_isolate_restore_raises_still_lets_its_feed_go(handler, kit, monkeypatch):
+@pytest.mark.parametrize(
+    ("turned_on", "read", "kept"),
+    [
+        (lambda _feed: None, SEGMENTED, True),
+        (lambda _feed: None, (None, {}, "Instance segmentation gave no data"), False),
+        (_sensor_raised, None, False),
+    ],
+    ids=["an-empty-legend", "no-data", "the-sensor-raised"],
+)
+def test_an_inspection_whose_segmentation_failed_releases_its_feed(handler, kit, monkeypatch, turned_on, read, kept):
+    _segments(handler, monkeypatch, turned_on, read)
+    r = _inspect(handler, width=32, height=24, include_segmentation=True)
+    assert r["status"] == "success", r
+    (feed,) = kit.feeds
+    assert kit.put_back == [(feed, kept)]
+
+
+def test_an_inspection_whose_isolate_restore_raises_releases_its_feed(handler, kit, monkeypatch):
     class FailingRestore:
         """Hides as isolate does, then fails to show the prims again."""
 
