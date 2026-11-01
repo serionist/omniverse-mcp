@@ -211,7 +211,7 @@ async def handle_get_robot_info(body: dict) -> dict:
 
 async def handle_get_joint_states(body: dict) -> dict:
     """Joint positions and velocities while physics plays or is paused, through Isaac Sim's
-    isaacsim.core.experimental.prims.Articulation, which 5.1 and 6.x ship (tested live on 6.2): radians or metres,
+    isaacsim.core.experimental.prims.Articulation, which 5.1 and 6.x ship (tested live on both): radians or metres,
     and the same per second.
 
     A new Articulation per call, a few milliseconds while physics runs: one kept would outlive a stop.

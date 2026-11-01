@@ -48,8 +48,9 @@ AI client  --MCP, stdio-->  omniverse-mcp  --HTTP, with a token-->  ovmcp.bridge
 
 ## Requirements
 
-- **A Kit app of Kit 107 or later,** on Windows or Linux. Tested on Isaac Sim 6.2; Isaac Sim 5.x, USD Composer and
-  other Kit apps should work, but are untested.
+- **A Kit app of Kit 107 or later,** on Windows or Linux. Tested on Isaac Sim 6.2 (Windows and Linux) and 5.1
+  (Linux); USD Composer and other Kit apps should work, but are untested. On Linux, Isaac Sim 5.1 runs on NVIDIA's
+  580 drivers; on a 595 driver its renderer crashes as it starts.
 - **[uv](https://docs.astral.sh/uv/getting-started/installation/),** which runs the server. Install it, then open a
   new terminal and restart your AI client, so both find `uvx`:
   - macOS and Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`
@@ -259,7 +260,7 @@ More in [SETUP.md](docs/SETUP.md#troubleshooting).
 
 ## Known issues
 
-None open on Isaac Sim 6.2, the only Kit app tested so far. Report one as an
+None open on Isaac Sim 6.2 and 5.1, the Kit apps tested so far. Report one as an
 [issue](https://github.com/serionist/omniverse-mcp/issues).
 
 ## Security

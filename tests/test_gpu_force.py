@@ -1,14 +1,16 @@
 """apply_force under PhysX's Direct GPU API, live (#68): the push goes through PhysX's tensor API, and the bodies'
 momentum changes by exactly the push.
 
-Run alone, on a Kit app of its own with a CUDA GPU (Isaac Sim 6.2 headless is the one measured), and restart Kit after:
+Run alone, on a Kit app of its own with a CUDA GPU (Isaac Sim 6.2 and 5.1 headless are the ones measured), and restart
+Kit after:
 
     OMNIVERSE_MCP_SIM=1 OMNIVERSE_MCP_GPU=1 uv run pytest tests/test_gpu_force.py
 
-It switches the Kit app to the GPU pipeline with Isaac Sim's SimulationManager.set_device("cuda:0"), which
-set_device("cpu") doesn't fully undo: Fabric stays on and USD write-back off, so a pose read through USD goes stale
-(#68's E17). Without OMNIVERSE_MCP_GPU=1 this module skips; with it every other live test fails at setup, before it
-reaches Kit, so a variable left set can't pass a run of the live suites that skipped them all (tests/conftest.py).
+It switches the Kit app to the GPU pipeline with Isaac Sim's SimulationManager.set_device("cuda:0")
+(set_physics_sim_device in 5.x), which set_device("cpu") doesn't fully undo: Fabric stays on and USD write-back off,
+so a pose read through USD goes stale (#68's E17). Without OMNIVERSE_MCP_GPU=1 this module skips; with it every other
+live test fails at setup, before it reaches Kit, so a variable left set can't pass a run of the live suites that
+skipped them all (tests/conftest.py).
 
 The tests run in the order of their numbers: the first two check the Kit app is fit to switch, the third switches it,
 and each push skips unless the third passed. Momentum is read through a tensor view of the test's own, as #68's probe
@@ -42,17 +44,26 @@ from isaacsim.core.simulation_manager import SimulationManager
 result = int(warp.get_cuda_device_count())
 """
 
+# SimulationManager's device setter: set_device from Isaac Sim 6, set_physics_sim_device in 5.x, which sets the same
+# settings and scene attributes.
+SET_DEVICE = """
+from isaacsim.core.simulation_manager import SimulationManager
+
+set_device = getattr(SimulationManager, "set_device", None) or SimulationManager.set_physics_sim_device
+"""
+
 # The switch, as #68's probe made it. A stage without a physics scene gets one first, and an update before the switch,
 # so Isaac Sim's SimulationManager, which tracks the scenes added to the stage, has it when set_device sets their GPU
 # dynamics. Then 40 updates of play, after which a tensor view says the device PhysX simulates on, and a stop. The
 # result: the setting the handler chooses its path by, and the first scene's GPU dynamics and the device, which say
 # PhysX simulates on the GPU.
-SWITCH = """
+SWITCH = (
+    SET_DEVICE
+    + """
 import carb
 import omni.kit.app
 import omni.timeline
 import omni.usd
-from isaacsim.core.simulation_manager import SimulationManager
 from omni.physics import tensors
 
 app = omni.kit.app.get_app()
@@ -62,7 +73,7 @@ if not any(prim.IsA(UsdPhysics.Scene) for prim in stage.Traverse()):
     made = "/World/PhysicsScene"
     UsdPhysics.Scene.Define(stage, made)
     await app.next_update_async()
-SimulationManager.set_device("cuda:0")
+set_device("cuda:0")
 timeline = omni.timeline.get_timeline_interface()
 timeline.play()
 for _ in range(40):
@@ -80,18 +91,21 @@ result = {
     "device": device,
 }
 """
+)
 
 # The module's cleanup: the timeline stopped, then the CPU device, as #68's probe switched back.
-SWITCH_BACK = """
+SWITCH_BACK = (
+    SET_DEVICE
+    + """
 import omni.kit.app
 import omni.timeline
-from isaacsim.core.simulation_manager import SimulationManager
 
 omni.timeline.get_timeline_interface().stop()
 await omni.kit.app.get_app().next_update_async()
-SimulationManager.set_device("cpu")
+set_device("cpu")
 result = True
 """
+)
 
 # The bodies PATHS names, set before it, through a tensor view of our own: their total linear momentum, each one's,
 # their largest angular speed, and each one's origin. With no contact and gravity off, a push of J N s changes a body's

@@ -478,9 +478,9 @@ frame is reset and captured once more by itself, after 20 more of the feed's fra
 - **Outside a call:** `set_camera` and `viewport_light` give a settle or reset 30 s for all its frames, and answer as
   before, with a warning in Kit's log, when the frames don't come. A recording frame gets 30 s, then 10 s for its
   file, and is the empty marker when they run out.
-- **Kit versions:** run live on Isaac Sim 6.2 (Kit 110) only. Kit 107's capture, frame wait and `omni.syntheticdata`
-  sources were read and match Kit 110's where this relies on them, but Isaac Sim 5.x is untested live: 5.1 crashed
-  in its own start on the test machine, before any extension loaded.
+- **Kit versions:** run live on Isaac Sim 6.2 (Kit 110) on Windows and Linux, and on Isaac Sim 5.1 (Kit 107) on
+  Linux, where both live suites pass. 5.1 ran on NVIDIA's 580.178.04 driver; on 595.91.07 its RTX scene library
+  crashed in its own start, before any extension loaded. 5.1 on Windows is untested.
 - **Timers on Kit's loop:** they fire only while the loop runs, so a main thread blocked by a shader compile delays
   them.
 - **In Kit's log:** a failed capture's step and seconds (a warning); a capture over 2 s, how long its frame and file

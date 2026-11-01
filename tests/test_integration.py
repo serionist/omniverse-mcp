@@ -1212,7 +1212,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
             "result = 'made'"
         )
         self.assertEqual(made["status"], "success", made)
-        since = self.client.get_logs(count=1)["result"]["total_captured"]
+        since = self.client.get_logs(count=1)["result"]["total_captured"] - 1  # the newest entry's index
         result = self.client.set_material("/World/IntTestCube", color=[1, 0, 0], roughness=0.3)
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["result"]["color"], [1, 0, 0])
@@ -1894,6 +1894,7 @@ class TestColdCook(unittest.TestCase):
     def test_a_play_that_cooks_new_collision_meshes_returns(self):
         root = f"/World/IntTestCook_{secrets.token_hex(4)}"  # this run's own, so older cooking lines don't count
         seeds = [secrets.randbits(32) for _ in range(_SPHERES)]
+        mark = self.client.get_logs(count=1)["result"]["total_captured"] - 1  # the newest entry's index
         made = self.client.execute(f"ROOT = {root!r}\nSEEDS = {seeds!r}\n{_COLD_COOK_SCENE}")
         self.assertEqual(made["status"], "success", made.get("error"))
         self.assertGreater(made["result"]["return_value"], 2000)
@@ -1911,14 +1912,27 @@ class TestColdCook(unittest.TestCase):
         played_in = time.perf_counter() - started
         try:
             self.assertEqual(played["status"], "success", played.get("error"))
-            # A cache hit starts no cooking task, so each sphere a cooking line names was cooked in this play.
-            cooked = self.client.get_logs(count=2000, channel="omni.physx.cooking", search="ConvexMeshCookingTask")
-            self.assertEqual(cooked["status"], "success", cooked.get("error"))
-            named = {
-                i for i in range(_SPHERES) for e in cooked["result"]["entries"] if f"{root}/Sphere_{i:02d}" in e["msg"]
-            }
-            self.assertEqual(named, set(range(_SPHERES)), "every sphere is named in a ConvexMeshCookingTask line")
-            print(f"  play answered in {played_in:.2f} s; {len(named)} spheres cooked")
+            # A cache hit starts no cooking task, so each cooking line logged since the scene was made is a sphere
+            # cooked from scratch. Kit starts cooking as the prims are authored, and the play follows at once, with it
+            # still running. Kit 110 names the prim in the line; Kit 107 (Isaac Sim 5.1) ends it at "Prim " with no
+            # path, so there the lines are counted instead. Cooking may outlast the play's answer, so the last lines
+            # may take a moment.
+            deadline = time.monotonic() + 5.0
+            while True:
+                cooked = self.client.get_logs(
+                    count=2000, channel="omni.physx.cooking", search="ConvexMeshCookingTask", since_index=mark
+                )
+                self.assertEqual(cooked["status"], "success", cooked.get("error"))
+                lines = [e["msg"] for e in cooked["result"]["entries"]]
+                if len(lines) >= _SPHERES or time.monotonic() > deadline:
+                    break
+                time.sleep(0.2)
+            if any(root in line for line in lines):
+                named = {i for i in range(_SPHERES) for line in lines if f"{root}/Sphere_{i:02d}" in line}
+                self.assertEqual(named, set(range(_SPHERES)), "every sphere is named in a ConvexMeshCookingTask line")
+            else:
+                self.assertGreaterEqual(len(lines), _SPHERES, "a ConvexMeshCookingTask line for each sphere")
+            print(f"  play answered in {played_in:.2f} s; {len(lines)} cooking lines for {_SPHERES} spheres")
         finally:
             self.client.sim_control("stop")
             self.client.delete_prim(root)
