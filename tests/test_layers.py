@@ -1,15 +1,18 @@
 """flatten_usd, export_prim_as_file and save_scene never write over a layer the open stage uses, save_scene's own root
 layer apart, and read a layer again from its file only when the open stage doesn't use it and it has no unsaved edits
-(#81, #85), on usd-core."""
+(#81, #85); the two flatten the open stage without Kit's session layer (#118); on usd-core."""
 
 import gc
 from pathlib import Path, PurePosixPath
 
 import pytest
-from pxr import Sdf, Usd, UsdGeom
+from pxr import Sdf, Usd, UsdGeom, UsdLux
 
 from ovmcp.core import layers
-from ovmcp.core.layers import refresh, refresh_written, write_refusal
+from ovmcp.core.layers import refresh, refresh_written, without_session, write_refusal
+
+RIG = "/OmniKit_Viewport_LightRig"
+SUN = "/World/Sun"
 
 
 def _file(path: Path, prim: str, **arcs: str) -> Path:
@@ -307,6 +310,114 @@ def test_an_input_usd_cant_open_gives_no_stage(stage: Usd.Stage, scene: Path):
     assert layers.open_to_flatten(stage, str(scene.parent / "missing.usda")) is None
     assert layers.open_to_flatten(stage, str(garbled)) is None
     assert stage.GetPrimAtPath("/World/R")
+
+
+# ----- without_session -----
+
+
+def kits_default_mode(stage: Usd.Stage, rig: Path) -> None:
+    """Viewport light mode Default as Kit sets it (#117's plan, K1 and K4): a rig file with a DomeLight and a
+    DistantLight, as Kit's Default.usda has, referenced from an over in the session layer, and the stage's own light,
+    SUN, made invisible there."""
+    rig_stage = Usd.Stage.CreateNew(str(rig))
+    rig_stage.SetDefaultPrim(UsdGeom.Xform.Define(rig_stage, "/World").GetPrim())
+    UsdLux.DomeLight.Define(rig_stage, "/World/Lights/DomeLight")
+    UsdLux.DistantLight.Define(rig_stage, "/World/Lights/DistantLight")
+    rig_stage.GetRootLayer().Save()
+    with Usd.EditContext(stage, stage.GetSessionLayer()):
+        stage.OverridePrim(RIG).GetReferences().AddReference(str(rig))
+        UsdGeom.Imageable(stage.GetPrimAtPath(SUN)).MakeInvisible()
+
+
+@pytest.fixture
+def lit(scene: Path) -> Usd.Stage:
+    """scene.usda with a light of its own, /World/Sun, saved, open in mode Default, and an edit it hasn't saved."""
+    stage = Usd.Stage.Open(str(scene))
+    UsdLux.DistantLight.Define(stage, SUN)
+    stage.GetRootLayer().Save()
+    kits_default_mode(stage, scene.parent / "Default.usda")
+    stage.DefinePrim("/World/Unsaved")
+    assert stage.GetPrimAtPath(f"{RIG}/Lights/DomeLight")
+    assert UsdGeom.Imageable(stage.GetPrimAtPath(SUN)).ComputeVisibility() == UsdGeom.Tokens.invisible
+    return stage
+
+
+def _visibility(stage: Usd.Stage, path: str) -> str:
+    return UsdGeom.Imageable(stage.GetPrimAtPath(path)).ComputeVisibility()
+
+
+def test_without_session_leaves_out_the_rig_and_kits_hiding_of_the_stages_lights(lit: Usd.Stage):
+    source = without_session(lit)
+    assert not source.GetPrimAtPath(RIG)
+    assert _visibility(source, SUN) == UsdGeom.Tokens.inherited
+    flat = source.Flatten()
+    assert not flat.GetPrimAtPath(RIG)
+    assert "OmniKit_Viewport_LightRig" not in flat.ExportToString()
+    assert not flat.GetPropertyAtPath(f"{SUN}.visibility")
+
+
+def test_without_session_keeps_the_open_stages_layers_and_their_unsaved_edits(lit: Usd.Stage):
+    source = without_session(lit)
+    assert source.GetRootLayer() == lit.GetRootLayer()
+    for path in ("/World/Unsaved", SUN, "/World/R", "/World/P", "/Sub"):
+        assert source.GetPrimAtPath(path), path
+    assert source.GetSessionLayer() != lit.GetSessionLayer()
+    assert source.GetSessionLayer().anonymous
+    assert source.GetSessionLayer().empty
+
+
+def test_without_session_changes_nothing_of_the_open_stage(lit: Usd.Stage):
+    lit.Unload("/World/P")
+    before = {
+        "session": lit.GetSessionLayer().ExportToString(),
+        "root": lit.GetRootLayer().ExportToString(),
+        "load_rules": lit.GetLoadRules(),
+        "muted": lit.GetMutedLayers(),
+        "session_layer": lit.GetSessionLayer(),
+    }
+    source = without_session(lit)
+    source.Flatten()
+    del source
+    gc.collect()
+    after = {
+        "session": lit.GetSessionLayer().ExportToString(),
+        "root": lit.GetRootLayer().ExportToString(),
+        "load_rules": lit.GetLoadRules(),
+        "muted": lit.GetMutedLayers(),
+        "session_layer": lit.GetSessionLayer(),
+    }
+    assert after == before
+    assert lit.GetRootLayer().dirty
+    assert lit.GetPrimAtPath(f"{RIG}/Lights/DomeLight")
+    assert _visibility(lit, SUN) == UsdGeom.Tokens.invisible
+
+
+def test_without_session_carries_the_muted_layers_load_rules_mask_and_resolver_context(scene: Path):
+    # Each leaves out a prim of its own: the mask /World/R, the muted sublayer /Sub, the unloaded payload its content.
+    stage = Usd.Stage.OpenMasked(str(scene), Usd.StagePopulationMask(["/World/P", "/Sub"]))
+    (sub,) = (layer for layer in stage.GetLayerStack() if layer.realPath.endswith("sub.usda"))
+    stage.MuteLayer(sub.identifier)
+    stage.Unload("/World/P")
+    source = without_session(stage)
+    assert source.GetPopulationMask() == stage.GetPopulationMask()
+    assert not source.GetPrimAtPath("/World/R")
+    assert source.GetMutedLayers() == stage.GetMutedLayers()
+    assert not source.GetPrimAtPath("/Sub")
+    assert source.GetLoadRules() == stage.GetLoadRules()
+    assert not source.GetPrimAtPath("/World/P").IsLoaded()
+    assert source.GetPathResolverContext() == stage.GetPathResolverContext()
+
+
+def test_without_session_of_a_stage_never_saved(tmp_path: Path):
+    # new_scene's stage has an anonymous root layer: no file, but the same layer, so its prims are there.
+    stage = Usd.Stage.CreateInMemory()
+    UsdLux.DistantLight.Define(stage, SUN)
+    kits_default_mode(stage, tmp_path / "Default.usda")
+    source = without_session(stage)
+    assert source.GetRootLayer() == stage.GetRootLayer()
+    assert source.GetPrimAtPath(SUN)
+    assert _visibility(source, SUN) == UsdGeom.Tokens.inherited
+    assert not source.GetPrimAtPath(RIG)
 
 
 # ----- refresh_written and refresh -----

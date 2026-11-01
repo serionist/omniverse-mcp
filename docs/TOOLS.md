@@ -432,6 +432,13 @@ Write a stage flattened into one USD file: its references, payloads and sublayer
 
 Textures and other files the stage points at are not copied.
 
+- **Kit's session layer is left out,** as Kit's own File > Save Flattened As leaves it out: what Kit keeps for the
+  session and never saves, such as the viewport's light rig, a light mode's hiding of the stage's own lights, and
+  Kit's own cameras. The open stage is flattened from its root layer and the layers under it, unsaved edits included;
+  a muted sublayer and a payload it hasn't loaded stay out of the file, and so does an edit made while the session
+  layer was Kit's edit target, as with Kit's own command. An extension of 0.3.0 or older wrote the
+  session layer in too: a flatten in a light mode such as Default gave a file lit by the rig, with the scene's own
+  lights hidden.
 - **An `input_path` Kit has loaded** is flattened as Kit holds it, unsaved edits included, and the open stage is left
   as it is: its own file, a sublayer, or a referenced or payload file. A file Kit holds that the open stage doesn't use
   is read again from disk first, unless it has unsaved edits, so a file changed since Kit loaded it is flattened as it
@@ -463,8 +470,10 @@ Export a prim subtree as a standalone USD file.
 Flattens the source (resolves all references) and includes materials even if they live outside the exported subtree. Output is self-contained and can be imported into Blender or other DCC tools.
 The prim becomes `/<its name>` and the file's default prim, with the stage's up axis and units. `output_path` is on
 Kit's machine and is overwritten; textures and other files the subtree points at are not copied. As with
-`flatten_usd`, an `output_path` the open stage has loaded is refused before anything is written, and so is one Kit holds
-with unsaved edits; a file Kit holds without any is written and read again. An error too when the prim doesn't exist.
+`flatten_usd`, Kit's session layer is left out, so a light Kit's light mode hides is written as the scene has it, and
+an `output_path` the open stage has loaded is refused before anything is written, and so is one Kit holds with unsaved
+edits; a file Kit holds without any is written and read again. An error too when the prim doesn't exist, or comes from
+Kit's session layer alone, as Kit's own cameras and the viewport's light rig do.
 
 ---
 

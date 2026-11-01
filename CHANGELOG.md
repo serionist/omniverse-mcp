@@ -58,6 +58,11 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   #113 gives each prim its own. The fix is in the Kit extension (#105).
 - **`compare_prims` gives no percentage from 0 faces,** where it said `+0%`, and each delta its own sign, where a
   drop in vertices beside a rise in faces read `+-5` (#105).
+- **`flatten_usd` and `export_prim_as_file` leave out Kit's session layer,** as Kit's own Save Flattened As does. A
+  flatten of the open stage wrote in what Kit keeps for the session and never saves: in a light mode such as Default,
+  the viewport's light rig, and Kit's hiding of the scene's own lights, so the file was lit by the rig with its own
+  lights off; and Kit's own cameras. An export wrote the hiding of a light in its subtree; one of a prim that comes
+  from the session layer alone, such as a Kit camera, is now an error. The fix is in the Kit extension (#118).
 
 ### Changed
 
