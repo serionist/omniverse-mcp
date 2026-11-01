@@ -1341,6 +1341,157 @@ def test_create_robot_says_nothing_of_units_it_didn_t_change(
     assert "PhysX schema" not in text
 
 
+PRIM = {"prim_path": "/World/Box", "type": "Xform"}
+_PRIM_ARGS = {"prim_path": "/World/Box", "usd_path": "/props/box.usda"}
+_FRAME = {"up_axis": "Z", "meters_per_unit": 1.0, "prims": ["/World/Robot"]}
+
+
+def test_create_prim_says_it_brought_a_file_to_the_stage_as_create_robot_does(bridge: MockIsaacServer, tmp_path: Path):
+    # The same lines as create_robot's, for the same file (#119).
+    turn = {"file": "Z", "stage": "Y", "degrees": -90.0, "op": -90.0, "op_name": OP}
+    answer = {**PRIM, "up_axis_turn": turn, "units_scale": _SCALED, "frame": None, "not_brought": None}
+    says = (
+        "Created Xform at /World/Box\n"
+        f"Turned upright: the file is Z-up and the stage Y-up, so -90° about X went into {OP}, which now reads -90",
+        "Scaled to the stage's units: the file's metersPerUnit is 1 and the stage's 0.01, so a factor of 100 went "
+        f"into {SCALE}, which now reads 100; {_CONVERTED}",
+    )
+    sent = {**_PRIM_ARGS, "prim_type": "Xform"}
+    _check(Case("create_prim", _PRIM_ARGS, "/scene/create", answer, sent, says), bridge, tmp_path)
+
+
+def test_create_prim_names_the_frame_a_file_lands_in(bridge: MockIsaacServer, tmp_path: Path):
+    # A millimetre file under a robot scaled to metres, on a centimetre stage: the scale against the frame, the
+    # values against the stage (the plan's P3).
+    turn = {"file": "Y", "stage": "Y", "degrees": 90.0, "op": 90.0, "op_name": OP, "frame": "Z"}
+    units = {
+        **_SCALED,
+        "meters_per_unit": {"file": 0.001, "stage": 0.01, "frame": 1.0},
+        "factor": 0.001,
+        "op": [0.001, 0.001, 0.001],
+        "converted": 3,
+    }
+    answer = {**PRIM, "up_axis_turn": turn, "units_scale": units, "frame": _FRAME, "not_brought": None}
+    says = (
+        f"Turned upright: the file is Y-up and the frame it lands in Z-up, so +90° about X went into {OP}",
+        "Measured against the frame it lands in, not the stage's: /World/Robot's :unitsResolve ops make it Z-up, "
+        "in metersPerUnit 1",
+        "Scaled to the frame it lands in: the file's metersPerUnit is 0.001 and the frame's 1, so a factor of 0.001 "
+        f"went into {SCALE}, which now reads 0.001; 3 values (masses, inertia, drives, limits, camera distances) were "
+        "converted to the stage's units, metersPerUnit 0.01, as Kit's metrics assembler converts them",
+    )
+    _check(Case("create_prim", _PRIM_ARGS, "/scene/create", answer, {}, says), bridge, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("units", "says"),
+    [
+        # The file's units are the frame's, which differ from the stage's: no scale, its values converted.
+        (
+            {**_SCALED, "meters_per_unit": {"file": 1.0, "stage": 0.01, "frame": 1.0}, "factor": None, "op": None},
+            "Converted to the stage's units: the file's metersPerUnit is 1, as the frame it lands in, and the stage's "
+            "0.01; 12 values",
+        ),
+        # The file's units are the stage's, which differ from the frame's: a scale, nothing converted.
+        (
+            {
+                **_SCALED,
+                "meters_per_unit": {"file": 1.0, "stage": 1.0, "frame": 0.01},
+                "converted": None,
+                "table": False,
+            },
+            f"the file's metersPerUnit is 1 and the frame's 0.01, so a factor of 100 went into {SCALE}, which now "
+            "reads 100; its values are in the stage's units already",
+        ),
+    ],
+    ids=["no-scale", "nothing-converted"],
+)
+def test_create_prim_under_a_frame_says_which_units_differ(
+    units: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    answer = {**PRIM, "up_axis_turn": None, "units_scale": units, "frame": _FRAME, "not_brought": None}
+    text = _check(Case("create_prim", _PRIM_ARGS, "/scene/create", answer, {}, (says,)), bridge, tmp_path)
+    assert "PhysX schema" not in text
+
+
+def test_create_prim_on_a_prim_already_there_says_what_the_file_didn_t_get(bridge: MockIsaacServer, tmp_path: Path):
+    # The reference stays on the prim: the answer says so and how to take it off before bringing the file elsewhere,
+    # or the file would be on the stage twice (review R4).
+    missed = {
+        "prim_path": "/World/Shelf",
+        "file": {"up_axis": "Y", "meters_per_unit": 1.0},
+        "frame": {"up_axis": "Z", "meters_per_unit": 0.01},
+        "values": {"meters_per_unit": {"file": 1.0, "stage": 0.01}, "kilograms_per_unit": None},
+        "reference": "/props/box.usda",
+    }
+    answer = {**PRIM, "up_axis_turn": None, "units_scale": None, "frame": None, "not_brought": missed}
+    says = (
+        "Left as the file is: /World/Shelf was there before this call, so the file's reference on it isn't turned or "
+        "scaled to the stage (the file Y-up in metersPerUnit 1, the frame inside /World/Shelf Z-up in metersPerUnit "
+        "0.01), and leaves its physics values in the file's units (metersPerUnit 1 where the stage's is 0.01). The "
+        "reference stays on /World/Shelf: to have the file brought instead, take it off with execute_script, "
+        "stage.GetPrimAtPath('/World/Shelf').GetReferences().RemoveReference(Sdf.Reference('/props/box.usda')), then "
+        "create_prim at a new path, such as /World/Shelf/Item",
+    )
+    text = _check(Case("create_prim", _PRIM_ARGS, "/scene/create", answer, {}, says), bridge, tmp_path)
+    assert "delete_prim" not in text
+
+
+@pytest.mark.parametrize(
+    ("missed", "says"),
+    [
+        # Placed right, its masses left in the file's kilograms (review R2).
+        (
+            {
+                "prim_path": "/World/Crate",
+                "file": None,
+                "frame": None,
+                "values": {"meters_per_unit": None, "kilograms_per_unit": {"file": 0.001, "stage": 1.0}},
+                "reference": "/props/crate.usda",
+            },
+            "so the file's reference on it leaves its physics values in the file's units (kilogramsPerUnit 0.001 "
+            "where the stage's is 1). The reference stays on /World/Crate",
+        ),
+        # A frame turned so that neither axis is up, as a Kit-saved file's own turn leaves it before it is brought.
+        (
+            {
+                "prim_path": "/World/Saved",
+                "file": {"up_axis": "Z", "meters_per_unit": 1.0},
+                "frame": {"up_axis": None, "meters_per_unit": 100.0},
+                "values": None,
+                "reference": "/props/saved.usda",
+            },
+            "the frame inside /World/Saved turned so that neither Y nor Z is up in metersPerUnit 100)",
+        ),
+    ],
+    ids=["values-only", "neither-axis-up"],
+)
+def test_create_prim_names_what_a_prim_already_there_lacks(
+    missed: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    answer = {**PRIM, "up_axis_turn": None, "units_scale": None, "frame": None, "not_brought": missed}
+    _check(Case("create_prim", _PRIM_ARGS, "/scene/create", answer, {}, (says,)), bridge, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [PRIM, {**PRIM, "up_axis_turn": None, "units_scale": None, "frame": None, "not_brought": None}],
+    ids=["older-extension", "nothing-to-do"],
+)
+def test_create_prim_says_nothing_of_a_file_it_left_as_it_is(
+    answer: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path
+):
+    text = _check(Case("create_prim", _PRIM_ARGS, "/scene/create", answer, {}, ()), bridge, tmp_path)
+    assert text == "Created Xform at /World/Box"
+
+
+def test_create_robot_names_the_frame_a_robot_lands_in(bridge: MockIsaacServer, tmp_path: Path):
+    units = {**_SCALED, "meters_per_unit": {"file": 1.0, "stage": 0.01, "frame": 1.0}, "factor": None, "op": None}
+    answer = {**ROBOT, "up_axis_turn": None, "units_scale": units, "frame": _FRAME}
+    says = ("Measured against the frame it lands in, not the stage's: /World/Robot's :unitsResolve ops make it Z-up",)
+    _check(Case("create_robot", {"robot_type": "g1"}, "/robot/create", answer, {}, says), bridge, tmp_path)
+
+
 @pytest.mark.parametrize("args", [{}, {"fps": 10}, {"width": 640, "height": 480, "camera_path": ""}])
 def test_start_recording_on_an_older_extension_warns_of_nothing_without_a_camera_or_a_size(
     args: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path

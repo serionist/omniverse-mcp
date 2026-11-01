@@ -191,7 +191,7 @@ Create a new prim in the scene.
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Where to create (e.g., `"/World/MyCube"`) |
 | `prim_type` | string | `"Xform"` | USD type: `Cube`, `Sphere`, `Cylinder`, `Cone`, `Capsule`, `Xform`, `Camera`, `DistantLight`, `SphereLight`, etc. |
-| `usd_path` | string | `null` | Reference a USD file instead: an absolute path on Kit's machine, or a URL |
+| `usd_path` | string | `null` | Reference a USD file instead: an absolute path on Kit's machine, a URL, or a path relative to the stage's file; brought to the stage's up axis and units as `create_robot` brings a robot file |
 | `position` | list[float] | `null` | `[x, y, z]` relative to the parent |
 | `rotation` | list[float] | `null` | Euler or quaternion |
 | `scale` | float or list[float] | `null` | Scale |
@@ -201,9 +201,39 @@ A prim already at `prim_path` keeps its type: creating one of another type there
 takes the new transform, written into its own ops as `set_prim_transform` writes it. A transform it can't write makes
 nothing: a malformed one is refused before the prim is made, and one refused once it is there (an animated op in a
 referenced file, say) takes away what the call made. A `usd_path` adds its reference to a prim already there, and takes
-it away again when the transform is refused. Missing parents are made as typeless prims. `enable_physics` puts both APIs
-on the prim itself, so a shape falls and collides while the simulation plays; the meshes under an Xform or a referenced
-file's root get no Collision API of their own.
+it away again when the transform is refused. A `usd_path` that can't be opened is an error, and nothing is made; a
+relative one is read beside the stage's file, as the reference reads it. Missing parents are made as typeless prims.
+`enable_physics` puts both APIs on the prim itself, so a shape falls and collides while the simulation plays; the
+meshes under an Xform or a referenced file's root get no Collision API of their own.
+
+**Up axis and units:** a `usd_path` file whose `upAxis`, `metersPerUnit` or `kilogramsPerUnit` isn't the stage's is
+brought to the stage as `create_robot` brings a robot file, and as Kit's metrics assembler brings a dropped one: turned
+upright in `xformOp:rotateX:unitsResolve`, scaled to its real size in `xformOp:scale:unitsResolve`, and its physics
+values and its cameras' distances converted to the stage's units. `create_robot`'s Up axis and Units paragraphs give
+the detail, the values left as they are among it. The answer says what was done. A file whose root has no
+transform, typeless or a `Scope`, as many of Isaac Sim's assets have it, is made an `Xform` in the stage's layer to
+hold the ops; a root of another type USD gives no transform, such as a `Material`, holds nothing a turn or a scale
+would move, and gets neither. A payload inside the file that isn't loaded has its values left in the file's units,
+and loading it later brings them in so; Kit loads payloads when it opens a stage.
+
+- **The frame it lands in:** a file made inside an asset already brought to the stage, by either tool or by Kit's drop,
+  is measured against the frame that asset's `:unitsResolve` ops make, as Kit measures it: a metre part under a metre
+  robot on a centimetre stage needs no scale of its own, and a Z-up part under a turned Z-up robot no turn. A prim's
+  own scale is the user's and doesn't change the frame. Its physics values are still converted to the stage's units.
+  A file of the stage's own axis inside a turned asset is turned back and stands upright, where Kit's assembler
+  leaves it lying down. Kit's assembler, resolving the asset above it again into its own sublayer, as its change
+  listener does when a prim is made under an asset Kit's drop made, leaves the file as `create_prim` stood it: it
+  writes no op of its own over those `create_prim` wrote (Isaac Sim 6.2, `test_07c`).
+- **A prim already there** gets the reference as the file is, unturned and unscaled, its physics values in the file's
+  units: the prim may hold other content, which a turn or a scale would move too. The answer says what the file's
+  content needs beside the frame inside the prim, and which values stay in the file's units. The reference stays on
+  the prim; to have the file brought instead, take it off with `execute_script`, as the answer shows, then
+  `create_prim` at a new path, such as one under the prim. `create_prim` again on a prim it made from the same file,
+  to move it, turns and scales nothing a second time.
+- **`position`, `rotation` and `scale`** stay in the parent's frame, outside the units ops: `scale=2` makes the file
+  twice its real size.
+- A file that authors neither is left as it is, wherever it lands. With an extension of 0.3.0 or older, nothing is
+  turned or scaled.
 
 **When to use:** Creating geometric shapes, lights, cameras, or loading external USD assets. To copy a prim, use
 `clone_prim`; for a robot, `create_robot`.
@@ -636,7 +666,11 @@ them:
   where the converted samples are stronger.
 - **The answer** says when: the two units, the factor, the op's value after, how many values were converted, and those
   left. A Kit app without the PhysX schema changes only the scale and the cameras, and the answer says so. With an
-  extension of 0.3.0 or older, nothing is scaled. `create_prim`'s `usd_path` does neither yet: #119.
+  extension of 0.3.0 or older, nothing is scaled.
+
+**The frame it lands in:** a robot made inside an asset already brought to the stage is turned and scaled against the
+frame that asset's `:unitsResolve` ops make, as `create_prim`'s Up axis and units paragraph says, so it isn't turned
+or scaled a second time; the answer names the frame. `create_prim` brings a `usd_path` file the same way.
 
 ---
 

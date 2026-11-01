@@ -11,13 +11,14 @@ from typing import Any
 
 import omni.kit.app
 import omni.usd
-from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
+from pxr import Sdf, Tf, Usd, UsdGeom, UsdPhysics, UsdShade
 
 from ovmcp.core import layers
 from ovmcp.core.bounds import world_bbox
 from ovmcp.core.deletion import why_kept
 from ovmcp.core.formatter import format_prim_block, format_scene_dump, format_scene_tree
 from ovmcp.core.material import ensure_material, set_surface
+from ovmcp.core.metrics import Brought, StepError, bring_to_stage, not_brought
 from ovmcp.core.usd import prim_spec
 from ovmcp.core.xform import Parts, check_transform, check_writable, layer_name, position_of, write_transform
 
@@ -26,6 +27,7 @@ from ._utils import (
     _first_missing,
     _get_stage,
     _next_update,
+    _physics_exponents,
     _serialize_value,
 )
 
@@ -271,6 +273,19 @@ async def handle_create_prim(body: dict) -> dict:
     stage = _get_stage()
 
     usd_path = body.get("usd_path")
+    layer = None
+    if usd_path:
+        # Opened first, where the reference will find it: a relative path is read beside the layer the reference is
+        # written into, as USD reads it. A file that can't be read can't be brought to the stage, and a reference to
+        # it made an empty prim the answer called created (#119).
+        try:
+            layer = Sdf.Layer.FindOrOpen(
+                Sdf.ComputeAssetPathRelativeToLayer(stage.GetEditTarget().GetLayer(), usd_path)
+            )
+        except Tf.ErrorException as e:
+            return {"status": "error", "error": f"Could not open {usd_path}: {e}. Nothing was created"}
+        if layer is None:
+            return {"status": "error", "error": f"Could not open {usd_path}. Nothing was created"}
     # DefinePrim retypes a prim that is there: a create never turns one kind of prim into another.
     existing = stage.GetPrimAtPath(prim_path)
     if not usd_path and existing.IsValid() and existing.GetTypeName() not in ("", prim_type):
@@ -293,33 +308,55 @@ async def handle_create_prim(body: dict) -> dict:
     if not prim.IsValid():
         return {"status": "error", "error": f"Failed to create prim at {prim_path}"}
 
-    if parts != Parts():
-        try:
+    brought, missed = Brought(None, None, None), None
+    step = "Bringing the file to the stage"
+    try:
+        if layer is not None and made is not None:
+            # A file of another up axis or other units comes in as Kit brings a dropped one, measured against the
+            # frame it lands in, as create_robot brings a robot (#119).
+            brought = bring_to_stage(prim, layer, _physics_exponents(), "file")
+        elif layer is not None:
+            # A prim that was there may hold other content, which a turn or a scale would move too: the reference
+            # goes on as the file is, and the answer says what the file lacks there and how to take it off.
+            missed = not_brought(prim, layer, added is not None)
+            if missed is not None:
+                missed["reference"] = usd_path
+        step = "Placing the prim"
+        if parts != Parts():
             write_transform(prim, parts)
-        except ValueError as e:
-            # Found only once the prim exists, such as an animated op in a referenced file: what this call made goes.
-            if made is not None:
-                stage.RemovePrim(made)
-            elif added is not None:
-                # A prim that was there keeps nothing of this call, or each retry would stack another reference.
-                prim.GetReferences().RemoveReference(added)
-            after = (
-                ". Nothing was created"
-                if made is not None
-                else ". The reference was not added"
-                if added is not None
-                else ""
-            )
-            return {"status": "error", "error": f"{e}{after}"}
+    except Exception as e:
+        # Found only once the prim exists, such as an animated op in a referenced file, or any other failure, such as
+        # the PhysX schema's table changed in a later Kit: what this call made goes, the ops and the converted values
+        # with it, all under its path in the edit layer.
+        if made is not None:
+            stage.RemovePrim(made)
+        elif added is not None:
+            # A prim that was there keeps nothing of this call, or each retry would stack another reference.
+            prim.GetReferences().RemoveReference(added)
+        after = (
+            ". Nothing was created"
+            if made is not None
+            else ". The reference was not added"
+            if added is not None
+            else ""
+        )
+        known = isinstance(e, (ValueError, Tf.ErrorException, StepError))
+        failed = str(e) if known else f"{step} failed: {type(e).__name__}: {e}"
+        return {"status": "error", "error": f"{failed}{after}"}
 
     if body.get("enable_physics", False):
         UsdPhysics.RigidBodyAPI.Apply(prim)
         UsdPhysics.CollisionAPI.Apply(prim)
 
-    return {
-        "status": "success",
-        "result": {"prim_path": str(prim.GetPath()), "type": prim.GetTypeName()},
-    }
+    result: dict[str, Any] = {"prim_path": str(prim.GetPath()), "type": prim.GetTypeName()}
+    if usd_path:
+        result.update(
+            up_axis_turn=brought.up_axis_turn,
+            units_scale=brought.units_scale,
+            frame=brought.frame,
+            not_brought=missed,
+        )
+    return {"status": "success", "result": result}
 
 
 # ---------------------------------------------------------------------------

@@ -80,6 +80,7 @@ def test_every_tool_and_parameter_is_described(listed):
         ("inspect_prim", "lighting that lights nothing"),
         ("viewport_light", "warns that the lighting lights nothing"),
         ("create_robot", "A file that authors no upAxis is left as it is"),
+        ("create_prim", "one that authors none is left as it is"),
         # Each prim's own material, not one prims of a name share, and what copies and clones do with it (#113).
         ("set_physics_properties", "a child named PhysMat (/World/Cube/PhysMat for /World/Cube)"),
         ("set_physics_properties", "A copy made with clone_prim takes its own with it"),

@@ -14,6 +14,7 @@ import golden
 import pytest
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 
+from ovmcp.core import metrics
 from ovmcp.core.usd import floats, is_a
 
 from .test_scene_handler import FakeKit, _module, load_handler
@@ -541,6 +542,27 @@ def test_a_file_whose_root_holds_the_scale_gets_it_multiplied_and_the_answer_nam
     assert (scaled["factor"], scaled["op"]) == (0.01, [1.0, 1.0, 1.0])
 
 
+def test_a_robot_inside_an_asset_brought_to_the_stage_is_measured_against_its_frame(robot, kit, tmp_path, table):
+    # Q2 (#119): under a prim that brought a Z-up metre file to a Y-up centimetre stage, a Z-up metre robot needs no
+    # op of its own, as Kit's assembler measures it; its values are still converted to the stage's units.
+    _stage_units(kit, 0.01)
+    outer = UsdGeom.Xform.Define(kit.stage, "/World/Outer")
+    outer.AddRotateXOp(opSuffix="unitsResolve").Set(-90.0)
+    outer.AddScaleOp(UsdGeom.XformOp.PrecisionDouble, "unitsResolve").Set(Gf.Vec3d(100, 100, 100))
+
+    r = _create(robot, robot_type=_bot_file(tmp_path, up_axis="Z", meters=1.0), prim_path="/World/Outer/Bot")
+
+    assert r["status"] == "success", r
+    assert _ops(kit, "/World/Outer/Bot") == ["xformOp:translate", "xformOp:orient"]
+    assert _size(kit, "/World/Outer/Bot") == [100.0, 200.0, 100.0]
+    assert r["result"]["up_axis_turn"] is None
+    assert r["result"]["frame"] == {"up_axis": "Z", "meters_per_unit": 1.0, "prims": ["/World/Outer"]}
+    assert _value(kit, "/World/Outer/Bot/Body", "physics:diagonalInertia") == pytest.approx((1e4, 2e4, 3e4))
+    scaled = r["result"]["units_scale"]
+    assert scaled["meters_per_unit"] == {"file": 1.0, "stage": 0.01, "frame": 1.0}
+    assert (scaled["factor"], scaled["op"], scaled["converted"]) == (None, None, 1)
+
+
 def test_a_refusal_after_the_conversion_leaves_no_robot_and_no_override(robot, kit, tmp_path, table):
     _stage_units(kit, 0.01)
     bot = _bot_file(tmp_path, animated=True, meters=1.0)
@@ -560,7 +582,8 @@ def test_any_other_failure_while_converting_leaves_no_robot_and_names_the_step(
     def broken(*_args: Any) -> Any:
         raise KeyError("Acceleration")
 
-    monkeypatch.setattr(robot, "convert_units", broken)
+    # bring_to_stage calls it from the core, which both tools share (#119).
+    monkeypatch.setattr(metrics, "convert_units", broken)
     _stage_units(kit, 0.01)
 
     r = _create(robot, robot_type=_bot_file(tmp_path, meters=1.0), prim_path="/World/Robots/Bot")

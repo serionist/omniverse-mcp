@@ -4,34 +4,16 @@ Robot handlers.
 Handles robot creation, info, joint states, and joint target setting.
 """
 
-import functools
 import os
 
-from pxr import Sdf, Tf, Usd, UsdGeom, UsdPhysics
+from pxr import Sdf, Tf, Usd, UsdPhysics
 
-from ovmcp.core.robot import (
-    UNITS_OP,
-    UP_AXIS_OP,
-    Converted,
-    Exponents,
-    Factors,
-    Table,
-    Units,
-    articulation_root,
-    convert_units,
-    file_up_axis,
-    is_usd_file,
-    layer_units,
-    robot_prim_path,
-    scale_to_stage,
-    stand_upright,
-    units_factors,
-    up_axis_turn,
-)
+from ovmcp.core.metrics import StepError, bring_to_stage
+from ovmcp.core.robot import articulation_root, is_usd_file, robot_prim_path
 from ovmcp.core.usd_files import LIBRARY_PREFIX, usd_file_url
 from ovmcp.core.xform import check_transform, write_transform
 
-from ._utils import _first_missing, _get_stage, _next_update
+from ._utils import _first_missing, _get_stage, _next_update, _physics_exponents
 
 # ---------------------------------------------------------------------------
 # Robot asset registry
@@ -63,45 +45,6 @@ def _assets_root() -> str | None:
     except ImportError:
         return None
     return get_assets_root_path()
-
-
-@functools.cache
-def _physics_exponents() -> Table | None:
-    """The PhysX schema's table of units, the one Kit's metrics assembler's physics rules register, imported once;
-    None in a Kit app without the PhysX schema."""
-    try:
-        from pxr.PhysicsSchemaTools import units
-    except ImportError:
-        return None
-
-    def exponents(name: str, prim: Usd.Prim) -> Exponents | None:
-        found = units.get_attribute_unit_exponents(name, prim)
-        # A dict holds units the table can't tell apart for this prim; None, a name it doesn't hold.
-        if not isinstance(found, tuple):
-            return None
-        return Exponents(mass=found[0], distance=found[1])
-
-    return exponents
-
-
-def _no_table(_name: str, _prim: Usd.Prim) -> Exponents | None:
-    return None
-
-
-def _units_answer(file: Units, stage: Units, factors: Factors, op: list[float] | None, done: Converted, table: bool):
-    """create_robot's units_scale: the units that differ, the factor and the op's value after, which differ when the
-    file's root held the op, and what was converted and left."""
-    return {
-        "meters_per_unit": None if factors.distance == 1.0 else {"file": file.meters, "stage": stage.meters},
-        "kilograms_per_unit": None if factors.mass == 1.0 else {"file": file.kilograms, "stage": stage.kilograms},
-        "factor": None if op is None else factors.distance,
-        "op": op,
-        "op_name": None if op is None else UNITS_OP,
-        "converted": done.values,
-        "left": done.left[:10],
-        "left_count": len(done.left),
-        "table": table,
-    }
 
 
 async def handle_create_robot(body: dict) -> dict:
@@ -155,37 +98,19 @@ async def handle_create_robot(body: dict) -> dict:
     if layer is None:
         return {"status": "error", "error": f"Could not open {full_usd_path}"}
 
-    # A file of another up axis lies on its side here: Isaac Sim's robots are Z-up, and Kit stands one dropped on a
-    # Y-up stage with a turn this call writes as Kit does (#105).
-    file_axis, stage_axis = file_up_axis(layer), str(UsdGeom.GetStageUpAxis(stage))
-    degrees = up_axis_turn(file_axis, stage_axis)
-    # A file of other units comes in at its own scale, and a scale alone would leave its drives and inertia in its
-    # units: Kit's metrics assembler scales it and, with its physics rules, converts them (#112).
-    file_units = layer_units(layer)
-    stage_units = Units(float(UsdGeom.GetStageMetersPerUnit(stage)), float(UsdPhysics.GetStageKilogramsPerUnit(stage)))
-    factors = units_factors(file_units, stage_units)
-
     made = _first_missing(stage, prim_path)
     prim = stage.DefinePrim(prim_path)
     prim.GetReferences().AddReference(full_usd_path)
     if not prim.IsValid():
         return {"status": "error", "error": f"Failed to create robot at {prim_path}"}
 
-    turned = scaled = None
-    step = "Turning the robot upright"
+    step = "Bringing the robot to the stage"
     try:
-        if degrees is not None:
-            value = stand_upright(prim, degrees)
-            turned = {"file": file_axis, "stage": stage_axis, "degrees": degrees, "op": value, "op_name": UP_AXIS_OP}
-        if factors is not None:
-            op = None
-            if factors.distance != 1.0:
-                step = "Scaling the robot to the stage's units"
-                op = scale_to_stage(prim, factors.distance)
-            step = "Converting the robot's values to the stage's units"
-            table = _physics_exponents()
-            done = convert_units(prim, file_units, stage_units, table or _no_table)
-            scaled = _units_answer(file_units, stage_units, factors, op, done, table is not None)
+        # A file of another up axis lies on its side here, and one of other units comes in at its own scale: Isaac
+        # Sim's robots are Z-up, and Kit stands one dropped on a Y-up stage and scales one of other units with ops
+        # this call writes as Kit does, measured against the frame it lands in, and converts its drives and inertia
+        # as Kit's physics rules do (#105, #112, #119).
+        brought = bring_to_stage(prim, layer, _physics_exponents(), "robot")
         step = "Placing the robot"
         write_transform(prim, parts)
     except (ValueError, Tf.ErrorException) as e:
@@ -196,7 +121,8 @@ async def handle_create_robot(body: dict) -> dict:
     except Exception as e:
         # Any other, such as the PhysX schema's table changed in a later Kit: the same cleanup, the step named.
         stage.RemovePrim(made)
-        return {"status": "error", "error": f"{step} failed: {type(e).__name__}: {e}. The robot was not added"}
+        failed = str(e) if isinstance(e, StepError) else f"{step} failed: {type(e).__name__}: {e}"
+        return {"status": "error", "error": f"{failed}. The robot was not added"}
 
     joint_info = []
     for desc_prim in Usd.PrimRange(prim, Usd.TraverseInstanceProxies()):
@@ -209,8 +135,9 @@ async def handle_create_robot(body: dict) -> dict:
             "prim_path": str(prim.GetPath()),
             "robot_type": robot_type,
             "usd_path": full_usd_path,
-            "up_axis_turn": turned,
-            "units_scale": scaled,
+            "up_axis_turn": brought.up_axis_turn,
+            "units_scale": brought.units_scale,
+            "frame": brought.frame,
             "joints": joint_info[:50],
         },
     }
