@@ -24,7 +24,21 @@ from ovmcp.core.force import (
     tensor_centre_of_mass,
     world_point,
 )
-from ovmcp.core.material import DYNAMIC, RESTITUTION, STATIC, physics_source, physics_values, start_from
+from ovmcp.core.material import (
+    DYNAMIC,
+    NAMED,
+    RESTITUTION,
+    STATIC,
+    also_changed,
+    drop_old_material,
+    material_refusal,
+    own_physics_material,
+    physics_material,
+    physics_source,
+    physics_values,
+    start_from,
+    walk_bindings,
+)
 from ovmcp.core.protocol import kit_app
 
 from ._utils import _get_stage, _next_update
@@ -120,6 +134,13 @@ async def handle_set_physics_properties(body: dict) -> dict:
     await _next_update()
     applied = []
 
+    friction = body.get("friction")
+    restitution = body.get("restitution")
+    # Before anything is written, the mass given with it included: an instance can hold no material of its own.
+    refusal = material_refusal(prim) if friction is not None or restitution is not None else None
+    if refusal:
+        return {"status": "error", "error": refusal}
+
     mass = body.get("mass")
     density = body.get("density")
     if mass is not None or density is not None:
@@ -135,8 +156,14 @@ async def handle_set_physics_properties(body: dict) -> dict:
             mass_api.GetDensityAttr().Set(float(density))
         applied.append("MassAPI")
 
-    friction = body.get("friction")
-    restitution = body.get("restitution")
+    result = {
+        "prim_path": prim_path,
+        "applied": applied,
+        "mass": mass,
+        "density": density,
+        "friction": friction,
+        "restitution": restitution,
+    }
     if friction is not None or restitution is not None:
         if not prim.HasAPI(UsdPhysics.CollisionAPI):
             UsdPhysics.CollisionAPI.Apply(prim)
@@ -145,16 +172,12 @@ async def handle_set_physics_properties(body: dict) -> dict:
         # What PhysX gives the body now, read before anything is written: the material bound to it, the scene's
         # default or PhysX's own. A value left out was USD's 0 on a new material, and a material bound before lost all
         # it held (#105).
+        before = physics_material(prim)
         source = physics_source(prim)
         now = physics_values(source)
 
-        prim_name = prim_path.rstrip("/").split("/")[-1]
-        mat_path = f"/World/PhysicsMaterials/{prim_name}_PhysMat"
-        mat_prim = stage.GetPrimAtPath(mat_path)
-        if not mat_prim.IsValid():
-            UsdShade.Material.Define(stage, mat_path)
-            mat_prim = stage.GetPrimAtPath(mat_path)
-            UsdPhysics.MaterialAPI.Apply(mat_prim)
+        # The prim's own, its child: prims of one name shared /World/PhysicsMaterials/<name>_PhysMat (#113).
+        mat_prim = own_physics_material(stage, prim)
         start_from(mat_prim, source)
         phys_mat = UsdPhysics.MaterialAPI(mat_prim)
 
@@ -169,18 +192,19 @@ async def handle_set_physics_properties(body: dict) -> dict:
             "physics",
         )
         applied.append("PhysicsMaterial")
+        result["material"] = str(mat_prim.GetPath())
 
-    return {
-        "status": "success",
-        "result": {
-            "prim_path": prim_path,
-            "applied": applied,
-            "mass": mass,
-            "density": density,
-            "friction": friction,
-            "restitution": restitution,
-        },
-    }
+        # One walk of the whole stage on every call, the maintainer's choice knowing its cost (#113, Q3): the other
+        # prims the write reaches, such as inheriting clones, and whether the older shared material may go.
+        bindings = walk_bindings(stage)
+        changed = also_changed(stage, prim, mat_prim, bindings)
+        if changed:
+            result["also_changes"] = {"count": len(changed), "prims": [str(p) for p in changed[:NAMED]]}
+        old = drop_old_material(stage, prim, before, bindings)
+        if old:
+            result["old_material"] = old
+
+    return {"status": "success", "result": result}
 
 
 # ---------------------------------------------------------------------------

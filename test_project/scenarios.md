@@ -459,8 +459,8 @@ Needs: 2.1, 4.5, 10.1
 
 ### 15.2 Set Friction and Restitution
 - `set_physics_properties("/World/RedCube", friction=0.8, restitution=0.3)`
-- Verify: the answer says `friction=0.8 (static and dynamic)`, `restitution=0.3` and `PhysicsMaterial` among the
-  APIs applied
+- Verify: the answer says `friction=0.8 (static and dynamic)`, `restitution=0.3`, `material /World/RedCube/PhysMat`
+  and `PhysicsMaterial` among the APIs applied
 
 ### 15.3 Set Density
 - `set_physics_properties("/World/RedCube", density=1000.0)`

@@ -687,14 +687,17 @@ def test_apply_force_names_the_tensor_api_when_the_push_went_through_it(bridge: 
 
 
 def _physics_answer(**sent: Any) -> dict[str, Any]:
-    """The extension's answer to set_physics_properties: the APIs it applied, and each value echoed, null if unsent."""
+    """The extension's answer to set_physics_properties: the APIs it applied, each value echoed, null if unsent, and
+    the material it bound for friction or restitution (#113)."""
     applied = []
     if "mass" in sent or "density" in sent:
         applied.append("MassAPI")
+    material = {}
     if "friction" in sent or "restitution" in sent:
         applied.append("PhysicsMaterial")
+        material = {"material": "/World/RedCube/PhysMat"}
     values = {k: sent.get(k) for k in ("mass", "density", "friction", "restitution")}
-    return {"prim_path": "/World/RedCube", "applied": applied, **values}
+    return {"prim_path": "/World/RedCube", "applied": applied, **values, **material}
 
 
 @pytest.mark.parametrize(
@@ -704,14 +707,15 @@ def _physics_answer(**sent: Any) -> dict[str, Any]:
         ({"mass": 5.0}, "Physics on /World/RedCube: mass=5.0; applied MassAPI"),
         (
             {"friction": 0.8, "restitution": 0.3},
-            "Physics on /World/RedCube: friction=0.8 (static and dynamic), restitution=0.3; applied PhysicsMaterial",
+            "Physics on /World/RedCube: friction=0.8 (static and dynamic), restitution=0.3; "
+            "material /World/RedCube/PhysMat; applied PhysicsMaterial",
         ),
         ({"density": 1000.0}, "Physics on /World/RedCube: density=1000.0; applied MassAPI"),
         ({"density": 0}, "Physics on /World/RedCube: density=0.0 (unset); applied MassAPI"),
         (
             {"mass": 2, "density": 500, "friction": 0, "restitution": 1},
             "Physics on /World/RedCube: mass=2.0, density=500.0, friction=0.0 (static and dynamic), restitution=1.0; "
-            "applied MassAPI, PhysicsMaterial",
+            "material /World/RedCube/PhysMat; applied MassAPI, PhysicsMaterial",
         ),
     ],
 )
@@ -750,6 +754,74 @@ def test_set_physics_properties_says_when_it_became_a_rigid_body(bridge: MockIsa
         tmp_path,
     )
     assert text.endswith("; applied RigidBodyAPI, MassAPI, CollisionAPI, PhysicsMaterial")
+
+
+def _physics_text(answer: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path) -> str:
+    """The tool's text for friction 0.5 on /World/RedCube, given the extension's answer."""
+    sent = {"prim_path": "/World/RedCube", "friction": 0.5}
+    return _check(Case("set_physics_properties", sent, "/physics/properties", answer, sent, ()), bridge, tmp_path)
+
+
+def test_set_physics_properties_with_an_older_extension_names_no_material(bridge: MockIsaacServer, tmp_path: Path):
+    # An extension of 0.3.0 or older binds /World/PhysicsMaterials/<name>_PhysMat and sends no material.
+    answer = {k: v for k, v in _physics_answer(friction=0.5).items() if k != "material"}
+
+    text = _physics_text(answer, bridge, tmp_path)
+
+    assert text == "Physics on /World/RedCube: friction=0.5 (static and dynamic); applied PhysicsMaterial"
+
+
+@pytest.mark.parametrize(
+    ("shared", "says"),
+    [
+        ({"count": 1, "prims": ["/World/envs/env_1/Cube"]}, "; also changes 1 prim: /World/envs/env_1/Cube"),
+        (
+            {"count": 7, "prims": [f"/World/envs/env_{e}/Cube" for e in range(1, 6)]},
+            "; also changes 7 prims: /World/envs/env_1/Cube, /World/envs/env_2/Cube, /World/envs/env_3/Cube, "
+            "/World/envs/env_4/Cube, /World/envs/env_5/Cube and 2 more",
+        ),
+    ],
+    ids=["one", "five named and the rest counted"],
+)
+def test_set_physics_properties_names_the_other_prims_it_changes(
+    shared: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    text = _physics_text({**_physics_answer(friction=0.5), "also_changes": shared}, bridge, tmp_path)
+
+    assert text.endswith(f"; applied PhysicsMaterial{says}")
+
+
+OLD_PHYSMAT = "/World/PhysicsMaterials/RedCube_PhysMat"
+
+
+@pytest.mark.parametrize(
+    ("old", "says"),
+    [
+        (
+            {"path": OLD_PHYSMAT, "deleted": [OLD_PHYSMAT]},
+            f"; deleted its old material, {OLD_PHYSMAT}, which no prim binds now",
+        ),
+        (
+            {"path": OLD_PHYSMAT, "deleted": [OLD_PHYSMAT, "/World/PhysicsMaterials"]},
+            f"; deleted its old material, {OLD_PHYSMAT}, which no prim binds now, and /World/PhysicsMaterials, left "
+            "empty",
+        ),
+        (
+            {"path": OLD_PHYSMAT, "kept": "1 prim still binds it: /World/Shelf/RedCube"},
+            f"; kept its old material, {OLD_PHYSMAT}: 1 prim still binds it: /World/Shelf/RedCube",
+        ),
+    ],
+    ids=["deleted", "deleted with its folder", "kept"],
+)
+def test_set_physics_properties_says_what_became_of_the_old_material(
+    old: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    text = _physics_text({**_physics_answer(friction=0.5), "old_material": old}, bridge, tmp_path)
+
+    assert text == (
+        "Physics on /World/RedCube: friction=0.5 (static and dynamic); material /World/RedCube/PhysMat; "
+        f"applied PhysicsMaterial{says}"
+    )
 
 
 def test_set_physics_properties_with_no_value_says_nothing_was_set(bridge: MockIsaacServer, tmp_path: Path):
