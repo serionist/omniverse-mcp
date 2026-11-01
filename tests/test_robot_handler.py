@@ -28,7 +28,13 @@ def robot(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
     return load_handler("robot", kit, monkeypatch)
 
 
-def _bot_file(folder: Path, animated: bool = False, up_axis: str | None = None, units_op: float | None = None) -> str:
+def _bot_file(
+    folder: Path,
+    animated: bool = False,
+    up_axis: str | None = None,
+    units_op: float | None = None,
+    size: tuple[float, float, float] | None = None,
+) -> str:
     """A robot's USD file: a root Xform with its own [translate, orient] ops, the translate animated if asked, and a
     body 2 tall along the file's up axis, under an upAxis it authors if asked; its root ends with Kit's turn if asked,
     as a file Kit resolved and saved has."""
@@ -46,7 +52,7 @@ def _bot_file(folder: Path, animated: bool = False, up_axis: str | None = None, 
     if units_op is not None:
         root.AddRotateXOp(opSuffix="unitsResolve").Set(units_op)
     body = UsdGeom.Cube.Define(held, "/Bot/Body")
-    tall = (1.0, 1.0, 2.0) if up_axis == "Z" else (1.0, 2.0, 1.0)
+    tall = size or ((1.0, 1.0, 2.0) if up_axis == "Z" else (1.0, 2.0, 1.0))
     body.AddScaleOp().Set(Gf.Vec3f(*(0.5 * v for v in tall)))
     held.SetDefaultPrim(root.GetPrim())
     layer.Save()
@@ -135,13 +141,15 @@ def test_a_z_up_file_stands_on_a_y_up_stage(robot, kit, tmp_path):
 
 def test_a_rotation_turns_the_standing_robot_about_the_stage_s_axis(robot, kit, tmp_path):
     UsdGeom.SetStageUpAxis(kit.stage, UsdGeom.Tokens.y)
-    bot = _bot_file(tmp_path, up_axis="Z")
+    # 1 by 1.5 by 2 in its Z-up file: upright, 1 by 2 by 1.5; turned 90° about Y, 1.5 by 2 by 1. With X and Z alike, a
+    # rotation dropped would look the same as one made (review I10).
+    bot = _bot_file(tmp_path, up_axis="Z", size=(1.0, 1.5, 2.0))
 
     r = _create(robot, robot_type=bot, prim_path="/World/Bot", rotation=[0, 90, 0])
 
     assert r["status"] == "success", r
     # Turned about Y, the stage's up, it still stands: the turn upright is inside the rotation.
-    assert _size(kit, "/World/Bot") == [1.0, 2.0, 1.0]
+    assert _size(kit, "/World/Bot") == [1.5, 2.0, 1.0]
 
 
 def test_a_y_up_file_stands_on_a_z_up_stage(robot, kit, tmp_path):

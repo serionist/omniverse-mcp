@@ -101,8 +101,8 @@ cube("Floor", frame(X, U, point(-200, -0.5, 0)), (40, 1, 40), ground, body=False
 box = (0.5, 0.5, 0.5)
 for name, b, mat in (("RubberControl", -6, rubber), ("RubberGiven", -3, rubber), ("BareControl", 0, None), ("BareGiven", 3, None)):
     cube(f"Slide{name}", frame(X, U, point(-210, 0.25, b)), box, mat, velocity=4.0)
-for name, b in (("Control", 6), ("Given", 9)):
-    cube(f"Drop{name}", frame(X, U, point(-195, 1.5, b)), box, bouncy)
+for name, b, mat in (("BouncyControl", 6, bouncy), ("BouncyGiven", 9, bouncy), ("BareControl", 12, None), ("BareGiven", 15, None)):
+    cube(f"Drop{name}", frame(X, U, point(-195, 1.5, b)), box, mat)
 for degrees, b in ((24, 30), (29, 40)):
     a = math.radians(degrees)
     down, normal = X * math.cos(a) - U * math.sin(a), U * math.cos(a) + X * math.sin(a)
@@ -1525,7 +1525,8 @@ class TestScenarios(PhysicsChecks):
         for name, values in (
             ("SlideRubberGiven", {"restitution": 0.2}),
             ("SlideBareGiven", {"restitution": 0.0}),
-            ("DropGiven", {"friction": 0.5}),
+            ("DropBouncyGiven", {"friction": 0.5}),
+            ("DropBareGiven", {"friction": 0.5}),
             ("Slope24Given", {"restitution": 0.0}),
             ("Slope29Given", {"restitution": 0.0}),
         ):
@@ -1543,9 +1544,12 @@ class TestScenarios(PhysicsChecks):
         for pair in ("SlideRubber", "SlideBare"):
             travel = [seen[f"{pair}{k}"]["last"][0] - seen[f"{pair}{k}"]["first"][0] for k in ("Control", "Given")]
             self.assertAlmostEqual(travel[0], travel[1], delta=0.05, msg=f"{pair}: {travel}")
-        rebound = [seen[f"Drop{k}"]["rebound"] for k in ("Control", "Given")]
+        rebound = [seen[f"DropBouncy{k}"]["rebound"] for k in ("Control", "Given")]
         self.assertGreater(rebound[0], 0.3, rebound)
         self.assertAlmostEqual(rebound[0], rebound[1], delta=0.05, msg=f"rebound: {rebound}")
+        # Friction alone on a bare body: restitution stays PhysX's own, as the control's (review I9).
+        bare = [seen[f"DropBare{k}"]["rebound"] for k in ("Control", "Given")]
+        self.assertAlmostEqual(bare[0], bare[1], delta=0.05, msg=f"bare rebound: {bare}")
         for slope in ("Slope24", "Slope29"):
             control, given = moved(f"{slope}Control"), moved(f"{slope}Given")
             self.assertAlmostEqual(control, given, delta=0.05, msg=f"{slope}: {control}, {given}")
@@ -2444,8 +2448,9 @@ class TestScenarios(PhysicsChecks):
 
     def test_23_06_black_image_warning(self):
         """Phase 23.6: Black Image Detection (no auto-fix)"""
-        # Set lighting to off
+        # Set lighting to off; Default again after, whatever fails, so phases 24 to 26 aren't left unlit (review I12).
         self.c.viewport_light("set", mode="off")
+        self.addCleanup(self.c.viewport_light, "set", mode="Default")
         time.sleep(0.5)
         cap = self.c.capture_viewport(320, 240)
         self.assertEqual(cap["status"], "success")
@@ -2458,8 +2463,6 @@ class TestScenarios(PhysicsChecks):
         self.assertFalse(erred, text)
         self.assertIn("Lighting mode is 'off'", text)
         print(f"  Lighting off: is_black={is_black}, mode={lighting_mode}")
-        # Restore lighting
-        self.c.viewport_light("set", mode="Default")
         self._pass()
 
     # ===== Phase 26: Camera Frame Settling =====

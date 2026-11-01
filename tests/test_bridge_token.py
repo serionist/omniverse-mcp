@@ -147,8 +147,10 @@ def test_a_getter_that_raises_or_is_missing_reads_unknown_and_the_rest_still_com
 
 
 def test_the_facts_are_unknown_until_the_extension_starts_and_kept_after(monkeypatch):
-    monkeypatch.setattr(ext_protocol, "_kit_app", dict.fromkeys(("kit_app_name", "kit_app_version"), "unknown"))
-    assert set(ext_protocol.kit_app().values()) == {"unknown"}
+    # The module's own default, four facts each unknown, which no test here sets without monkeypatch (review I11).
+    facts = ("kit_app_name", "kit_app_version", "kit_version", "kit_os")
+    assert ext_protocol.kit_app() == dict.fromkeys(facts, "unknown")
+    monkeypatch.setattr(ext_protocol, "_kit_app", ext_protocol.kit_app())
 
     ext_protocol.set_kit_app(ext_protocol.kit_app_facts(_App()))
 
