@@ -1212,7 +1212,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
             "result = 'made'"
         )
         self.assertEqual(made["status"], "success", made)
-        since = self.client.get_logs(count=1)["result"]["total_captured"]
+        since = self.client.get_logs(count=1)["result"]["total_captured"] - 1  # the newest entry's index
         result = self.client.set_material("/World/IntTestCube", color=[1, 0, 0], roughness=0.3)
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["result"]["color"], [1, 0, 0])
