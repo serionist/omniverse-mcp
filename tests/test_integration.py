@@ -265,6 +265,93 @@ else:
     result = {"before": before, "after": read(), "written": written}
 """
 
+OFFSET = "physxCollision:contactOffset"
+
+# test_07c's box (#119): 0.5 by 0.5 by 1 of the stage's units, tall along the file's own up axis (UP), its base at
+# the origin, in a file of metersPerUnit MPU: its sizes and its collider's contact offset, 0.02 of the stage's units,
+# are written K times larger, as a file of units K times smaller holds them.
+_UNITS_BOX_USDA = """#usda 1.0
+(
+    defaultPrim = "Box"
+    metersPerUnit = MPU
+    upAxis = "UP"
+)
+
+def Xform "Box"
+{
+    def Cube "Shape" (
+        prepend apiSchemas = ["PhysicsCollisionAPI", "PhysxCollisionAPI"]
+    )
+    {
+        double size = 1
+        float physxCollision:contactOffset = OFFSET
+        double3 xformOp:translate = TRANSLATE
+        float3 xformOp:scale = TALL
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+    }
+}
+"""
+
+
+def _units_box(up: str, meters: float, k: float) -> str:
+    """_UNITS_BOX_USDA for a file of up axis up and metersPerUnit meters, whose units are k times smaller than the
+    stage's."""
+    tall = (0.5 * k, 0.5 * k, k) if up == "Z" else (0.5 * k, k, 0.5 * k)
+    base = (0.0, 0.0, 0.5 * k) if up == "Z" else (0.0, 0.5 * k, 0.0)
+    return (
+        _UNITS_BOX_USDA.replace("MPU", repr(meters))
+        .replace("UP", up)
+        .replace("OFFSET", repr(0.02 * k))
+        .replace("TRANSLATE", repr(base))
+        .replace("TALL", repr(tall))
+    )
+
+
+# A value of an attribute in Kit, as a float: NAME of the prim at PATH.
+_VALUE = "result = float(omni.usd.get_context().get_stage().GetPrimAtPath(PATH).GetAttribute(NAME).Get())"
+
+# Kit's metrics assembler resolving PATH into an anonymous layer of its own, as its change listener resolves an asset
+# its drop recorded when a prim under it is made (#119), the layer taken out of the stage after: the :unitsResolve ops
+# of each prim in PRIMS, and the values NAMES lists, before and after, and which values Kit wrote into its layer. None
+# without the assembler.
+_RESOLVE_INTO = """
+try:
+    from omni.metrics.assembler.core import get_metrics_assembler_interface
+except ImportError:
+    result = None
+else:
+    context = omni.usd.get_context()
+    stage = context.get_stage()
+
+    def read():
+        ops = {}
+        for path in PRIMS:
+            ops[path] = {}
+            for op in UsdGeom.Xformable(stage.GetPrimAtPath(path)).GetOrderedXformOps():
+                if op.GetOpName().endswith(":unitsResolve"):
+                    value = op.Get()
+                    ops[path][op.GetOpName()] = [float(v) for v in value] if hasattr(value, "__len__") else float(value)
+        values = {}
+        for path, name in NAMES:
+            values[path + "." + name] = float(stage.GetPrimAtPath(path).GetAttribute(name).Get())
+        return {"ops": ops, "values": values}
+
+    before = read()
+    layer = Sdf.Layer.CreateAnonymous("ovmcp-IntTest-resolve")
+    root = stage.GetRootLayer()
+    root.subLayerPaths.insert(0, layer.identifier)
+    assembler = get_metrics_assembler_interface()
+    assembler.set_resolve_layer(layer.identifier)
+    try:
+        assembler.resolve_hierarchy(context.get_stage_id(), PATH)
+        after = read()
+        written = [path + "." + name for path, name in NAMES if layer.GetAttributeAtPath(path + "." + name) is not None]
+    finally:
+        assembler.set_resolve_layer(None)
+        root.subLayerPaths.remove(layer.identifier)
+    result = {"before": before, "after": after, "written": written}
+"""
+
 # The live tests of the bounded capture waits (#27, #35) change Kit through execute_script, which is not behind the
 # viewport lock, and undo it in their cleanup. Each change also undoes itself on Kit's loop after 60 s, in case the
 # test process dies first, and only while it is still that test's own, so a late undo never removes a later test's.
@@ -726,6 +813,87 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(deleted["status"], "success", deleted)
         self.assertTrue(deleted["result"]["checked"])
         print(f"  Refused: {result['error']}")
+
+    def test_07c_a_file_of_the_other_up_axis_and_units_comes_in_as_kit_brings_it(self):
+        """create_prim's usd_path (#119): a file of the up axis the stage hasn't, in units 100 times smaller than the
+        stage's, comes in upright at its real size, its contact offset converted. The same file under it is measured
+        against the frame it lands in and gets no op of its own; a file of the stage's own axis there is turned back
+        to stand. create_prim again on the outer path moves it and turns nothing twice. Kit's assembler, run on the
+        outer prim after as its change listener runs it for an asset its drop made, changes no size and converts no
+        value again; what it leaves of the turned-back file's turn is printed (the plan's N2 departure)."""
+        state = self.client.sim_state()["result"]
+        up, meters = state["up_axis"], float(state["meters_per_unit"])
+        other = "Z" if up == "Y" else "Y"
+        axis, turn = (1, -90.0) if up == "Y" else (2, 90.0)
+        folder = Path(tempfile.mkdtemp(prefix="ovmcp-Props-"))
+        self.addCleanup(shutil.rmtree, folder, True)
+        small = folder / "IntTestUnitsBox.usda"
+        small.write_text(_units_box(other, meters / 100, 100.0), encoding="utf-8")
+        native = folder / "IntTestNativeBox.usda"
+        native.write_text(_units_box(up, meters, 1.0), encoding="utf-8")
+        path = "/World/IntTestUnitsBox"
+        self.addCleanup(self.client.delete_prim, path)
+
+        made = self.client.create_prim(path, usd_path=str(small))
+
+        self.assertEqual(made["status"], "success", made)
+        result = made["result"]
+        self.assertIn("units_scale", result, "an extension older than #119's brings nothing")
+        self.assertEqual(result["up_axis_turn"]["degrees"], turn, result)
+        scaled = result["units_scale"]
+        self.assertAlmostEqual(scaled["factor"], 0.01, delta=1e-9, msg=scaled)
+        dims = self.client.prim_bounds(f"{path}/Shape")["result"]["dimensions"]
+        self.assertEqual(max(range(3), key=lambda i: dims[i]), axis, dims)
+        self.assertAlmostEqual(dims[axis], 1.0, delta=1e-4, msg=dims)
+        offset = self._kit(_VALUE.replace("PATH", repr(f"{path}/Shape")).replace("NAME", repr(OFFSET)))
+        if scaled["table"]:
+            self.assertAlmostEqual(offset, 0.02, delta=1e-6)
+
+        inner = self.client.create_prim(f"{path}/Inner", usd_path=str(small))
+        standing = self.client.create_prim(f"{path}/Native", usd_path=str(native))
+
+        self.assertEqual(inner["status"], "success", inner)
+        self.assertIsNone(inner["result"]["up_axis_turn"], inner)
+        self.assertEqual(inner["result"]["frame"]["prims"], [path], inner)
+        self.assertIsNone(inner["result"]["units_scale"]["op"], inner)
+        inner_dims = self.client.prim_bounds(f"{path}/Inner/Shape")["result"]["dimensions"]
+        self.assertEqual([round(d, 4) for d in inner_dims], [round(d, 4) for d in dims])
+        self.assertEqual(standing["status"], "success", standing)
+        self.assertEqual(standing["result"]["up_axis_turn"]["degrees"], -turn, standing)
+        self.assertEqual(standing["result"]["up_axis_turn"]["frame"], other, standing)
+        native_dims = self.client.prim_bounds(f"{path}/Native/Shape")["result"]["dimensions"]
+        self.assertEqual(max(range(3), key=lambda i: native_dims[i]), axis, native_dims)
+        self.assertAlmostEqual(native_dims[axis], 1.0, delta=1e-4, msg=native_dims)
+
+        before = self._kit(_XFORMS.replace("ROOT", repr(path)))[path]
+        again = self.client.create_prim(path, usd_path=str(small), position=[2, 0, 0])
+
+        self.assertEqual(again["status"], "success", again)
+        self.assertIsNone(again["result"]["up_axis_turn"], again)
+        self.assertIsNone(again["result"]["not_brought"], again)
+        after = self._kit(_XFORMS.replace("ROOT", repr(path)))[path]
+        units = [name for name in after["ops"] if name.endswith(":unitsResolve")]
+        self.assertEqual({n: after["values"][n] for n in units}, {n: before["values"][n] for n in units})
+        self.assertEqual(after["world"][0], 2.0, after)
+
+        prims = [path, f"{path}/Inner", f"{path}/Native"]
+        names = [(f"{path}/Shape", OFFSET), (f"{path}/Inner/Shape", OFFSET)]
+        script = _RESOLVE_INTO.replace("PATH", repr(path)).replace("PRIMS", repr(prims)).replace("NAMES", repr(names))
+        resolved = self._kit(script)
+        if resolved is None:
+            print(f"  brought to a {up}-up stage of metersPerUnit {meters:g}; no metrics assembler here")
+            return
+        self.assertEqual(resolved["after"]["ops"][path], resolved["before"]["ops"][path], resolved)
+        for key, value in resolved["before"]["values"].items():
+            self.assertNotIn(key, resolved["written"], resolved)
+            self.assertAlmostEqual(resolved["after"]["values"][key], value, delta=1e-9, msg=key)
+        for shape in ("Shape", "Inner/Shape"):
+            now = self.client.prim_bounds(f"{path}/{shape}")["result"]["dimensions"]
+            self.assertEqual([round(d, 4) for d in now], [round(d, 4) for d in dims], shape)
+        left = resolved["after"]["ops"][f"{path}/Native"].get("xformOp:rotateX:unitsResolve")
+        # Pinned once a run has shown Kit's value: ours, -turn, or Kit's own 0, which lays the file down (Risks).
+        self.assertIn(left, (-turn, 0.0), resolved)
+        print(f"  Kit's assembler leaves the turned-back file's turn at {left} (create_prim wrote {-turn})")
 
     def test_08_set_transform(self):
         # Create a test prim
