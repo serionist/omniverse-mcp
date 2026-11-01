@@ -178,7 +178,7 @@ Needs: 2.1, 4.5
 - Reset cube: `set_prim_transform("/World/RedCube", position=[0,3,0])`
 - Aim at the cube's column, which keeps it in view as it falls: `set_camera(position=[5,3,5], target=[0,1.5,0])`
 - `capture_viewport()`: the cube's center should be 3 along the up axis
-- `sim_control("play")`, wait briefly, `sim_control("pause")` (a stop puts the cube back)
+- `sim_control("play")`, wait ~2 s (get_sim_state's `time`), `sim_control("pause")` (a stop puts the cube back)
 - `get_prim_bounds("/World/RedCube")`: its center along the up axis should be < 3 (fell due to gravity)
 - `capture_viewport()`: verify visually that the cube is lower, on the ground
 
@@ -641,15 +641,12 @@ Needs: none
 
 Needs: none
 
-> **Setup:** the half starts on a new stage, with no prims and no light. This phase makes its own prims, and 18.1 the
-> light every capture after it is lit by.
+> **Setup:** the half starts on a new stage, with no prims and no light. This phase makes its own prims, and 18.2 the
+> dome that lights every capture of Phases 19 to 22.
 >
 > **Note:** Procedural prims (`UsdGeom.Cube`, `Sphere`, etc.) are implicit surfaces, not `UsdGeom.Mesh`, and return 0 faces/vertices. Only actual `UsdGeom.Mesh` prims (robots, imported models) have countable geometry.
 
 ### 18.1 Mesh Stats on Robot (Mesh Geometry)
-- Light the stage: `create_prim("/World/DomeLight", "DomeLight")`, then
-  `execute_script("UsdLux.DomeLight(omni.usd.get_context().get_stage().GetPrimAtPath('/World/DomeLight')).CreateIntensityAttr(1000.0)")`.
-  A dome lights a prim from every side Phase 22 views it from, and its default intensity, 1, is too dim to see by
 - Spawn a robot: `create_robot("franka", position=[0, 0, 0])`
 - `get_mesh_stats("/World/Franka")`
 - Verify: the totals, mesh_count > 0, total_faces > 0 and total_vertices > 0, then the tree under `/World/Franka`
@@ -657,6 +654,9 @@ Needs: none
   one with its faces, vertices and triangles
 
 ### 18.2 Mesh Stats on Procedural Prim (Expected Zero)
+- Light the stage: `create_prim("/World/DomeLight", "DomeLight")`, then
+  `execute_script("UsdLux.DomeLight(omni.usd.get_context().get_stage().GetPrimAtPath('/World/DomeLight')).CreateIntensityAttr(1000.0)")`.
+  A dome lights a prim from every side Phase 22 views it from, and its default intensity, 1, is too dim to see by
 - Create a cube: `create_prim("/World/TestCube", "Cube", position=[3,0.5,0])`
 - `get_mesh_stats("/World/TestCube")`
 - Verify: total_faces=0, mesh_count=0 (procedural prims are not UsdGeom.Mesh — this is expected)
@@ -787,14 +787,14 @@ Needs: 18.1, 18.2
 ### 22.5 Inspect with Isolate
 - `inspect_prim("/World/Franka", angles=["left"])`, then the same with `isolate=True`
 - Verify: the first image shows `/World/TestCube` behind the robot; the second's answer says `isolated` on its first
-  line, and its image shows the robot alone, still lit by 18.1's dome: isolate hides every other prim, never a light
+  line, and its image shows the robot alone, still lit by 18.2's dome: isolate hides every other prim, never a light
 - After capture, other prims should be restored (check with `capture_viewport`)
 
 ---
 
 ## Phase 23: Viewport Lighting
 
-Needs: 18.1, 18.2
+Needs: 18.2
 
 > **Lighting modes:** The MCP exposes all Omniverse viewport lighting options:
 > `"off"`, `"camera"`, `"stage"`, and light rig presets (`"Default"`, `"Colored Lights"`, `"Grey Studio"`).
@@ -806,7 +806,7 @@ Needs: 18.1, 18.2
 - `viewport_light("get")`
 - Verify: returns `lighting_mode` (string), `available_modes` (list), `has_scene_lights` (bool), `scene_lights` (list)
 - `available_modes` should include at least `"off"`, `"camera"`, `"stage"`; the scene has lights, and the list names
-  18.1's `/World/DomeLight` with its intensity, 1000
+  18.2's `/World/DomeLight` with its intensity, 1000
 
 ### 23.2 Set Lighting Mode — Default Rig
 - `viewport_light("set", mode="Default")`
@@ -820,7 +820,7 @@ Needs: 18.1, 18.2
 ### 23.4 Set Lighting Mode — Stage
 - `viewport_light("set", mode="stage")`
 - Verify: `lighting_mode="stage"` in response
-- `capture_viewport()`: lit by the stage's own light alone, 18.1's dome, which the rig and the camera light hid
+- `capture_viewport()`: lit by the stage's own light alone, 18.2's dome, which the rig and the camera light hid
 
 ### 23.5 Legacy set_camera_light Action
 - `viewport_light("set_camera_light", enabled=True)`
