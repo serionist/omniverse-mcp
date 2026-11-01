@@ -347,8 +347,10 @@ KEPT_SECONDS = "from ovmcp.bridge.handlers import camera_feed\nresult = camera_f
 # fresh feed's capture of B; then the blue prim PRIM moved to MOVED through set_transform and captured at once through
 # the kept feed, against a fresh feed's; each fresh feed after release_kept. A is "" for the viewport's camera. The
 # result: each pair's mean and 99th percentile difference out of 255, and the switch's and the move's own; the pixels
-# of the prim's old place (blue before, not after), and of them those where the kept capture differs from the fresh
-# one by more than 8, a ghost; the pixels of its new place, and of them those the kept capture shows it in.
+# of the prim's old place (blue before, not after), and of them those the kept capture still shows blue, a ghost; the
+# pixels of its new place, and of them those the kept capture shows it in. A ghost is the prim's colour where it was:
+# pixels there that only differ by more than 8 are the edge's noise (19 of 1,694 in the suites, by up to 37, along a
+# grid line behind the old edge, none of them blue; #114's K19).
 KEPT_AGAINST_FRESH = """
 import base64, io
 import numpy as np
@@ -389,14 +391,13 @@ fresh_after = await rgb(A)
 await camera_feed.release_kept()
 old_place = blue(before) & ~blue(fresh_after)
 new_place = blue(fresh_after) & ~blue(before)
-off = np.abs(after - fresh_after).max(axis=2) > 8
 result = {
     "switch": apart(switched, fresh_b),
     "switch_itself": apart(first_a, fresh_b),
     "move": apart(after, fresh_after),
     "move_itself": apart(before, fresh_after),
     "old_place": int(old_place.sum()),
-    "ghost": int((off & old_place).sum()),
+    "ghost": int((blue(after) & old_place).sum()),
     "new_place": int(new_place.sum()),
     "shown_there": int((blue(after) & new_place).sum()),
 }

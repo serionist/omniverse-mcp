@@ -194,11 +194,12 @@ After code review round 1 (two reviewers on `de25baf`, six minors) and the maint
 
 | # | What | Evidence |
 |---|---|---|
-| K19 | A kept feed's capture straight after a change, against a fresh feed's: `test_26_04`'s camera switch 0.16 to 0.61 mean of 255, 99th percentile 4 to 10; its move 0.42 to 0.49, 7 to 8. The probe: two fresh feeds after a move 0.09, 2 (max 134); the kept feed straight after it 0.24, 5, and 120 frames later 0.16 to 0.18, 3 to 4; the move itself 1.9 to 2.1, 46 to 47. Every pixel differing by more than 8 sits at the cube's new place; none of the 192 to 194 of its old place differs: edge and face noise that fades with frames, no ghost | `114-moveghost.py` and `moveghost/` in the maintainer's session scratchpad (`scratchpad/114/`), two runs |
+| K19 | A kept feed's capture straight after a change, against a fresh feed's: `test_26_04`'s camera switch 0.16 to 0.61 mean of 255, 99th percentile 4 to 10; its move 0.42 to 0.49, 7 to 8. The probe: two fresh feeds after a move 0.09, 2 (max 134); the kept feed straight after it 0.24, 5, and 120 frames later 0.16 to 0.18, 3 to 4; the move itself 1.9 to 2.1, 46 to 47. Every pixel differing by more than 8 sits at the cube's new place; none of the 192 to 194 of its old place differs: edge and face noise that fades with frames, no ghost. In the suites' state, with the camera nearer, 19 to 36 of the old place's 1,694 pixels differed by more than 8 (up to 37), along a grid line behind its lower edge, and none of them showed the cube's colour | `114-moveghost.py` and `moveghost/` in the maintainer's session scratchpad (`scratchpad/114/`), two runs |
 
 - **L1, `test_26_04`:** K7's bounds came from a still view and don't fit a scene that just changed (K19). The test
   now checks what a real fault shows, a ghost or a stale frame: no pixel of the cube's old place (blue before, not in
-  the fresh capture after) differs from the fresh capture by more than 8; at least 80 % of its new place shows it in
+  the fresh capture after) shows the cube's colour in the kept capture (a first version counted pixels there that
+  differ by more than 8, which the suites' grid line behind the old edge failed; K19); at least 80 % of its new place shows it in
   the kept capture (its edges may cross the blue test); and the rest within a mean of 1 and a 99th percentile of 12,
   at most a third of the change itself. A third, not a quarter: the worst live move, 0.49, is about a quarter of a
   1.9 move. A recalibration on evidence with the ghost check added, not a loosening: a stale frame differs by the
