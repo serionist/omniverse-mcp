@@ -221,10 +221,9 @@ and loading it later brings them in so; Kit loads payloads when it opens a stage
   robot on a centimetre stage needs no scale of its own, and a Z-up part under a turned Z-up robot no turn. A prim's
   own scale is the user's and doesn't change the frame. Its physics values are still converted to the stage's units.
   A file of the stage's own axis inside a turned asset is turned back and stands upright, where Kit's assembler
-  leaves it lying down. Kit's change listener, resolving again an asset its drop made when a prim under it is made,
-  writes its own values into a layer first among the root layer's sublayers: the stage's own layer, where
-  `create_prim` writes, outranks it, but with a sublayer as the edit target Kit's value may show instead and lay the
-  file down.
+  leaves it lying down. Kit's assembler, resolving the asset above it again into its own sublayer, as its change
+  listener does when a prim is made under an asset Kit's drop made, leaves the file as `create_prim` stood it: it
+  writes no op of its own over those `create_prim` wrote (Isaac Sim 6.2, `test_07c`).
 - **A prim already there** gets the reference as the file is, unturned and unscaled, its physics values in the file's
   units: the prim may hold other content, which a turn or a scale would move too. The answer says what the file's
   content needs beside the frame inside the prim, and which values stay in the file's units. The reference stays on

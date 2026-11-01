@@ -897,10 +897,11 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         for shape in ("Shape", "Inner/Shape"):
             now = self.client.prim_bounds(f"{path}/{shape}")["result"]["dimensions"]
             self.assertEqual([round(d, 4) for d in now], [round(d, 4) for d in dims], shape)
-        # The plan's N2 departure: what Kit writes of the turned-back file's turn in its own layer, which shows only
-        # where that layer outranks the one create_prim wrote to. To pin from a run: no turn there, or 0.
+        # The plan's N2 departure, pinned by the run on Isaac Sim 6.2.0, Z-up and Y-up: Kit's resolve writes no spec
+        # of its own for any op create_prim wrote, so it leaves the turned-back file standing as create_prim stood it.
+        self.assertEqual(sorted(set(resolved["resolve"]) & set(before_edit)), [], resolved)
         kits = resolved["resolve"].get(f"{path}/Native.xformOp:rotateX:unitsResolve")
-        self.assertIn(kits, (None, 0.0), resolved)
+        self.assertIsNone(kits, resolved)
         print(f"  Kit's own turn of the turned-back file: {kits} (create_prim wrote {-turn})")
 
     def test_08_set_transform(self):
