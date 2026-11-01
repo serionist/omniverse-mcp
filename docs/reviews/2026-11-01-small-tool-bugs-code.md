@@ -61,7 +61,7 @@ went to a fresh refuter, who confirmed it. The fixes were made on the branch, th
 | I1 | The bug form's "Kit app and version" and "Operating system" fields point at `get_sim_state`'s `kit_app`, `kit_version` and `kit_os`, as its version fields do | taken, `44961c5` |
 | I2 | `docs/TOOLS.md` `create_robot`'s Up axis paragraph: unlike Kit's assembler, it doesn't scale a file of other `metersPerUnit` (#112) | taken, `fd6d43b` |
 | I3 | `docs/SETUP.md`'s black-capture row and the scenarios' Phase 23 note name the unlit warning too | taken, `fd6d43b` |
-| I4 | The plan's Risks rows still open until step 11 record the live result once it has run | later: after the live run |
+| I4 | The plan's Risks rows still open until step 11 record the live result once it has run | taken after the live run, below: both rows closed |
 | I5 | `stand_upright` reuses the transform writer's placement and precision rule | taken, `4238c56` (`xform.py` `add_local_op`) |
 | I6 | `on_startup` reads the Kit app's facts inside a try, so a getter raising an exception `kit_app_facts` doesn't catch costs only the facts, not the bridge's start | taken, `47acbcc`; no test: `extension.py`'s start-up has no harness |
 | I7 | `_has_scene_lights` walks instance proxies, so a light an instanceable reference brings doesn't give a false "no lights" warning | taken, `47acbcc`; `tests/test_camera_handler.py` `test_a_light_inside_an_instance_counts` |
@@ -71,6 +71,33 @@ went to a fresh refuter, who confirmed it. The fixes were made on the branch, th
 | I11 | The Kit facts' test checks the module's own default, four facts each unknown | taken, `651e52e` |
 | I12 | `test_23_06` puts lighting back to Default in its cleanup | taken, `651e52e` |
 | I13 | `test_12i` checks the segmentation ran before reading its legend | taken, `612d90c` |
+
+## Live run
+
+Run by the session on its own headless Isaac Sim 6.2.0 (Kit 110.4.0+feature.386251.187cf21b.gl), Windows, RTX 5090,
+at port 8212, with the branch's extension from `1c2088f`, through `105-live.sh`. `105-stage.py` printed the stage's
+up axis before each step, and made it the step's with `new_scene` where it differed. Outputs in the session's
+scratchpad, `105/`:
+
+| Step | Stage | What ran | Result | File |
+|---|---|---|---|---|
+| 1 | Z-up | the new and changed integration tests: `test_01_health`, `test_02_sim_state`, `test_08c`, `test_12g`, `test_12i`, `test_12j`, `test_27b` | 7 passed, 3 subtests | `105-live-1-new-tests-z-up.txt` |
+| 2 | Z-up, then Y-up after 17.2's `new_scene` | both live suites whole | 193 passed | `105-live-2-suites.txt` |
+| 3 | Y-up | step 1's integration tests | 1 failed (`test_12j`, mode stage), 7 passed, 2 subtests | `105-live-3-y-up.txt` |
+| 3 | Y-up | `test_scenarios.py`: `test_02_01`, `test_02_02`, `test_10_01`, `test_15_02b`, `test_15_16` | 5 passed | `105-live-3-y-up.txt` |
+| 3, rerun at `e1a47f7` | Y-up | step 1's integration tests | 7 passed, 3 subtests | `105-live-3b-y-up-rerun.txt` |
+| 1, rerun at `e1a47f7` | Z-up | `test_12j` | 1 passed, 3 subtests | `105-live-1b-z-up-12j.txt` |
+
+- **The failure:** `test_12j` read `has_scene_lights` once, in the lighting mode it found, Default, which step 2's
+  `test_23_06` leaves. A light rig puts lights of its own on the stage, and mode stage takes them away. So the read
+  said lit, and the stage-mode capture rightly warned that it wasn't. A read-only probe, `105-probe-lights.py`, showed
+  mode Default and only the rig's lights, `/OmniKit_Viewport_LightRig/Lights/DomeLight` and `.../DistantLight`, found
+  alike by `Traverse` and by the walk over instance proxies. The test was wrong, not the bridge. Fixed in `e1a47f7`:
+  each mode's expectation is read after switching to it.
+- **The plan's open risks:** `test_27b` (Kit's assembler adds no second turn) and `test_15_16` (the turned Franka holds
+  USD's pose at load and after 30 steps) passed on the Y-up stage. Both Risks rows are closed (I4).
+- **What it couldn't show:** Isaac Sim 5.x (Kit 107); Linux; USD Composer, which isn't on this machine; the GPU module,
+  `test_gpu_force.py`, not run as `apply_force` didn't change.
 
 ## Checks
 

@@ -586,9 +586,9 @@ No scenario covers R7 (15.2 gives both values), so no Verify line changes for it
 
 | Risk | Status |
 |---|---|
-| Kit's assembler, run later on the stage (a user's "resolve", or its change listener), adds a second turn to a robot `create_robot` turned | Checked by `test_27b` where the assembler loads; if it does, the fix moves to Q4's B. Open until step 11 |
+| Kit's assembler, run later on the stage (a user's "resolve", or its change listener), adds a second turn to a robot `create_robot` turned | Closed: `test_27b` passed on a Y-up stage on Isaac Sim 6.2, where the assembler loads: after `resolve_hierarchy` the robot holds one `xformOp:rotateX:unitsResolve`, at the value `create_robot` answered, and still stands (the live run of code review round 1) |
 | A robot under a turned parent: the turn compares the file with the stage, not with the parent's frame | Accepted: Kit's assembler compares layers the same way |
-| A fixed-base robot turned at its root: the Franka's root joint anchors its base to the world, and could pull it back to the file's orientation when physics starts | Open until step 11: `test_15_16` steps the turned Franka and checks it still stands (P2). If it doesn't, the turn reaches into the root joint's frame too, a design change for the maintainer |
+| A fixed-base robot turned at its root: the Franka's root joint anchors its base to the world, and could pull it back to the file's orientation when physics starts | Closed: `test_15_16` passed on a Y-up stage on Isaac Sim 6.2. The turned Franka's base held the rotation USD gave it, read before play, within 1° at load and after 30 steps: the root joint didn't pull it back (code review F1, P2) |
 | R3's hull for a fisheye camera approximates its curved projection | Accepted: as the rectangle did; Isaac Sim's cameras are pinhole by default |
 | R3 drops a box an agent relied on, for a prim whose world box reaches the frame's corner only through its rectangle | Accepted: that prim wasn't on the image |
 | R4's warning on every capture while the user keeps lighting `off` on purpose | Accepted: one line, which says why the prims are black |
