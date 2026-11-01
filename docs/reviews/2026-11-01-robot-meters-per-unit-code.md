@@ -68,6 +68,9 @@ Run by the session on its own headless Isaac Sim 6.2.0 (Kit 110.4.0+feature.3862
 | 2 | Y-up | `de975c8` | the same | 3 passed, 1 failed (`test_27c`) | `112-live-Y.txt` |
 | 3 | Z-up, a new stage made for it | `de975c8` | both live suites whole | 194 passed, 1 failed (`test_27c`) | `112-live-suites.txt` |
 | 4 | its own, metres and centimetres | `2bf31b7` | `112-accel-probe.py`: test_27c's robot and three variants, PhysX's values read once settled | exit 0 | `112-accel-probe.out.txt` |
+| 5 | Z-up, a fresh Kit | `f95f8fa` | `test_27`, `test_27b`, `test_27c` (reworked), `test_30` | 4 passed | `112-live2-Z.txt` |
+| 6 | Y-up | `f95f8fa` | the same | 4 passed | `112-live2-Y.txt` |
+| 7 | Z-up | `f95f8fa` | both live suites whole | 195 passed | `112-live2-suites.txt` |
 
 A first run of the probe, at `7e09826`, failed in its own reader, which floated `xformOpOrder`'s tokens; it changed
 nothing in Kit.
@@ -86,8 +89,10 @@ nothing in Kit.
   acceleration arm's sag (the same gains, 10^4 times the joint-space inertia, a sag of more than 0.02 rad on both)
   and prints its sags; the force arm's must still match within 2%. `docs/TOOLS.md` and CHANGELOG say an angular
   acceleration drive in a file of other units isn't shown to behave as in the stage's units. The plan records it.
-- **Not yet run live:** the round's fixes and the reworked `test_27c`; the session reruns `test_27c` and both suites
-  with the extension from `24abe97`.
+- **The round's fixes and the reworked `test_27c`, live** (steps 5 to 7): all four robot tests passed on a Z-up and a
+  Y-up suite stage, and both suites whole passed. The sags read the same as before (force arm 0.168476 on both
+  stages; acceleration arm 0.16905 and 0.26172), and Kit's assembler again converted the acceleration stiffness 1.5
+  to 15,000.
 - **What it couldn't show:** Isaac Sim 5.x (Kit 107), whose table and physics rules are 6.2's (the plan's K13);
   Linux; USD Composer, which isn't on this machine, so `test_27c` writes its own centimetre stage; a mimic joint's
   gearing, which no test robot has.
