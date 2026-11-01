@@ -1212,20 +1212,28 @@ _CONVERTED = (
                 "left_count": 12,
             },
             (
-                "12 values stay in the file's units, inside instances, which USD lets no one override, or animated by "
-                "value clips: /World/Bot/Pad0/Shape.physxCollision:contactOffset, ",
+                "12 values stay in the file's units: inside instances, which USD lets no one override, animated by "
+                "value clips or splines, or of a type that doesn't multiply: "
+                "/World/Bot/Pad0/Shape.physxCollision:contactOffset, ",
                 "/World/Bot/Pad9/Shape.physxCollision:contactOffset, and 2 more",
             ),
         ),
         (
             {**_SCALED, "converted": 2, "table": False},
             (
+                "; 2 values (camera distances) were converted to the stage's units, as Kit's metrics assembler "
+                "converts them with its camera rules",
                 "This Kit app has no PhysX schema to read units from, so the robot's physics values stay in the file's "
                 "units",
             ),
         ),
+        # A held op that isn't uniform, as no Kit writes it: its three values (improvement 5).
+        (
+            {**_SCALED, "factor": 0.01, "op": [1.0, 2.0, 3.0]},
+            (f"so a factor of 0.01 was multiplied into {SCALE}, which now reads (1, 2, 3);",),
+        ),
     ],
-    ids=["new-op", "held-op", "both-units", "mass-only", "left", "no-table"],
+    ids=["new-op", "held-op", "both-units", "mass-only", "left", "no-table", "held-op-not-uniform"],
 )
 def test_create_robot_says_it_brought_the_robot_to_the_stage_s_units(
     units: dict[str, Any], says: tuple[str, ...], bridge: MockIsaacServer, tmp_path: Path

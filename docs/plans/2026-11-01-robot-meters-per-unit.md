@@ -148,7 +148,7 @@ Q1's option A, as recommended.
 | `units_factors(file, stage)` | `Factors`, file over stage for each one the file authors, 1 for one it doesn't; None when both are 1 within 1e-9 |
 | `scale_to_stage(prim, factor)` | Writes `UNITS_OP` = `(f, f, f)` in double precision, as Kit writes it (P3), through `xform.add_local_op`, which gains a precision argument (float stays its default, so #105's turn is unchanged). The bridge calls it after #105's turn, so the op lands where Kit puts it: after the turn, before the first inverse op, else last (P3; a uniform scale and a turn commute, so the world matrix is the same either way). A root that holds the op already, as a robot Kit resolved and saved, gets it multiplied by the file's factor, as #105's turn gets the sum; an animated one is refused. Gives the op's three values after |
 | `unit_exponents(name, prim, table)` | A value's `Exponents`: the core's own two rules first, then `table(name, prim)`. A `focusDistance` or a `clippingRange`, (0, 1), as Kit's camera rules (K12). An angular drive's stiffness or damping (`drive:angular`, `rotX`, `rotY`, `rotZ`) whose drive isn't of type force, (0, 0), where the table says (0, 2) (K11). None where neither says |
-| `convert_units(root, file, stage, table)` | For every prim of `Usd.PrimRange(root)` and each attribute it authors a value for, with exponents other than (0, 0): the default, when the default is what resolves at default time, and every time sample, when samples are what resolve at other times (U4, U5), each read before any is written, then written times its factor into the edit target (U2). Each value's units are those its own layer authors, else those of its layer stack's root, else the robot file's (P1, U4), and its factor is `(meters / stage meters) ** distance * (kilograms / stage kilograms) ** mass`. Numbers and `Gf` vectors are converted; a value the factor leaves as it is (a factor of 1, a value of 0 or ±inf) isn't written; any other type is left. Values under the root inside an instance, which USD lets no one override, and values from value clips or splines are left (Q5). Gives the count converted and the paths left |
+| `convert_units(root, file, stage, table)` | For every prim of `Usd.PrimRange(root)` and each attribute it authors a value for, with exponents other than (0, 0): the default, when the default is what resolves at default time, and every time sample, when samples are what resolve at other times (U4, U5), written times its factor into the edit target. Every value of the robot is read before any is written (U2; review E2: a value written under the robot shows through an inherits or specializes arc to another of its prims), and a default written takes the samples beside it, changed or not, since it would beat them at every time (review E1). Each value's units are those its own layer authors, else those of its layer stack's root, else the robot file's (P1, U4), and its factor is `(meters / stage meters) ** distance * (kilograms / stage kilograms) ** mass`. Numbers and `Gf` vectors are converted; a value the factor leaves as it is (a factor of 1, a value of 0 or ±inf) isn't written; any other type is left. Values under the root inside an instance, which USD lets no one override, and values from value clips or splines are left (Q5). Gives the count converted and the paths left |
 
 `table` is an argument, so the core never imports NVIDIA's module: the unit tests pass a small table, the bridge
 passes the PhysX schema's. Where Kit writes a value the factor leaves as it is (P2's masses), the core writes none:
@@ -207,11 +207,12 @@ converted to the stage's units, as Kit's metrics assembler converts them with it
 ```
 
 A root that held the op: "so a factor of 0.01 was multiplied into xformOp:scale:unitsResolve, which now reads 1",
-the factor and the op named both, as #105's turned line names the turn and the op. Then, when they apply: "N values stay in the
-file's units, inside instances, which USD lets no one override, or animated by value clips: <paths>", and "This Kit
-app has no PhysX schema to read units from, so the robot's physics values stay in the file's units". A mass-only case
-says "Converted to the stage's units: the file's kilogramsPerUnit is 0.001 and the stage's 1; ...". An older extension
-sends no field, and nothing is printed.
+the factor and the op named both, as #105's turned line names the turn and the op. Then, when they apply: "N values
+stay in the file's units: inside instances, which USD lets no one override, animated by value clips or splines, or of
+a type that doesn't multiply: <paths>", and "This Kit app has no PhysX schema to read units from, so the robot's
+physics values stay in the file's units", where the first line names only camera distances and Kit's camera rules. A
+mass-only case says "Converted to the stage's units: the file's kilogramsPerUnit is 0.001 and the stage's 1; ...". An
+older extension sends no field, and nothing is printed.
 
 The description gains a sentence after "A file that authors no upAxis is left as it is.": "A file whose
 metersPerUnit or kilogramsPerUnit isn't the stage's is brought to the stage's units, as Kit's metrics assembler

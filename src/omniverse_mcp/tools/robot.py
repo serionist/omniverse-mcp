@@ -83,16 +83,21 @@ def _scaled_lines(units: dict[str, Any]) -> list[str]:
         line = f"Scaled to the stage's units: {line}, so a factor of {factor:g} {added} {name}, which now reads {reads}"
     else:
         line = f"Converted to the stage's units: {line}"
+    # Without the PhysX schema's table only the cameras' two distances convert, by Kit's camera rules.
+    table = units.get("table") is not False
+    kinds = "masses, inertia, drives, limits, camera distances" if table else "camera distances"
+    rules = "physics" if table else "camera"
     lines = [
-        f"{line}; {units.get('converted', 0)} values (masses, inertia, drives, limits, camera distances) were "
-        "converted to the stage's units, as Kit's metrics assembler converts them with its physics rules"
+        f"{line}; {units.get('converted', 0)} values ({kinds}) were converted to the stage's units, as Kit's metrics "
+        f"assembler converts them with its {rules} rules"
     ]
     if units.get("left_count"):
         left: list[str] = units.get("left") or []
         more = units["left_count"] - len(left)
         lines.append(
-            f"{units['left_count']} values stay in the file's units, inside instances, which USD lets no one override, "
-            f"or animated by value clips: {', '.join(left)}" + (f", and {more} more" if more > 0 else "")
+            f"{units['left_count']} values stay in the file's units: inside instances, which USD lets no one "
+            "override, animated by value clips or splines, or of a type that doesn't multiply: "
+            f"{', '.join(left)}" + (f", and {more} more" if more > 0 else "")
         )
     if units.get("table") is False:
         lines.append(
