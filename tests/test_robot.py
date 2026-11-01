@@ -434,7 +434,7 @@ def test_a_default_and_samples_from_two_layers_are_each_converted_by_their_own_l
 def test_a_robot_kit_dropped_and_saved_keeps_the_values_of_the_metre_file_it_references():
     # A Composer centimetre file whose robot references a metre file, Kit's converted values never saved (K3), put on
     # a metre stage: the metre file's values are in the stage's units already, and the centimetre file's own aren't
-    # (P1, review-nested.py).
+    # (the plan's P1).
     bot = _units_layer(1.0, text='def Xform "Bot"\n{\n    float3 physics:diagonalInertia = (0.1, 0.2, 0.3)\n}\n')
     cell = _units_layer(
         0.01,
@@ -477,3 +477,98 @@ def test_a_value_of_the_stage_s_own_layers_is_in_the_stage_s_units():
 
     assert _convert(stage, prim, Units(1.0, None)) == Converted(values=0, left=[])
     assert _get(prim, "physics:upperLimit") == 5.0
+
+
+_SAMPLED_BESIDE_A_DEFAULT = """
+def Xform "Bot"
+{
+    float physics:upperLimit = 0.02
+    float physics:upperLimit.timeSamples = {
+        0: 0,
+        10: 0,
+    }
+}
+"""
+
+
+def test_a_default_written_takes_the_samples_beside_it_changed_or_not():
+    # The samples are 0 and stay 0, but a default written into the stage's layer would beat them at every time,
+    # where the file's samples beat its own default before (review E1).
+    stage = _stage_of(0.01)
+    prim = _robot(stage, _units_layer(1.0, text=_SAMPLED_BESIDE_A_DEFAULT))
+
+    _convert(stage, prim, Units(1.0, None))
+
+    assert [_get(prim, "physics:upperLimit", t) for t in (0, 5, 10)] == [0, 0, 0]
+    assert _get(prim, "physics:upperLimit") == pytest.approx(2)
+
+
+_SPECIALIZED = """
+def Xform "Bot"
+{
+    def Xform "Base"
+    {
+        float physics:upperLimit = 0.5
+    }
+
+    def Xform "Arm" (
+        specializes = </Bot/Base>
+    )
+    {
+    }
+}
+"""
+
+
+def test_a_value_reached_through_a_specializes_arc_is_converted_once():
+    # A stage whose root layer says no metersPerUnit, which USD reads as centimetres. Base's converted value, once
+    # written in the stage's layer, came to Arm through the arc USD implies there, and Arm read it as the file's and
+    # converted it again, to 5000 (review E2).
+    stage = Usd.Stage.CreateInMemory()
+    prim = _robot(stage, _units_layer(1.0, text=_SPECIALIZED))
+
+    _convert(stage, prim, Units(1.0, None))
+
+    assert _get(prim.GetChild("Base"), "physics:upperLimit") == pytest.approx(50)
+    assert _get(prim.GetChild("Arm"), "physics:upperLimit") == pytest.approx(50)
+
+
+_BLOCKED_SAMPLE = """
+def Xform "Bot"
+{
+    float physics:upperLimit.timeSamples = {
+        0: None,
+        10: 0.1,
+    }
+}
+"""
+
+
+def test_a_blocked_sample_stays_blocked():
+    stage = _stage_of(0.01)
+    prim = _robot(stage, _units_layer(1.0, text=_BLOCKED_SAMPLE))
+
+    _convert(stage, prim, Units(1.0, None))
+
+    assert _get(prim, "physics:upperLimit", 0) is None
+    assert _get(prim, "physics:upperLimit", 10) == pytest.approx(10)
+
+
+def test_a_value_from_value_clips_is_left_and_named():
+    # A clip's samples come from a layer the stage doesn't hold, which no layer of the stage overrides sample by
+    # sample.
+    clip = _units_layer(
+        text='over "Bot"\n{\n    float physics:upperLimit.timeSamples = {\n        0: 0.04,\n    }\n}\n'
+    )
+    bot = _units_layer(1.0, text='def Xform "Bot"\n{\n    float physics:upperLimit\n}\n')
+    held = Usd.Stage.Open(bot)
+    clips = Usd.ClipsAPI(held.GetPrimAtPath("/Bot"))
+    clips.SetClipAssetPaths([Sdf.AssetPath(clip.identifier)])
+    clips.SetClipPrimPath("/Bot")
+    clips.SetClipActive([(0.0, 0)])
+    clips.SetClipTimes([(0.0, 0.0)])
+    stage = _stage_of(0.01)
+    prim = _robot(stage, bot)
+
+    assert _convert(stage, prim, Units(1.0, None)) == Converted(values=0, left=["/World/Bot.physics:upperLimit"])
+    assert _get(prim, "physics:upperLimit", 0) == pytest.approx(0.04)

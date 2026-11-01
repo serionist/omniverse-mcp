@@ -221,7 +221,8 @@ def _value_units(attr: Usd.Attribute, info: Usd.ResolveInfo, samples: bool, file
     layer's units for every value under the prim it resolves, and gets that case wrong. A value of the stage's own
     layers is in the stage's units."""
     node = info.GetNode()
-    if node.IsRootNode():
+    # The stage's own layers, whether the value is the prim's own or comes through an arc USD implies into them.
+    if node.layerStack == node.GetRootNode().layerStack:
         return stage
     stack = node.layerStack
     path = node.path.AppendProperty(attr.GetName())
@@ -262,22 +263,12 @@ def _changes(old: object, new: object) -> bool:
 
 
 def _writes(attr: Usd.Attribute, exponents: Exponents, file: Units, stage: Units) -> list[tuple[Usd.TimeCode, object]]:
-    """What converting attr writes: every sample, when samples are what resolve and one changes, and the default, when
-    a default is what resolves and it changes. All read before any is written: a stronger layer's first sample hides
-    every sample of the file's. Raises _UnconvertibleError for a value from value clips or a spline, or of a type that
-    doesn't multiply."""
-    writes: list[tuple[Usd.TimeCode, object]] = []
-    any_time = attr.GetResolveInfo()
-    source = any_time.GetSource()
-    if source == Usd.ResolveInfoSourceTimeSamples:
-        factor = _factor(_value_units(attr, any_time, True, file, stage), stage, exponents)
-        if factor != 1.0:
-            samples = [(t, attr.Get(t)) for t in attr.GetTimeSamples()]
-            scaled = [(Usd.TimeCode(t), _times(v, factor)) for t, v in samples]
-            if any(_changes(old, new) for (_, old), (_, new) in zip(samples, scaled, strict=True)):
-                writes += scaled
-    elif source not in (Usd.ResolveInfoSourceDefault, Usd.ResolveInfoSourceNone, Usd.ResolveInfoSourceFallback):
-        raise _UnconvertibleError
+    """What converting attr writes: the default, when a default is what resolves at default time and it changes, and
+    every sample, when samples are what resolve at other times and one changes or the default is written. All read
+    before any is written: a stronger layer's first sample hides every sample of the file's, and a default written
+    into the stage's layer beats the file's samples at every time. Raises _UnconvertibleError for a value from value
+    clips or a spline, or of a type that doesn't multiply."""
+    default: tuple[Usd.TimeCode, object] | None = None
     at_default = attr.GetResolveInfo(_DEFAULT)
     if at_default.GetSource() == Usd.ResolveInfoSourceDefault:
         factor = _factor(_value_units(attr, at_default, False, file, stage), stage, exponents)
@@ -285,7 +276,23 @@ def _writes(attr: Usd.Attribute, exponents: Exponents, file: Units, stage: Units
             value = attr.Get(_DEFAULT)
             scaled = _times(value, factor)
             if _changes(value, scaled):
-                writes.append((_DEFAULT, scaled))
+                default = (_DEFAULT, scaled)
+    writes: list[tuple[Usd.TimeCode, object]] = []
+    any_time = attr.GetResolveInfo()
+    source = any_time.GetSource()
+    if source == Usd.ResolveInfoSourceTimeSamples:
+        factor = _factor(_value_units(attr, any_time, True, file, stage), stage, exponents)
+        if factor != 1.0 or default is not None:
+            samples = [(t, attr.Get(t)) for t in attr.GetTimeSamples()]
+            scaled = [(Usd.TimeCode(t), _times(v, factor)) for t, v in samples]
+            if default is not None or any(
+                _changes(old, new) for (_, old), (_, new) in zip(samples, scaled, strict=True)
+            ):
+                writes += scaled
+    elif source not in (Usd.ResolveInfoSourceDefault, Usd.ResolveInfoSourceNone, Usd.ResolveInfoSourceFallback):
+        raise _UnconvertibleError
+    if default is not None:
+        writes.append(default)
     return writes
 
 
@@ -298,7 +305,8 @@ def convert_units(root: Usd.Prim, file: Units, stage: Units, table: Table) -> Co
     Values inside instances, which no layer of the stage can override, and values animated by value clips or splines,
     or of a type that doesn't multiply, are left, and their paths given.
     """
-    count, left = 0, list[str]()
+    planned: list[tuple[Usd.Attribute, list[tuple[Usd.TimeCode, object]]]] = []
+    left: list[str] = []
     for prim in Usd.PrimRange(root, Usd.TraverseInstanceProxies()):
         for attr in prim.GetAuthoredAttributes():
             exponents = unit_exponents(attr.GetName(), prim, table)
@@ -314,7 +322,10 @@ def convert_units(root: Usd.Prim, file: Units, stage: Units, table: Table) -> Co
             if prim.IsInstanceProxy():
                 left.append(str(attr.GetPath()))
                 continue
-            for time, value in writes:
-                attr.Set(value, time)
-            count += 1
-    return Converted(count, left)
+            planned.append((attr, writes))
+    # Every write after every read: a value written under the robot shows through an inherits or specializes arc to
+    # another of its prims, which would read it as its own and convert it a second time.
+    for attr, writes in planned:
+        for time, value in writes:
+            attr.Set(value, time)
+    return Converted(len(planned), left)
