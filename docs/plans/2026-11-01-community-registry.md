@@ -381,6 +381,21 @@ How the launcher differs from the flags above:
   `--enable`: a refusal at start (E3) could have ended Kit before the probe printed.
 - It checks the port is free before it starts.
 
+**The live runs after the build.** Each by the main session, with the maintainer's yes; the folder install is the
+branch's `extension/` copied into the Kit app's extension folder, at port 8212.
+
+| Run | Kit app | Commit | Result |
+|---|---|---|---|
+| Step 2 | Isaac Sim 6.2 headless (Kit 110.4.0), Windows | `5953208` | The bridge enabled with the 107.0 target; `get_sim_state` 0.3.0 and 0.3.0, no `note`; both live suites, 188 passed, 16 subtests, 156.63 s |
+| Step 10, 6.2 | Isaac Sim 6.2 headless, Windows, RTX 5090, driver 617.42 | `883f4ee` | The bridge enabled; `get_sim_state` 0.3.0 and 0.3.0, no `note`; both live suites, 188 passed, 16 subtests, 159.10 s |
+| Step 10, 5.1 | Isaac Sim 5.1 (Kit 107.3), NVIDIA's `isaac-sim:5.1.0` container, the dev server: Ubuntu 26.04, RTX 4060 Ti, driver 580.178.04 for the run, 595.91.07 again after it | `9a22dd0`'s tree, sent with `git archive`; `extension/` as at the head | `get_sim_state` 0.3.0 and 0.3.0, no `note`: the 107.0 target doesn't hide the folder install on Kit 107.3. Both live suites: 187 passed, 1 failed, 12 subtests, 180.88 s; the failure, `test_scenarios.py::test_10_01_spawn_g1`, a `TimeoutError` (`client.py:185`) while the G1 came from NVIDIA's asset server. `test_scenarios.py` again on the same Kit: 122 passed, 96.16 s. G1 passed in every earlier 5.1 run |
+
+**E4 wasn't run again** after its two fixes, and doesn't need to be. The fixed listing differs from what the maintainer
+saw only where Kit's code decides it: the preview is now a PNG, which `REMOTE_IMAGE_SUPPORTED_EXTS = {".png"}` shows
+as the icon was shown; and the readme before Install comes from the metadata file the crawler writes, which
+`get_ext_text_content` reads and Q9's probe fetched from the real registry for a `+` id. The card, the icon, the
+labels and the installed README were seen live.
+
 **Undoing it.** The headless runs leave only their work folders, `extcache` and `extinstall`: delete them; Kit removes
 its own temp download. A run with the window (E4) can leave two persistent settings behind,
 each undone at the next start: a registry added under **Extension Registries** instead of by flag (K4), removed there;
@@ -421,6 +436,19 @@ archives (step 11); R1 to R13 stand in for it until then.
 | The experiment changes the maintainer's Kit | Resolved: step 1 waits for the maintainer's yes to the start command; no user-config edits; non-persistent flags; Undoing it (Tests) for the window's runs |
 | `exchange` set by mistake | Resolved: Q3 leaves it out, and the design says why |
 | AGENTS.md is at 150 lines | Resolved: Q7 gives the exact line, 110 characters in place of line 114's 55; the rows edit theirs |
+
+## Where the work departed from the plan
+
+| Where | What, and why |
+|---|---|
+| Step 1 | The experiment ran from `run_registry_experiment.py`, not the flags as written: Results, under Tests, says how it differs and why |
+| The images (Q3) | The preview is a PNG at 512 pixels, not the JPEG: Kit's window shows no other type from a registry (E4) |
+| Step 3 | `archive_problems` also refuses an icon or preview that isn't PNG (E4), and `folder_problems` any other zip in the release's folder, since the release attaches them all |
+| Step 6 | The gate requires the README's pin, not only reads it: a README without one would name no server in Kit's Overview |
+| Step 8 | `docs/ARCHITECTURE.md` changed (Docs). The extension README's labels and its menu button in words come from E4 |
+| `tests/test_scenario_runs.py` | #106's CRLF test turned the new images' bytes into CRLF too; git converts text only, so the test now converts what git would |
+| Order | Steps 5 to 7 and step 2's fields were built while E1 and E3 waited; the target followed their result |
+| E4 | Not run again after its fixes (Tests, after the live runs) |
 
 ## Plan review
 
