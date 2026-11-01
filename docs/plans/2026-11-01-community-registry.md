@@ -82,11 +82,14 @@ Read from the files of an Isaac Sim 5.1 install (Kit 107.3) and a 6.2 pip instal
 |---|---|---|
 | C1 | The release zips the extension with `git archive --format=zip --prefix=ovmcp.bridge/` into `ovmcp.bridge-X.Y.Z.zip`, and attaches `release/*.zip`; nothing checks the zip, and CI never builds it | `release.yml` 56-61, 166 |
 | C2 | `extension.toml` has `version`, `category`, `title`, `description`, `authors`, `readme`; no `repository`, `keywords`, `icon`, `preview_image` or target | `extension/ovmcp.bridge/config/extension.toml` |
-| C3 | Five texts tell the user to install the server's extension with `install_command()`: `get_sim_state`'s note, the unknown-route error, and three handshake errors | `tools/simulation.py` 85-89, `tools/_bridge.py` 39-43, `client.py` 104-123 |
+| C3 | Eight texts, in five files, tell the user to install the server's extension with `install_command()`, then restart Kit: `get_sim_state`'s note, the unknown-route error, three handshake errors, `capture_viewport`'s and `inspect_prim`'s size warnings, and `start_recording`'s warning. A registry user on an older bridge meets the last three as well | `tools/simulation.py` 85-89, `tools/_bridge.py` 39-43, `client.py` 104-123, `tools/camera.py` 59-60 and 72-73, `tools/recording.py` 36-39 |
 | C4 | The gate's version check reads `omniverse-mcp==X.Y.Z` and `ovmcp.bridge-X.Y.Z` pins under `plugin/` only | `tools/gate.py` 85-87, 636-653 |
 | C5 | AGENTS.md is at its cap, 150 lines | `wc -l AGENTS.md` |
 
 ## Design
+
+A sentence, bullet or row that ends in (I1) to (I5) belongs to one of round 1's improvements, which wait for the
+maintainer (Plan review): taking improvement 1, 2, 3 or 5 deletes its marked text, and declining 4 deletes its.
 
 ### The archives (Q1)
 
@@ -105,17 +108,17 @@ the tag's, or pyproject.toml's when no tag is given:
    - no `repository`, or no `[package.target] kit` (Q2);
    - a file the toml names (`readme`, `icon`, `preview_image`) missing from the zip;
    - a `__pycache__` folder or a `.pyc` file;
-   - the three files not byte for byte equal.
+   - the three files not byte for byte equal (I2).
 
 `release.yml`'s verify job runs `uv run --no-project tools/release.py archives release "$GITHUB_REF_NAME"` in place of
 its `git archive` step, and the github-release job attaches `release/*.zip` as today, now three files. `ci.yml`'s
 package job runs `tools/release.py archives release` on every pull request, so a change that moves the folder, drops
-the icon or breaks the layout fails before a tag, and keeps `release/` as the `extension` artifact for 14 days, so a
-release PR's archive can be tried in a local registry (Tests, E4).
+the icon or breaks the layout fails before a tag. The same command, run locally on a commit, makes the same bytes, which
+E4 installs (Tests). The package job also keeps `release/` as the `extension` artifact for 14 days (I3).
 
 | Alternative | Why not |
 |---|---|
-| Attach nothing new: the crawler falls back to the source zipball (R4) | Kit would fetch the whole repo, 1.3 MB against 124 KB (R13); the crawler would have to find `extension/ovmcp.bridge`, a folder name no entry has yet (R6); nothing to check before a release |
+| Attach nothing new: the crawler falls back to the source zipball (R4) | Kit would fetch the whole repo, 1.3 MB against 124 KB (R13), and nothing is checked before a release. The crawler would have to find `extension/ovmcp.bridge`, a folder name no entry has yet (R6) (I5) |
 | One platform's name only | Works (R9), but the documented pair costs only a copy, and the index keeps one entry per id |
 | Kit's `repo package` | A build toolchain for a Python-only folder that `git archive` already zips in the right layout |
 | `git archive` and `cp` in the two workflows | The names and the checks in two YAML files; `release.py` keeps them in one place, under unit tests |
@@ -192,11 +195,11 @@ four places:
    warning; pinning the server to the version Kit shows; one source at a time, since a registry copy and an
    `extension install` copy are two versions of one extension and Autoload picks one (K6); updating both together;
    the day's lag after a release; uninstalling in the Extensions window.
-3. **The server's texts (C3):** today each says to run `extension install`, which a registry user's Kit never sees
-   (its folder isn't on their search path). One helper in `kit_extension.py`, `install_advice()`, gives the five
-   texts one ending: `install the server's, <install_command()>, then restart Kit; with the extension from Kit's
-   community registry, install <carried_version()> in Kit's Extensions window instead`. Answer text only: no tool's
-   name, schema or hints change (Q6).
+3. **The server's texts (C3):** today each of the eight says to run `extension install`, which a registry user's Kit
+   never sees (its folder isn't on their search path). One helper in `kit_extension.py`, `install_advice()`, gives
+   the eight texts one ending after their own words: `<install_command()>, then restart Kit; with the extension from
+   Kit's community registry, install <carried_version()> in Kit's Extensions window instead`. Answer text only: no
+   tool's name, schema or hints change (Q6).
 4. **The plugin's setup skill (Q8):** stays on `extension install`, pinned and immediate. Its step 3's last paragraph,
    on another copy of the extension, names a copy from the community registry too: turn it off, or uninstall it.
 
@@ -208,9 +211,9 @@ to the release.
 | What | Change |
 |---|---|
 | The extension id `ovmcp.bridge` and its settings | None |
-| A new one-way door | The archives' names and layout, and the releases they hang on (Q7) |
-| Kit apps | Kit 107 and later load it as today. Kit 106 and older no longer offer this release from a folder or the registry; the README has said 107 or later since 0.2.0. Releases before this one may still be offered to them (R4, R11), as they were released |
-| `extension install` users, the plugin's included | None: the target matches their Kit 107.3 or 110 (E1, E2, the live suites) |
+| A new one-way door | The archives' names and layout, and the releases they hang on, from the first release that carries the archives (Q7) |
+| Kit apps | Kit 107 and later load it as today. Kit 106 and older no longer offer this release from a folder or the registry; the README has said 107 or later since 0.2.0. Releases 0.2.0 to 0.3.0 will be listed from their source zipballs without a floor (R4, R11), so Kit 106 is offered those, as they were released (Q4) |
+| `extension install` users, the plugin's included | None: the target matches their Kit 107.3 or 110 (step 1's runs, the live suites) |
 | The tool contract | None: Q6 changes answer text, not names, schemas or hints |
 | The GitHub release | Two more files; `ovmcp.bridge-X.Y.Z.zip` stays (Q1) |
 | The wheel | About 50 KB more, the two images |
@@ -219,38 +222,45 @@ to the release.
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 | The release's files: (a) add the two crawler names beside `ovmcp.bridge-X.Y.Z.zip`, three identical zips; (b) replace `ovmcp.bridge-X.Y.Z.zip` with the two; (c) add nothing and let the crawler take the source zipball | (a): the documented name stays for people and scripts that fetch it (SETUP's "A Kit machine without uv"), the crawler gets its own; (c) serves the whole repo, 10 times the size, from a folder the crawler hasn't been seen to find | Open |
-| Q2 | The Kit floor: (a) `[package.target] kit = ["107.0"]`; (b) no target, as meshy and 324 others; (c) `writeTarget.kit = true` | (a), once E1 to E3 hold: the listing then matches the README's Kit 107 or later. (b) offers the release to Kit 106 apps it was never tested on; (c) writes the crawler's 106.4.0 (R10) | Open |
+| Q1 | The release's files: (a) add the two crawler names beside `ovmcp.bridge-X.Y.Z.zip`, three identical zips; (b) replace `ovmcp.bridge-X.Y.Z.zip` with the two; (c) add nothing and let the crawler take the source zipball | (a): the documented name stays for people and scripts that fetch it (SETUP's "A Kit machine without uv"), the crawler gets its own; (c) serves the whole repo, 10 times the size. (c) relies on a folder the crawler hasn't been seen to find (I5) | Open |
+| Q2 | The Kit floor: (a) `[package.target] kit = ["107.0"]`; (b) no target, as meshy and 324 others; (c) `writeTarget.kit = true` | (a), once step 1's runs hold: the listing then matches the README's Kit 107 or later. (b) offers the release to Kit 106 apps it was never tested on; (c) writes the crawler's 106.4.0 (R10) | Open |
 | Q3 | The listing's fields: `repository`, `keywords`, `icon`, `preview_image` as designed; `changelog` or not; `exchange` or not; the icon as a 256 px PNG of the plugin's icon, or the logo's SVG | The four fields; no `changelog` (a copy of the repo's would drift, and the README links it); never `exchange`, which claims a verification NVIDIA hasn't made (K5); the PNG, the size Kit recommends | Open |
-| Q4 | The topic: (a) after the first release with the archives; (b) now | (a): the first listing is then this design's, with the docs that explain it; (b) would list 0.2.0 to 0.3.0 now from source zipballs, without the Kit floor, and the crawler indexes them either way (R11) | Open |
+| Q4 | The topic: (a) after the first release with the archives; (b) now; (c) as (a), but first attach the crawler-named archive, with the 107.0 target, to the releases v0.2.0 to v0.3.0, so the crawler lists them from those assets with the floor and offers Kit 106 none (round 1's improvement 6) | (a). Either way the crawler lists 0.2.0 to 0.3.0 from their source zipballs, without the floor (R4, R11, round 1). (b) would do it now, before the docs that explain the listing. Not (c): published releases stay as they are, and the old versions' listing without a floor is harmless, since Kit 106 isn't supported | Open |
 | Q5 | Testing before a release: (a) the local-registry experiment once, its scripts in this plan, and CI building and checking the archives on every PR; (b) keep the registry builder in `tools/release.py` for every release; (c) a public test repo of the maintainer's | (a): Kit's side is proven once (E1 to E4) and the archive's layout is what can regress, which CI checks; (b) is code kept for a format the crawler, not Kit, defines; (c) leaves a test entry in the public registry for good and waits a day each try | Open |
-| Q6 | The server's texts: (a) docs only; (b) the five texts (C3) also name the registry's fix, through one helper | (b): a registry user who follows today's text installs a copy their Kit never loads, and reads the same note again. The clause costs a line, and a plugin or uvx user skips it | Open |
-| Q7 | A one-way door: add "the release archives' names and their `ovmcp.bridge/` layout, and no release or archive deleted" to AGENTS.md's list, inside the extension id's line (AGENTS.md is at its 150 lines) | Yes: the crawler builds the names (R5) and Kit downloads every listed version from its release (K2); a rename stops the listing, a deleted asset breaks its installs | Open |
+| Q6 | The server's texts: (a) docs only; (b) the eight texts (C3) also name the registry's fix, through one helper | (b): a registry user who follows today's text installs a copy their Kit never loads, and reads the same note or warning again. The clause costs a line, and a plugin or uvx user skips it | Open |
+| Q7 | A one-way door: AGENTS.md's line 114, `- the Kit extension id `ovmcp.bridge` and its settings;`, becomes `- the Kit extension id `ovmcp.bridge` and its settings; its release archives' names and layout, never deleted;` (110 characters; the file stays at 150 lines). The door starts with the first release that carries the archives, not at the list's "from `0.2.0`"; that release's CHANGELOG line says so | Yes: the crawler builds the names (R5) and Kit downloads every listed version from its release (K2); a rename stops the listing, a deleted asset breaks its installs | Open |
 | Q8 | The plugin's setup: keep `extension install`, or offer the registry? | Keep it: pinned to the plugin's release and there at once, where the registry lags a day and needs a registry added on 6.2. It names a registry copy as another copy to turn off | Open |
 
 ## Steps
 
-1. **The experiment, E1 to E3,** before any code: the main session runs the appendix's scripts on its own headless
-   Kit at port 8212, on Isaac Sim 6.2 and 5.1 (Tests). Each result is written here as E1 to E3; they answer whether
-   Q2's target holds.
+1. **The experiment, E1 to E3,** before any code. The main session first shows the maintainer the Kit start command
+   it will run (Tests: its usual headless start, minus the folder copy, plus the flags), and runs nothing until the
+   maintainer approves it. Then it runs the appendix's scripts on its own headless Kit at port 8212, on Isaac Sim 6.2,
+   and E2 on 5.1 (I1). Each result is written here under its number; they answer whether Q2's target holds.
 2. **`extension.toml` and `data/`** (Q2, Q3): the fields, the target, the two images. Test: the live suites from the
-   folder install on 6.2 and 5.1 (the target doesn't hide it from Kit 107.3 or 110); `tests/test_kit_extension.py`'s
-   install copies `data/`.
+   folder install on 6.2 (the target doesn't hide it from Kit 110), and `get_sim_state` answering without a `note`,
+   which the live suites never read (I4). The same on 5.1 (I1). `tests/test_kit_extension.py`'s install copies
+   `data/`.
 3. **`tools/release.py archives`** and `archive_problems`. Tests in `tests/test_release.py`: a good archive passes; a
    toml at the root, a second top folder, another version, no `repository` or target, a named icon or preview
-   missing, a `.pyc`, three unequal files and a wrong name are each named; `archives` builds the three from a
-   throwaway git repository in `tmp_path`; the repo's own extension passes.
-4. **The workflows:** `release.yml`'s verify job and `ci.yml`'s package job call `archives`; the package job keeps the
-   `extension` artifact. Test: the PR's own `Package (Linux)` run builds and checks them.
-5. **The server's texts** (Q6): `install_advice()` in `kit_extension.py`, used by the five texts. Tests: the existing
-   ones in `tests/test_tools.py` and `tests/test_client.py` that read these texts, now with the clause.
+   missing, a `.pyc` and a wrong name are each named; three unequal files are named (I2); `archives` builds the three
+   from a throwaway git repository in `tmp_path`; the repo's own extension passes.
+4. **The workflows:** `release.yml`'s verify job and `ci.yml`'s package job call `archives`. The package job keeps the
+   `extension` artifact (I3). Test: the PR's own `Package (Linux)` run builds and checks them.
+5. **The server's texts** (Q6): `install_advice()` in `kit_extension.py`, used by the eight texts (C3). Tests, the
+   existing ones that read these texts, now with the clause: `tests/test_tools.py` 796 (the recording warning),
+   `tests/test_tools_camera.py` 266 and 307 (the size warnings), `tests/test_client.py` 695 (the handshake),
+   `tests/test_server.py` 91 (the unknown route), and one for `get_sim_state`'s note.
 6. **The gate** (Q6): `plugin_versions` reads the extension README's `omniverse-mcp==` pin. Test: `tests/test_gate.py`
    names the README when its pin is out of step.
 7. **`release.py`'s notes:** the `INSTALL` line for the registry. Test: `tests/test_release.py`'s notes test.
 8. **The docs** (Docs, below).
-9. **E4,** on the branch, by the maintainer with a window: the listing in the Extensions window from the local
-   registry built from CI's `extension` artifact.
-10. **finish-work:** the gate, the live suites on 6.2 and 5.1, `review-code`, the PR.
+9. **E4,** on the branch, by the maintainer with a window: the listing in the Extensions window, from a local registry
+   built from the zip that `tools/release.py archives` makes locally on the branch's commit, the same bytes CI and the
+   release make.
+10. **finish-work:** the gate; the live suites on 6.2; one 5.1 session, the folder install with the target, the live
+    suites and `get_sim_state`, which needs the dev server's NVIDIA driver swapped to 580 and back (5.1's renderer
+    crashes on 595, README); `review-code`; the PR.
 11. **After the release** (`docs/releasing.md`): the topic, once (Q4); the next day, the release-day check finds
     `ovmcp.bridge-X.Y.Z+107.0` in the index.
 
@@ -258,50 +268,68 @@ to the release.
 
 | Suite | What it proves |
 |---|---|
-| Unit, CI | `tests/test_release.py` (archives and their checks, the notes), `tests/test_gate.py` (the README's pin), `tests/test_tools.py` and `tests/test_client.py` (the texts), `tests/test_kit_extension.py` (`data/` installed) |
+| Unit, CI | `tests/test_release.py` (archives and their checks, the notes), `tests/test_gate.py` (the README's pin), `tests/test_tools.py`, `tests/test_tools_camera.py`, `tests/test_client.py` and `tests/test_server.py` (the texts), `tests/test_kit_extension.py` (`data/` installed) |
 | `Package (Linux)`, CI | The real archives, built from the PR's `HEAD` and checked, on every pull request |
-| Live, by hand | `test_integration.py` and `test_scenarios.py` on Isaac Sim 6.2 and 5.1 from the folder install, with the target in the toml |
-| The experiment | Kit takes the archive from a registry entry shaped as the crawler writes it, and the target means what K7 says |
+| Live, by hand | `test_integration.py` and `test_scenarios.py` from the folder install, with the target in the toml: on Isaac Sim 6.2 in step 2, and on 6.2 and 5.1 at finish-work |
+| The experiment | Kit takes the release's own zip from a registry entry shaped as the crawler writes it, and the target means what K7 says |
 
-**The experiment.** The appendix's `local_registry.py` builds a one-extension registry in a folder: `3/index.zip`
-with one entry shaped as R2's (the crawler's fields, `trusted: 0`, the readme inlined), the archive as step 3 builds
-it under `3/archives/`, and the images under `3/resources/`. `probe.py` runs inside Kit with `--exec` and prints, each
-line starting `OVMCP-PROBE`, the registries Kit uses, the bridge enabled at start and its path, every version Kit
-sees, and the solver's answer.
+**The experiment.** The appendix's `local_registry.py --archive <zip>` builds a one-extension registry in a folder:
+`3/index.zip` with one entry shaped as R2's (the crawler's fields, `trusted: 0`, the readme inlined), the zip under
+`3/archives/` with the crawler's name, and the images under `3/resources/`. Without `--target-kit` the zip is copied
+unchanged; with it, only its `config/extension.toml` is rewritten, every other entry copied as it is. `probe.py` runs
+inside Kit with `--exec` and prints, each line starting `OVMCP-PROBE`, the registries Kit uses, its `registryCache`,
+the bridge enabled at start with its path and that path's real path, every version Kit sees, and the solver's answer.
 
-Before step 2 the tree has no target, so `--target-kit` writes one into the archive's copy of the toml. Three
-registries are built already, from `67a5069`, in the planning session's scratch folder: `registry-107`
-(`ovmcp.bridge-0.3.0+107.0`), `registry-999` (`ovmcp.bridge-0.3.0+999.0`) and `registry-none` (`ovmcp.bridge-0.3.0`).
+The zips: before step 3, `git archive --format=zip --prefix=ovmcp.bridge/ -o <zip> HEAD:extension/ovmcp.bridge`,
+today's `release.yml` command; from step 3, `uv run --no-project tools/release.py archives <dir>`, which makes the
+same bytes for the same commit. Before step 2 the tree has no target, so E1 to E3 pass `--target-kit`. Three
+registries are built already in the planning session's scratch folder, from `git archive`'s zip of `67a5069`:
+`registry-107` (`ovmcp.bridge-0.3.0+107.0`), `registry-999` (`ovmcp.bridge-0.3.0+999.0`) and `registry-none`
+(`ovmcp.bridge-0.3.0`, the zip byte for byte).
 
-The main session's usual headless start, with:
+The main session's usual headless start, shown to the maintainer first (step 1), with:
 
-- **removed:** every `--ext-folder` that holds `ovmcp.bridge` and its `--enable` from a folder, and a search path to
-  the `exts` folder in Kit's user config, if it holds one, so no local copy competes;
+- **removed:** every `--ext-folder` on the command line that holds `ovmcp.bridge`, and its `--enable` from a folder.
+  The experiment never edits Kit's user config. If the probe's "enabled at start" line shows `ovmcp.bridge` at a real
+  path outside `extcache`, a local copy competed (a search path in Kit's user config, say): the run proves nothing,
+  and the main session stops and tells the maintainer;
 - **added:**
 
   ```
   --/exts/omni.kit.registry.nucleus/registries/2/name=ovmcp-test
   --/exts/omni.kit.registry.nucleus/registries/2/url=<the registry folder, forward slashes>
   --/exts/omni.kit.registry.nucleus/cachePath=<scratchpad>/101/extcache
+  --/app/extensions/registryCache=<scratchpad>/101/extinstall
   --/exts/ovmcp.bridge/port=8212
   --enable ovmcp.bridge
   --exec <scratchpad>/101/scripts/probe.py
   ```
 
   On 5.1, index 2 is the app's `kit/community`, which this replaces for the run. On 6.2 it adds a third registry to
-  `kit-core.json`'s two; if the probe's registries line lacks `ovmcp-test`, use index 0 instead. `cachePath` keeps the
-  download out of Kit's own cache; nothing is persistent, so Kit's user config is untouched.
+  `kit-core.json`'s two; if the probe's registries line lacks `ovmcp-test`, use index 0 instead. Kit downloads a
+  registry's extension into `cachePath` and installs it as a link in `registryCache` (`${data}/exts` by default) to
+  that download (`cache.py` 136-148, `cacheCreateLinks`): both flags keep it in the scratch folder. None of the flags
+  is persistent, so Kit's user config stays as it was.
 
 | # | Run | Passes when |
 |---|---|---|
-| E1 | 6.2, `registry-107` | Kit's log shows `downloading: '.../3/archives/serionist-omniverse-mcp-linux-x86_64-v0.3.0.zip'` and `[ext: ovmcp.bridge-0.3.0] startup`; the probe's path is under `extcache`; `get_sim_state` with `OMNIVERSE_MCP_PORT=8212` answers `extension_version = 0.3.0` and no `note` (K3) |
-| E2 | 5.1, `registry-107` | As E1, on Kit 107.3 |
+| E1 | 6.2, `registry-107` | Kit's log shows `downloading: '.../3/archives/serionist-omniverse-mcp-linux-x86_64-v0.3.0.zip'`, `creating a link: <extinstall>/... -> <extcache>/...` and `[ext: ovmcp.bridge-0.3.0] startup`; the probe's real path is under `extcache`; `get_sim_state` with `OMNIVERSE_MCP_PORT=8212` answers `extension_version = 0.3.0` and no `note` (K3) |
+| E2 | 5.1, `registry-107` | As E1, on Kit 107.3 (I1) |
 | E3 | 6.2, `registry-999` | The probe lists `0.3.0+999.0` and the solver refuses it; the bridge doesn't start. `registry-none` then loads as E1 (the old releases' case) |
-| E4 | after step 4, the maintainer, 6.2 with its window, a registry built from CI's `extension` artifact (the real archive, no `--target-kit`) | The listing under THIRD PARTY, "Community - Unverified", with the icon, the preview and the readme; Install shows K5's warning; Autoload; the clicks the docs name |
+| E4 | after step 3, the maintainer: 6.2 with its window, the same flags without `--enable`, and a registry built with `--archive` from `release.py archives`' zip, unchanged | The listing under THIRD PARTY, "Community - Unverified", with the icon, the preview and the readme; Install shows K5's warning; the bridge turns on; the clicks the docs name |
+
+E1 to E3's case on Kit 107.3 also follows without E2: the same `index_v1` code and `registryVersion` "3" (K1), K7's
+greater-or-equal rule, 5.1's apps listing `kit/community` already (K4), and the 107.3 targets in the index (R10). The
+one 5.1 session at finish-work (step 10) then shows the target doesn't hide the folder install.
 
 If `--enable` doesn't fetch from a registry headless, the probe still shows what Kit sees, and E1 to E3 run with the
-window's **Install** instead, by the maintainer. Afterwards, delete `<scratchpad>/101/extcache` and any
-`ovmcp.bridge-0.3.0+...` link the log names under Kit's folders.
+window's **Install** instead, by the maintainer, with the same flags.
+
+**Undoing it.** The headless runs leave only the two scratch folders: delete `<scratchpad>/101/extcache` and
+`<scratchpad>/101/extinstall`. A run with the window (E4, or the fallback) can leave two persistent settings behind,
+each undone at the next start: a registry added under **Extension Registries** instead of by flag (K4), removed there;
+and **Autoload** set on the registry's copy, which turns the folder copy's off (K6): set Autoload on the folder copy
+again.
 
 **What neither shows:** the crawler itself. Its first entry for us is read the day after the first release with the
 archives (step 11); R1 to R13 stand in for it until then.
@@ -314,10 +342,11 @@ archives (step 11); R1 to R13 stand in for it until then.
 | `docs/SETUP.md` | A section "From Kit's community registry" (Design); Updating and Uninstalling: the registry's way; Troubleshooting: "`get_sim_state` has a `note`" names a registry copy; "A Kit machine without uv": either archive of the release |
 | `extension/ovmcp.bridge/docs/README.md` | Kit's Overview: the Kit half, the server at this release with its pin (Q6), both ways to install, the changelog's link |
 | `plugin/skills/setup/SKILL.md` | Step 3's last paragraph and step 4: a copy from the community registry (Q8) |
-| `docs/releasing.md` | Once: the topic. Step 5: the release has the three zips; the next day, `curl -sI "https://dw290v42wisod.cloudfront.net/exts/kit/community/3/archives/ovmcp.bridge/ovmcp.bridge-X.Y.Z%2B107.0.json"` answers 200 (the `+` as `%2B`; with `+` it is a 404). With Q5 (b), step 2 would also try CI's `extension` artifact in a local registry |
+| `docs/releasing.md` | Once: the topic. Step 1, the places a version lives: the extension README's `omniverse-mcp==` pin joins "every `omniverse-mcp==` and `ovmcp.bridge-` under `plugin/`" (step 6). Step 5: the release has the three zips; the next day, `curl -sI "https://dw290v42wisod.cloudfront.net/exts/kit/community/3/archives/ovmcp.bridge/ovmcp.bridge-X.Y.Z%2B107.0.json"` answers 200 (the `+` as `%2B`; with `+` it is a 404). With Q5 (b), step 2 would also try the release PR's archive in a local registry |
+| Comments the change makes stale | `release.yml`: its header (lines 1-5, "a zip of the Kit extension attached"), the versions its check names (42-44, the extension README's pin joins them) and the zip step's (56); `ci.yml`: the package job's (106-108), which now builds the archives; `tools/gate.py`: the pin comment (85-87) and `plugin_versions`' docstring; `tools/release.py`: its usage, with `archives` |
 | `docs/images/README.md` | The icon's and the preview's rows |
 | `CHANGELOG.md` | Unreleased, Added: the bridge in Kit's community registry, the release's two archives, the listing's fields; Changed: the extension declares Kit 107 or later, and the mismatch texts name the registry's fix |
-| `AGENTS.md` | The extension's row: `data/`; the `.github/` row: `release.yml` attaches the archives Kit's community registry reads; the `tools/` row: `release.py` builds them; One-way doors: Q7's line, within the 150 |
+| `AGENTS.md` | The extension's row: `data/`; the `.github/` row: `release.yml` attaches the archives Kit's community registry reads; the `tools/` row: `release.py` builds them; One-way doors: line 114 as Q7 gives it, 110 characters, so the file stays at 150 lines |
 | `docs/ARCHITECTURE.md`, `docs/TOOLS.md` | None: no route, protocol, token or tool changes |
 
 ## Risks
@@ -325,31 +354,85 @@ archives (step 11); R1 to R13 stand in for it until then.
 | Risk | Status |
 |---|---|
 | The crawler is documented only by its names and could change | Accepted: R1 to R13 are today's behaviour; the release-day check (step 11) catches a change on the next release |
-| The crawler finds `extension/ovmcp.bridge` in the old tags' zipballs and lists 0.2.0 to 0.3.0 without a target; 0.2.0's bridge hangs Kit (#5) | Accepted: they are real releases, the window offers the newest by default, and nothing of ours can unlist them. If the crawler doesn't find the folder, nothing is listed for them |
+| The crawler finds `extension/ovmcp.bridge` in the old tags' zipballs and lists 0.2.0 to 0.3.0 without a target; 0.2.0's bridge hangs Kit (#5) | Accepted: they are real releases, the window offers the newest by default, and nothing of ours can unlist them (Q4 (c) would give them the floor). If the crawler doesn't find the folder, nothing is listed for them (I5) |
 | Kit 106 offered 0.3.0 from its zipball | Accepted: the README has said Kit 107 or later since 0.2.0 |
 | A registry copy and an `extension install` copy in one Kit | SETUP's one-source rule, the setup skill (Q8), the texts (Q6); Autoload picks one version (K6) |
 | The day's lag: unpinned `uvx` moves at PyPI's pace, the registry's listing the next day | Accepted: SETUP says to pin the server to the version Kit shows; Q6's text names the fix |
 | A release's archive replaced after the release: GitHub lets a maintainer delete and re-upload an asset, and the index holds no hash | Accepted, as for today's zip: only the maintainer can; GitHub's immutable releases would lock the assets, an issue of its own |
 | The archive's layout regresses (a toml at the root, R7) | Resolved: `archive_problems` on every PR and every tag |
-| `target.kit` means something else in practice, or hides a folder install | Open until E1 to E3 run, before any code (step 1); Q2 waits for them |
+| `target.kit` means something else in practice, or hides a folder install | Open until step 1's runs, before any code; Q2 waits for them. The 5.1 session at finish-work checks the folder install on Kit 107.3 |
+| The experiment changes the maintainer's Kit | Resolved: step 1 waits for the maintainer's yes to the start command; no user-config edits; non-persistent flags; Undoing it (Tests) for the window's runs |
 | `exchange` set by mistake | Resolved: Q3 leaves it out, and the design says why |
-| AGENTS.md is at 150 lines | Resolved: Q7 edits a line, the rows edit theirs |
+| AGENTS.md is at 150 lines | Resolved: Q7 gives the exact line, 110 characters in place of line 114's 55; the rows edit theirs |
 
 ## Plan review
 
-Not reviewed yet: drafted 2026-11-01 for `review-plan`.
+### Round 1
+
+- **How:** one fresh reviewer, Claude Opus, 2026-11-01, on `6ff0f24`. It checked the index's claims against
+  `index.zip` and the archives, opened with `zipfile`, and the Kit facts against an Isaac Sim 5.1 install; nothing
+  was run. Lenses bridge-security, kit-main-thread and harness-integrity found nothing. Not checked: Kit's C++
+  comparison of targets (the manual, K7, stands for it), and the headless `--enable` fetch and the `registries/2`
+  index on 6.2, which only step 1 shows (the plan has a fallback for each).
+- **Verdict:** approved once the minors are fixed or answered, with no second round: no blocker, no major, six minors.
+- **Now:** P1 to P6 are fixed in this plan, and the scripts in the appendix and the scratch folder are the same. The
+  reviewer's verdict is approved; the owner calls, Q1 to Q8 and improvements 1 to 6, wait for the maintainer, so
+  `status` stays `draft` until the maintainer approves.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P1 | minor | C3 named five texts; eight, in five files, end with `install_command()`: `capture_viewport`'s and `inspect_prim`'s size warnings and `start_recording`'s warning too, which a registry user on an older bridge meets | fixed: C3, the Design's third point, Q6 and step 5 name all eight, and step 5 their tests (`test_tools.py` 796, `test_tools_camera.py` 266 and 307, `test_client.py` 695, `test_server.py` 91) |
+| P2 | minor | E1's "the probe's path is under `extcache`" fails on a working run: Kit installs a registry's extension as a link in `/app/extensions/registryCache` (`${data}/exts`) to its download (`cache.py` 136-148) | fixed: the run adds `--/app/extensions/registryCache=<scratchpad>/101/extinstall`; E1 passes on the log's `creating a link: <extinstall>/... -> <extcache>/...` line and the probe's real path, which `probe.py` now prints with `registryCache` |
+| P3 | minor | The set-up could edit Kit's user config (a search path removed) and never restore it; the window's runs had no undo; step 1 didn't wait for the maintainer | fixed: the experiment never edits the user config, and a competing copy in the probe's first line stops the run; "Undoing it" lists the window's two persistent leftovers and their undo; step 1 shows the start command and waits for the maintainer's yes |
+| P4 | minor | E4 needed CI's artifact before the PR exists, and the script re-zipped a folder, so Kit never installed the real archive | fixed: `local_registry.py --archive <zip>` copies the release's zip unchanged (`--target-kit` rewrites only its toml) and reads the toml, readme and images from inside it; E1 to E3 use `git archive`'s zip of `67a5069`, E4 the zip `release.py archives` makes locally; the three scratch registries are rebuilt that way |
+| P5 | minor | Q7's addition made line 114 about 150 characters: wrapped, AGENTS.md has 151 lines and the gate fails, while Risks said resolved | fixed: Q7 gives the exact line, 110 characters, in place of line 114, and says the door starts with the first release that carries the archives; Compatibility, Docs and Risks follow |
+| P6 | minor | `docs/releasing.md` step 1 and `release.yml`'s comment list where versions live, and miss the extension README's pin | fixed: the Docs table names releasing.md's step 1, and a row lists the comments the change makes stale: `release.yml` (1-5, 42-44, 56), `ci.yml` (106-108), `gate.py` (85-87, `plugin_versions`), `release.py`'s usage |
+
+**Refuted:**
+
+- Q6 changes the tool contract: no; `golden.py` strips prose, and every output schema is a string.
+- The target breaks the version checks: no; the gate, `release.py wheel`, `test_bridge_token` and `extension_version`
+  read `package.version`, and `version_from_ext_id` gets `<name>-<version>` (K3).
+- The target is wrong or unsafe: no; `["107.0"]` is "107 or later" under K7, and the crawler keeps targets above its
+  own Kit and an explicit target over `writeTarget` (R10).
+- One archive isn't enough, or the extension's folder is optional: no (R9, R7).
+- The crawler may not find `extension/`: no; it walks the whole tree, so 0.2.x to 0.3.0 will be listed once the topic
+  is set (improvement 5 drops the hedges).
+- CI can't build the archives on a pull request: it can; `git archive HEAD:<path>` works on the shallow merge
+  checkout, and `release.py` is standard library under `--no-project`.
+- Also checked and held: step 10 is finish-work; the `%2B` path; the writing rules; the new door is raised under
+  Compatibility and in Q7.
+
+**Improvements.** Each is marked in the plan: taking 1, 2, 3 or 5 deletes the text that ends in its (I<n>), and
+declining 4 deletes its.
+
+| # | Improvement | Recommendation | Answer |
+|---|---|---|---|
+| 1 | Cut E2 as a run of its own: 5.1 would run three times (E2, step 2, step 10), and its case follows from K1, K7, K4 and R10 (Tests) | Take: no separate driver swap for E2; one 5.1 session at finish-work (step 10), the folder install with the target, which needs the dev server's NVIDIA driver swapped to 580 and back. Deletes (I1) | Pending the maintainer |
+| 2 | Drop the "three files byte for byte equal" check: one function makes all three, so it can't fail | Take: deletes (I2) | Pending the maintainer |
+| 3 | Drop `ci.yml`'s `extension` artifact, now that E4 builds the zip locally (P4) | Take: deletes (I3) | Pending the maintainer |
+| 4 | Step 2's live check also reads `get_sim_state` without a `note`, from the folder install: the live suites never read `extension_version` | Take: keeps (I4); declining deletes it | Pending the maintainer |
+| 5 | Remove the hedges that the crawler may not find the folder (Q1, the Design's alternatives, Risks): the old releases will be listed | Take: deletes (I5) | Pending the maintainer |
+| 6 | Before the topic, attach the crawler-named archive with the 107.0 target to v0.2.0 to v0.3.0, so the crawler lists them from assets with the floor and offers Kit 106 none | Leave: published releases stay as they are, and the old versions' listing without a floor is harmless, since Kit 106 isn't supported. Put to the maintainer as Q4 (c) | Pending the maintainer |
 
 ## Appendix: the experiment's scripts
 
-Standard library only. `local_registry.py` reads the extension folder and writes only under the registry folder; run
-it with `python -I` from the folder that holds it. `probe.py` only reads Kit's state and prints it.
+Standard library only. `local_registry.py` reads a release's zip and writes only under the registry folder; run it
+with `python -I` from the folder that holds it. `probe.py` only reads Kit's state and prints it.
 
 `local_registry.py`:
 
 ```python
-"""Build a one-extension Kit registry in a folder, shaped as the community registry's crawler writes it (#101).
+"""Build a one-extension Kit registry in a folder from a release's zip, shaped as the community crawler writes it (#101).
 
-Usage: python -I local_registry.py <extension folder> <registry folder> [--target-kit 107.0] [--repo owner/name]
+Usage: python -I local_registry.py --archive <zip> <registry folder> [--target-kit 107.0] [--repo owner/name]
+
+The zip is the release's: `git archive --format=zip --prefix=ovmcp.bridge/ HEAD:extension/ovmcp.bridge`, as
+release.yml makes it today, or `tools/release.py archives` once it exists. It is copied unchanged to
+<registry>/3/archives/<owner>-<name>-linux-x86_64-v<version>.zip; --target-kit rewrites only its
+config/extension.toml, for a tree without the target, and copies every other entry as it is. The index,
+<registry>/3/index.zip, holds one entry built from the toml, readme and images inside the zip, and the images go to
+resources/, as the crawler does. Standard library only; it reads the zip and writes only under the registry folder.
 """
 
 import argparse
@@ -363,16 +446,21 @@ import zipfile
 from pathlib import Path
 
 NAME = "ovmcp.bridge"
+TOML = f"{NAME}/config/extension.toml"
 CRAWLER_KIT = "106.4.0+release.156974.9321c814.gl"  # what the crawler's entries record today
 
 parser = argparse.ArgumentParser()
-parser.add_argument("extension", type=Path)
+parser.add_argument("--archive", type=Path, required=True)
 parser.add_argument("registry", type=Path)
 parser.add_argument("--target-kit")
 parser.add_argument("--repo", default="serionist/omniverse-mcp")
 args = parser.parse_args()
 
-toml_text = (args.extension / "config" / "extension.toml").read_text(encoding="utf-8")
+with zipfile.ZipFile(args.archive) as source:
+    outside = [n for n in source.namelist() if not n.startswith(f"{NAME}/")]
+    if outside:
+        raise SystemExit(f"entries outside {NAME}/, which Kit would name after a temp folder: {outside[:3]}")
+    toml_text = source.read(TOML).decode("utf-8")
 if args.target_kit:
     if "[package.target]" in toml_text:
         raise SystemExit("extension.toml has [package.target] already: drop --target-kit")
@@ -390,25 +478,27 @@ if root.exists():
     shutil.rmtree(root)
 (root / "archives").mkdir(parents=True)
 (root / "resources").mkdir()
-
-# The release's archive: every file of the extension under ovmcp.bridge/, as `git archive --prefix=ovmcp.bridge/`.
-with zipfile.ZipFile(root / "archives" / archive_name, "w", zipfile.ZIP_DEFLATED) as z:
-    for path in sorted(args.extension.rglob("*")):
-        rel = path.relative_to(args.extension).as_posix()
-        if path.is_file() and "__pycache__" not in rel and not rel.endswith(".pyc"):
-            data = toml_text.encode() if rel == "config/extension.toml" else path.read_bytes()
-            z.writestr(f"{NAME}/{rel}", data)
+archive = root / "archives" / archive_name
+if args.target_kit:
+    with zipfile.ZipFile(args.archive) as source, zipfile.ZipFile(archive, "w") as copy:
+        for info in source.infolist():
+            copy.writestr(info, toml_text.encode("utf-8") if info.filename == TOML else source.read(info))
+else:
+    shutil.copyfile(args.archive, archive)
+same = archive.read_bytes() == args.archive.read_bytes()
 
 # The entry, as the crawler writes one: the toml's package, the readme inlined, and its own fields.
-for key in ("readme", "changelog"):
-    if key in package and (args.extension / package[key]).is_file():
-        package[key] = (args.extension / package[key]).read_text(encoding="utf-8")
-for key in ("icon", "preview_image"):
-    if key in package and (args.extension / package[key]).is_file():
-        data = (args.extension / package[key]).read_bytes()
-        remote = f"{hashlib.md5(data).hexdigest()}{Path(package[key]).suffix}"
-        (root / "resources" / remote).write_bytes(data)
-        package[f"{key}_remote"] = f"./resources/{remote}"
+with zipfile.ZipFile(archive) as z:
+    names = set(z.namelist())
+    for key in ("readme", "changelog"):
+        if key in package and f"{NAME}/{package[key]}" in names:
+            package[key] = z.read(f"{NAME}/{package[key]}").decode("utf-8")
+    for key in ("icon", "preview_image"):
+        if key in package and f"{NAME}/{package[key]}" in names:
+            data = z.read(f"{NAME}/{package[key]}")
+            remote = f"{hashlib.md5(data).hexdigest()}{Path(package[key]).suffix}"
+            (root / "resources" / remote).write_bytes(data)
+            package[f"{key}_remote"] = f"./resources/{remote}"
 package.update(
     id=package_id,
     packageId=package_id,
@@ -437,7 +527,8 @@ buffer = io.BytesIO()
 with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
     z.writestr("index.json", json.dumps(index, indent=1))
 (root / "index.zip").write_bytes(buffer.getvalue())
-print(f"{package_id}: {root / 'index.zip'}, {root / 'archives' / archive_name}")
+print(f"{package_id}: {root / 'index.zip'}, {archive}")
+print(f"the archive is {'the zip unchanged' if same else 'the zip with only its extension.toml rewritten'}")
 print(f"registry url for Kit: {args.registry.resolve().as_posix()}")
 ```
 
@@ -447,15 +538,19 @@ print(f"registry url for Kit: {args.registry.resolve().as_posix()}")
 """Kit runs this with --exec (#101): what Kit sees of ovmcp.bridge in its registries, and where the enabled copy is."""
 
 import json
+import os
 
 import carb.settings
 import omni.kit.app
 
 manager = omni.kit.app.get_app().get_extension_manager()
-registries = carb.settings.get_settings().get("/exts/omni.kit.registry.nucleus/registries")
-print("OVMCP-PROBE registries:", json.dumps(registries, default=str))
+settings = carb.settings.get_settings()
+print("OVMCP-PROBE registries:", json.dumps(settings.get("/exts/omni.kit.registry.nucleus/registries"), default=str))
+print("OVMCP-PROBE registryCache:", settings.get("/app/extensions/registryCache"))
 enabled = manager.get_enabled_extension_id("ovmcp.bridge")
-print("OVMCP-PROBE enabled at start:", enabled, manager.get_extension_path(enabled) if enabled else None)
+path = manager.get_extension_path(enabled) if enabled else None
+# A registry install is a link in registryCache to Kit's download cache: the real path says where it came from.
+print("OVMCP-PROBE enabled at start:", enabled, path, os.path.realpath(path) if path else None)
 manager.sync_registry()
 for found in manager.fetch_extension_versions("ovmcp.bridge"):
     print("OVMCP-PROBE version:", json.dumps(found, default=str))
