@@ -15,8 +15,8 @@ from pxr import Gf, Usd, UsdGeom
 from ovmcp.core import capture
 from ovmcp.core.bounds import box_corners, center_and_size, project_in_front, screen_box, world_bbox
 from ovmcp.core.framing import apply_zoom, bounding_radius, fit_distance, inspect_args, require_perspective
-from ovmcp.core.isolation import LIGHT_TYPES, Hidden, is_light, prims_to_hide
-from ovmcp.core.lighting import camera_light_switch, current_mode
+from ovmcp.core.isolation import LIGHT_TYPES, Hidden, prims_to_hide
+from ovmcp.core.lighting import camera_light_switch, current_mode, scene_lights
 from ovmcp.core.png import encode_png, png_size
 from ovmcp.core.recording import camera_error
 from ovmcp.core.serial import LazyLock, serial
@@ -147,9 +147,9 @@ def _is_image_black(png_bytes: bytes, threshold: int = 5) -> bool:
 
 
 def _has_scene_lights() -> bool:
-    """Whether the stage has an active UsdLux light, inside an instance too: a light an instanceable reference brings,
-    such as a lamp asset's, lights the scene as much (#105, review I7)."""
-    return any(is_light(prim) for prim in Usd.PrimRange.Stage(_get_stage(), Usd.TraverseInstanceProxies()))
+    """Whether the stage has an active light of its own, inside an instance too, and not a light rig's: the get's
+    check, core's scene_lights, stopped at the first light (#117)."""
+    return next(scene_lights(_get_stage()), None) is not None
 
 
 def _scene_lights_for(lighting_mode: str, is_black: bool) -> dict[str, bool]:
@@ -850,26 +850,27 @@ async def handle_viewport_light(body: dict) -> dict:
         mode_now = _get_current_lighting_mode()
         available_modes = _get_available_lighting_modes()
 
-        # List scene lights
-        scene_lights = []
-        stage = _get_stage()
-        for prim in stage.Traverse():
-            if is_light(prim):
-                light_info = {"path": str(prim.GetPath()), "type": prim.GetTypeName()}
-                intensity_attr = prim.GetAttribute("inputs:intensity")
-                if not intensity_attr or not intensity_attr.HasValue():
-                    intensity_attr = prim.GetAttribute("intensity")
-                if intensity_attr and intensity_attr.HasValue():
-                    light_info["intensity"] = float(intensity_attr.Get())
-                scene_lights.append(light_info)
+        # The stage's own lights, never a light rig's, which lights the viewport and is gone in mode stage (#117)
+        lights = []
+        for prim in scene_lights(_get_stage()):
+            light_info = {"path": str(prim.GetPath()), "type": prim.GetTypeName()}
+            intensity_attr = prim.GetAttribute("inputs:intensity")
+            if not intensity_attr or not intensity_attr.HasValue():
+                intensity_attr = prim.GetAttribute("intensity")
+            if intensity_attr and intensity_attr.HasValue():
+                light_info["intensity"] = float(intensity_attr.Get())
+            if prim.IsInstanceProxy():
+                # USD refuses an edit to a prim inside an instance: its source holds the light.
+                light_info["in_instance"] = True
+            lights.append(light_info)
 
         return {
             "status": "success",
             "result": {
                 "lighting_mode": mode_now,
                 "available_modes": available_modes,
-                "has_scene_lights": len(scene_lights) > 0,
-                "scene_lights": scene_lights,
+                "has_scene_lights": len(lights) > 0,
+                "scene_lights": lights,
             },
         }
 
