@@ -182,7 +182,7 @@ claude -p "<prompt>"
   can leave running (I7). Stopping a tester ends its whole process tree, on Windows with `taskkill /T /F`, since
   `Popen.kill` ends only `claude.exe` and its server's call in Kit can run 120 s into the next phase; the script waits
   for it before deleting its config folder, ignoring delete errors, and starting the next session (I9).
-- **Limits.** Each session has 45 minutes, a constant set from the first full run's times (step 9). `--budget` caps the
+- **Limits.** Each session has 15 minutes, set from step 9's runs, whose longest session took 195 s. `--budget` caps the
   run's total, and each session's `--max-budget-usd` is what remains of it, summed from each session's `result` event
   (I3).
 - **The model:** the client's default, or `--model`. `run.json` records it, and `compare` names both when two runs
@@ -375,6 +375,7 @@ loading a copy of the branch's bridge from a folder of its own; Claude Code 2.1.
 | `--phases 15,20`, `20261101-033809` | 5 sessions in the order the plan resolves (setup 2.1, 4.5, 10.1; Phase 15; setup 18.1, 18.2; Phase 20; Phase 27), 224 s, $1.47; skills loaded in 4 of 5 (`scene`, `simulate`, `geometry` twice). 25 PASS, 4 FAIL, 1 WARN; `compare`: 29 new, exit 0 |
 | Every phase, `20261101-034219`, on `f3ad7c8` | Phases 1 to 15 ran: 62 PASS, 4 FAIL, 14 WARN, about 13 minutes and $5.30. In Phase 16 the run stopped, "/health has given no answer for 141 s", and 16.1 to 27.1 were NOT RUN; `compare` exited 1. Not a hang inside Kit: the tester's own `execute_script`, importing the bridge's `handle_draw_debug` and waiting on `loop.time()` across frames for 16.8, held Kit's main thread past the server's call limit; a second such script followed, and Kit answered at once afterwards. Fixed by naming the call in flight in the stop, not #54, and by the tester's rules on code (`test_project/AGENTS.md`). The phases that didn't run are being run again |
 | Phases 16 to 27 again, `20261101-040028`, on `bd5529e`, a fresh Kit | Setup 2.1 and 4.5, then phases 16 to 25: 53 PASS, 3 FAIL, 7 WARN, about 9 minutes and $3.31. Phase 16 got through. In Phase 26 a real hang: `set_camera` answered, `capture_viewport(include_image=True)` timed out, `get_logs` got no answer either, and the watch stopped the run after 141 s of silence, so 26.1, 26.2 and 27.1 were NOT RUN. A native thread dump showed Kit's main thread in NVIDIA's driver (`DrvPresentBuffers` in `nvoglv64.dll`, under `carb.graphics-vulkan` and `carb.scenerenderer-rtx`), #54's kind; Kit was killed. The live proof that the watch ends a real hang. Replayed through `stop_message`, its stop now reads "..., while `get_logs` ran, after `capture_viewport` timed out: a script holding Kit's main thread, or a hang inside Kit" |
+| The tester's rules, `--phases 5-7,10,15-17,26`, `20261101-041353`, on `386baab`, a fresh Kit | The phases whose testers had waited inside scripts, under the new rules, and 26, which the hang cut off: 11 sessions, all run, about 12 minutes and $4.94; 38 PASS, 7 FAIL, 7 WARN, 1 SKIP. No script slept, waited for frames or imported `ovmcp.*` (10.3 measured its 2 s with `get_sim_state`); 16.9 was SKIPped for its `ovmcp` import; each session's files sat in `mcp_output/<session>/`. But 16.8 wrote its five draw-and-capture rounds out line by line in one script, six `await mcp.capture_viewport()` calls, which kept to the letter of the rule and not its point; the rule now allows at most one `await mcp.<handler>(...)` in a script, in a loop or written out |
 
 **Phase 16 asks for such code itself:** 16.8's second Verify line wants the drawing drawn and captured five times "in
 one `execute_script` (`draw_debug`'s handler, then `mcp.capture_viewport()`)", and 16.9 gives an import of
@@ -384,8 +385,10 @@ one `execute_script` (`draw_debug`'s handler, then `mcp.capture_viewport()`)", a
 
 **A tester's judgement moves between runs:** `compare` counted 15.1 to 15.3 and 15.5 as fixed, FAIL to WARN, between
 runs `20261101-033809` and `20261101-034219`, though the tools' answers were the same; two testers judged them
-differently. A known limit of an AI tester: `compare` now lists FAIL to WARN under other changes, and the skill reads
-the answers in the transcripts before calling a change a fix or a regression.
+differently. The rules run moved them back to FAIL, and `compare` listed that as three regressions, again with the
+same answers; 5.2 went PASS to WARN on the same reading of `step`. A known limit of an AI tester: `compare` lists
+FAIL to WARN under other changes, and its exit 1 alone proves nothing before a release. The skill reads each
+regression's answer in both runs' transcripts before calling it one.
 
 The FAILs and the WARN are findings about the tools' answers or stale Verify lines, which follow-up issues take, not
 this change: `set_physics_properties` answers `Physics on /World/RedCube: MassAPI` (or `PhysicsMaterial`) with no

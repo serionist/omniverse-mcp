@@ -60,7 +60,9 @@ PLUGIN_NAME = "omniverse-mcp"
 PROBE_SECONDS = 20.0
 PROBE_EVERY = 30.0
 SILENCE_LIMIT = 140.0
-SESSION_SECONDS = 45 * 60  # a session's limit; the plan sets it again from the first full run's times
+# A session's limit, for a tester that runs on: step 9's longest session took 195 s, and the /health watch, not this,
+# catches a Kit that hangs.
+SESSION_SECONDS = 15 * 60
 
 START_HINT = (
     "A run needs a Kit app without its window on that port, with this checkout's bridge: "

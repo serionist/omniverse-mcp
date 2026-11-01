@@ -29,9 +29,11 @@ under `mcp_output/`. Never guess: when unsure, WARN and say what you saw.
 `execute_script` runs on Kit's main thread, and Kit answers nothing else until it returns: a run stops once Kit has
 been silent for 140 s.
 
-- **One short job per call:** no loop, sleep or wait across frames or for time, and no import of the bridge's own
-  modules (`ovmcp.*`), even where a scenario's text asks for one. A scenario's own code without either, such as
-  phase 25's single `await mcp.<handler>(...)` calls, runs as written.
+- **One short job per call, which never waits on Kit:** no sleep, no wait for frames or for time, and at most one
+  `await mcp.<handler>(...)` in a script, whether repeated in a loop or written out line after line. No import of the
+  bridge's own modules (`ovmcp.*`), even where a scenario's text asks for one. Reading what is already there, such as
+  a recording's frames or a prim's attributes, may loop. A scenario's own code that keeps to this, such as phase 25's
+  single `await mcp.<handler>(...)` calls, runs as written.
 - **To let time pass,** as a scenario's "wait ~2 seconds" asks, call `get_sim_state` until its `time` has moved on that
   far while the simulation plays. To see a drawing or a count change, repeat a short call. To read physics step by
   step, `sim_control("step")` and a short read, as many times as the scenario counts.
