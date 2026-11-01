@@ -23,6 +23,7 @@ project. Their `allowed-tools` lines are Claude Code's, and other clients ignore
 | [geometry](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/geometry/SKILL.md) | face counts, comparing prims and variants, variant sets, flattening and exports |
 | [simulate](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/simulate/SKILL.md) | physics, robots, forces, recording a run |
 | [script](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/script/SKILL.md) | `execute_script`, and the traps of Kit's Python |
+| [report-bug](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/report-bug/SKILL.md) | a tool that fails or answers wrongly: asks first, then files a bug report with `gh` on the user's yes, or drafts it for them to post |
 
 Every tool, with its parameters and hints, is in [TOOLS.md](https://github.com/serionist/omniverse-mcp/blob/main/docs/TOOLS.md).
 
@@ -42,3 +43,20 @@ move only while physics plays.
 - **Look Kit APIs up before scripting:** before writing `execute_script` code, use Context7 (library
   `isaac-sim/isaacsim`) or NVIDIA's documentation for the app's version. Models are not trained on these APIs.
 - **When a tool fails,** `get_logs(min_level="warn")` shows what the Kit app reported.
+- **When a tool misbehaves** (an error its arguments don't explain, a wrong answer, a hang), say it looks like a bug
+  in omniverse-mcp and ask the user first, before gathering anything, which they want:
+  - you file it with `gh issue create --repo serionist/omniverse-mcp`, which needs the GitHub CLI installed and
+    signed in (`gh auth status`; else https://cli.github.com, then `gh auth login`), posting only on their yes to the
+    draft;
+  - you write the draft, to a file they name or in the chat, and they post it on the
+    [bug form](https://github.com/serionist/omniverse-mcp/issues/new?template=bug_report.yml) themselves;
+  - no report, and you don't ask again about that bug.
+
+  A report holds the Kit app and version, the OS and the client; `server_version` and `extension_version` from
+  `get_sim_state`; the exact call and its arguments, what came back and what was expected;
+  `get_logs(min_level="warn")`'s lines around it, without tokens or personal paths. A security hole, such as a way
+  past the token, a file written outside its path or a secret in a log, goes to the
+  [private report](https://github.com/serionist/omniverse-mcp/security/advisories/new) instead, never to an issue
+  ([What counts](https://github.com/serionist/omniverse-mcp/blob/main/SECURITY.md#what-counts)). The
+  [report-bug](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/report-bug/SKILL.md) skill has
+  the steps.
