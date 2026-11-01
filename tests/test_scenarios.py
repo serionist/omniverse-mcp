@@ -119,7 +119,8 @@ result = sorted(str(p.GetPath()) for p in Usd.PrimRange(stage.GetPrimAtPath(ROOT
 
 # 15.2c's prims (#113), none of them bodies: a box in env_0 that env_1 inherits, as Isaac Sim's cloner makes clones,
 # and a box bound to the material an extension of 0.3.0 or older gave it. Then what the extension's walk would note on
-# this stage, the first inactive prim or unloaded payload, and what /World/PhysicsMaterials holds.
+# this stage, the first prim under which it can't see (an inactive one with something under it, an unloaded payload,
+# variant sets), and what /World/PhysicsMaterials holds.
 CLONE_SCENE = """
 from pxr import Usd, UsdGeom, UsdPhysics, UsdShade
 stage = omni.usd.get_context().get_stage()
@@ -131,14 +132,16 @@ UsdPhysics.CollisionAPI.Apply(old_box)
 old = UsdShade.Material.Define(stage, OLD)
 UsdPhysics.MaterialAPI.Apply(old.GetPrim()).CreateStaticFrictionAttr().Set(0.7)
 UsdShade.MaterialBindingAPI.Apply(old_box).Bind(old, UsdShade.Tokens.weakerThanDescendants, "physics")
-unseen = next(
-    (
-        str(p.GetPath())
-        for p in Usd.PrimRange.Stage(stage, Usd.PrimAllPrimsPredicate)
-        if not p.IsActive() or (p.HasAuthoredPayloads() and not p.IsLoaded())
-    ),
-    None,
-)
+
+
+def hides(p):
+    if not p.IsActive():
+        # An inactive leaf, with no children in its specs, no payload and no variants, hides nothing.
+        return p.HasAuthoredPayloads() or p.HasVariantSets() or any(len(s.nameChildren) for s in p.GetPrimStack())
+    return (p.HasAuthoredPayloads() and not p.IsLoaded()) or p.HasVariantSets()
+
+
+unseen = next((str(p.GetPath()) for p in Usd.PrimRange.Stage(stage, Usd.PrimAllPrimsPredicate) if hides(p)), None)
 result = {"unseen": unseen, "folder": list(stage.GetPrimAtPath("/World/PhysicsMaterials").GetAllChildrenNames())}
 """
 

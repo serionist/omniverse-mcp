@@ -416,9 +416,38 @@ def test_the_walk_reads_the_all_purpose_binding_and_the_physics_one(physics_stag
 
 
 def test_the_walk_notes_an_inactive_prim(physics_stage):
+    UsdGeom.Cube.Define(physics_stage, "/World/Other/Lid")
     physics_stage.GetPrimAtPath("/World/Other").SetActive(False)
 
     assert walk_bindings(physics_stage).unseen == "/World/Other is inactive, so a prim under it could bind it"
+
+
+def test_the_walk_passes_an_inactive_leaf(physics_stage):
+    # Kit deactivates a prim it deletes where it can't remove the spec; with nothing under it, it hides nothing (I1).
+    physics_stage.GetPrimAtPath("/World/Other").SetActive(False)
+
+    assert walk_bindings(physics_stage).unseen is None
+
+
+def test_the_walk_notes_an_inactive_prim_whose_children_a_reference_brings(physics_stage):
+    asset = Usd.Stage.CreateInMemory("asset.usda")
+    UsdGeom.Cube.Define(asset, "/Root/Box")
+    asset.SetDefaultPrim(asset.GetPrimAtPath("/Root"))
+    held = physics_stage.DefinePrim("/World/Held")
+    held.GetReferences().AddReference(asset.GetRootLayer().identifier)
+    held.SetActive(False)
+
+    assert walk_bindings(physics_stage).unseen == "/World/Held is inactive, so a prim under it could bind it"
+
+
+def test_the_walk_notes_variant_sets(physics_stage):
+    # A binding in a variant not selected isn't on the stage to walk (review E4).
+    looks = physics_stage.GetPrimAtPath("/World/Other").GetVariantSets().AddVariantSet("grip")
+    looks.AddVariant("soft")
+
+    assert walk_bindings(physics_stage).unseen == (
+        "/World/Other has variant sets, so a prim in a variant not selected could bind it"
+    )
 
 
 def test_the_walk_notes_an_unloaded_payload(physics_stage):
@@ -584,11 +613,28 @@ def test_the_folder_stays_while_another_layer_holds_it(old_stage):
 
 
 def test_an_inactive_prim_keeps_the_material(old_stage):
+    UsdGeom.Cube.Define(old_stage, "/World/Other/Lid")
     old_stage.GetPrimAtPath("/World/Other").SetActive(False)
 
     assert _drop(old_stage) == {
         "path": OLD,
         "kept": "/World/Other is inactive, so a prim under it could bind it",
+    }
+
+
+def test_a_binding_in_a_variant_not_selected_keeps_the_material(old_stage):
+    # Deleted, the switch back to the soft grip left a binding to nothing (review E4).
+    grip = old_stage.GetPrimAtPath("/World/Other").GetVariantSets().AddVariantSet("grip")
+    for name in ("soft", "hard"):
+        grip.AddVariant(name)
+    grip.SetVariantSelection("soft")
+    with grip.GetVariantEditContext():
+        _bind(old_stage.GetPrimAtPath("/World/Other"), old_stage.GetPrimAtPath(OLD))
+    grip.SetVariantSelection("hard")
+
+    assert _drop(old_stage) == {
+        "path": OLD,
+        "kept": "/World/Other has variant sets, so a prim in a variant not selected could bind it",
     }
 
 

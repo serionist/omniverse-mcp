@@ -215,10 +215,39 @@ def own_physics_material(stage: Usd.Stage, prim: Usd.Prim) -> Usd.Prim:
     return material
 
 
-def _is_binding(name: object) -> bool:
-    # A property name, which the stubs type as a str or an Ar.ResolvedPath.
-    text = str(name)
-    return text == _BINDING or text.startswith(f"{_BINDING}:")
+def _binding_relationships(prim: Usd.Prim) -> list[Usd.Relationship]:
+    """prim's binding relationships: the all-purpose material:binding, and material:binding:* of every purpose and
+    collection. One read of the material namespace, which holds both, in C++: a Python test of each authored
+    property's name made the walk grow with a mesh's 10 to 30 properties (review E2)."""
+    return [
+        prop
+        for prop in prim.GetAuthoredPropertiesInNamespace("material")
+        if isinstance(prop, Usd.Relationship) and _is_binding(prop.GetName())
+    ]
+
+
+def _is_binding(name: str) -> bool:
+    return name == _BINDING or name.startswith(f"{_BINDING}:")
+
+
+def _unseen(prim: Usd.Prim) -> str | None:
+    """Why prims the walk can't reach under prim could bind a material, or None: an inactive prim's children and an
+    unloaded payload's aren't on the stage, nor are the prims of a variant not selected (review E4)."""
+    path = prim.GetPath()
+    if not prim.IsActive():
+        # Kit deactivates a prim it deletes where it can't remove the spec: a leaf with no children in any of its
+        # specs, no payload and no variants hides nothing, and one such leaf would keep every old material (review I1).
+        hides = (
+            prim.HasAuthoredPayloads()
+            or prim.HasVariantSets()
+            or any(len(spec.nameChildren) > 0 for spec in prim.GetPrimStack())
+        )
+        return f"{path} is inactive, so a prim under it could bind it" if hides else None
+    if prim.HasAuthoredPayloads() and not prim.IsLoaded():
+        return f"the payload of {path} isn't loaded, so a prim in it could bind it"
+    if prim.HasVariantSets():
+        return f"{path} has variant sets, so a prim in a variant not selected could bind it"
+    return None
 
 
 @dataclass(frozen=True)
@@ -232,27 +261,20 @@ class Bindings:
 
 
 def walk_bindings(stage: Usd.Stage) -> Bindings:
-    """Every prim's binding relationships, of every purpose and collection, the all-purpose one included, which
-    GetAuthoredPropertiesInNamespace leaves out. Instance proxies and prototypes aren't walked, an instance's own
-    binding is. An inactive prim's children and an unloaded payload's aren't on the stage to walk, so the first of
-    each is noted."""
+    """Every prim's binding relationships, of every purpose and collection, the all-purpose one included. Instance
+    proxies and prototypes aren't walked, an instance's own binding is. What the walk can't reach is noted, the
+    first of it (_unseen)."""
     binders: dict[Sdf.Path, list[Sdf.Path]] = {}
     ghosts: set[Sdf.Path] = set()
     unseen: str | None = None
     for prim in Usd.PrimRange.Stage(stage, Usd.PrimAllPrimsPredicate):
-        active = prim.IsActive()
         if unseen is None:
-            if not active:
-                unseen = f"{prim.GetPath()} is inactive, so a prim under it could bind it"
-            elif prim.HasAuthoredPayloads() and not prim.IsLoaded():
-                unseen = f"the payload of {prim.GetPath()} isn't loaded, so a prim in it could bind it"
-        for prop in prim.GetAuthoredProperties(_is_binding):
-            if not isinstance(prop, Usd.Relationship):
-                continue
-            targets = [target for target in prop.GetTargets() if target.IsPrimPath()]
+            unseen = _unseen(prim)
+        for rel in _binding_relationships(prim):
+            targets = [target for target in rel.GetTargets() if target.IsPrimPath()]
             for target in targets:
                 binders.setdefault(target, []).append(prim.GetPath())
-            if targets and not (active and prim.IsDefined() and not prim.IsAbstract()):
+            if targets and not (prim.IsActive() and prim.IsDefined() and not prim.IsAbstract()):
                 ghosts.add(prim.GetPath())
     return Bindings(binders, ghosts, unseen)
 

@@ -63,7 +63,7 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   changes so: `also changes 3 prims: ...`. A prim bound to such a shared material moves to its own on its next call,
   with the values it had; the shared one stays for the prims still bound to it, and the call that moves the last of
   them deletes it, or says why it stays. An instance, which can hold no child, is refused. The answer names the
-  material: `material /World/Cube/PhysMat`. Each call with friction or restitution reads the whole stage, about 0.35 s
+  material: `material /World/Cube/PhysMat`. Each call with friction or restitution reads the whole stage, about 1 s
   per 100,000 prims. The material is the Kit extension's part: run `uvx omniverse-mcp extension install`, then
   restart Kit; the answer's clauses need this server too (#113).
 - **`compare_prims` gives no percentage from 0 faces,** where it said `+0%`, and each delta its own sign, where a

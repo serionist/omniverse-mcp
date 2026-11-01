@@ -166,7 +166,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         them, follows the source's material until a call on the clone, and the answer names the prims a call changes
         so. An instance can hold no material of its own and is refused. A prim on an older extension's shared
         /World/PhysicsMaterials/<prim name>_PhysMat moves to its own, and the call that moves the last prim off it
-        deletes it. A call with friction or restitution reads the whole stage, about 0.35 s per 100,000 prims. The
+        deletes it. A call with friction or restitution reads the whole stage, about 1 s per 100,000 prims. The
         answer gives each value set, the material and the APIs applied. For the prim's look, use set_material; to make
         a new prim physical in one call, create_prim with enable_physics.
         """

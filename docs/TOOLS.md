@@ -975,8 +975,9 @@ Set a prim's mass or density, and its friction or restitution, for PhysX; a valu
   the answer says which. A material under any other path, a user's own, is never deleted. With an extension of 0.3.0
   or older, a value left out on a new material is USD's 0, and a material bound before is replaced with all it held.
 - **The walk:** a call with friction or restitution reads every prim's material bindings, on Kit's main thread, to
-  find the other prims the write reaches and whether the older material may go: about 0.35 s per 100,000 prims on
-  usd-core. It doesn't enter instances: a prim in an instance's prototype that binds the material isn't named.
+  find the other prims the write reaches and whether the older material may go: about 1 s per 100,000 prims on
+  usd-core, whatever their number of properties. It doesn't enter instances: a prim in an instance's prototype that
+  binds the material isn't named.
 
 **Returns:** each value set, as the Kit extension set it, then the material bound, then the APIs applied:
 `Physics on /World/RedCube: friction=0.8 (static and dynamic), restitution=0.3; material /World/RedCube/PhysMat;
