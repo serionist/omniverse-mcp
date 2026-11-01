@@ -1121,6 +1121,8 @@ extension started, into a ring of the latest 2000 entries.
 - **What Kit's file holds:** Info and above by default, from `carb.log_*()`, Python `logging` and Kit's own
   extensions. Verbose lines need Kit started with both `--/log/level=verbose` and `--/log/fileLogLevel=verbose`.
   A Kit app whose `/log/file` setting is empty gets an error naming `--/log/file=<path>`.
+- **What it never holds:** an `execute_script` script's own exception, `print` and stderr, which come back in
+  that call's answer instead. A script's `carb.log_error()` and the other `carb.log_*()` calls do reach it.
 - **Kit's default line format:** `<time> [<elapsed>] [<Level>] [<channel>] <message>`. A `/log/include*` or
   `/log/detail` setting can change it; when Kit has written lines and none reads as an entry, the answer says
   so instead of coming back empty.

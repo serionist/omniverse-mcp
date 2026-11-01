@@ -103,7 +103,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         level, channel or text.
 
         Kit's file holds Info and above by default; verbose lines need Kit started with both --/log/level=verbose and
-        --/log/fileLogLevel=verbose.
+        --/log/fileLogLevel=verbose. A script's own exception, print and stderr come back in execute_script's answer
+        and never reach Kit's log; carb.log_error and the other carb.log_* calls in a script do.
         """
         resp = bridge_call(client.get_logs, count, min_level, channel, None, search)
         r = resp["result"]
