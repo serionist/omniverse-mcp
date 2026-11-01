@@ -235,7 +235,7 @@ def test_the_tester_command_is_the_one_step_2_proved(tmp_path):
         "--permission-mode dontAsk",
         "--allowedTools mcp__omniverse Read Grep Glob Skill(omniverse-mcp:geometry) Skill(omniverse-mcp:scene) "
         "Skill(omniverse-mcp:script) Skill(omniverse-mcp:setup) Skill(omniverse-mcp:simulate) --output-format",
-        "--output-format stream-json --verbose",
+        "--output-format stream-json --verbose --no-session-persistence",
         "--max-budget-usd 1.50",
         "--model opus",
     ):
@@ -541,7 +541,7 @@ def test_the_stop_names_the_call_in_flight_and_the_one_that_timed_out():
 
 
 def stream(*events):
-    """Stream lines for _read_event: (kind, part) pairs, an init event first unless one is given."""
+    """Stream lines for _read_event, one per (kind, part) pair, and nothing else: no init event unless one is given."""
     return [json.dumps({"type": kind, "message": {"content": [part]}}) for kind, part in events]
 
 
@@ -660,7 +660,7 @@ def test_a_stopped_session_counts_its_whole_allowance_and_its_cost_as_unknown(su
 
     records, _ = scenarios.run_sessions(suite, scenarios.plan(suite, {1, 2}), tmp_path, 8212, launch, lambda: None, 1.0)
     assert budgets == [1.0]
-    assert "budget" in records[1].stopped
+    assert records[1].stopped == "not run: the budget may be spent: phase-01's cost is unknown"
     record = {"sessions": [asdict(r) for r in records]}
     assert "cost unknown for phase-01" in scenarios.results_md(record)
 
@@ -849,8 +849,15 @@ def test_a_run_cut_short_gives_its_lock_back_and_writes_what_ran(run_command, mo
         scenarios.main(["run", "--phases", "1"])
     (run_dir,) = [p for p in runs.iterdir() if p.is_dir()]
     assert not scenarios.lock_path(runs, 8212).exists()
-    assert [s["label"] for s in json.loads((run_dir / "run.json").read_text(encoding="utf-8"))["sessions"]] == [
-        "phase-01"
+    # Not a run that finished (round 2, F10): the cut session and every later one say so, and their rows aren't run.
+    record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    sessions = {s["label"]: s for s in record["sessions"]}
+    assert (sessions["phase-01"]["stopped"], sessions["phase-01"]["cost_known"]) == ("cut short", False)
+    assert sessions["phase-27"]["stopped"] == "not run: the run was cut short"
+    assert [(r["id"], r["status"]) for r in record["rows"]] == [
+        ("1.1", scenarios.NOT_RUN),
+        ("1.2", scenarios.NOT_RUN),
+        ("27.1", scenarios.NOT_RUN),
     ]
 
 

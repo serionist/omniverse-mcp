@@ -455,6 +455,8 @@ def tester_command(
         "--output-format",
         "stream-json",
         "--verbose",
+        # Each session's working folder would otherwise become a project of its own in ~/.claude/projects.
+        "--no-session-persistence",
     ]
     if budget_left is not None:
         cmd += ["--max-budget-usd", f"{budget_left:.2f}"]
@@ -927,12 +929,22 @@ def run_sessions(
     rows = [] if rows is None else rows
     spent = 0.0
     halt = ""
-    for session in sessions:
+    unknown: list[str] = []  # the sessions whose cost is unknown, counted at their whole allowance
+
+    def not_run(session: Session, note: str) -> None:
+        for sid in session.ids:
+            scenario = suite.scenario(sid)
+            row = Row(sid, scenario.title if scenario else "", NOT_RUN, note, session.label, session.kind == "setup")
+            statuses[sid] = row.status
+            rows.append(row)
+
+    for index, session in enumerate(sessions):
         record = SessionRecord(session.label, session.kind, session.phase, list(session.ids), session.new_stage)
         records.append(record)
         left = None if budget is None else budget - spent
         if not halt and left is not None and left <= 0:
-            halt = f"the budget of ${budget:.2f} is spent"
+            known = f"the budget of ${budget:.2f} is spent"
+            halt = f"the budget may be spent: {', '.join(unknown)}'s cost is unknown" if unknown else known
         if not halt:
             try:
                 settle()
@@ -942,9 +954,22 @@ def run_sessions(
             record.stopped = f"not run: {halt}"
             found: dict[str, Row] = {}
         else:
-            outcome = launch(session, prompt(suite, session, statuses, run_dir, port), left)
+            try:
+                outcome = launch(session, prompt(suite, session, statuses, run_dir, port), left)
+            except BaseException:
+                # An interrupt or an error: the record says so, rather than reading as a run that finished.
+                record.stopped, record.cost_known = "cut short", False
+                not_run(session, "the run was cut short")
+                for later in sessions[index + 1 :]:
+                    skipped = SessionRecord(later.label, later.kind, later.phase, list(later.ids), later.new_stage)
+                    skipped.stopped = "not run: the run was cut short"
+                    records.append(skipped)
+                    not_run(later, "the run was cut short")
+                raise
             # A stopped tester sends no result event: count what it was allowed to spend, so --budget stays a cap.
             spent += outcome.cost if outcome.cost_known else (left or 0.0)
+            if not outcome.cost_known:
+                unknown.append(session.label)
             record.started, record.ended, record.seconds = outcome.started, outcome.ended, outcome.seconds
             record.exit, record.cost, record.cost_known = outcome.exit, outcome.cost, outcome.cost_known
             record.turns, record.tokens, record.model = outcome.turns, outcome.tokens, outcome.model
