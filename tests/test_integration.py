@@ -212,8 +212,9 @@ result = timeline.get_current_time()
 """
 
 # Kit's metrics assembler resolving PATH into an anonymous layer of its own, as #112's probe did, so neither the robot's
-# file nor the stage's layer is written: PATH's ops and scale, and the values NAMES lists, before and after. None
-# without the assembler.
+# file nor the stage's layer is written: PATH's ops and scale, and the values NAMES lists, before and after, and which
+# of them Kit wrote into its layer. That layer is weaker than the stage's, which holds create_robot's converted values,
+# so only its specs show whether Kit converted one again. None without the assembler.
 _RESOLVE_UNITS = """
 try:
     from omni.metrics.assembler.core import get_metrics_assembler_interface
@@ -244,7 +245,8 @@ else:
         assembler.resolve_hierarchy(context.get_stage_id(), PATH)
     finally:
         assembler.set_resolve_layer(None)
-    result = {"before": before, "after": read()}
+    written = [path + "." + name for path, name in NAMES if layer.GetAttributeAtPath(path + "." + name) is not None]
+    result = {"before": before, "after": read(), "written": written}
 """
 
 # The live tests of the bounded capture waits (#27, #35) change Kit through execute_script, which is not behind the
@@ -1780,9 +1782,9 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         return last
 
     def _kit_leaves_the_force_arm(self, path: str) -> None:
-        """Kit's metrics assembler, resolving the robot on the centimetre stage, adds no op and changes none of the
-        values create_robot converted (P5). It does convert the acceleration drive's gains, by its table, which
-        create_robot leaves: printed, not checked."""
+        """Kit's metrics assembler, resolving the robot on the centimetre stage, adds no op and writes none of the
+        values create_robot converted into its layer (P5). It does convert the acceleration drive's gains, by its
+        table, which create_robot leaves: printed, not checked."""
         names = [
             (f"{path}/Base", "physics:diagonalInertia"),
             (f"{path}/Force", "physics:density"),
@@ -1802,6 +1804,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(after["scale"], [100.0, 100.0, 100.0], resolved)
         for prim, name in names:
             key = f"{prim}.{name}"
+            self.assertNotIn(key, resolved["written"], resolved)
             self.assertEqual(after["values"][key], before["values"][key], key)
         key = ".".join(acceleration)
         print(
