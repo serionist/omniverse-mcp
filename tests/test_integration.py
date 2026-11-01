@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pxr import Sdf
 
 from omniverse_mcp.client import BridgeClient
 from ovmcp.core import capture
@@ -1717,12 +1718,26 @@ omni.usd.__dict__.pop("_ovmcp_test_held", None)
 result = "released"
 """
 
+# What Kit's session layer makes of the open stage, with SUN bound before it: the light rig's lights, SUN's visibility,
+# and whether the session layer holds an opinion on it, as a light mode such as Default authors them (#118).
+_SESSION_STATE = """
+import omni.usd
+from pxr import UsdGeom
+stage = omni.usd.get_context().get_stage()
+result = {
+    "rig": bool(stage.GetPrimAtPath("/OmniKit_Viewport_LightRig/Lights/DomeLight")),
+    "sun": str(UsdGeom.Imageable(stage.GetPrimAtPath(SUN)).ComputeVisibility()),
+    "sun_in_session": bool(stage.GetSessionLayer().GetAttributeAtPath(SUN + ".visibility")),
+}
+"""
+
 
 class TestFlattenAndExportKeepTheOpenStage(unittest.TestCase):
     """flatten_usd and export_prim_as_file against the open stage's own file (#81): both cleared the layer Kit held
-    for their paths, so a flatten of the open stage's file emptied the open scene. Each test opens a stage of its own,
-    a copy of the one before saved to a file: the class runs after TestIsaacSimIntegration, and its last copy stays
-    open, so later tests find the stage much as it was."""
+    for their paths, so a flatten of the open stage's file emptied the open scene. And against Kit's session layer,
+    which both wrote into their files (#118). Each test opens a stage of its own, a copy of the one before saved to a
+    file: the class runs after TestIsaacSimIntegration, and its last copy stays open, so later tests find the stage
+    much as it was."""
 
     CUBE = "/World/IntTestFlatCube"
     UNSAVED = "/World/IntTestUnsaved"
@@ -1777,6 +1792,45 @@ class TestFlattenAndExportKeepTheOpenStage(unittest.TestCase):
         self.assertIn("IntTestFlatCube", text)
         self.assertIn("IntTestUnsaved", text, "the flatten left out the open stage's unsaved edit")
         print(f"  Flattened {self.scene.name}: the open stage kept {self.CUBE} and its unsaved {self.UNSAVED}")
+
+    def test_a_flatten_and_an_export_in_mode_default_leave_out_kits_session_layer(self):
+        # Mode Default puts Kit's light rig in the session layer and hides the stage's own lights there: a flatten
+        # wrote both into its file, lit by the rig with its own lights off, and an export the hiding (#118).
+        lamp = "/World/IntTestFlatLamp"
+        sun = f"{lamp}/Sun"
+        self.addCleanup(self.client.delete_prim, lamp)
+        for path, kind in ((lamp, "Xform"), (sun, "DistantLight")):
+            self.assertEqual(self.client.create_prim(path, kind)["status"], "success")
+        found = self.client.viewport_light("get")["result"]["lighting_mode"]
+        self.addCleanup(self.client.viewport_light, "set", mode=found)
+        # Through stage, so Kit hides the new light even when it found Default.
+        for mode in ("stage", "Default"):
+            self.assertEqual(self.client.viewport_light("set", mode=mode)["status"], "success")
+        session = self._run(_SESSION_STATE, SUN=sun)
+        self.assertEqual(session, {"rig": True, "sun": "invisible", "sun_in_session": True}, "Kit's Default moved")
+
+        before = self.scene.read_bytes()
+        flat, exported = self.folder / "flat.usda", self.folder / "lamp.usda"
+        for name, result, out, light in (
+            ("flatten_usd", self.client.flatten_usd(str(flat)), flat, sun),
+            ("export_prim_as_file", self.client.export_prim(lamp, str(exported)), exported, "/IntTestFlatLamp/Sun"),
+        ):
+            with self.subTest(name):
+                self.assertEqual(result["status"], "success", result.get("error"))
+                layer = Sdf.Layer.OpenAsAnonymous(str(out))
+                text = layer.ExportToString()
+                self.assertNotIn("OmniKit_Viewport_LightRig", text, "the light rig was written")
+                self.assertNotIn("OmniverseKit_Persp", text, "Kit's own camera was written")
+                self.assertTrue(layer.GetPrimAtPath(light), "the stage's own light is missing")
+                self.assertFalse(layer.GetAttributeAtPath(f"{light}.visibility"), "Kit's hiding of it was written")
+        rig = self.client.export_prim("/OmniKit_Viewport_LightRig", str(self.folder / "rig.usda"))
+        self.assertEqual(rig["status"], "error", rig)
+        self.assertIn("comes from Kit's session layer", rig["error"])
+        self.assertEqual(self._run(_SESSION_STATE, SUN=sun), session, "Kit's session layer changed")
+        self._assert_stage_intact(before)
+        print(
+            "  In mode Default, flatten_usd and export_prim_as_file wrote no rig and no hiding; the rig's export erred"
+        )
 
     def test_the_open_stages_own_file_is_refused_as_an_output(self):
         # Kit resolves a path its own way, so the file is named as given, with forward slashes, and, where the file
