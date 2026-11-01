@@ -15,7 +15,7 @@ import carb
 import omni.kit.app
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics
 
-from ovmcp.core.protocol import PROTOCOL, extension_version
+from ovmcp.core.protocol import PROTOCOL, extension_version, kit_app
 
 from ._utils import _get_stage, _next_update
 
@@ -38,6 +38,7 @@ async def handle_health(_body: dict) -> dict:
             "recording_active": recording_active(),
             "protocol": PROTOCOL,
             "extension_version": extension_version(),
+            **kit_app(),
         },
     }
 

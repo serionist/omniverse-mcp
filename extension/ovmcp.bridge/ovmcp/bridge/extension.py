@@ -11,9 +11,10 @@ import asyncio
 
 import carb
 import omni.ext
+import omni.kit.app
 
 from ovmcp.core.http import LOOPBACK_HOSTS, BridgeServer
-from ovmcp.core.protocol import EXTENSION_NAME, set_extension_version, version_from_ext_id
+from ovmcp.core.protocol import EXTENSION_NAME, kit_app_facts, set_extension_version, set_kit_app, version_from_ext_id
 from ovmcp.core.token import new_token, remove_token, write_token
 
 from .handlers import (
@@ -83,6 +84,7 @@ class Extension(omni.ext.IExt):
     def on_startup(self, ext_id: str):
         self._server = None
         set_extension_version(version_from_ext_id(ext_id))
+        set_kit_app(kit_app_facts(omni.kit.app.get_app()))
         settings = carb.settings.get_settings()
         prefix = f"/exts/{EXTENSION_NAME}"
         self._host = settings.get(f"{prefix}/host") or "127.0.0.1"

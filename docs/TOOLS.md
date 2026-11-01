@@ -838,6 +838,11 @@ Get the current simulation state. No parameters.
 - `fps` - the timeline's time codes per second, not the render rate
 - `prim_count` - Total number of prims in the scene
 - `meters_per_unit` - Stage scale factor
+- `kit_app` - the Kit app and its version, such as `Isaac-Sim Python 6.2.0`
+- `kit_version` - Kit's own version, such as `110.4.0+feature.386251.187cf21b.gl`
+- `kit_os` - the OS Kit runs on, as Python's `platform.platform()` names it there, such as `Windows-11-10.0.26300-SP0`;
+  on Linux the kernel and glibc, not the distribution
+  (the three read `unknown` with an extension of 0.3.0 or older: a bug report then asks the user, Help > About)
 - `extension_version`, `server_version` - the Kit extension's release, from the bridge's handshake, and this server's
 - `recording_note` - only while a recording runs whose frames stopped early: why
 - `note` - only when the bridge's release differs from the server's: the command that installs the matching one

@@ -22,6 +22,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   `get_sim_state`'s two versions, the exact call and what came back, and Kit's warnings, any token and personal path
   taken out; it is posted only on your yes to the draft. In Claude Code the plugin's `/omniverse-mcp:report-bug`
   takes it step by step, and looks for the same issue first (#109).
+- **`get_sim_state` names the Kit app, its version and Kit's, and the OS Kit runs on:** `kit_app = Isaac-Sim Python
+  6.2.0`, `kit_version = 110.4.0+...`, `kit_os = Windows-11-...`. A bug report your assistant drafts takes them from
+  there. They come from the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit; until then
+  they read `unknown`, and the assistant asks you (#105).
 
 ### Fixed
 

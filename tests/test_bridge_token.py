@@ -1,5 +1,6 @@
 """The token file and the protocol constant: what the extension writes, the MCP server reads."""
 
+import platform
 import sys
 import tomllib
 
@@ -102,3 +103,53 @@ def test_extension_toml_uses_the_extension_name_everywhere():
 )
 def test_version_from_ext_id(ext_id, version):
     assert ext_protocol.version_from_ext_id(ext_id) == version
+
+
+# ---- the Kit app the bridge runs in, for get_sim_state and a bug report (#105) ----
+
+
+class _App:
+    """omni.kit.app's IApp, as #105's probe read it on Isaac Sim 6.2 headless."""
+
+    def get_app_name(self) -> str:
+        return "Isaac-Sim Python"
+
+    def get_app_version(self) -> str:
+        return "6.2.0"
+
+    def get_kit_version(self) -> str:
+        return "110.4.0+feature.386251.187cf21b.gl"
+
+
+def test_the_kit_app_s_facts_are_its_getters_and_python_s_os():
+    assert ext_protocol.kit_app_facts(_App()) == {
+        "kit_app_name": "Isaac-Sim Python",
+        "kit_app_version": "6.2.0",
+        "kit_version": "110.4.0+feature.386251.187cf21b.gl",
+        "kit_os": platform.platform(),
+    }
+
+
+def test_a_getter_that_raises_or_is_missing_reads_unknown_and_the_rest_still_come():
+    class _Older:
+        """An app whose version getter fails, as Kit's bindings do, and that has no get_kit_version."""
+
+        def get_app_name(self) -> str:
+            return "Isaac-Sim Python"
+
+        def get_app_version(self) -> str:
+            raise RuntimeError("no version here")
+
+    facts = ext_protocol.kit_app_facts(_Older())
+
+    assert facts["kit_app_name"] == "Isaac-Sim Python"
+    assert facts["kit_app_version"] == facts["kit_version"] == "unknown"
+
+
+def test_the_facts_are_unknown_until_the_extension_starts_and_kept_after(monkeypatch):
+    monkeypatch.setattr(ext_protocol, "_kit_app", dict.fromkeys(("kit_app_name", "kit_app_version"), "unknown"))
+    assert set(ext_protocol.kit_app().values()) == {"unknown"}
+
+    ext_protocol.set_kit_app(ext_protocol.kit_app_facts(_App()))
+
+    assert ext_protocol.kit_app()["kit_app_name"] == "Isaac-Sim Python"

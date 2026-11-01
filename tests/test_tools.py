@@ -401,13 +401,25 @@ CASES = [
         "get_sim_state",
         {},
         "/sim/state",
-        {"state": "stopped", "up_axis": "Z", "sim_time": 0.0, "fps": 60.0, "prim_count": 3, "meters_per_unit": 1.0},
+        {
+            "state": "stopped",
+            "up_axis": "Z",
+            "sim_time": 0.0,
+            "fps": 60.0,
+            "prim_count": 3,
+            "meters_per_unit": 1.0,
+            "kit_app_name": "Isaac-Sim Python",
+            "kit_app_version": "6.2.0",
+            "kit_version": "110.4.0+feature.386251.187cf21b.gl",
+            "kit_os": "Windows-11-10.0.26300-SP0",
+        },
         {},
         # The mock bridge's handshake answers extension 1.0.0, another release than this server's.
         (
             "state = stopped",
             "up_axis = Z",
-            "extension_version = 1.0.0",
+            "kit_app = Isaac-Sim Python 6.2.0\nkit_version = 110.4.0+feature.386251.187cf21b.gl\n"
+            "kit_os = Windows-11-10.0.26300-SP0\nextension_version = 1.0.0",
             "note = the Kit extension is 1.0.0",
             f"install the server's, {kit_extension.install_advice()}",
         ),
@@ -970,6 +982,19 @@ def test_get_sim_state_says_why_a_recording_s_frames_stopped(bridge: MockIsaacSe
         bridge,
         tmp_path,
     )
+
+
+def test_get_sim_state_reads_an_older_extension_s_missing_kit_app_as_unknown(bridge: MockIsaacServer, tmp_path: Path):
+    # An extension from before #105 sends no Kit app: each line says unknown, and a bug report asks the user.
+    case = Case(
+        "get_sim_state",
+        {},
+        "/sim/state",
+        {"state": "stopped", "up_axis": "Y"},
+        {},
+        ("kit_app = unknown\nkit_version = unknown\nkit_os = unknown\nextension_version = ",),
+    )
+    _check(case, bridge, tmp_path)
 
 
 def _compared(faces_a: int, delta: dict[str, Any]) -> dict[str, Any]:

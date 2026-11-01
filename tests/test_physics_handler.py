@@ -1,12 +1,14 @@
 """set_physics_properties' handler against a fake Kit, loaded as tests/test_force_handler.py loads
 handlers/simulation.py, on a usd-core stage with the Kit-free core: the physics material it binds starts from the
-body's own values, so a value left out stays as it is (#105)."""
+body's own values, so a value left out stays as it is; /sim/state names the Kit app (#105)."""
 
 import asyncio
 from typing import Any
 
 import pytest
 from pxr import Sdf, Usd, UsdPhysics, UsdShade
+
+from ovmcp.core import protocol
 
 from .test_force_handler import BOX, FakeKit, load_simulation
 
@@ -126,3 +128,22 @@ def test_both_given_are_written_as_given_and_echoed(simulation, kit):
     # #108's server prints these: the values given, a value left out null.
     assert (r["result"]["friction"], r["result"]["restitution"]) == (0.8, 0.3)
     assert _set(simulation, restitution=0.2)["result"]["friction"] is None
+
+
+# ---- /sim/state names the Kit app (#105) ----
+
+
+def test_sim_state_answers_the_kit_app_the_extension_kept(simulation, kit, monkeypatch):
+    facts = {
+        "kit_app_name": "Isaac-Sim Python",
+        "kit_app_version": "6.2.0",
+        "kit_version": "110.4.0+feature.386251.187cf21b.gl",
+        "kit_os": "Windows-11-10.0.26300-SP0",
+    }
+    monkeypatch.setattr(protocol, "_kit_app", facts)
+
+    r = asyncio.run(simulation.handle_sim_state({}))
+
+    assert r["status"] == "success", r
+    assert {key: r["result"][key] for key in facts} == facts
+    assert r["result"]["state"] == "playing"

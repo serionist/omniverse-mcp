@@ -25,6 +25,7 @@ from ovmcp.core.force import (
     world_point,
 )
 from ovmcp.core.material import DYNAMIC, RESTITUTION, STATIC, physics_source, physics_values, start_from
+from ovmcp.core.protocol import kit_app
 
 from ._utils import _get_stage, _next_update
 from .recording import recording_active, recording_note
@@ -94,6 +95,8 @@ async def handle_sim_state(_body: dict) -> dict:
             "meters_per_unit": UsdGeom.GetStageMetersPerUnit(stage),
             "recording_active": recording_active(),
             **({"recording_note": note} if (note := recording_note()) else {}),
+            # The Kit app, for a bug report the agent drafts (#105).
+            **kit_app(),
         },
     }
 

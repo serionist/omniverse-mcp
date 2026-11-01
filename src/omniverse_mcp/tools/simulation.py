@@ -41,6 +41,12 @@ def _physics_values(r: dict[str, Any]) -> list[str]:
     return values
 
 
+def _kit_app(r: dict[str, Any]) -> str:
+    """The Kit app's name and version in one, as a bug form's "Kit app and version" asks: `Isaac-Sim Python 6.2.0`."""
+    parts = [str(r[key]) for key in ("kit_app_name", "kit_app_version") if r.get(key) and r[key] != "unknown"]
+    return " ".join(parts) or "unknown"
+
+
 def _unit(direction: list[float]) -> list[float]:
     """direction scaled to length 1, as raycast_closest's unit_dir asks. Isaac Sim 6.2's PhysX scales it itself;
     other builds are untried, and a zero one has no direction to cast along."""
@@ -76,7 +82,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @tool(mcp, READS)
     def get_sim_state() -> str:
         """Get the simulation's state and the stage's frame of reference: playing, paused or stopped, the timeline's
-        time, the up axis, meters_per_unit, the prim count, and the versions of the Kit extension and this server.
+        time, the up axis, meters_per_unit, the prim count; the Kit app, its version, Kit's version and the OS Kit
+        runs on; and the versions of the Kit extension and this server.
 
         fps is the timeline's time codes per second, not a render rate. When the two versions differ, the answer names
         the command that installs the matching extension; while a recording runs whose frames stopped early, it says
@@ -94,6 +101,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             f"fps = {r.get('fps', 0):.1f}",
             f"prim_count = {r.get('prim_count', 0)}",
             f"meters_per_unit = {r.get('meters_per_unit', 1.0)}",
+            # The Kit app, for a bug report (#105): an extension from before it sends none, which reads unknown.
+            f"kit_app = {_kit_app(r)}",
+            f"kit_version = {r.get('kit_version') or 'unknown'}",
+            f"kit_os = {r.get('kit_os') or 'unknown'}",
             f"extension_version = {extension}",
             f"server_version = {server}",
         ]
