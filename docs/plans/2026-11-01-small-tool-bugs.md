@@ -11,8 +11,9 @@ approved_at:
 #105 lists six things the first AI scenario runs (#102) saw on Isaac Sim 6.2. A live probe ran each of them before
 any code, on the session's headless Isaac Sim 6.2 at port 8212 with main's 0.3.0 extension. Five are real bugs, in
 four tools. The sixth, the log search, is the scenario's mistake. A seventh, R7, came from #104's code review (PR
-#108): `set_physics_properties` with restitution alone leaves the body's friction at USD's 0. This plan fixes the
-real ones, on the server and in the Kit extension, and corrects the six scenarios' Verify lines.
+#108): `set_physics_properties` given one of friction and restitution sets the other to USD's 0. A second probe
+confirmed it, and found it wider: a physics material the body had before loses all its values. This plan fixes the
+six real ones, on the server and in the Kit extension, and corrects the six scenarios' Verify lines.
 
 ## Goal
 
@@ -26,7 +27,7 @@ When this is done, with this release's Kit extension:
 | R4 | 23.6 | `capture_viewport`, `inspect_prim` (Q2) | yes | Lighting that leaves the scene unlit, mode `off` or `stage` with no scene lights, gives a warning even when the grid keeps the image from being all black (Q1) | `test_tools_camera.py`, `test_camera_handler.py`; live `test_12j`, `test_23_06` |
 | R5 | 24.6 | `get_logs` | no | Expected behaviour. A script's exception, `print` and stderr come back in `execute_script`'s answer and never reach Kit's log; `carb.log_*` calls do. The scenario says so, and so do `get_logs`' description and `docs/TOOLS.md` (Q3) | live `test_24_06` |
 | R6 | 10.1 | `create_robot` | yes | A robot whose file authors another up axis than the stage's stands upright on it, as Kit stands a dropped file. On a Y-up stage that is every robot in Isaac Sim's library, all Z-up. The answer says when it turned one (Q4 to Q7) | `test_robot.py`, `test_robot_handler.py`, `test_tools.py`; live `test_27b`, `test_10_01`, `test_15_16` |
-| R7 | none; #108's review | `set_physics_properties` | by the code and usd-core (U4); PhysX's side awaits `105-probe-r7.py` | A call that makes the prim's physics material writes friction and restitution both: the values given, and for one left out, the value the body had, from its bound physics material or PhysX's default, so "a value left out stays as it is" holds (Q8) | `test_material.py`, `test_physics_handler.py` (new); live `test_15_02b` |
+| R7 | none; #108's review | `set_physics_properties` | yes | The material the call binds holds friction and restitution both: the values given, and for one left out, the value the body had, from the physics material bound before or PhysX's default, where it became 0. With Q8's A, everything else the replaced material held stays too, so "a value left out stays as it is" holds | `test_material.py`, `test_physics_handler.py` (new); live `test_15_02b` |
 
 Why: each answer misleads an agent that trusts it. A rotation is off by 39°, a prim seems on screen when it isn't, an
 unlit capture comes with no word on the light, and a percentage is made up. A robot lies on its side and falls over
@@ -122,25 +123,32 @@ stages Z-up (`/persistent/app/stage/upAxis`). `g1.usd` and `panda_instanceable.u
 | `create_robot("franka")`, Y-up | `translate` | 0.335, 0.259, 1.115 | no |
 | `create_robot("g1", position=[0, 0, 0.74])`, Z-up | `translate`, `orient`, `scale` | 0.496, 0.371, 1.323 | yes |
 
-### The probe: R7 (to run)
+### The probe: R7
 
-`105-probe-r7.py`, beside the first, through `105-probe-r7.sh`. On a Y-up stage with gravity 9.81, a ground whose
-physics material has friction and restitution 0 with combine mode `max`, so each contact takes the body's own values.
-Then 1 kg boxes, each with or without a bound physics material and the tool called with one value:
+`105-probe-r7.py`, beside the first, run by the session through `105-probe-r7.sh` on the same Kit, exit 0, an empty
+stderr. On a Y-up stage with gravity 9.81, a ground whose physics material has friction and restitution 0 with
+combine mode `max`, so each contact takes the body's own values. Then 1 kg boxes, each with or without a bound physics
+material and the tool called with one value. The sliders start at 4 units/s along X, and the friction PhysX applies
+is their deceleration over their first 0.3 s, over g. The droppers fall 1.25, and the restitution shows in their
+rebound. 90 updates, 1.48 s of simulation:
 
-| Body | What it has | Measures |
-|---|---|---|
-| `SlideDefault` | no material | PhysX's default friction: its deceleration along X over g, sent at 4 units/s |
-| `SlideRestitutionOnly` | the tool with `restitution=0` alone | R7: friction 0 expected |
-| `SlideFriction05` | the tool with `friction=0.5` | the control for 0.5 |
-| `SlideRubber` | a bound material of friction 0.9 | the control for 0.9 |
-| `SlideRubberThenRestitution` | that material, then the tool with `restitution=0` | R7 on a bound material: 0.9 lost, 0 expected |
-| `DropDefault` | no material | PhysX's default restitution: the rebound after a drop of 1.25 |
-| `DropFrictionOnly` | the tool with `friction=0.5` alone | whether friction alone loses restitution |
-| `DropBouncy` | a bound material of restitution 0.8 | the control for 0.8 |
-| `DropBouncyThenFriction` | that material, then the tool with `friction=0.5` | the bound material's 0.8 lost, 0 expected |
+| Body | What it has | Its material, as USD reads it before playing | What PhysX did |
+|---|---|---|---|
+| `SlideDefault` | no material | none | slid 1.406, deceleration 4.905: friction 0.50 |
+| `SlideRestitutionOnly` | the tool with `restitution=0` alone | its new `_PhysMat`, both frictions unauthored, read as 0 | slid 5.933, no deceleration: friction 0 |
+| `SlideFriction05` | the tool with `friction=0.5` | both frictions 0.5 authored, restitution unauthored | slid 1.406: friction 0.50, as the default |
+| `SlideRubber` | a bound material of friction 0.9 | `/World/Mats/Rubber`, 0.9 | slid 0.688: friction 0.90 |
+| `SlideRubberThenRestitution` | that material, then the tool with `restitution=0` | the tool's `_PhysMat` in its place, frictions unauthored | slid 5.933: friction 0, Rubber's 0.9 lost |
+| `DropDefault` | no material | none | no rebound: restitution 0 |
+| `DropFrictionOnly` | the tool with `friction=0.5` alone | restitution unauthored | no rebound, as the default |
+| `DropBouncy` | a bound material of restitution 0.8 | `/World/Mats/Bouncy`, 0.8 | rebounded 0.789 above rest |
+| `DropBouncyThenFriction` | that material, then the tool with `friction=0.5` | the tool's `_PhysMat` in its place, restitution unauthored | no rebound: Bouncy's 0.8 lost |
 
-Before playing, each body's bound physics material and its three values as USD reads them, authored or not.
+So PhysX reads an unauthored value as USD's 0, and its own default is dynamic friction 0.5 and restitution 0. Static
+friction isn't measured apart: a box sent sliding shows the dynamic friction only. A call that gives restitution alone
+on a bare body takes its friction from 0.5 to 0. On a body with a material of its own, either call takes away what
+that material held. Friction alone on a bare body changes nothing else, since PhysX's default restitution is 0
+already.
 
 ## Design
 
@@ -243,27 +251,29 @@ app, and tested on usd-core.
 
 ### R7: the material the call binds starts from the body's values (`core/material.py`, Q8)
 
-Settled by the R7 probe; the design assumes it shows friction 0 for `SlideRestitutionOnly`. The tool's promise, "a
-value left out stays as it is", is kept by writing every value, the left-out ones as PhysX applies them now. Before
-it binds its material, the handler reads, for static friction, dynamic friction and restitution, what the body has:
+The probe showed both halves: a value left out becomes 0, and a material bound before is replaced whole. The tool's
+promise, "a value left out stays as it is", is kept by writing every value, the left-out ones as PhysX applies them
+now. Before it binds its material, the handler reads, for static friction, dynamic friction and restitution, what the
+body has:
 
 1. **The physics material bound to it:** `UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial("physics")`, which
    falls back to an all-purpose binding, when that material has `MaterialAPI`: its values as USD reads them, authored
-   or the fallback 0, which is what PhysX reads.
+   or the fallback 0, which is what PhysX reads (the probe's `SlideRestitutionOnly`).
 2. **Else the physics scene's default material** (K5): the one bound to the stage's `UsdPhysics.Scene` prim.
-3. **Else PhysX's own default:** constants in the core, as the probe measures them (friction 0.5 expected, restitution
-   0).
+3. **Else PhysX's own default:** constants in the core, as the probe measured them: dynamic friction 0.5 and
+   restitution 0. Static friction is taken as 0.5 too, PhysX's default beside its dynamic one; the live test checks
+   it on a slope.
 
 It then writes all three into its material: the value given, else the one read. The rule is the same whether the
 call makes the material, rebinds it in place of another, or finds it bound already. In the last case a value read is
 the material's own, so nothing left out changes. A material an older extension made with a value unauthored reads 0
 and keeps it, which is what PhysX gave the body.
 
-**What else it takes (Q8):** the material it replaces may hold more than the three values: a density, which sets the
-mass of a body without one, and `PhysxMaterialAPI`'s combine modes and compliant contact. With Q8's A the new
-material copies every authored `physics:` and `physxMaterial:` attribute of the one it replaces, and its
-`PhysxMaterialAPI`, before writing the values given, so the body behaves as before in everything the call didn't
-name.
+**What else it takes (Q8):** the probe's `SlideRubberThenRestitution` and `DropBouncyThenFriction` lost every value
+of the material they had, not one. That material may hold more than the three values: a density, which sets the mass
+of a body without one, and `PhysxMaterialAPI`'s combine modes and compliant contact. With Q8's A the new material
+copies every authored `physics:` and `physxMaterial:` attribute of the one it replaces, and its `PhysxMaterialAPI`,
+before writing the values given, so the body behaves as before in everything the call didn't name.
 
 All of it is Kit-free in `core/material.py`, beside `set_material`'s material: `physics_values(prim)` (the three, and
 where from), `start_from(material, replaced)` (Q8's copy) and the PhysX defaults. The answer stays as #108 made it:
@@ -290,7 +300,7 @@ the values given, and the APIs applied.
 | Q5 | R6: a file that authors no `upAxis`? | **A.** Leave it as it is. **B.** Take USD's fallback, Y, as Kit's `CreateReferenceCommand` does (K3): on Isaac Sim's Z-up stages such a file is turned | A: a turn on a guess lays down a robot that stood. The answer says nothing then, as today |
 | Q6 | R6: a file of other `metersPerUnit`? | **A.** Out of scope, a new issue. **B.** A line in the answer naming the two. **C.** Scale it too (`xformOp:scale:unitsResolve`), physics' values unscaled | A: no file in Isaac Sim's library differs, and C scales the geometry without its masses and drives |
 | Q7 | R6: someone who stood a robot themselves, with `rotation=[-90, 0, 0]` on a Y-up stage, now gets it turned twice | **A.** CHANGELOG's Fixed entry says so, and to drop that rotation. **B.** Under Breaking changes | A: the schema doesn't change, and the answer's line names the turn |
-| Q8 | R7: what does the material the call binds take from one it replaces? | **A.** Every authored `physics:` and `physxMaterial:` attribute, and `PhysxMaterialAPI`, then the values given. **B.** The friction and restitution alone; a replaced material's density and PhysX attributes go, as today | A: the description promises a value left out stays as it is, and a lost density changes the body's mass |
+| Q8 | R7: what does the material the call binds take from one it replaces? The probe: a body with a material of its own lost all of it, Rubber's friction 0.9 to a restitution-only call and Bouncy's restitution 0.8 to a friction-only one | **A.** Every authored `physics:` and `physxMaterial:` attribute, and `PhysxMaterialAPI`, then the values given. **B.** The friction and restitution alone; a replaced material's density and PhysX attributes go, as today | A: the description promises a value left out stays as it is, B keeps that only for the two values the tool names, and a lost density changes the body's mass |
 
 ## Compatibility
 
@@ -317,7 +327,7 @@ Each step builds and passes `uv run tools/gate.py quick`; the PR ends with `fini
 
 | Step | What | Proven by |
 |---|---|---|
-| 0 | Done: the probe, R1 to R6, and this plan settled on it. To run: R7's probe | `105-probe.out.txt` and `105-probe-r7.out.txt` in the session's scratchpad |
+| 0 | Done: both probes, R1 to R7, and this plan settled on them | `105-probe.out.txt` and `105-probe-r7.out.txt` in the session's scratchpad |
 | 1 | This plan, the branch's first commit | `review-plan`, then the maintainer |
 | 2 | R1: the server's deltas | `tests/test_tools.py` |
 | 3 | R2: `core/formatter.py` | `tests/test_formatter.py` |
@@ -359,7 +369,7 @@ Each fix has a test that fails at `876caca`, named first.
 | `test_27b_a_robot_file_of_the_other_up_axis_stands` | A file the test writes, as `test_27` does, authoring the up axis the stage hasn't: it stands, tallest along the stage's up axis, with the op; then, where `omni.metrics.assembler.core` imports, `resolve_hierarchy` on it leaves one turn and the robot standing |
 | `test_scenarios.py` `test_02_02` | Asserts the `rot` line, as scenario 2.2 now verifies |
 | `test_10_01` | The G1's bounds are tallest along the up axis, on either |
-| `test_15_02b_restitution_alone_keeps_the_friction` | R7 probe's sliders, as a test: a box bound to a material of friction 0.9, then given restitution alone, decelerates as 0.9 does (within 0.05); a bare box given restitution alone, as PhysX's default |
+| `test_15_02b_restitution_alone_keeps_the_friction` | The R7 probe's bodies, as a test: a box bound to a material of friction 0.9, then given restitution alone, decelerates as 0.9 does (within 0.05); a bare box given restitution alone, as 0.5 does; one bound to a material of restitution 0.8, then given friction alone, still rebounds; a bare box given restitution alone rests on a slope of 24° (tan 0.45) and slides down one of 29° (tan 0.55), PhysX's static default of 0.5 |
 | `test_15_16` | Unchanged; on a Y-up stage it now pushes a turned Franka, whose base the fixed joint still holds |
 | `test_23_06` | Through the server: the `off` warning, the mode left as set |
 | `test_24_06` | The raised sentinel isn't found; a `carb.log_error` sentinel is, at level error |
@@ -422,8 +432,9 @@ No scenario covers R7 (15.2 gives both values), so no Verify line changes for it
   Kit extension (#105).
 - **`set_physics_properties` keeps the friction when given only restitution, and the reverse:** the physics material
   it made held only the value given, so PhysX read USD's 0 for the other, and a body given a bounce slid as on ice.
-  A physics material the prim had before, such as an asset's, was replaced with all its values. The material now
-  starts from the body's own, the one bound before or PhysX's default. The fix is in the Kit extension (#105).
+  A physics material the prim had before, such as an asset's, was replaced, and every value it held went with it.
+  The material now starts from the body's own, the one bound before or PhysX's default. The fix is in the Kit
+  extension (#105).
 ```
 
 ## Risks
@@ -437,9 +448,8 @@ No scenario covers R7 (15.2 gives both values), so no Verify line changes for it
 | R3 drops a box an agent relied on, for a prim whose world box reaches the frame's corner only through its rectangle | Accepted: that prim wasn't on the image |
 | R4's warning on every capture while the user keeps lighting `off` on purpose | Accepted: one line, which says why the prims are black |
 | R2 changes `rot` in recordings compared across releases | Accepted: the old value was wrong; CHANGELOG says so |
-| R7's PhysX default is a constant the probe measures on Isaac Sim 6.2's PhysX; another PhysX could differ | Accepted: `test_15_02b` measures it live on each run of the suites |
+| R7's PhysX default is a constant the probe measured on Isaac Sim 6.2's PhysX (dynamic friction 0.5, restitution 0), the static one taken as 0.5; another PhysX could differ | Accepted: `test_15_02b` measures all three live on each run of the suites |
 | R7 on a stage of several physics scenes: the default material is read from the first | Accepted: one scene is the usual case, and which scene owns a body is PhysX's to say |
-| R7's probe shows PhysX applying something other than 0 for an unauthored value | Open until the probe: the row then says what PhysX does, and the fix shrinks to what it shows |
 
 ## Plan review
 
