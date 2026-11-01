@@ -24,6 +24,22 @@ Kit app of the run's own. These rules hold for every session; the prompt gives y
 `12847 faces`). A FAIL names the error or the wrong value, a WARN what was unexpected, and either names its capture
 under `mcp_output/`. Never guess: when unsure, WARN and say what you saw.
 
+## Code in `execute_script`
+
+`execute_script` runs on Kit's main thread, and Kit answers nothing else until it returns: a run stops once Kit has
+been silent for 140 s.
+
+- **One short job per call:** no loop, sleep or wait across frames or for time, and no import of the bridge's own
+  modules (`ovmcp.*`), even where a scenario's text asks for one. A scenario's own code without either, such as
+  phase 25's single `await mcp.<handler>(...)` calls, runs as written.
+- **To let time pass,** as a scenario's "wait ~2 seconds" asks, call `get_sim_state` until its `time` has moved on that
+  far while the simulation plays. To see a drawing or a count change, repeat a short call. To read physics step by
+  step, `sim_control("step")` and a short read, as many times as the scenario counts.
+- **Where a check needs a rendered frame,** one tool call such as `capture_viewport` or `inspect_prim`: each waits for
+  its own frame.
+- **A scenario, or a part of one, that only such code could judge:** SKIP it (WARN when the rest passed), and say which
+  code it would need.
+
 ## Never
 
 - **Files:** a scenario that saves or exports writes where its path says, under the run's `kit/` folder; nothing else.

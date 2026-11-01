@@ -100,8 +100,9 @@ skill never sets `OMNI_KIT_ACCEPT_EULA` (`AGENTS.md`, Build and test).
 
 **A Kit that hangs mid-run:** `run` reads `/health` every 30 s with conftest's 20 s probe (F9). Only when no answer has
 come for 140 s, counted from the start of the first probe that got none, longer than the server's 120 s call limit
-plus one probe, does it stop the tester and the run, and `results.md` says "Kit stopped answering (#54)": a long
-handler holds `/health` back too, so a shorter silence can be a call at work.
+plus one probe, does it stop the tester and the run: a long handler holds `/health` back too, so a shorter silence can
+be a call at work. `results.md` says Kit stopped answering and names the tool call in flight: step 9's full run showed
+the cause can be a tester's own script holding Kit's main thread, not only a hang inside Kit (#54).
 
 ### Scope (Q6)
 
@@ -230,8 +231,10 @@ Statuses: PASS, FAIL, WARN, SKIP from the tester (F1's meanings); NOT RUN from t
 against the newest earlier run with a tester status for it, or against `--against`: a run, or a tag for the newest run
 at that tag's commit or, from a clean tree, on its tree (I5): a release is run on its PR's head, and the squash merge
 the tag marks is a new commit with that tree, a departure found while building. It lists regressions first (PASS or
-WARN to FAIL, PASS to WARN), then fixes, other changes, new IDs and NOT RUN, each changed row with both notes and the
-earlier run's folder, then the counts. It exits 1 on a regression or a NOT RUN.
+WARN to FAIL, PASS to WARN), then fixes (to PASS), other changes (FAIL to WARN among them: step 9 showed a tester
+judging the same answer FAIL in one run and WARN in the next), new IDs and NOT RUN, each changed row with both notes
+and the earlier run's folder, then the counts, and the skill loads of the sessions that ran. It exits 1 on a
+regression or a NOT RUN.
 
 ```
 Run 20261102-141000 (Phases 1-27, 144 IDs; main 67a5069; Isaac Sim 6.2.0 on 8212)
@@ -370,7 +373,18 @@ loading a copy of the branch's bridge from a folder of its own; Claude Code 2.1.
 | The stage rule | Refused a stage saved to the scratchpad and opened (`refused: the Kit app has ...\elsewhere.usda open ...`); `new_scene()` put a new one back |
 | `--phases 1`, `20261101-033741` | 2 sessions, 20 s, $0.18: 1.1, 1.2 and 27.1 PASS; neither session loaded a skill |
 | `--phases 15,20`, `20261101-033809` | 5 sessions in the order the plan resolves (setup 2.1, 4.5, 10.1; Phase 15; setup 18.1, 18.2; Phase 20; Phase 27), 224 s, $1.47; skills loaded in 4 of 5 (`scene`, `simulate`, `geometry` twice). 25 PASS, 4 FAIL, 1 WARN; `compare`: 29 new, exit 0 |
-| Every phase | Pending |
+| Every phase, `20261101-034219`, on `f3ad7c8` | Phases 1 to 15 ran: 62 PASS, 4 FAIL, 14 WARN, about 13 minutes and $5.30. In Phase 16 the run stopped, "/health has given no answer for 141 s", and 16.1 to 27.1 were NOT RUN; `compare` exited 1. Not a hang inside Kit: the tester's own `execute_script`, importing the bridge's `handle_draw_debug` and waiting on `loop.time()` across frames for 16.8, held Kit's main thread past the server's call limit; a second such script followed, and Kit answered at once afterwards. Fixed by naming the call in flight in the stop, not #54, and by the tester's rules on code (`test_project/AGENTS.md`). The phases that didn't run are being run again |
+
+**Phase 16 asks for such code itself:** 16.8's second Verify line wants the drawing drawn and captured five times "in
+one `execute_script` (`draw_debug`'s handler, then `mcp.capture_viewport()`)", and 16.9 gives an import of
+`ovmcp.bridge.handlers.debug_draw` word for word. Under the rules a tester now SKIPs those parts and says so; 16.6,
+16.7 and 17.3, which wait for a drawing to expire, it judges with repeated short calls. Their pytest twins
+(`test_16_08`, `test_16_09`) cover what it skips. The scenarios stay as they are, for a follow-up issue.
+
+**A tester's judgement moves between runs:** `compare` counted 15.1 to 15.3 and 15.5 as fixed, FAIL to WARN, between
+runs `20261101-033809` and `20261101-034219`, though the tools' answers were the same; two testers judged them
+differently. A known limit of an AI tester: `compare` now lists FAIL to WARN under other changes, and the skill reads
+the answers in the transcripts before calling a change a fix or a regression.
 
 The FAILs and the WARN are findings about the tools' answers or stale Verify lines, which follow-up issues take, not
 this change: `set_physics_properties` answers `Physics on /World/RedCube: MassAPI` (or `PhysicsMaterial`) with no
@@ -433,7 +447,8 @@ The rows that rest on an image (3.2, 12.8, 22.5) wait for the full run.
 | The repo's developer rules, skills or the maintainer's memory load into the tester | Resolved: with no settings source and auto-memory off, no instruction file, repo skill or memory reaches it (S4, S13); the `init` check refuses a memory path |
 | The tester marks PASS without looking, or calls more than the scenario asks | Accepted, watched: one phase per session, transcripts kept, ten rows spot-checked in step 9 and the report naming the calls behind each FAIL |
 | Time and cost unknown | Accepted: `run.json` records both, the skill states them after step 9, `--budget` caps a run |
-| Kit hangs mid-run (#54) | Resolved: the `/health` watch ends the run 140 s after the first unanswered probe, longer than any call may take |
+| Kit stops answering mid-run: a hang inside Kit (#54), or a tester's script holding its main thread (step 9) | Resolved: the `/health` watch ends the run 140 s after the first unanswered probe and names the call in flight; the tester's rules forbid scripts that loop, wait or import the bridge's modules |
+| A tester judges the same answer differently from run to run (step 9: FAIL, then WARN) | Accepted, a limit of an AI tester: `compare` lists such a change under other changes, not fixes, and the skill reads the answers in the transcripts before calling a change a fix or a regression |
 | The live suites, another session or two runs drive the same Kit | Partly: the lock stops two runs; the skill's Never covers the rest |
 | `Needs:` lines drift from the scenarios | Partly: the unit test reads the real file, so each ID exists, points back and stays in its half; it can't see a scenario that starts using a prim its line doesn't name, which shows as a FAIL or SKIP in a partial run |
 | The plugin copy's skills link to GitHub's `main`, not the branch | Accepted: the skills' text is the branch's; only their links lead to `main` |

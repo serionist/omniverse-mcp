@@ -403,7 +403,7 @@ def test_a_kit_that_stays_silent_stops_the_run_140_s_after_the_first_unanswered_
     assert stopped is not None
     at, reason = stopped
     assert 30 + scenarios.SILENCE_LIMIT <= at <= 30 + scenarios.SILENCE_LIMIT + scenarios.PROBE_EVERY
-    assert "#54" in reason
+    assert "Kit stopped answering" in reason
 
 
 B2_INIT = {
@@ -463,6 +463,21 @@ def test_a_foreign_server_stops_the_tester_at_once(tmp_path):
 def test_a_session_stops_at_its_limit(tmp_path):
     outcome = scenarios.run_session(stub("slow", tmp_path), tmp_path / "t.jsonl", tmp_path, limit=2, cwd=tmp_path)
     assert "limit" in outcome.stopped
+
+
+def test_a_silent_kit_names_the_call_in_flight_without_blaming_kit(tmp_path):
+    # Step 9's full run: a tester's own script held Kit's main thread, and Kit answered again after it.
+    clock = Clock()
+
+    def silent() -> bool:
+        clock.now += 100
+        return False
+
+    watch = scenarios.HealthWatch(silent, clock)
+    outcome = scenarios.run_session(stub("busy", tmp_path), tmp_path / "t.jsonl", tmp_path, watch, cwd=tmp_path)
+    assert outcome.kit_hung
+    assert "while `execute_script` ran" in outcome.stopped
+    assert "a script holding Kit's main thread, or a hang inside Kit" in outcome.stopped
 
 
 # ----- a run -----
@@ -558,13 +573,16 @@ def run_record(name, rows, commit="c0", models=("claude-test-1",), skills=()):
 
 
 def test_compare_names_regressions_fixes_new_and_not_run():
-    old = run_record("20261101-000000", [("1.1", "PASS"), ("1.2", "FAIL"), ("2.1", "PASS"), ("2.2", "WARN")])
+    old = run_record(
+        "20261101-000000", [("1.1", "PASS"), ("1.2", "FAIL"), ("1.3", "FAIL"), ("2.1", "PASS"), ("2.2", "WARN")]
+    )
     older = run_record("20261031-000000", [("3.1", "PASS")], models=("claude-old",))
     new = run_record(
         "20261102-000000",
         [
             ("1.1", "FAIL"),
             ("1.2", "PASS"),
+            ("1.3", "WARN"),
             ("2.1", scenarios.NOT_RUN),
             ("2.2", "SKIP"),
             ("3.1", "PASS"),
@@ -572,10 +590,12 @@ def test_compare_names_regressions_fixes_new_and_not_run():
         ],
         skills=("omniverse-mcp:scene",),
     )
+    new["sessions"].append({"label": "phase-03", "skills": [], "stopped": "not run: Kit stopped answering"})
     report = scenarios.compare(new, [older, old])
     assert [e["now"]["id"] for e in report["regressions"]] == ["1.1"]
     assert [e["now"]["id"] for e in report["fixed"]] == ["1.2"]
-    assert [e["now"]["id"] for e in report["changed"]] == ["2.2"]
+    # FAIL to WARN is the same answer judged again, step 9 found, so no fix.
+    assert [e["now"]["id"] for e in report["changed"]] == ["1.3", "2.2"]
     assert [r["id"] for r in report["new"]] == ["4.1"]
     assert [r["id"] for r in report["not_run"]] == ["2.1"]
     assert report["models"] == ["claude-old"]  # 3.1 was last judged by another model

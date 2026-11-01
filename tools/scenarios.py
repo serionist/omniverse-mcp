@@ -620,8 +620,9 @@ def describe(kit: Kit, port: int) -> str:
 
 
 class HealthWatch:
-    """Ends a run when Kit stops answering (#54): a probe every PROBE_EVERY seconds, and a stop once no probe has
-    answered for SILENCE_LIMIT seconds, counted from the start of the first one that got no answer."""
+    """Ends a run when Kit stops answering: a probe every PROBE_EVERY seconds, and a stop once no probe has answered
+    for SILENCE_LIMIT seconds, counted from the start of the first one that got no answer. The cause may be a
+    tester's script holding Kit's main thread, or a hang inside Kit (#54): the session names the call in flight."""
 
     def __init__(self, probe: Callable[[], bool], clock: Callable[[], float] = time.monotonic) -> None:
         self.probe = probe
@@ -642,7 +643,7 @@ class HealthWatch:
             self.silent_since = started
         silent = self.clock() - self.silent_since
         if silent >= SILENCE_LIMIT:
-            return f"Kit stopped answering (#54): /health has given no answer for {silent:.0f} s"
+            return f"Kit stopped answering: /health has given no answer for {silent:.0f} s"
         return None
 
 
@@ -698,6 +699,7 @@ class Outcome:
     stopped: str = ""  # why the script ended the session, if it did
     kit_hung: bool = False
     seconds: float = 0.0
+    in_flight: dict[str, str] = field(default_factory=dict)  # the tool calls sent and not yet answered, by id
 
 
 def end_tree(proc: subprocess.Popen[str]) -> None:
@@ -771,7 +773,9 @@ def run_session(
             elif clock() - started > limit:
                 reason = outcome.stopped = f"stopped at the session's limit, {limit:.0f} s"
             elif watch is not None and (hung := watch.check()):
-                reason = outcome.stopped = hung
+                calls = sorted({f"`{n.removeprefix(f'mcp__{SERVER}__')}`" for n in outcome.in_flight.values()})
+                held = f", while {', '.join(calls)} ran" if calls else ""
+                reason = outcome.stopped = f"{hung}{held}: a script holding Kit's main thread, or a hang inside Kit"
                 outcome.kit_hung = True
             if reason and proc.poll() is None:
                 end_tree(proc)
@@ -796,11 +800,18 @@ def _read_event(line: str, outcome: Outcome, plugin_dir: Path) -> str:
     elif kind == "assistant":
         texts = []
         for part in (event.get("message") or {}).get("content") or []:
-            if part.get("type") == "tool_use" and part.get("name") == "Skill":
-                outcome.skills.append(str((part.get("input") or {}).get("skill", "")))
+            if part.get("type") == "tool_use":
+                outcome.in_flight[str(part.get("id", ""))] = str(part.get("name", ""))
+                if part.get("name") == "Skill":
+                    outcome.skills.append(str((part.get("input") or {}).get("skill", "")))
             elif part.get("type") == "text":
                 texts.append(str(part.get("text", "")))
         return "\n".join(texts)
+    elif kind == "user":
+        content = (event.get("message") or {}).get("content")
+        for part in content if isinstance(content, list) else []:
+            if isinstance(part, dict) and part.get("type") == "tool_result":
+                outcome.in_flight.pop(str(part.get("tool_use_id", "")), None)
     elif kind == "result":
         outcome.cost = float(event.get("total_cost_usd") or 0.0)
         outcome.turns = event.get("num_turns")
@@ -986,17 +997,20 @@ def compare(
         if before["status"] == row["status"]:
             continue
         entry = {"now": row, "before": before, "run": name}
-        if before["status"] in RANK and row["status"] in RANK:
-            kind = "regressions" if RANK[row["status"]] < RANK[before["status"]] else "fixed"
+        if before["status"] in RANK and row["status"] in RANK and RANK[row["status"]] < RANK[before["status"]]:
+            kind = "regressions"
+        elif row["status"] == "PASS":
+            kind = "fixed"
         else:
+            # FAIL to WARN among them: the same answer, judged again by a tester, is no fix (step 9).
             kind = "changed"
         report[kind].append(entry)
     report["counts"] = Counter(r["status"] for r in newest.get("rows") or [])
     report["models"] = sorted(models - set(_models(newest)))
-    loads = [skill for s in newest.get("sessions") or [] for skill in s.get("skills") or []]
-    report["skills"] = Counter(loads)
-    report["sessions"] = len(newest.get("sessions") or [])
-    report["without_skill"] = sum(1 for s in newest.get("sessions") or [] if not s.get("skills"))
+    ran = [s for s in newest.get("sessions") or [] if not str(s.get("stopped", "")).startswith("not run")]
+    report["skills"] = Counter(skill for s in ran for skill in s.get("skills") or [])
+    report["sessions"] = len(ran)
+    report["without_skill"] = sum(1 for s in ran if not s.get("skills"))
     return report
 
 

@@ -4,7 +4,8 @@
     python stub_tester.py <mode> <plugin dir>
 
 ok: a clean init, a skill load, and a last message with rows. foreign: an init with another MCP server, then a long
-wait the runner must cut short. slow: a clean init, then a long wait.
+wait the runner must cut short. slow: a clean init, then a long wait. busy: a clean init, then an execute_script
+call that gets no answer.
 """
 
 import json
@@ -34,7 +35,10 @@ say(
         ],
     }
 )
-if mode in ("foreign", "slow"):
+if mode == "busy":
+    call = {"type": "tool_use", "id": "t1", "name": "mcp__omniverse__execute_script", "input": {"code": "..."}}
+    say({"type": "assistant", "message": {"content": [call]}})
+if mode in ("foreign", "slow", "busy"):
     time.sleep(60)
     sys.exit(0)
 say(

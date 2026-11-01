@@ -35,7 +35,9 @@ running this skill sees only the summary. Why it works this way: `docs/plans/202
    regression or a scenario not run.
 5. **Report** to the maintainer: compare's counts and skill loads; each regression, FAIL and WARN with its note and
    capture; for each FAIL, what the session's transcript (`transcript-<session>.jsonl` in the run's folder) shows the
-   tester called. A PR that ran it quotes compare's output. An issue for a finding only on the maintainer's word.
+   tester called. A status that moved while the tool's answer in the transcripts stayed the same is two testers'
+   judgement, not a fix or a regression: say so. A PR that ran it quotes compare's output. An issue for a finding
+   only on the maintainer's word.
 
 ## Done means
 
@@ -57,3 +59,4 @@ running this skill sees only the summary. Why it works this way: `docs/plans/202
 | Under `--strict-mcp-config` the plugin's own server never started, and the tester SKIPped every scenario | the plan's step 2, 2026-11-01 | The server comes from the run's `mcp.json`; the init check stops a session without it |
 | The tester got the maintainer's auto-memory, the repo's skills and its `CLAUDE.md` files | the plan's step 2, 2026-11-01 | No settings source, `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, and the init check |
 | `check` refused a bridge copy whose code was the same: it came from an older Windows checkout, with CRLF line endings | the plan's step 9, 2026-11-01 | Files are hashed as git stores them, CRLF as LF |
+| A run stopped in Phase 16, Kit silent for 141 s: the tester's own `execute_script` imported the bridge's handler and waited across frames, holding Kit's main thread | the plan's step 9, 2026-11-01 | The tester's rules forbid such code (`test_project/AGENTS.md`); the stop names the call in flight |
