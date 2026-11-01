@@ -24,7 +24,10 @@ feels complete. `main` takes PRs only, and the maintainer squash-merges them (`A
    `OMNIVERSE_MCP_SIM=1 uv run pytest tests/test_integration.py tests/test_scenarios.py` (PowerShell:
    `$env:OMNIVERSE_MCP_SIM = "1"`, then `uv run pytest ...`). Note the Kit app and its version, what passed, and which
    failures `main` has too on the same Kit. A headless Isaac Sim starts only if the person who accepts NVIDIA's EULA
-   set `OMNI_KIT_ACCEPT_EULA=YES`. No Kit app: say so; the PR says they did not run.
+   set `OMNI_KIT_ACCEPT_EULA=YES`. No Kit app: say so; the PR says they did not run. A change to a tool's
+   description, the server's instructions or a plugin skill also runs the AI scenario phases that use them
+   (`run-scenarios`) when a Kit app runs on 8212, and the PR says whether it did: for a tool, the phases of
+   `test_project/scenarios.md` whose text names it; for the instructions or a skill, every phase.
 4. **Commit:** a plain imperative subject that says what changed, a body that says why, `Refs #<n>`. No tool
    attribution: `commit-msg` refuses it.
 5. **Open a draft PR.** Write the body to `.local/pr-body.md`, from `.github/pull_request_template.md` when there is

@@ -46,7 +46,9 @@
       "Bash(uv run basedpyright)",
       "Bash(uv run tools/gate.py quick)",
       "Bash(uv run tools/gate.py full)",
-      "Bash(uv run tools/gate.py text --file -)"
+      "Bash(uv run tools/gate.py text --file -)",
+      "Bash(uv run tools/scenarios.py check)",
+      "Bash(uv run tools/scenarios.py compare)"
     ],
     "ask": [
       "Bash(git blame)",

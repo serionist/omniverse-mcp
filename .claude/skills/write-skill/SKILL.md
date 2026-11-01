@@ -33,7 +33,9 @@ calls, not in prose the agent has to get right.
    A file the skill reads beside `SKILL.md` (such as `lenses.md`) sits in its folder and is named in the step that
    uses it.
 5. **Scripts** a skill needs live in `tools/`, standard library only, with tests in `tests/`, and are named by their
-   path from the repo root (`uv run tools/<name>.py`). If the work is deterministic, write the script first.
+   path from the repo root (`uv run tools/<name>.py`). If the work is deterministic, write the script first. A script
+   that drives the server or the bridge, as `tools/scenarios.py` does, imports the server's package instead, as
+   `tools/golden.py` does, and so needs `uv sync`.
 6. **Link it for Codex:** `uv run tools/setup.py link <name>`. It writes `.agents/skills/<name>` into git's index as
    a symlink to the skill, so the commit has the link on any machine, a Windows clone without Developer Mode
    included. Commit the link with the skill.
