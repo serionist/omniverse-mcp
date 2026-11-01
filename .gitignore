@@ -5,6 +5,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+# release.py archives' zips, as CI and the release make them.
+/release/
 .eggs/
 *.egg
 

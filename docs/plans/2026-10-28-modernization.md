@@ -508,7 +508,6 @@ Improvements taken:
 ## Later
 
 - NVIDIA's extension registry.
-- Inline images for the other image tools (`inspect_prim`, `get_recording_frame`); `capture_viewport` has them.
 - Live-sim runs on a self-hosted GPU runner.
 - The AI scenario suite as a skill.
 - `1.0.0` once the tool contract has held for a few releases.

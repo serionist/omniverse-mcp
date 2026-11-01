@@ -7,6 +7,7 @@ import pytest
 from mcp.server.mcpserver import MCPServer
 
 from omniverse_mcp.client import BridgeClient
+from omniverse_mcp.kit_extension import install_advice
 from omniverse_mcp.server import Helpers
 from omniverse_mcp.tools import camera
 
@@ -263,8 +264,7 @@ def test_an_older_extension_s_boxes_for_another_size_are_flagged_with_the_fix(tm
     assert re.search(r"^Viewport: 1280x720 ", out, re.M), out
     (warning,) = [line for line in out.splitlines() if line.startswith("WARNING")]
     assert "The image is 1280x720 but its boxes are for 640x480" in warning
-    assert "extension install" in warning
-    assert "restart Kit" in warning
+    assert f"Install this server's, {install_advice()}." in warning
 
 
 def test_an_image_whose_header_can_t_be_read_keeps_the_answer_s_size(tmp_path):
@@ -304,7 +304,7 @@ def test_inspect_from_an_older_extension_at_another_size_is_flagged_with_the_fix
 
     (warning,) = [line for line in out.splitlines() if "WARNING" in line]
     assert "The images are 1280x720, not the 640x480 asked for" in warning
-    assert "extension install" in warning
+    assert f"Install this server's, {install_advice()}." in warning
 
 
 def test_inspect_from_an_older_extension_at_the_size_asked_for_says_nothing_more(tmp_path):

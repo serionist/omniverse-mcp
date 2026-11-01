@@ -48,7 +48,9 @@ two can talk. Kit's settings are the user's: say what to click, never edit Kit's
 
    A headless or scripted Kit takes `--ext-folder <the folder> --enable ovmcp.bridge` on its command line instead.
    A user who had the extension from a clone of the repo (`isaacsim.mcp.bridge` or the clone's `extension/` folder)
-   turns that one off and removes its search path, so Kit loads one copy.
+   turns that one off and removes its search path, so Kit loads one copy. One who installed **Omniverse MCP Bridge**
+   from Kit's community registry (under **THIRD PARTY**, marked *Community - Unverified*) uninstalls it in the
+   Extensions window: the plugin keeps the extension of its own release.
 4. **Check again** with `get_sim_state`: it answers without a `note`. The Kit console shows
    `[ext: ovmcp.bridge-0.3.0] startup` once the extension runs. Every failure starts "Kit app connection failed";
    what follows says which:

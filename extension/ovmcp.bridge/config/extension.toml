@@ -5,7 +5,20 @@ category = "Simulation"
 title = "Omniverse MCP Bridge"
 description = "HTTP bridge enabling AI assistants to control Omniverse applications via the Model Context Protocol"
 authors = ["Soma Osvay"]
+# What Kit's Extensions window shows of the extension, in Kit's community registry too (#101). No `exchange`: it would
+# label the listing verified by NVIDIA, which it isn't. No `changelog`: the repo's CHANGELOG.md, the README links it.
+# Both images are PNG: the window shows no other type from a registry.
+repository = "https://github.com/serionist/omniverse-mcp"
+keywords = ["mcp", "model context protocol", "ai", "agent", "assistant", "llm", "claude", "isaac sim", "automation"]
 readme = "docs/README.md"
+icon = "data/icon.png"
+preview_image = "data/preview.png"
+
+# Kit 107 or later, as the README says. Kit takes a target as "this version or later", so neither the Extensions window
+# nor a folder on Kit's search path offers this release to an older Kit. Not writeTarget.kit: the community registry's
+# crawler would write its own Kit, 106.4 (#101).
+[package.target]
+kit = ["107.0"]
 
 [dependencies]
 "omni.kit.uiapp" = { optional = true }

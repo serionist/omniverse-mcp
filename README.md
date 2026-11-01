@@ -37,7 +37,8 @@ parts, from one release:
 
 - **the server,** `omniverse-mcp`: the [MCP](https://modelcontextprotocol.io/) server your AI client starts, from
   PyPI;
-- **the bridge,** `ovmcp.bridge`: the Kit extension inside the Kit app, listed in Kit as *Omniverse MCP Bridge*.
+- **the bridge,** `ovmcp.bridge`: the Kit extension inside the Kit app, listed in Kit as *Omniverse MCP Bridge*, and
+  in Kit's community extension registry.
 
 Claude Code users get both from one plugin, with skills for each kind of work.
 
@@ -86,7 +87,9 @@ when a request fits ([the plugin](plugin/README.md)).
    ```
 
    It copies `ovmcp.bridge` into your user data folder, then prints the folder Kit needs, under "Kit finds it once
-   its extension search paths hold this folder".
+   its extension search paths hold this folder". Or install the bridge in Kit itself, from Kit's community registry,
+   and give the server its version in step 3
+   ([From Kit's community registry](docs/SETUP.md#from-kits-community-registry)).
 2. **Turn it on in the Kit app,** once:
    1. **Window > Extensions**, the menu (☰) at the top right, **Settings**.
    2. Under **Extension Search Paths**, the green **+**, then paste the folder. The **+** adds an empty row: click it
@@ -185,6 +188,7 @@ The server and the bridge come from one release, so update them together, then r
   On Windows a running Kit holds the bridge's folder: quit it first. Unpinned, uvx can also move to a new release
   by itself; the server then names the command that installs the matching bridge. To stay on one release, pin it
   ([Updating](docs/SETUP.md#updating)).
+- **The bridge from Kit's community registry:** update it in Kit's Extensions window, and the server's pin with it.
 
 ## Configuration
 

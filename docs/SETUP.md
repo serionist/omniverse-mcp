@@ -1,7 +1,8 @@
 # Setup in depth
 
-The [README](../README.md#install) has the short path. This page has the rest: each MCP client's config, headless
-Kit, ports, Kit on another machine, the output folder, updating, uninstalling and troubleshooting.
+The [README](../README.md#install) has the short path. This page has the rest: each MCP client's config, the bridge
+from Kit's community registry, headless Kit, ports, Kit on another machine, the output folder, updating, uninstalling
+and troubleshooting.
 
 The names used here:
 
@@ -65,6 +66,34 @@ inline either way.
 and a server added by hand gives `mcp__omniverse__<tool>`. Add the read-only ones to `permissions.allow` in
 `.claude/settings.json`; the [tool reference](TOOLS.md) lists which those are. Keep `execute_script` and
 `manage_extensions` asking: they run code inside Kit.
+
+## From Kit's community registry
+
+The bridge is listed in Kit's community extension registry too, from the release after 0.3.0 and the registry's
+nightly crawl after it, so a Kit app can install it from its Extensions window instead of `extension install`. NVIDIA
+doesn't review that registry, and Kit lists the bridge as *Community - Unverified*. The server still comes from PyPI,
+and must be the bridge's release.
+
+1. **The registry, once.** Isaac Sim 5.1 lists it already. In Isaac Sim 6.2 and other Kit apps: **Window >
+   Extensions**, the menu (☰) at the top right, **Settings**, then under **Extension Registries** the green **+**,
+   with the name `kit/community` and the URL `https://dw290v42wisod.cloudfront.net/exts/kit/community`.
+2. **The bridge:** search for `ovmcp`. Its card, **OMNIVERSE MCP BRIDGE**, is under the **THIRD PARTY** tab, in the
+   group *Community - Unverified*, and reads *Remote | v<version>*. Select it, then **INSTALL** (Kit warns first that
+   NVIDIA hasn't verified it); then turn on **ENABLED** and **AUTOLOAD**. The card then reads
+   *Installed | v<version>*. Kit offers it to Kit 107 and later.
+3. **The server, at the bridge's version:** the version on the card, which the bridge's **OVERVIEW** names:
+   `uvx omniverse-mcp==<that version>`. Pin it in your client's config,
+   `"args": ["omniverse-mcp==<version>"]`, so uvx doesn't move to another release on its own.
+
+- **One source at a time.** A bridge from the registry and one from `extension install` are two copies of one
+  extension, and Autoload starts one version of it. Keep one: uninstall the registry's in the Extensions window, or
+  remove the other's folder from **Extension Search Paths**.
+- **After a release,** the registry lists it the next day, where PyPI has it at once. A server ahead of the bridge
+  says so in `get_sim_state`'s `note`: keep the server pinned, and update the bridge once Kit lists the release.
+- **Headless Kit** takes the bridge from `extension install` ([Headless Kit](#headless-kit)): turning the extension
+  on in a running Kit doesn't download it from a registry, where the window's **INSTALL** does, and a start with
+  `--enable` wasn't tried.
+- **With the plugin,** use its setup: it installs the bridge of the plugin's own release, at once.
 
 ## Headless Kit
 
@@ -137,8 +166,10 @@ must be one only you can read.
 under the same path.
 
 **A Kit machine without uv:** each [GitHub release](https://github.com/serionist/omniverse-mcp/releases) has the
-bridge as `ovmcp.bridge-<version>.zip`. Take the one of your server's version, unzip it into a folder of its own,
-which then holds `ovmcp.bridge/`, and add that folder to Kit's extension search paths.
+bridge as `ovmcp.bridge-<version>.zip`, and the same zip under the two names Kit's community registry reads. Take the
+one of your server's version, unzip it into a folder of its own, which then holds `ovmcp.bridge/`, and add that folder
+to Kit's extension search paths. Or install the bridge in Kit from the registry
+([From Kit's community registry](#from-kits-community-registry)).
 
 ## The output folder
 
@@ -164,12 +195,15 @@ The server and the bridge come from one release; update both, then restart Kit a
   that installs the matching bridge.
 - **Pinned:** `"args": ["omniverse-mcp==0.3.0"]` stays on that release until you change the number, as the plugin
   does. Install the bridge with the same number: `uvx omniverse-mcp==<version> extension install`.
+- **The bridge from Kit's community registry:** update it in Kit's Extensions window, once Kit lists the release, and
+  the server's pin to the same number.
 
 `get_sim_state` reports both versions, and a `note` when the bridge differs from the server's.
 
 ## Uninstalling
 
-1. **In the Kit app:** turn **Omniverse MCP Bridge** off, and remove its folder from **Extension Search Paths**.
+1. **In the Kit app:** turn **Omniverse MCP Bridge** off, and remove its folder from **Extension Search Paths**; one
+   from Kit's community registry, uninstall in the Extensions window.
 2. **The bridge's folders:** `uvx omniverse-mcp extension path` prints the `exts` folder; delete the `omniverse-mcp`
    folder around it. On Linux the token files are in `~/.local/state/omniverse-mcp/` too.
 3. **The client:** remove the `omniverse` server from its config; for the plugin,
@@ -188,7 +222,7 @@ The server and the bridge come from one release; update both, then restart Kit a
 | Kit logs `[MCP Bridge] Failed to start server` | Another program holds the port ([Ports](#ports-and-two-kit-apps)). |
 | The server doesn't start | `uvx` isn't on the PATH the client starts with: restart the client after installing uv. Claude Code's `/mcp` shows the error. |
 | The server starts, then fails importing a package | A `PYTHONPATH` from Isaac Sim's environment reached it: set it empty in the client's config. |
-| `get_sim_state` has a `note` | Kit runs another release's bridge: install the server's, as the note says, and restart Kit. |
+| `get_sim_state` has a `note` | Kit runs another release's bridge: install the server's, as the note says, and restart Kit. With the bridge from Kit's community registry, install the server's version in the Extensions window; a copy from `extension install` beside it is a second copy ([From Kit's community registry](#from-kits-community-registry)). |
 | Isaac Sim 5.1 crashes as it starts, in `rtx.scenedb.plugin` | A fault of 5.1's renderer on NVIDIA's 595 drivers, seen on Linux: run 5.1 on a 580 driver, or use Isaac Sim 6.2. |
 | A black capture | Kit apps have no default light. `viewport_light(action="set", mode="Default")`, or `mode="camera"`. |
 | Kit stops answering the first time physics plays with a robot | 0.2.0's bridge hung Kit while Isaac Sim cooked the robot's collision meshes: update to 0.2.1 or later, and install its bridge ([#5](https://github.com/serionist/omniverse-mcp/issues/5)). |

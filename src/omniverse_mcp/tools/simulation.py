@@ -9,7 +9,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import Field
 
 from omniverse_mcp.client import BridgeClient
-from omniverse_mcp.kit_extension import carried_version, install_command
+from omniverse_mcp.kit_extension import carried_version, install_advice
 
 from ._annotations import EDITS, READS, tool
 from ._bridge import bridge_call
@@ -85,7 +85,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         if extension != carried:
             lines.append(
                 f"note = the Kit extension is {extension} and this server's is {carried}: install the server's, "
-                f"{install_command()}, then restart Kit"
+                f"{install_advice()}"
             )
         return "\n".join(lines)
 

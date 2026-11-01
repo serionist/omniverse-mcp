@@ -14,7 +14,7 @@ from mcp.types import ImageContent, TextContent
 from pydantic import Field
 
 from omniverse_mcp.client import BridgeClient
-from omniverse_mcp.kit_extension import install_command
+from omniverse_mcp.kit_extension import install_advice
 
 from ._annotations import EDITS, READS, tool
 from ._bridge import bridge_call
@@ -57,7 +57,7 @@ def _sizes(r: dict[str, Any]) -> tuple[str, str | None]:
         return shown, None
     return shown, (
         f"WARNING: The image is {shown} but its boxes are for {told[0]}x{told[1]}: the Kit extension is older than "
-        f"this server. Install this server's, {install_command()}, then restart Kit."
+        f"this server. Install this server's, {install_advice()}."
     )
 
 
@@ -70,7 +70,7 @@ def _older_inspect_warning(r: dict[str, Any], width: int, height: int) -> list[s
         return []
     return [
         f"  WARNING: The images are {got[0]}x{got[1]}, not the {width}x{height} asked for: the Kit extension is older "
-        f"than this server. Install this server's, {install_command()}, then restart Kit."
+        f"than this server. Install this server's, {install_advice()}."
     ]
 
 

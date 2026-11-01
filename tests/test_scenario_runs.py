@@ -308,7 +308,10 @@ def test_a_copy_with_crlf_line_endings_is_the_same_bridge(tmp_path):
     tracked = copy_bridge(tmp_path)
     for rel in tracked:
         path = tmp_path / rel
-        path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+        data = path.read_bytes()
+        # Git converts text only: .gitattributes marks the bridge's images binary, and they keep their bytes.
+        if b"\0" not in data:
+            path.write_bytes(data.replace(b"\n", b"\r\n"))
     assert scenarios.bridge_problems(ROOT, tmp_path, tracked) == []
     (tmp_path / tracked[0]).write_bytes(b"changed\r\n")
     assert tracked[0] in scenarios.bridge_problems(ROOT, tmp_path, tracked)[0]

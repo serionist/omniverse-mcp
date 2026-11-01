@@ -12,6 +12,13 @@ The README's images, and how each was made.
 The plugin's icon, `plugin/.claude-plugin/icon.png`, is the logo on a dark square, 1024 pixels, where `claude plugin
 validate` looks for one: for a listing in Anthropic's plugin directory. Claude Code itself shows no icon.
 
+The Kit extension's two, which Kit's Extensions window and Kit's community registry show (#101):
+
+| File | What | How |
+|---|---|---|
+| `extension/ovmcp.bridge/data/icon.png` | the extension's icon | The plugin's icon scaled to 256 pixels, the size Kit recommends, with Pillow's Lanczos filter |
+| `extension/ovmcp.bridge/data/preview.png` | the preview on the extension's Overview | `hero-viewport.jpg` at 512 pixels, the most the window shows, in 256 colours with Pillow: Kit's Extensions window shows only PNG from a registry |
+
 **The scene**, built through the MCP tools:
 
 - `new_scene`, then `execute_script` for a Z-up stage with a dome light (intensity 380) and a distant light (1700,

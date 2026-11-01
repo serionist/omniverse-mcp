@@ -10,6 +10,8 @@ import gate
 import pytest
 import release
 
+from .test_gate import new_repo
+
 CHANGELOG = """# Changelog
 
 ## Unreleased
@@ -53,12 +55,26 @@ def test_a_release_needs_its_dated_section(changelog, expected):
 
 def _repo(tmp_path: Path, version: str) -> Path:
     """The files tag_problems reads, copied from the repo, with a changelog section for version."""
-    for rel in ("pyproject.toml", "extension/ovmcp.bridge/config/extension.toml", gate.SERVER_JSON):
+    for rel in (
+        "pyproject.toml",
+        "extension/ovmcp.bridge/config/extension.toml",
+        gate.SERVER_JSON,
+        gate.EXTENSION_README,
+    ):
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(gate.ROOT / rel, tmp_path / rel)
     shutil.copytree(gate.ROOT / gate.PLUGIN_DIR, tmp_path / gate.PLUGIN_DIR)
     (tmp_path / "CHANGELOG.md").write_text(f"# Changelog\n\n## {version} (2027-01-05)\n\n- Notes.\n", encoding="utf-8")
     return tmp_path
+
+
+def test_a_release_s_notes_link_only_absolute_urls():
+    # The notes go on the release's page, where docs/SETUP.md resolves under /releases/tag/ and leads nowhere (#101).
+    relative = CHANGELOG.replace("- A thing.", "- A thing ([setup](docs/SETUP.md#x)).")
+    (problem,) = release.changelog_problems(relative, "1.2.0")
+    assert "links docs/SETUP.md#x" in problem
+    absolute = CHANGELOG.replace("- A thing.", "- A thing ([setup](https://example.org/SETUP.md#x)).")
+    assert release.changelog_problems(absolute, "1.2.0") == []
 
 
 def test_the_tag_matches_every_version_the_repo_names(tmp_path):
@@ -76,6 +92,7 @@ def test_a_tag_out_of_step_names_each_place(tmp_path):
         gate.PLUGIN_MCP,
         gate.SERVER_JSON,
         f"{gate.SERVER_JSON} (package 1)",
+        f"{gate.EXTENSION_README} (pin 1)",
     ):
         assert any(p.startswith(where) for p in problems), (where, problems)
 
@@ -173,3 +190,182 @@ def test_the_notes_are_the_section(tmp_path, monkeypatch, capsys):
     assert capsys.readouterr().out == f"### Added\n\n- A thing.\n\n{release.INSTALL.format(version='1.2.0')}"
     assert release.main(["notes", "1.3.0"]) == 1
     assert release.main(["release"]) == 2
+
+
+def test_the_notes_pair_the_registry_s_bridge_with_its_server():
+    # A bridge from Kit's community registry comes without its server: the notes name the release's (#101).
+    (registry,) = [
+        line for line in release.INSTALL.format(version="1.2.0").splitlines() if "community registry" in line
+    ]
+    assert "*Omniverse MCP Bridge* 1.2.0" in registry
+    assert "`uvx omniverse-mcp==1.2.0`" in registry
+    assert "docs/SETUP.md#from-kits-community-registry" in registry
+
+
+# The Kit extension's zips (#101): Kit's community registry reads two of them by name, and Kit installs one.
+
+GOOD_TOML = """[package]
+version = "1.2.0"
+repository = "https://github.com/serionist/omniverse-mcp"
+readme = "docs/README.md"
+icon = "data/icon.png"
+preview_image = "data/preview.png"
+
+[package.target]
+kit = ["107.0"]
+"""
+
+
+def _extension_zip(path: Path, files: dict[str, str]) -> Path:
+    with zipfile.ZipFile(path, "w") as z:
+        for name, text in files.items():
+            z.writestr(name, text)
+    return path
+
+
+def _good_files(toml: str = GOOD_TOML) -> dict[str, str]:
+    return {
+        "ovmcp.bridge/config/extension.toml": toml,
+        "ovmcp.bridge/docs/README.md": "# Omniverse MCP Bridge\n",
+        "ovmcp.bridge/data/icon.png": "png",
+        "ovmcp.bridge/data/preview.png": "png",
+        "ovmcp.bridge/ovmcp/__init__.py": "",
+    }
+
+
+def test_the_release_names_its_zips_for_people_and_for_the_registry():
+    assert release.archive_names("1.2.0") == [
+        "ovmcp.bridge-1.2.0.zip",
+        "serionist-omniverse-mcp-linux-x86_64-v1.2.0.zip",
+        "serionist-omniverse-mcp-windows-x86_64-v1.2.0.zip",
+    ]
+
+
+def test_an_extension_zip_kit_can_take_passes(tmp_path):
+    assert release.archive_problems(_extension_zip(tmp_path / "x.zip", _good_files()), "1.2.0") == []
+
+
+def _without(files: dict[str, str], name: str) -> dict[str, str]:
+    return {k: v for k, v in files.items() if k != name}
+
+
+def _renamed(files: dict[str, str], prefix: str) -> dict[str, str]:
+    return {k.replace("ovmcp.bridge/", prefix, 1): v for k, v in files.items()}
+
+
+@pytest.mark.parametrize(
+    ("files", "expected"),
+    [
+        # A toml at the root: the registry indexed three such archives under its own temp folder's name.
+        (_renamed(_good_files(), ""), "is outside ovmcp.bridge/"),
+        ({**_good_files(), "README.md": "x"}, "README.md is outside ovmcp.bridge/"),
+        ({**_good_files(), "ovmcp.bridge/ovmcp/__pycache__/x.cpython-312.pyc": ""}, "is compiled Python"),
+        (_without(_good_files(), "ovmcp.bridge/config/extension.toml"), "has no ovmcp.bridge/config/extension.toml"),
+        (_good_files(GOOD_TOML.replace('"1.2.0"', '"1.1.0"')), "is the extension '1.1.0', the release '1.2.0'"),
+        (_good_files(GOOD_TOML.replace("repository = ", "# ")), "the extension's repository is None"),
+        (_good_files(GOOD_TOML.replace('kit = ["107.0"]', "")), "has no [package.target] kit"),
+        (_good_files(GOOD_TOML.replace('icon = "data/icon.png"\n', "")), "names no icon"),
+        (_without(_good_files(), "ovmcp.bridge/data/preview.png"), "preview_image, data/preview.png, isn't in the zip"),
+        # The window showed its placeholder for a JPEG preview from a registry (the plan's E4).
+        (
+            {**_good_files(GOOD_TOML.replace("preview.png", "preview.jpg")), "ovmcp.bridge/data/preview.jpg": "jpg"},
+            "preview_image, data/preview.jpg, isn't a PNG",
+        ),
+    ],
+    ids=[
+        "toml at the root",
+        "a file at the root",
+        "compiled",
+        "no toml",
+        "version",
+        "repository",
+        "target",
+        "icon",
+        "preview",
+        "a JPEG preview",
+    ],
+)
+def test_an_extension_zip_kit_would_misread_says_how(files, expected, tmp_path):
+    problems = release.archive_problems(_extension_zip(tmp_path / "x.zip", files), "1.2.0")
+    assert any(expected in p for p in problems), problems
+
+
+def test_the_folder_holds_the_release_s_zips_and_no_other(tmp_path):
+    for name in release.archive_names("1.2.0"):
+        _extension_zip(tmp_path / name, _good_files())
+    assert release.folder_problems(tmp_path, "1.2.0") == []
+    _extension_zip(tmp_path / "ovmcp.bridge-1.1.0.zip", _good_files())
+    (tmp_path / "serionist-omniverse-mcp-windows-x86_64-v1.2.0.zip").unlink()
+    problems = release.folder_problems(tmp_path, "1.2.0")
+    assert any("ovmcp.bridge-1.1.0.zip is in" in p and "would attach it" in p for p in problems), problems
+    assert any("serionist-omniverse-mcp-windows-x86_64-v1.2.0.zip is missing" in p for p in problems), problems
+
+
+def test_the_zips_are_head_s_extension_under_its_folder(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run = new_repo(repo)
+    for name, text in _good_files().items():
+        path = repo / "extension" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    (repo / "extension" / "ovmcp.bridge" / "untracked.txt").write_text("", encoding="utf-8")
+    run("add", "extension/ovmcp.bridge/config", "extension/ovmcp.bridge/docs", "extension/ovmcp.bridge/data")
+    run("add", "extension/ovmcp.bridge/ovmcp")
+    run("commit", "-q", "-m", "An extension")
+
+    built = release.build_archives(tmp_path / "out", "1.2.0", root=repo)
+
+    assert [p.name for p in built] == release.archive_names("1.2.0")
+    assert len({p.read_bytes() for p in built}) == 1
+    with zipfile.ZipFile(built[0]) as z:
+        files = {n for n in z.namelist() if not n.endswith("/")}
+    assert files == set(_good_files())
+    assert release.folder_problems(tmp_path / "out", "1.2.0") == []
+
+
+def test_the_zips_land_in_the_folder_named_from_any_working_folder(tmp_path, monkeypatch):
+    # git runs in the repo and Python where the command was started: a relative folder must be the same one for both.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run = new_repo(repo)
+    for name, text in _good_files().items():
+        path = repo / "extension" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    run("add", "-A")
+    run("commit", "-q", "-m", "An extension")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    built = release.build_archives(Path("out"), "1.2.0", root=repo)
+
+    assert all(p.is_file() and p.parent == elsewhere / "out" for p in built)
+    assert not (repo / "out").exists()
+
+
+def test_the_release_s_own_call_zips_and_checks_head(tmp_path, capsys):
+    # As release.yml runs it, with the tag: the tag path runs nowhere else before release day.
+    version = gate.plugin_versions(gate.ROOT, gate.json_object(gate.ROOT / gate.PLUGIN_MANIFEST))["pyproject.toml"]
+    assert release.main(["archives", str(tmp_path / "release"), f"v{version}"]) == 0
+    assert sorted(p.name for p in (tmp_path / "release").iterdir()) == sorted(release.archive_names(str(version)))
+    assert f"release.py archives {version}: ok" in capsys.readouterr().out
+
+
+def test_the_repo_s_own_extension_is_a_zip_kit_can_take(tmp_path):
+    # The working tree's extension, zipped as the release does: the toml names files it has, at the release's version.
+    root = gate.ROOT / "extension" / "ovmcp.bridge"
+    files = {
+        f"ovmcp.bridge/{p.relative_to(root).as_posix()}": p.read_text(encoding="utf-8", errors="replace")
+        for p in root.rglob("*")
+        if p.is_file() and "__pycache__" not in p.parts
+    }
+    version = gate.plugin_versions(gate.ROOT, gate.json_object(gate.ROOT / gate.PLUGIN_MANIFEST))["pyproject.toml"]
+    assert version
+    assert release.archive_problems(_extension_zip(tmp_path / "x.zip", files), version) == []
+
+
+def test_archives_refuses_a_tag_that_is_not_a_release(tmp_path, capsys):
+    assert release.main(["archives", str(tmp_path), "v1.2"]) == 1
+    assert "is not vX.Y.Z" in capsys.readouterr().err

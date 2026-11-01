@@ -104,8 +104,9 @@ jobs:
           uv run --locked --python ${{ matrix.python }} coverage report
 
   # What release.yml publishes, built and checked on every pull request: PyPI's rules for the metadata, the wheel's
-  # contents, the Kit extension inside it at the wheel's version, and a README PyPI can show (#36). The wheel is kept,
-  # so a release PR's can be tried with uvx --from before it merges (docs/releasing.md).
+  # contents, the Kit extension inside it at the wheel's version, and a README PyPI can show (#36); and the Kit
+  # extension's zips, which Kit's community registry reads (#101). The wheel is kept, so a release PR's can be tried
+  # with uvx --from before it merges (docs/releasing.md).
   package:
     name: Package (Linux)
     runs-on: ubuntu-latest
@@ -123,6 +124,8 @@ jobs:
           uvx twine==7.0.0 check --strict dist/*
           uvx check-wheel-contents==0.6.3 dist/*.whl
           uv run --no-project tools/release.py wheel dist/*.whl
+      - name: Zip the Kit extension as a release does, and check the zips
+        run: uv run --no-project tools/release.py archives release
       # Once CHANGELOG.md has a section for pyproject.toml's version, a release PR meets here what its tag will (every
       # version and the dated section) before the merge rather than after; every change after it keeps them so.
       - name: The versions are ready for a tag

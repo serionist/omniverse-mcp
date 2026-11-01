@@ -5,10 +5,27 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Added
+
+- **The bridge in Kit's community extension registry:** each release also attaches the Kit extension as
+  `serionist-omniverse-mcp-linux-x86_64-vX.Y.Z.zip` and `-windows-x86_64-`, the names the registry reads, and the
+  extension names its repository, keywords, icon and preview, which Kit's Extensions window shows. A Kit app then
+  installs *Omniverse MCP Bridge* from its Extensions window, Isaac Sim 6.2 once it adds the registry; the server
+  still comes from PyPI, at the bridge's version, as
+  [SETUP](https://github.com/serionist/omniverse-mcp/blob/main/docs/SETUP.md#from-kits-community-registry) says.
+  From this release on, the zips' names and their `ovmcp.bridge/` layout stay as they are, and no release's zips are
+  deleted: Kit installs each listed version from them (#101).
+
 ### Changed
 
 - **Tested on Linux and on Isaac Sim 5.1:** both live suites pass on Isaac Sim 6.2 on Linux, and on 5.1 (Kit 107).
   On Linux, Isaac Sim 5.1 runs on NVIDIA's 580 drivers; on a 595 driver its renderer crashes as it starts (#99).
+- **The texts that find another release's Kit extension name Kit's community registry too:** `get_sim_state`'s
+  note, the connection errors and the warnings of `capture_viewport`, `inspect_prim` and `start_recording` still give
+  the `extension install` command, and add that an extension from the community registry is updated in Kit's
+  Extensions window instead, since the command's folder never reaches it (#101).
+- **The Kit extension declares Kit 107 or later** (`[package.target] kit`), as the README has said since 0.2.0: Kit
+  106 and older no longer load it from a folder, nor offer it in the Extensions window (#101).
 
 ## 0.3.0 (2026-11-01)
 

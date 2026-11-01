@@ -83,6 +83,16 @@ def install_command() -> str:
     return f"uvx omniverse-mcp=={version('omniverse-mcp')} extension install"
 
 
+def install_advice() -> str:
+    """How to give Kit this server's extension, for each text that finds another release's there: the command and a
+    restart, or, for an extension from Kit's community registry, which the command's folder never reaches, the version
+    to install in Kit's Extensions window (#101)."""
+    return (
+        f"{install_command()}, then restart Kit; with the extension from Kit's community registry, install "
+        f"{carried_version()} in Kit's Extensions window instead"
+    )
+
+
 def _quoted(path: Path) -> str:
     """A path as a shell takes it: a profile folder may hold a space."""
     return f'"{path}"' if sys.platform == "win32" else shlex.quote(str(path))

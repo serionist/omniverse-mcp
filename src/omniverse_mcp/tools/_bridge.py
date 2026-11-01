@@ -6,7 +6,7 @@ from typing import Any
 from mcp.server.mcpserver.exceptions import ToolError
 
 from omniverse_mcp.client import BridgeError
-from omniverse_mcp.kit_extension import install_command
+from omniverse_mcp.kit_extension import install_advice
 
 # How much of the bridge's traceback a tool error carries: enough to place the failure, short enough to read.
 TRACEBACK_LINES = 5
@@ -39,7 +39,7 @@ def bridge_call(fn: Callable[..., dict[str, Any]], *args: Any, **kwargs: Any) ->
         if message.startswith(UNKNOWN_ROUTE):
             message += (
                 ". The Kit extension is older than this MCP server and lacks this tool: install the server's, "
-                f"{install_command()}, then restart Kit"
+                f"{install_advice()}"
             )
         traceback = str(resp.get("traceback", "")).strip()
         if traceback:

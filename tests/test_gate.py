@@ -643,6 +643,7 @@ def _plugin_tree(tmp_path: Path) -> Path:
         gate.TOOL_CONTRACT,
         gate.MARKETPLACE,
         gate.SERVER_JSON,
+        gate.EXTENSION_README,
     )
     for rel in (*files, gate.AI_GUIDE):
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -698,6 +699,20 @@ def test_a_plugin_server_without_its_pin_fails(tmp_path, monkeypatch):
         (gate.PLUGIN_MCP, '"PYTHONPATH": ""', '"PYTHONPATH": "", "X": "1"', "must be exactly"),
         (gate.SERVER_JSON, '"version": "{version}"', '"version": "9.9.9"', "server.json has version '9.9.9'"),
         (
+            gate.EXTENSION_README,
+            "omniverse-mcp=={version}",
+            "omniverse-mcp==9.9.9",
+            "docs/README.md (pin 1) has version '9.9.9'",
+        ),
+        (gate.EXTENSION_README, None, "# Omniverse MCP Bridge\n", "(no omniverse-mcp== pin)"),
+        (
+            gate.EXTENSION_README,
+            None,
+            # A pin of the extension's own, which names no server.
+            "# Omniverse MCP Bridge\n\nKit shows `[ext: ovmcp.bridge-9.9.9] startup`.\n",
+            "(no omniverse-mcp== pin)",
+        ),
+        (
             gate.SERVER_JSON,
             '"{version}",\n      "runtimeHint"',
             '"9.9.9",\n      "runtimeHint"',
@@ -720,6 +735,9 @@ def test_a_plugin_server_without_its_pin_fails(tmp_path, monkeypatch):
         "a server argument",
         "a server variable",
         "server.json",
+        "extension README pin",
+        "extension README without a pin",
+        "extension README with only the extension's pin",
         "server.json's package",
         "server.json unreadable",
         "registry name",

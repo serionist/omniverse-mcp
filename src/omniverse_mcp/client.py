@@ -12,7 +12,7 @@ import threading
 from typing import Any
 
 from .bridge_token import ENV_TOKEN, read_token, token_path
-from .kit_extension import install_command
+from .kit_extension import install_advice
 
 logger = logging.getLogger(__name__)
 
@@ -105,18 +105,18 @@ class BridgeClient:
         if status == 404:
             problem = (
                 f"The Kit extension is older than this MCP server: it has no bridge handshake, the server "
-                f"speaks protocol {PROTOCOL}. Install this server's extension, {install_command()}, then restart Kit."
+                f"speaks protocol {PROTOCOL}. Install this server's extension, {install_advice()}."
             )
         elif status != 200 or not isinstance(result.get("protocol"), int):
             problem = f"Unexpected handshake answer from the Kit extension (HTTP {status}): {data.get('error', data)}"
         elif result["protocol"] != PROTOCOL:
             extension = result.get("extension_version", "unknown")
             if result["protocol"] < PROTOCOL:
-                fix = f"The extension is older: install this server's, {install_command()}, then restart Kit."
+                fix = f"The extension is older: install this server's, {install_advice()}."
             else:
                 fix = (
                     f"The server is older: update it to the extension's release, {extension}, or install this "
-                    f"server's extension, {install_command()}, then restart Kit."
+                    f"server's extension, {install_advice()}."
                 )
             problem = (
                 f"The Kit extension {extension} speaks bridge protocol {result['protocol']} and this MCP server "
