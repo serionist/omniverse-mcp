@@ -583,6 +583,13 @@ def test_against_takes_a_run_or_the_newest_run_at_a_refs_commit():
         scenarios.pick_against(runs, "no-such-ref-anywhere")
 
 
+def test_against_finds_a_release_run_by_the_tree_its_squash_merge_keeps():
+    tree = gate.git("rev-parse", "HEAD^{tree}", cwd=ROOT).stdout.strip()
+    pr_head = run_record("pr", [], commit="not-the-merge-commit") | {"tree": tree, "clean": True}
+    dirty = run_record("dirty", [], commit="other") | {"tree": tree, "clean": False}
+    assert scenarios.pick_against([pr_head, dirty], "HEAD")["name"] == "pr"
+
+
 def test_the_compare_command_exits_1_on_a_regression_or_a_not_run(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(scenarios, "runs_root", lambda: tmp_path)
     for record in (run_record("20261101-000000", [("1.1", "PASS")]), run_record("20261102-000000", [("1.1", "PASS")])):

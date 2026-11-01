@@ -937,14 +937,20 @@ def load_runs(runs: Path) -> list[dict[str, Any]]:
 
 
 def pick_against(runs: Sequence[Mapping[str, Any]], value: str, cwd: Path = ROOT) -> Mapping[str, Any]:
-    """A run by its folder's name, or the newest run at a tag's (or another ref's) commit."""
+    """A run by its folder's name, or the newest run made on a tag's (or another ref's) commit or, from a clean tree,
+    on its tree: a release is run on its PR's head, and the squash merge the tag marks is a new commit with that
+    tree."""
     for record in runs:
         if record["name"] == value:
             return record
-    commit = gate.git("rev-parse", "--verify", "--quiet", f"{value}^{{commit}}", cwd=cwd).stdout.strip()
-    matches = [r for r in runs if commit and r.get("commit") == commit]
+
+    def resolve(kind: str) -> str:
+        return gate.git("rev-parse", "--verify", "--quiet", f"{value}^{{{kind}}}", cwd=cwd).stdout.strip()
+
+    commit, tree = resolve("commit"), resolve("tree")
+    matches = [r for r in runs if commit and (r.get("commit") == commit or (r.get("clean") and r.get("tree") == tree))]
     if not matches:
-        raise ValueError(f"--against {value}: no run has that name, and no run was made at its commit")
+        raise ValueError(f"--against {value}: no run has that name, and no run was made on its commit or its tree")
     return matches[-1]
 
 
@@ -1023,6 +1029,7 @@ def format_report(newest: Mapping[str, Any], report: Mapping[str, Any]) -> str:
 def _git_facts(cwd: Path = ROOT) -> dict[str, Any]:
     return {
         "commit": gate.git("rev-parse", "HEAD", cwd=cwd).stdout.strip(),
+        "tree": gate.git("rev-parse", "HEAD^{tree}", cwd=cwd).stdout.strip(),
         "branch": gate.git("branch", "--show-current", cwd=cwd).stdout.strip(),
         "clean": not gate.git("status", "--porcelain", cwd=cwd).stdout.strip(),
     }

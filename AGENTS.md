@@ -24,7 +24,7 @@ extension it talks to.
 | `src/omniverse_mcp/` | the server: `server.py` (`create_server()`: MCP server, output files, resources; `main()`), `config.py` (flags, `OMNIVERSE_MCP_*`), `client.py` (the bridge's HTTP client), `bridge_token.py`, `kit_extension.py` (`extension install\|path`: the extension the wheel carries, copied to the user's folder), `tools/` (the tools by area; `_bridge.py`, the one call to the bridge; `_annotations.py`, the four hints and `tool()`, which registers a tool with them; `_params.py`, shared parameters) |
 | `extension/ovmcp.bridge/` | the extension: `config/extension.toml` (id, version, settings), `ovmcp/bridge/` (`extension.py` with the routes, `handlers/`), `ovmcp/core/` (HTTP, token, framing, isolation, bounds, capture waits, the formatter, PNG, logs, materials, robot files, USD file paths, opening a stage, extensions, debug drawing, forces, recording, the open stage's layers, transforms, prim deletion; `usd.py` types what the pxr stubs get wrong), `docs/README.md` |
 | `tests/` | pytest; `test_integration.py` and `test_scenarios.py` are the live suites (markers `sim`, `scenario`), which need Kit, and `test_gpu_force.py` the GPU one (`gpu`, run alone with `OMNIVERSE_MCP_GPU=1`), their physics helpers in `physics_checks.py`; `fixtures/mcp-tools.json`, the tool contract `test_contract.py` checks; `test_tools.py`, each tool against the mock bridge |
-| `test_project/` | an MCP client project for AI-driven scenario runs: `scenarios.md`, `CLAUDE.md`, `.mcp.json.example` |
+| `test_project/` | the AI scenario suite: `scenarios.md`, the tester's rules in `AGENTS.md` (`CLAUDE.md` imports them), `.mcp.json.example`; `tools/scenarios.py` runs it (`run-scenarios`, below), each run a folder in the main checkout's git-ignored `test_project/results/runs/` |
 | `docs/` | `SETUP.md` (each client's config, headless Kit, ports, remote, uninstalling: the README's detail), `ARCHITECTURE.md` (routes, protocol, token, threading), `TOOLS.md` (a heading per tool), `AI_GUIDE.md` (for clients without the plugin; points at its skills), `images/` (the README's captures, the logo, the social preview; its README says how each was made), `releasing.md` (the release runbook) |
 | `docs/plans/`, `docs/reviews/` | plans of non-trivial changes, with the template; review records. Dated records, never current truth |
 | `tools/` | `gate.py` (the gate), `hooks.py` (behind `.githooks/`), `setup.py` (once per clone; `link` for skills), `release.py` (the release's checks and notes), standard library only; `golden.py` writes `tests/fixtures/mcp-tools.json` from the server |
@@ -56,7 +56,7 @@ PowerShell unless a PowerShell form stands beside it.
 | lint, format, types, imports | `uv run ruff check .`, `uv run ruff format --check .`, `uv run basedpyright`, `uv run lint-imports` |
 | the gate | `uv run tools/gate.py quick` (lock, lint, format, types, imports, the coverage floor, AGENTS.md, skills, the plugin, attribution, secrets); `full` adds pytest under coverage, and the floor; `text --file -` checks a PR's title and description: no attribution, and the issue named |
 | the tool contract | `uv run tools/golden.py` after a deliberate change to a tool's name, parameters, bounds or hints, with its CHANGELOG line |
-| live suites | `OMNIVERSE_MCP_SIM=1 uv run pytest tests/test_integration.py tests/test_scenarios.py`; PowerShell: `$env:OMNIVERSE_MCP_SIM = "1"`, then `uv run pytest ...` |
+| live suites | `OMNIVERSE_MCP_SIM=1 uv run pytest tests/test_integration.py tests/test_scenarios.py`; PowerShell: `$env:OMNIVERSE_MCP_SIM = "1"`, then `uv run pytest ...`; the AI scenarios: `uv run tools/scenarios.py run` |
 
 - **Live suites** need a Kit app running `ovmcp.bridge` (Kit's extension search path on `extension/`), where the server
   finds it: `OMNIVERSE_MCP_HOST` and `OMNIVERSE_MCP_PORT`, 127.0.0.1:8211 by default. Without `OMNIVERSE_MCP_SIM=1` they
@@ -79,7 +79,7 @@ PowerShell unless a PowerShell form stands beside it.
 6. **The maintainer,** @serionist, squash-merges; merging is the approval. `main` takes PRs only.
 
 The skills in `.claude/skills/` run this loop: `start-work` (1 to 3), `review-plan`, `review-code`, `finish-work`
-(5), and `write-skill` for writing or fixing a skill.
+(5); `write-skill` writes or fixes a skill, and `run-scenarios` runs the AI scenarios on a Kit app of its own.
 
 ## Writing
 

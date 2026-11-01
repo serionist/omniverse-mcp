@@ -30,6 +30,8 @@ plan's S9, S10 and D7 say why it works this way.
    - `uvx --from <folder>/omniverse_mcp-X.Y.Z-py3-none-any.whl omniverse-mcp extension install`, and Kit started with
      the folder it prints on its extension search path;
    - the live suites (`AGENTS.md`, Build and test) against that Kit app;
+   - the AI scenario suite, every phase, against the same Kit app (`run-scenarios`), compared with the last release's
+     run (`uv run tools/scenarios.py compare --against v<last>`): each regression fixed, or explained in the PR;
    - the plugin, a copy of `plugin/` whose `.mcp.json` runs `uvx --from <the wheel> omniverse-mcp`, loaded with
      `claude --plugin-dir`: `/omniverse-mcp:setup` reports the extension equal to the server.
 3. **Merge it, then tag its merge commit at once:** `git tag vX.Y.Z <merge commit>` and `git push origin vX.Y.Z`.

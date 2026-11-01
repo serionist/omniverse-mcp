@@ -217,10 +217,10 @@ every worktree's runs sit together and outlive the worktree (F15). One folder pe
 
 | File | Written by | Holds |
 |---|---|---|
-| `run.json` | the script | Commit, branch, whether the tree was clean, port, Kit app and version, bridge version and folder, the stage at the start, client and version, model, phases asked, IDs with setup, each session's start, end, exit, tokens, cost and skill loads |
-| `phase-NN.md` | the script, from the session's last message | Its rows, `\| ID \| Test \| Status \| Notes \|`, and its issues; a FAIL or WARN names its capture under `mcp_output/` |
+| `run.json` | the script | Commit and its tree, branch, whether the tree was clean, port, Kit app and version, bridge version and folder, the stage at the start, client and version, model, phases asked, IDs with setup, each session's start, end, exit, tokens, cost and skill loads |
+| `phase-NN.md`, `setup-NN.md` | the script, from the session's last message (a setup session is named for the phase it comes before) | Its rows, `\| ID \| Test \| Status \| Notes \|`, and its issues; a FAIL or WARN names its capture under `mcp_output/` |
 | `results.md` | the script | Run Info from `run.json`, the skill loads per session, every asked ID in order, `NOT RUN` where no row came, then the issues |
-| `transcript-NN.jsonl` | the client | Each session's stream |
+| `transcript-phase-NN.jsonl`, `transcript-setup-NN.jsonl` | the client | Each session's stream |
 | `mcp_output/` | the server | Captures, recordings, dumps |
 | `kit/` | Kit | The eight files the scenarios save or export (F4), at the `<run>/kit/...` paths the prompt gives |
 
@@ -228,9 +228,10 @@ Statuses: PASS, FAIL, WARN, SKIP from the tester (F1's meanings); NOT RUN from t
 
 `uv run tools/scenarios.py compare [<run>] [--against <run or tag>]` compares the newest run by default, each ID
 against the newest earlier run with a tester status for it, or against `--against`: a run, or a tag for the newest run
-at that tag's commit (I5). It lists regressions first (PASS or WARN to FAIL, PASS to WARN), then fixes, other changes,
-new IDs and NOT RUN, each changed row with both notes and the earlier run's folder, then the counts. It exits 1 on a
-regression or a NOT RUN.
+at that tag's commit or, from a clean tree, on its tree (I5): a release is run on its PR's head, and the squash merge
+the tag marks is a new commit with that tree, a departure found while building. It lists regressions first (PASS or
+WARN to FAIL, PASS to WARN), then fixes, other changes, new IDs and NOT RUN, each changed row with both notes and the
+earlier run's folder, then the counts. It exits 1 on a regression or a NOT RUN.
 
 ```
 Run 20261102-141000 (Phases 1-27, 144 IDs; main 67a5069; Isaac Sim 6.2.0 on 8212)
@@ -302,13 +303,14 @@ named whole (Q13); a form with flags and every `run` ask, as `run` drives Kit an
 
 ### `AGENTS.md` within 150 lines
 
-Four edits in place, no line added (F11):
+Three edits in place, no line added (F11). The `tools/` row stays as it is: #101, built beside this, edits it, so
+`tools/scenarios.py` is named in the `test_project/` row instead, and whichever PR merges second rebases without a
+conflict there.
 
 | Line | Becomes |
 |---|---|
-| `test_project/` row | `an MCP client project for the AI scenario suite: AGENTS.md (the tester's rules), scenarios.md; runs land in results/runs/` |
-| `tools/` row | adds `scenarios.py` (the AI scenario runs: `check`, `run`, `compare`; imports the server, as `golden.py` does) |
-| live suites row, Build and test | adds `; the AI scenarios: uv run tools/scenarios.py run (run-scenarios)` |
+| `test_project/` row | the AI scenario suite: `scenarios.md`, the tester's rules in `AGENTS.md` (`CLAUDE.md` imports them), `.mcp.json.example`; `tools/scenarios.py` runs it (`run-scenarios`, below), each run a folder in the main checkout's git-ignored `test_project/results/runs/` |
+| live suites row, Build and test | adds `; the AI scenarios: uv run tools/scenarios.py run` |
 | the skills sentence, How a change lands | `... finish-work (5); write-skill writes or fixes a skill, run-scenarios runs the AI scenarios.`, rewrapped within its two lines |
 
 ## Compatibility
@@ -375,7 +377,7 @@ Each step passes `uv run tools/gate.py full`. The skill, `finish-work` and `writ
 
 | File | Change |
 |---|---|
-| `AGENTS.md` | Four lines in place (Design) |
+| `AGENTS.md` | Three lines in place (Design) |
 | `CONTRIBUTING.md` | The live suites section: one sentence naming `run-scenarios` and `test_project/AGENTS.md` |
 | `docs/releasing.md` | Step 2's bullet (Q11) |
 | `.claude/skills/finish-work/SKILL.md` | Step 3's sentence (Q11) |
