@@ -335,12 +335,17 @@ its size never change (#25):
    viewport's camera, must be a `UsdGeom.Camera`. It makes a `CameraFeed` (`handlers/camera_feed.py`): a texture from
    Kit's public `omni.kit.hydra_texture.create_hydra_texture`, rendering every update while the recording runs, as
    Replicator makes its render products but with no annotator, so Replicator's orchestrator, its capture settings and
-   the timeline are left alone. It waits for the feed's first frame (`capture.FRAME_SECONDS`), then subscribes to the
-   app's update stream.
-2. **Each update,** `FrameClock` decides whether to take a frame: every `steps_per_frame` updates (the timeline's time
-   codes a second over `fps`), unless the feed still awaits the last frame's render or four frames are still being
-   written. A frame gets its number, its `sim_time` and the tracked prims' state (appended to `state.txt`) at its tick,
-   so numbers never repeat (#69) and the state matches the time.
+   the timeline are left alone. It waits for the feed's first frame (`capture.FRAME_SECONDS`), then, under Path
+   Tracing, for the frames a capture waits for its samples (`capture.settle_frames`, none under RT 2.0), then
+   subscribes to the app's update stream.
+2. **Each update,** `FrameClock` moves the recording's own clock and decides whether to take a frame. The clock adds
+   the simulation time the update advanced while the timeline plays and moves, and the wall time since the update
+   before otherwise (`time.monotonic`): stopped, paused, or a timeline that plays and doesn't move. Frame k is due once
+   it reaches k/`fps`; a due frame waits while the feed still awaits the last frame's render or four frames are still
+   being written, and the next is due at the first period boundary after the clock, so late frames are dropped, not
+   sent in a burst (#111). A frame gets its number, its `sim_time` and the tracked prims' state (appended to
+   `state.txt`) at its tick, so numbers never repeat (#69) and the state matches the time. The clock's two totals are
+   the stop answer's `simulation_seconds` and `idle_seconds`.
 3. **A frame** is taken as the viewport's are: a `FileCapture` delegate queued on the feed is handed the feed's next
    drawable-changed frame (Events 2.0 since Kit 108.2, an event stream before), and `capture_feed_png` waits for the
    whole PNG (`capture.capture_png`). One that doesn't come in time is written as an empty file, keeping the numbers.

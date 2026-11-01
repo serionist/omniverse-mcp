@@ -197,13 +197,19 @@ Needs: 2.1, 4.5
 - Wait ~2 seconds
 - `sim_control("stop")`
 - `stop_recording()`
-- Verify: frame_count > 0, output_dir exists
+- Verify: frame_count > 0, output_dir exists; the answer's first line names the seconds of simulation played and the
+  seconds stopped or paused, and frame_count is near 5 times their sum
+- Verify: in `metadata.json`, the frames before play are about 0.2 s apart by `wall_time`, and those while playing
+  0.2 s apart in `sim_time`. While playing they come faster than 5 a second by `wall_time` when the simulation runs
+  faster than real time: that is by design
 
 ### 6.2 Review Frames
 - `get_recording_frame(frame_index=0)` → should return image path
 - Read the frame image — verify it is non-empty (file size > 0)
 - `get_recording_frame(frame_index=<last>)` → cube lower or on ground
 - Verify: images show cube at different positions, each 320x240 whatever the viewport's size
+- Frames taken before play may show Kit's grid beyond the ground; on Isaac Sim 6.2, those taken while playing don't,
+  since it hides the grid while the simulation plays. Frame 0 differing from later frames for that alone is expected
 
 ### 6.3 Record from a Camera
 - `execute_script` making a camera `/World/RecCam` 8 units along X, looking at the cube's column (focal length 18)
@@ -864,7 +870,8 @@ Needs: none
 
 ### 24.3 Get Logs with Search Filter
 - Call `get_logs(search="MCP")`
-- Verify: all returned entry messages contain "MCP" (case-insensitive)
+- Verify: each entry shows "MCP", in any case, in its text or on its `matched:` line; a message cut short ends
+  `... (+N characters)`
 - The MCP bridge logs its own startup, so there should be matches
 
 ### 24.4 Get Logs with Channel Filter
