@@ -1,9 +1,9 @@
 ---
 title: Bring create_prim's usd_path file to the stage's up axis and units, as create_robot does
 issue: "#119"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-11-01
 ---
 
 # Bring create_prim's usd_path file to the stage's up axis and units, as create_robot does
@@ -211,10 +211,10 @@ there holds the file as it is: the file's side as its root's own ops leave it, t
 
 | Q | Question | Options | Recommendation | Answer |
 |---|---|---|---|---|
-| Q1 | `create_prim` puts `usd_path`'s reference on a prim already at `prim_path`. Which prims are turned, scaled and converted? | **A.** Only a prim this call makes. A reference added to a prim already there goes on as the file is, and the answer says so and how to get it brought. **B.** Also a prim already there that composes no reference or payload, such as an Xform made first; its edit-layer spec is copied aside before the call and put back on a refusal, since `RemovePrim` would take the prim itself. **C.** Every prim | A: it never turns or scales content the call didn't bring, and the case it must get right, `create_prim` called again on the same path and file to move the prim, is a prim that already holds the reference, where a second turn would lay it down (U3). B serves an Xform made first, a rare order, for a snapshot of the edit layer; C scales whatever else the prim holds, as Kit does with two references, leaving one file 100 times too small (N5) | |
-| Q2 | A prim made inside an asset already brought to the stage, such as a gripper file under a robot `create_robot` turned, or a part under a prop Kit dropped and scaled? | **A.** Measure the file against the frame it lands in: the stage's, turned and scaled by the ancestors' `:unitsResolve` ops; physics values still against the stage. For `create_prim` and `create_robot`. Kit's values in N1, N3 and N4, and for N2's Z-up file; for N2's Y-up file, a turn of +90 that stands it, where Kit leaves it lying down. **B.** Kit's values in every case, N2's Y-up file left lying down. **C.** Against the stage, as `create_robot` does today. **D.** C, and a line naming the ancestor | A: the only one that leaves every file its real size and upright. It gives Kit's values wherever Kit's file comes out right (N1 to N4), and stands the one Kit lays down (N2), as #112 departs from Kit's table where its result is wrong. With C, a metre file inside a metre asset on a centimetre stage comes in 100 times too large, and a Z-up file inside a turned robot lies on its side (U2), where today, with no op at all, both come out right by their ancestor's. B copies a result that lies on its side | |
-| Q3 | A `usd_path` that can't be opened: today it makes an empty prim, answered as created | **A.** Refused before anything is made, as `create_robot` refuses one: "Could not open <path>: ...". **B.** Referenced as today, nothing turned or scaled, a line saying the file couldn't be read | A: the file has to be read for its units anyway, and an empty prim reported as created helps no one. The path is anchored as the reference anchors it (U1), so a relative path that composes today still opens | |
-| Q4 | Someone who turned or scaled such a prim themselves, with `rotation` or `scale`, now gets it turned or scaled twice | **A.** CHANGELOG's Fixed entry says so, in bold, as #105's Q7 and #112's Q7. **B.** Under Breaking changes | A: the schema doesn't change, and the answer names the turn and the scale | |
+| Q1 | `create_prim` puts `usd_path`'s reference on a prim already at `prim_path`. Which prims are turned, scaled and converted? | **A.** Only a prim this call makes. A reference added to a prim already there goes on as the file is, and the answer says so and how to get it brought. **B.** Also a prim already there that composes no reference or payload, such as an Xform made first; its edit-layer spec is copied aside before the call and put back on a refusal, since `RemovePrim` would take the prim itself. **C.** Every prim | A: it never turns or scales content the call didn't bring, and the case it must get right, `create_prim` called again on the same path and file to move the prim, is a prim that already holds the reference, where a second turn would lay it down (U3). B serves an Xform made first, a rare order, for a snapshot of the edit layer; C scales whatever else the prim holds, as Kit does with two references, leaving one file 100 times too small (N5) | A, as recommended (serionist, 2026-11-01) |
+| Q2 | A prim made inside an asset already brought to the stage, such as a gripper file under a robot `create_robot` turned, or a part under a prop Kit dropped and scaled? | **A.** Measure the file against the frame it lands in: the stage's, turned and scaled by the ancestors' `:unitsResolve` ops; physics values still against the stage. For `create_prim` and `create_robot`. Kit's values in N1, N3 and N4, and for N2's Z-up file; for N2's Y-up file, a turn of +90 that stands it, where Kit leaves it lying down. **B.** Kit's values in every case, N2's Y-up file left lying down. **C.** Against the stage, as `create_robot` does today. **D.** C, and a line naming the ancestor | A: the only one that leaves every file its real size and upright. It gives Kit's values wherever Kit's file comes out right (N1 to N4), and stands the one Kit lays down (N2), as #112 departs from Kit's table where its result is wrong. With C, a metre file inside a metre asset on a centimetre stage comes in 100 times too large, and a Z-up file inside a turned robot lies on its side (U2), where today, with no op at all, both come out right by their ancestor's. B copies a result that lies on its side | A, as recommended (serionist, 2026-11-01) |
+| Q3 | A `usd_path` that can't be opened: today it makes an empty prim, answered as created | **A.** Refused before anything is made, as `create_robot` refuses one: "Could not open <path>: ...". **B.** Referenced as today, nothing turned or scaled, a line saying the file couldn't be read | A: the file has to be read for its units anyway, and an empty prim reported as created helps no one. The path is anchored as the reference anchors it (U1), so a relative path that composes today still opens | A, as recommended (serionist, 2026-11-01) |
+| Q4 | Someone who turned or scaled such a prim themselves, with `rotation` or `scale`, now gets it turned or scaled twice | **A.** CHANGELOG's Fixed entry says so, in bold, as #105's Q7 and #112's Q7. **B.** Under Breaking changes | A: the schema doesn't change, and the answer names the turn and the scale | A, as recommended (serionist, 2026-11-01) |
 
 ## Compatibility
 
@@ -323,8 +323,8 @@ instead. Kit with `conformToXformCommonAPI` on (K4, Risks).
 
 **How:** one fresh reviewer, started by the session, read only, 2026-11-01, on `66f3097`, with a usd-core script of
 its own (`check.py`, in the session's scratchpad's `119review/`). **Verdict:** needs-fixes: no blocker or major, four
-minors; no further round. **Now:** P1 to P4 fixed and improvements 1 to 4 taken, in the commit after `66f3097`; Q1 to
-Q4 are with the maintainer.
+minors; no further round. **Now:** P1 to P4 fixed, improvements 1 to 3 taken and 4 in part, in the commit after
+`66f3097`. The maintainer answered Q1 to Q4 after it: all A.
 
 | # | Sev | Finding | Status |
 |---|---|---|---|
@@ -356,7 +356,7 @@ Q4 are with the maintainer.
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 to Q4 | Decisions for the maintainer | The reviewer agrees with A on each | with the maintainer |
+| Q1 to Q4 | Decisions for the maintainer | The reviewer agrees with A on each | All A, as recommended (serionist, 2026-11-01) |
 
 **Improvements:**
 
