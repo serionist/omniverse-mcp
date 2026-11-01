@@ -216,9 +216,10 @@ def _holds(layer: Sdf.Layer, path: Sdf.Path, samples: bool) -> bool:
 
 def _value_units(attr: Usd.Attribute, info: Usd.ResolveInfo, samples: bool, file: Units, stage: Units) -> Units:
     """The units a value is authored in: its own layer's, else its layer stack root's, as a sublayer takes its
-    file's, else the robot file's. Kit's assembler takes each layer's own too, so a robot Kit dropped and saved, its
-    values left in the metre file it references, isn't converted a second time. A value of the stage's own layers is
-    in the stage's units."""
+    file's, else the robot file's. Not the robot file's alone: a robot Kit dropped and saved leaves its values in the
+    metre file it references, which the saved file's units would convert a second time. Kit's assembler takes one
+    layer's units for every value under the prim it resolves, and gets that case wrong. A value of the stage's own
+    layers is in the stage's units."""
     node = info.GetNode()
     if node.IsRootNode():
         return stage
