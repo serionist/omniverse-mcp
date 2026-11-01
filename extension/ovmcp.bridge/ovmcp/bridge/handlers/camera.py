@@ -147,8 +147,9 @@ def _is_image_black(png_bytes: bytes, threshold: int = 5) -> bool:
 
 
 def _has_scene_lights() -> bool:
-    """Check if the stage has any active UsdLux light prims."""
-    return any(is_light(prim) for prim in _get_stage().Traverse())
+    """Whether the stage has an active UsdLux light, inside an instance too: a light an instanceable reference brings,
+    such as a lamp asset's, lights the scene as much (#105, review I7)."""
+    return any(is_light(prim) for prim in Usd.PrimRange.Stage(_get_stage(), Usd.TraverseInstanceProxies()))
 
 
 def _scene_lights_for(lighting_mode: str, is_black: bool) -> dict[str, bool]:

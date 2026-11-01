@@ -101,19 +101,38 @@ def physics_values(source: Usd.Prim | None) -> dict[str, float]:
 def start_from(material: Usd.Prim, source: Usd.Prim | None) -> None:
     """Gives material what source holds beside its frictions and restitution: every authored physics: and
     physxMaterial: attribute, such as a density or PhysX's combine modes, and its PhysxMaterialAPI, so the body behaves
-    as before in everything a call doesn't name. Nothing when source is material itself or None.
+    as before in everything a call doesn't name, and keeps none source lacks. Nothing when source is material
+    itself; with None, PhysX's own default, material keeps none of them.
 
     By name and type, not through PhysxSchema, which usd-core lacks: there HasAPI and GetAppliedSchemas() can't see
     PhysxMaterialAPI, while the apiSchemas list op holds it.
     """
-    if source is None or source.GetPath() == material.GetPath():
+    if source is not None and source.GetPath() == material.GetPath():
         return
-    held = cast("Sdf.TokenListOp | None", source.GetMetadata("apiSchemas"))
-    applied = list(held.GetAddedOrExplicitItems()) if held is not None else []
-    for schema in applied:
+    # Exact: a material that is there already, shared by a prim of the same name or made before, keeps nothing its
+    # new source lacks, such as a density or a combine mode; with no source, it starts from PhysX's own (review I8).
+    wanted = _applied(source) if source is not None else []
+    for schema in _applied(material):
+        if schema not in wanted and schema == "PhysxMaterialAPI":
+            material.RemoveAppliedSchema(schema)
+    for attr in material.GetAuthoredAttributes():
+        name = attr.GetName()
+        there = source.GetAttribute(name) if source is not None else None
+        if name.startswith(_PHYSICS_NAMESPACES) and not (there and there.HasAuthoredValue()):
+            material.RemoveProperty(name)
+    if source is None:
+        return
+    for schema in wanted:
         if schema in _PHYSICS_SCHEMAS:
             material.AddAppliedSchema(schema)
     for attr in source.GetAuthoredAttributes():
         name = attr.GetName()
         if name.startswith(_PHYSICS_NAMESPACES) and attr.HasAuthoredValue():
             material.CreateAttribute(name, attr.GetTypeName()).Set(attr.Get())
+
+
+def _applied(prim: Usd.Prim) -> list[str]:
+    """The API schemas prim's composed apiSchemas list op holds, by name: PhysxMaterialAPI among them on usd-core,
+    whose GetAppliedSchemas() can't see it."""
+    held = cast("Sdf.TokenListOp | None", prim.GetMetadata("apiSchemas"))
+    return [str(schema) for schema in held.GetAddedOrExplicitItems()] if held is not None else []

@@ -226,6 +226,19 @@ def test_a_capture_in_mode_stage_says_whether_the_stage_has_lights(handler, kit,
     assert r["result"]["has_scene_lights"] is lights
 
 
+def test_a_light_inside_an_instance_counts(handler, kit, monkeypatch):
+    # A lamp asset referenced as an instance: its light is reached only through the instance's proxies, and a walk
+    # without them warned of no lights in a lit scene (review I7).
+    monkeypatch.setattr(handler, "_get_current_lighting_mode", lambda: "stage")
+    source = kit.stage.CreateClassPrim("/_Lamps/Lamp")
+    UsdLux.DistantLight.Define(kit.stage, "/_Lamps/Lamp/Bulb")
+    lamp = kit.stage.DefinePrim("/World/Lamp")
+    lamp.GetReferences().AddInternalReference(source.GetPath())
+    lamp.SetInstanceable(True)
+
+    assert _capture(handler, width=32, height=24)["result"]["has_scene_lights"] is True
+
+
 def test_an_inspection_in_mode_stage_says_whether_the_stage_has_lights(handler, kit, monkeypatch):
     monkeypatch.setattr(handler, "_get_current_lighting_mode", lambda: "stage")
 

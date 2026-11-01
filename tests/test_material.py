@@ -181,14 +181,40 @@ def test_start_from_a_scene_default_copies_it_too(physics_stage):
     assert own.GetAttribute("physxMaterial:restitutionCombineMode").Get() == "max"
 
 
-def test_start_from_the_material_itself_or_none_changes_nothing(physics_stage):
+def test_start_from_the_material_itself_changes_nothing(physics_stage):
     own = _physics_material(physics_stage, "/World/PhysicsMaterials/Box_PhysMat", restitution=0.3)
     before = own.GetStage().GetRootLayer().ExportToString()
 
     start_from(own, own)
-    start_from(own, None)
 
     assert own.GetStage().GetRootLayer().ExportToString() == before
+
+
+def _held(own: Usd.Prim) -> list[str]:
+    return sorted(a.GetName() for a in own.GetAuthoredAttributes() if a.GetName().startswith(("physics:", "physx")))
+
+
+def test_start_from_keeps_nothing_the_new_source_lacks(physics_stage):
+    # A material there already, made for a same-named prim, held a density and a combine mode; its new source,
+    # Rubber, has neither: they go, so the copy is exact (review I8).
+    own = _physics_material(physics_stage, "/World/PhysicsMaterials/Box_PhysMat", density=1000.0, restitution=0.3)
+    own.AddAppliedSchema("PhysxMaterialAPI")
+    own.CreateAttribute("physxMaterial:frictionCombineMode", Sdf.ValueTypeNames.Token).Set("max")
+    rubber = _physics_material(physics_stage, "/World/Mats/Rubber", staticFriction=0.9)
+
+    start_from(own, rubber)
+
+    assert _held(own) == ["physics:staticFriction"]
+    assert "PhysxMaterialAPI" not in own.GetMetadata("apiSchemas").GetAddedOrExplicitItems()
+    assert "PhysicsMaterialAPI" in own.GetMetadata("apiSchemas").GetAddedOrExplicitItems()
+
+
+def test_start_from_none_leaves_physx_s_default(physics_stage):
+    own = _physics_material(physics_stage, "/World/PhysicsMaterials/Box_PhysMat", density=1000.0, restitution=0.3)
+
+    start_from(own, None)
+
+    assert _held(own) == []
 
 
 def test_start_from_reads_a_material_a_reference_brings(physics_stage, tmp_path):

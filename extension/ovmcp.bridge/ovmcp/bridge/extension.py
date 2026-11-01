@@ -84,7 +84,11 @@ class Extension(omni.ext.IExt):
     def on_startup(self, ext_id: str):
         self._server = None
         set_extension_version(version_from_ext_id(ext_id))
-        set_kit_app(kit_app_facts(omni.kit.app.get_app()))
+        try:
+            set_kit_app(kit_app_facts(omni.kit.app.get_app()))
+        except Exception as e:
+            # The facts are for a bug report: a Kit app that can't give them costs them, never the bridge's start.
+            carb.log_warn(f"[MCP Bridge] The Kit app's name and versions read unknown: {e}")
         settings = carb.settings.get_settings()
         prefix = f"/exts/{EXTENSION_NAME}"
         self._host = settings.get(f"{prefix}/host") or "127.0.0.1"
