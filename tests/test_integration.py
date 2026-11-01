@@ -310,10 +310,12 @@ def _units_box(up: str, meters: float, k: float) -> str:
 # A value of an attribute in Kit, as a float: NAME of the prim at PATH.
 _VALUE = "result = float(omni.usd.get_context().get_stage().GetPrimAtPath(PATH).GetAttribute(NAME).Get())"
 
-# Kit's metrics assembler resolving PATH into an anonymous layer of its own, as its change listener resolves an asset
-# its drop recorded when a prim under it is made (#119), the layer taken out of the stage after: the :unitsResolve ops
-# of each prim in PRIMS, and the values NAMES lists, before and after, and which values Kit wrote into its layer. None
-# without the assembler.
+# Kit's metrics assembler resolving PATH into an anonymous layer of its own, first among the root layer's sublayers,
+# as its change listener resolves an asset its drop recorded when a prim under it is made (#119), the layer taken out
+# of the stage after. That layer is weaker than the edit layer, where create_prim wrote its ops, so the composed values
+# can't show what Kit wrote: each layer's own specs of the :unitsResolve ops of the prims in PRIMS are read, the edit
+# layer's before and after and the resolve layer's after, and the values NAMES lists, before and after, with which of
+# them Kit wrote into its layer. None without the assembler.
 _RESOLVE_INTO = """
 try:
     from omni.metrics.assembler.core import get_metrics_assembler_interface
@@ -322,21 +324,22 @@ except ImportError:
 else:
     context = omni.usd.get_context()
     stage = context.get_stage()
+    edit = stage.GetEditTarget().GetLayer()
 
-    def read():
-        ops = {}
+    def ops_in(layer):
+        held = {}
         for path in PRIMS:
-            ops[path] = {}
-            for op in UsdGeom.Xformable(stage.GetPrimAtPath(path)).GetOrderedXformOps():
-                if op.GetOpName().endswith(":unitsResolve"):
-                    value = op.Get()
-                    ops[path][op.GetOpName()] = [float(v) for v in value] if hasattr(value, "__len__") else float(value)
-        values = {}
-        for path, name in NAMES:
-            values[path + "." + name] = float(stage.GetPrimAtPath(path).GetAttribute(name).Get())
-        return {"ops": ops, "values": values}
+            for name in ("xformOp:rotateX:unitsResolve", "xformOp:scale:unitsResolve"):
+                spec = layer.GetAttributeAtPath(path + "." + name)
+                if spec is not None and spec.HasDefaultValue():
+                    value = spec.default
+                    held[path + "." + name] = [float(v) for v in value] if hasattr(value, "__len__") else float(value)
+        return held
 
-    before = read()
+    def values():
+        return {path + "." + name: float(stage.GetPrimAtPath(path).GetAttribute(name).Get()) for path, name in NAMES}
+
+    before = {"edit": ops_in(edit), "values": values()}
     layer = Sdf.Layer.CreateAnonymous("ovmcp-IntTest-resolve")
     root = stage.GetRootLayer()
     root.subLayerPaths.insert(0, layer.identifier)
@@ -344,12 +347,13 @@ else:
     assembler.set_resolve_layer(layer.identifier)
     try:
         assembler.resolve_hierarchy(context.get_stage_id(), PATH)
-        after = read()
+        after = {"edit": ops_in(edit), "values": values()}
+        resolve = ops_in(layer)
         written = [path + "." + name for path, name in NAMES if layer.GetAttributeAtPath(path + "." + name) is not None]
     finally:
         assembler.set_resolve_layer(None)
         root.subLayerPaths.remove(layer.identifier)
-    result = {"before": before, "after": after, "written": written}
+    result = {"before": before, "after": after, "resolve": resolve, "written": written}
 """
 
 # The live tests of the bounded capture waits (#27, #35) change Kit through execute_script, which is not behind the
@@ -883,17 +887,21 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         if resolved is None:
             print(f"  brought to a {up}-up stage of metersPerUnit {meters:g}; no metrics assembler here")
             return
-        self.assertEqual(resolved["after"]["ops"][path], resolved["before"]["ops"][path], resolved)
+        print(f"  Kit's resolve layer holds {resolved['resolve']}; the edit layer, after: {resolved['after']['edit']}")
+        # The ops create_prim wrote stay as it wrote them in the edit layer, whatever Kit writes into its own.
+        before_edit, after_edit = resolved["before"]["edit"], resolved["after"]["edit"]
+        self.assertEqual({k: after_edit.get(k) for k in before_edit}, before_edit, resolved)
         for key, value in resolved["before"]["values"].items():
             self.assertNotIn(key, resolved["written"], resolved)
             self.assertAlmostEqual(resolved["after"]["values"][key], value, delta=1e-9, msg=key)
         for shape in ("Shape", "Inner/Shape"):
             now = self.client.prim_bounds(f"{path}/{shape}")["result"]["dimensions"]
             self.assertEqual([round(d, 4) for d in now], [round(d, 4) for d in dims], shape)
-        left = resolved["after"]["ops"][f"{path}/Native"].get("xformOp:rotateX:unitsResolve")
-        # Pinned once a run has shown Kit's value: ours, -turn, or Kit's own 0, which lays the file down (Risks).
-        self.assertIn(left, (-turn, 0.0), resolved)
-        print(f"  Kit's assembler leaves the turned-back file's turn at {left} (create_prim wrote {-turn})")
+        # The plan's N2 departure: what Kit writes of the turned-back file's turn in its own layer, which shows only
+        # where that layer outranks the one create_prim wrote to. To pin from a run: no turn there, or 0.
+        kits = resolved["resolve"].get(f"{path}/Native.xformOp:rotateX:unitsResolve")
+        self.assertIn(kits, (None, 0.0), resolved)
+        print(f"  Kit's own turn of the turned-back file: {kits} (create_prim wrote {-turn})")
 
     def test_08_set_transform(self):
         # Create a test prim
