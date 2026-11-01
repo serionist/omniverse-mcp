@@ -177,9 +177,15 @@ def _instance_refusal(instance: Usd.Prim) -> str:
 
 
 def material_refusal(prim: Usd.Prim) -> str | None:
-    """Why prim can't hold its own physics material, or None. USD lets neither an instance nor a prim inside one hold
-    a child (the instance flag alone, with no reference or payload, makes no instance); a child PhysMat that isn't a
-    Material is the user's own."""
+    """Why prim can't hold its own physics material, or None. USD lets neither an inactive prim, nor an instance, nor a
+    prim inside one hold a child (the instance flag alone, with no reference or payload, makes no instance); a child
+    PhysMat that isn't a Material is the user's own."""
+    if not prim.IsActive():
+        # Material.Define raised under it, after the Collision API and the mass were written (review E3).
+        return (
+            f"{prim.GetPath()} is inactive, which USD lets hold no prim of its own, so it can't hold its own physics "
+            "material: activate it first"
+        )
     if prim.IsInstanceProxy():
         instance = instance_of(prim)
         return (

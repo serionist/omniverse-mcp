@@ -363,6 +363,16 @@ def test_a_prim_flagged_instanceable_without_an_arc_takes_its_material(physics_s
     assert own_physics_material(physics_stage, flagged).GetPath() == Sdf.Path("/World/Flagged/PhysMat")
 
 
+def test_an_inactive_prim_is_refused(physics_stage):
+    box = physics_stage.GetPrimAtPath("/World/Box")
+    box.SetActive(False)
+
+    assert material_refusal(box) == (
+        "/World/Box is inactive, which USD lets hold no prim of its own, so it can't hold its own physics material: "
+        "activate it first"
+    )
+
+
 def test_a_child_physmat_that_is_no_material_is_refused(physics_stage):
     physics_stage.DefinePrim("/World/Box/PhysMat", "Xform")
 

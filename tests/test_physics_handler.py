@@ -222,6 +222,18 @@ def test_a_call_on_a_source_names_the_clones_that_inherit_its_material(simulatio
     assert "also_changes" not in _set(simulation, link, friction=0.8)["result"]
 
 
+def test_an_inactive_prim_is_refused_and_not_even_its_mass_is_written(simulation, kit):
+    # It raised "Failed to define UsdPrim" after the Collision API and the mass were written (review E3).
+    kit.stage.GetPrimAtPath(BOX).SetActive(False)
+    before = kit.stage.GetRootLayer().ExportToString()
+
+    r = _set(simulation, mass=3.0, friction=0.5)
+
+    assert r["status"] == "error"
+    assert r["error"].startswith(f"{BOX} is inactive")
+    assert kit.stage.GetRootLayer().ExportToString() == before
+
+
 def test_an_instance_is_refused_and_not_even_its_mass_is_written(simulation, kit):
     UsdGeom.Cube.Define(kit.stage, "/Props/Crate/Box")
     crate = kit.stage.DefinePrim("/World/Shelf/Crate", "Xform")
