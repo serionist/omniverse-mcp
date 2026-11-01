@@ -706,6 +706,13 @@ def test_a_plugin_server_without_its_pin_fails(tmp_path, monkeypatch):
         ),
         (gate.EXTENSION_README, None, "# Omniverse MCP Bridge\n", "(no omniverse-mcp== pin)"),
         (
+            gate.EXTENSION_README,
+            None,
+            # A pin of the extension's own, which names no server.
+            "# Omniverse MCP Bridge\n\nKit shows `[ext: ovmcp.bridge-9.9.9] startup`.\n",
+            "(no omniverse-mcp== pin)",
+        ),
+        (
             gate.SERVER_JSON,
             '"{version}",\n      "runtimeHint"',
             '"9.9.9",\n      "runtimeHint"',
@@ -730,6 +737,7 @@ def test_a_plugin_server_without_its_pin_fails(tmp_path, monkeypatch):
         "server.json",
         "extension README pin",
         "extension README without a pin",
+        "extension README with only the extension's pin",
         "server.json's package",
         "server.json unreadable",
         "registry name",

@@ -11,8 +11,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   `serionist-omniverse-mcp-linux-x86_64-vX.Y.Z.zip` and `-windows-x86_64-`, the names the registry reads, and the
   extension names its repository, keywords, icon and preview, which Kit's Extensions window shows. A Kit app then
   installs *Omniverse MCP Bridge* from its Extensions window, Isaac Sim 6.2 once it adds the registry; the server
-  still comes from PyPI, at the bridge's version
-  ([From Kit's community registry](docs/SETUP.md#from-kits-community-registry)) (#101).
+  still comes from PyPI, at the bridge's version, as
+  [SETUP](https://github.com/serionist/omniverse-mcp/blob/main/docs/SETUP.md#from-kits-community-registry) says.
+  From this release on, the zips' names and their `ovmcp.bridge/` layout stay as they are, and no release's zips are
+  deleted: Kit installs each listed version from them (#101).
 
 ### Changed
 

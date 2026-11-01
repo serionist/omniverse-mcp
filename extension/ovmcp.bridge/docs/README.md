@@ -19,7 +19,7 @@ release: `uvx omniverse-mcp==0.3.0` in your client's MCP config. The
 Two ways, one at a time: a second copy is a second version of this extension, and Kit's Autoload starts one.
 
 - **From Kit's community registry,** in Kit's Extensions window: under **THIRD PARTY**, *Community - Unverified*,
-  **INSTALL** (Kit may warn first that NVIDIA hasn't verified it), then **ENABLED** and **AUTOLOAD**. Isaac Sim 5.1
+  **INSTALL** (Kit warns first that NVIDIA hasn't verified it), then **ENABLED** and **AUTOLOAD**. Isaac Sim 5.1
   lists the registry; other Kit apps add it once under **Window > Extensions**, the menu button (three lines) at the
   top right, **Settings**, **Extension Registries**: `kit/community`,
   `https://dw290v42wisod.cloudfront.net/exts/kit/community`. Update it there too, with the server's pin.

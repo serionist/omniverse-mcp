@@ -68,6 +68,15 @@ def _repo(tmp_path: Path, version: str) -> Path:
     return tmp_path
 
 
+def test_a_release_s_notes_link_only_absolute_urls():
+    # The notes go on the release's page, where docs/SETUP.md resolves under /releases/tag/ and leads nowhere (#101).
+    relative = CHANGELOG.replace("- A thing.", "- A thing ([setup](docs/SETUP.md#x)).")
+    (problem,) = release.changelog_problems(relative, "1.2.0")
+    assert "links docs/SETUP.md#x" in problem
+    absolute = CHANGELOG.replace("- A thing.", "- A thing ([setup](https://example.org/SETUP.md#x)).")
+    assert release.changelog_problems(absolute, "1.2.0") == []
+
+
 def test_the_tag_matches_every_version_the_repo_names(tmp_path):
     version = gate.plugin_versions(gate.ROOT, gate.json_object(gate.ROOT / gate.PLUGIN_MANIFEST))["pyproject.toml"]
     assert version
@@ -180,6 +189,7 @@ def test_the_notes_are_the_section(tmp_path, monkeypatch, capsys):
     assert release.main(["notes", "1.2.0"]) == 0
     assert capsys.readouterr().out == f"### Added\n\n- A thing.\n\n{release.INSTALL.format(version='1.2.0')}"
     assert release.main(["notes", "1.3.0"]) == 1
+    assert release.main(["release"]) == 2
 
 
 def test_the_notes_pair_the_registry_s_bridge_with_its_server():
@@ -190,7 +200,6 @@ def test_the_notes_pair_the_registry_s_bridge_with_its_server():
     assert "*Omniverse MCP Bridge* 1.2.0" in registry
     assert "`uvx omniverse-mcp==1.2.0`" in registry
     assert "docs/SETUP.md#from-kits-community-registry" in registry
-    assert release.main(["release"]) == 2
 
 
 # The Kit extension's zips (#101): Kit's community registry reads two of them by name, and Kit installs one.
@@ -313,6 +322,35 @@ def test_the_zips_are_head_s_extension_under_its_folder(tmp_path):
         files = {n for n in z.namelist() if not n.endswith("/")}
     assert files == set(_good_files())
     assert release.folder_problems(tmp_path / "out", "1.2.0") == []
+
+
+def test_the_zips_land_in_the_folder_named_from_any_working_folder(tmp_path, monkeypatch):
+    # git runs in the repo and Python where the command was started: a relative folder must be the same one for both.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run = new_repo(repo)
+    for name, text in _good_files().items():
+        path = repo / "extension" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    run("add", "-A")
+    run("commit", "-q", "-m", "An extension")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    built = release.build_archives(Path("out"), "1.2.0", root=repo)
+
+    assert all(p.is_file() and p.parent == elsewhere / "out" for p in built)
+    assert not (repo / "out").exists()
+
+
+def test_the_release_s_own_call_zips_and_checks_head(tmp_path, capsys):
+    # As release.yml runs it, with the tag: the tag path runs nowhere else before release day.
+    version = gate.plugin_versions(gate.ROOT, gate.json_object(gate.ROOT / gate.PLUGIN_MANIFEST))["pyproject.toml"]
+    assert release.main(["archives", str(tmp_path / "release"), f"v{version}"]) == 0
+    assert sorted(p.name for p in (tmp_path / "release").iterdir()) == sorted(release.archive_names(str(version)))
+    assert f"release.py archives {version}: ok" in capsys.readouterr().out
 
 
 def test_the_repo_s_own_extension_is_a_zip_kit_can_take(tmp_path):

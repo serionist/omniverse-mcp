@@ -115,8 +115,9 @@ extension come from one release. `omniverse-mcp extension install` (`src/omniver
 - **Kit's community registry** is the other way in. Each release also attaches the extension's zip under the two
   names the registry's crawler reads (`tools/release.py archives`, which checks the layout: everything under
   `ovmcp.bridge/`). Kit downloads a listed version from its release into its own cache and links it into its
-  registry folder, where `extension install`'s folder never reaches; turning the extension on doesn't download it,
-  the Extensions window's **Install** does. `[package.target] kit` keeps it from Kit apps before 107.
+  registry folder, where `extension install`'s folder never reaches. Turning the extension on in a running Kit
+  doesn't download it, the Extensions window's **Install** does; a start with `--enable` wasn't tried.
+  `[package.target] kit` keeps it from Kit apps before 107.
 
 ### Key files
 

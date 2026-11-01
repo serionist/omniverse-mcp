@@ -47,6 +47,8 @@ _RELATIVE = re.compile(
     r"|!\[[^\]]*\]\(https://github\.com/[^)\s]*/blob/[^)\s]*",
     re.MULTILINE,
 )
+# A link in a release's notes, which GitHub shows on the release's page, where only an absolute URL leads anywhere.
+_NOTES_RELATIVE = re.compile(r"\]\((?!https?://|mailto:)([^)\s]+)\)")
 # PyPI prefixes an in-page link with `user-content-` itself, so one that already has it points nowhere there (#62).
 _PREFIXED = re.compile(r'\]\(#user-content-[^)\s]*\)|href="#user-content-[^"]*"')
 # Under each release's notes on GitHub (plan S10), as the README's Install and Updating say it. GitHub breaks a release
@@ -106,6 +108,12 @@ def changelog_problems(changelog: str, version: str) -> list[str]:
         problems.append(f"CHANGELOG.md's heading is {heading!r}; a release's reads `## {version} (YYYY-MM-DD)`")
     if not body:
         problems.append(f"CHANGELOG.md's section for {version} is empty: it is the release's notes")
+    relative = [m.group(1) for m in _NOTES_RELATIVE.finditer(body)]
+    if relative:
+        problems.append(
+            f"CHANGELOG.md's section for {version} links {', '.join(relative[:3])}: the release's page resolves a "
+            "relative link under /releases/tag/, so give the absolute URL"
+        )
     return problems
 
 
@@ -173,6 +181,8 @@ def archive_names(version: str) -> list[str]:
 
 def build_archives(out: Path, version: str, root: Path = ROOT) -> list[Path]:
     """Zip HEAD's extension, as `git archive` gives its tracked files, under each of archive_names(version)."""
+    # git runs in root and Python in the working folder: an absolute folder is the same one for both.
+    out = out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     first, *copies = (out / name for name in archive_names(version))
     done = gate.git(

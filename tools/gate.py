@@ -87,6 +87,7 @@ _ALLOWED_ENTRY = re.compile(r"[^\s,(]+(?:\([^)]*\))?")
 # extension's README names its server the same way: Kit's Extensions window shows it to whoever installs the extension
 # from Kit's community registry (#101), so it must name one.
 EXTENSION_README = "extension/ovmcp.bridge/docs/README.md"
+_SERVER_PIN = re.compile(r"omniverse-mcp==([0-9](?:[0-9A-Za-z.+!-]*[0-9A-Za-z])?)")
 _PIN = re.compile(r"(?:omniverse-mcp==|ovmcp\.bridge-)([0-9](?:[0-9A-Za-z.+!-]*[0-9A-Za-z])?)")
 # A Markdown link's target: Claude Code installs plugin/ alone, so a relative one leads nowhere.
 _LINK = re.compile(r"\]\(([^)\s]+)")
@@ -654,10 +655,12 @@ def plugin_versions(root: Path, plugin: dict[str, Any]) -> dict[str, str | None]
             for n, pin in enumerate(_PIN.findall(path.read_text(encoding="utf-8")), 1):
                 versions[f"{path.relative_to(root).as_posix()} (pin {n})"] = pin
     readme = root / EXTENSION_README
-    pins = _PIN.findall(readme.read_text(encoding="utf-8")) if readme.is_file() else []
+    text = readme.read_text(encoding="utf-8") if readme.is_file() else ""
+    # Its `ovmcp.bridge-` pins count with the rest, but only an `omniverse-mcp==` one names the server.
+    pins = _PIN.findall(text)
     for n, pin in enumerate(pins, 1):
         versions[f"{EXTENSION_README} (pin {n})"] = pin
-    if not pins:
+    if not _SERVER_PIN.search(text):
         versions[f"{EXTENSION_README} (no omniverse-mcp== pin)"] = None
     return versions
 

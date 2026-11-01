@@ -109,8 +109,9 @@ the tag's, or pyproject.toml's when no tag is given:
 `release.yml`'s verify job runs `uv run --no-project tools/release.py archives release "$GITHUB_REF_NAME"` in place of
 its `git archive` step, and the github-release job attaches `release/*.zip` as today, now three files. `ci.yml`'s
 package job runs `tools/release.py archives release` on every pull request, so a change that moves the folder, drops
-the icon or breaks the layout fails before a tag. The same command, run locally on a commit, makes the same bytes, which
-E4 installs (Tests).
+the icon or breaks the layout fails before a tag. The same command, run locally on a commit, makes a zip of the same
+files, which E4 installs (Tests): `git archive` of a tree stamps the time it runs, so only the files inside match
+(code review round 1, improvement 6).
 
 | Alternative | Why not |
 |---|---|
@@ -168,7 +169,7 @@ made.
   Registries**: name `kit/community`, URL `https://dw290v42wisod.cloudfront.net/exts/kit/community`.
 - The Extensions window lists *Omniverse MCP Bridge* under **THIRD PARTY**, labelled "Community - Unverified", with
   the icon, the description, the preview and the repository link; OVERVIEW shows the readme before Install too,
-  from the crawler's metadata file (E4, Q9). **INSTALL** may warn first (K5); then the user turns it on with
+  from the crawler's metadata file (E4, Q9). **INSTALL** warns first (K5); then the user turns it on with
   **ENABLED** and **AUTOLOAD**, as for a folder install. E4 saw these labels.
 - The listing appears the day after the release (R11). Every version stays listed, and the window offers the newest
   that matches the Kit (K7).
@@ -253,8 +254,8 @@ to the release.
 7. **`release.py`'s notes:** the `INSTALL` line for the registry. Test: `tests/test_release.py`'s notes test.
 8. **The docs** (Docs, below).
 9. **E4,** on the branch, by the maintainer with a window: the listing in the Extensions window, from a local registry
-   built from the zip that `tools/release.py archives` makes locally on the branch's commit, the same bytes CI and the
-   release make.
+   built from the zip that `tools/release.py archives` makes locally on the branch's commit, the same files CI and
+   the release zip.
 10. **finish-work:** the gate; the live suites on 6.2; one 5.1 session, the folder install with the target, the live
     suites and `get_sim_state`, which needs the dev server's NVIDIA driver swapped to 580 and back (5.1's renderer
     crashes on 595, README); `review-code`; the PR.
@@ -278,8 +279,8 @@ inside Kit with `--exec` and prints, each line starting `OVMCP-PROBE`, the regis
 the bridge enabled at start with its path and that path's real path, every version Kit sees, and the solver's answer.
 
 The zips: before step 3, `git archive --format=zip --prefix=ovmcp.bridge/ -o <zip> HEAD:extension/ovmcp.bridge`,
-today's `release.yml` command; from step 3, `uv run --no-project tools/release.py archives <dir>`, which makes the
-same bytes for the same commit. Before step 2 the tree has no target, so E1 and E3 pass `--target-kit`. Three
+today's `release.yml` command; from step 3, `uv run --no-project tools/release.py archives <dir>`, which zips the
+same files for the same commit. Before step 2 the tree has no target, so E1 and E3 pass `--target-kit`. Three
 registries are built already in the planning session's scratch folder, from `git archive`'s zip of `67a5069`:
 `registry-107` (`ovmcp.bridge-0.3.0+107.0`), `registry-999` (`ovmcp.bridge-0.3.0+999.0`) and `registry-none`
 (`ovmcp.bridge-0.3.0`, the zip byte for byte).
@@ -326,7 +327,7 @@ install.
 |---|---|
 | E1 | Pass. Nothing enabled at start; `ovmcp-test` added after `kit/prod/default` and `kit/prod/sdk`; one version listed, `package_id` `ovmcp.bridge-0.3.0+107.0`, `version` `[0, 3, 0, "", "107.0"]`, and the solver took it. The log: `downloading: '.../registry-107/3/archives/serionist-omniverse-mcp-linux-x86_64-v0.3.0.zip'` into Kit's temp folder, `unpacking: ... -> <work>/extcache/v2/ovmcp.bridge-0.3.0+107.0`, `creating a link: <work>/extinstall/3/ovmcp.bridge-0.3.0+107.0 -> <work>/extcache/v2/ovmcp.bridge-0.3.0+107.0`, and `[ext: ovmcp.bridge-0.3.0] startup`, the id without `+107.0` (K3). The probe's real path was under `extcache`. `get_sim_state` on 8212: `extension_version = 0.3.0`, `server_version = 0.3.0`, no `note` |
 | E3 | Pass. With `registry-999`, Kit listed no version of `ovmcp.bridge` at all, and the solver refused: "No versions of ovmcp.bridge that satisfies ... (none found)"; the enable failed and no bridge started. With `registry-none`: `package_id` `ovmcp.bridge-0.3.0`, `version` `[0, 3, 0, "", ""]`, the archive downloaded and linked as in E1, the bridge started, and `get_sim_state` answered 0.3.0 and 0.3.0, no `note` |
-| E4 | Pass, with three findings below. The maintainer, Isaac Sim 6.2 with its window and `--portable-root`, a registry built from `release.py archives`' zip unchanged. The tabs **NVIDIA (0)** and **THIRD PARTY (1)**; under THIRD PARTY the group *Community - Unverified (1/1)*; the card **OMNIVERSE MCP BRIDGE**, *Simulation*, `ovmcp.bridge`, the cube icon, its footer *COMMUNITY* and *Remote \| v0.3.0*. The detail pane: **INSTALL**, the menu button, **AUTOLOAD**; the tabs OVERVIEW, CHANGELOG, DEPENDENCIES, PACKAGES, DEVELOPER, OMNIGRAPH. After **INSTALL**: *UP TO DATE*, **ENABLED** on, the footer *Installed \| v0.3.0*, the status bar "Installed successfully: ovmcp.bridge-0.3.0+107.0"; `get_sim_state` 0.3.0 and 0.3.0, no `note`. Whether Kit warned before installing wasn't reported |
+| E4 | Pass, with three findings below. The maintainer, Isaac Sim 6.2 with its window and `--portable-root`, a registry built from `release.py archives`' zip unchanged. The tabs **NVIDIA (0)** and **THIRD PARTY (1)**; under THIRD PARTY the group *Community - Unverified (1/1)*; the card **OMNIVERSE MCP BRIDGE**, *Simulation*, `ovmcp.bridge`, the cube icon, its footer *COMMUNITY* and *Remote \| v0.3.0*. The detail pane: **INSTALL**, the menu button, **AUTOLOAD**; the tabs OVERVIEW, CHANGELOG, DEPENDENCIES, PACKAGES, DEVELOPER, OMNIGRAPH. After **INSTALL**: *UP TO DATE*, **ENABLED** on, **AUTOLOAD** checked by the maintainer, the footer *Installed \| v0.3.0*, the status bar "Installed successfully: ovmcp.bridge-0.3.0+107.0"; `get_sim_state` 0.3.0 and 0.3.0, no `note`. Whether Kit warned before installing wasn't reported |
 
 So Q2 (a) holds: `kit = ["107.0"]` is offered to Kit 110, and a target above the running Kit hides the package.
 
@@ -356,8 +357,9 @@ What E4 found, and what changed:
     entry lacked too while its icon resolved: no rerun.
 - **Kit's font has no ☰:** the extension README's "the menu (☰)" rendered as "(?)" in OVERVIEW. The README now says
   "the menu button (three lines)"; SETUP, the README and the release notes keep ☰, which GitHub renders.
-- **The labels:** SETUP's section now names them as E4 saw them. The install warning (K5, from the window's code)
-  wasn't reported either way, so the docs say Kit *may* warn.
+- **The labels:** SETUP's section now names them as E4 saw them. The install warning wasn't reported either way;
+  the docs first said Kit *may* warn, then, after code review round 1, that it warns: the window's code shows the
+  popup for every unverified entry (K5 on 6.2, `common.py` 567-589 on 5.1).
 
 What the runs showed beyond the pass:
 
