@@ -1415,19 +1415,62 @@ def test_create_prim_under_a_frame_says_which_units_differ(
 
 
 def test_create_prim_on_a_prim_already_there_says_what_the_file_didn_t_get(bridge: MockIsaacServer, tmp_path: Path):
+    # The reference stays on the prim: the answer says so and how to take it off before bringing the file elsewhere,
+    # or the file would be on the stage twice (review R4).
     missed = {
         "prim_path": "/World/Shelf",
         "file": {"up_axis": "Y", "meters_per_unit": 1.0},
         "frame": {"up_axis": "Z", "meters_per_unit": 0.01},
+        "values": {"meters_per_unit": {"file": 1.0, "stage": 0.01}, "kilograms_per_unit": None},
+        "reference": "/props/box.usda",
     }
     answer = {**PRIM, "up_axis_turn": None, "units_scale": None, "frame": None, "not_brought": missed}
     says = (
         "Left as the file is: /World/Shelf was there before this call, so the file's reference on it isn't turned or "
         "scaled to the stage (the file Y-up in metersPerUnit 1, the frame inside /World/Shelf Z-up in metersPerUnit "
-        "0.01); create_prim at a path under it, such as /World/Shelf/Item, to have the file brought to the stage",
+        "0.01), and leaves its physics values in the file's units (metersPerUnit 1 where the stage's is 0.01). The "
+        "reference stays on /World/Shelf: to have the file brought instead, take it off with execute_script, "
+        "stage.GetPrimAtPath('/World/Shelf').GetReferences().RemoveReference(Sdf.Reference('/props/box.usda')), then "
+        "create_prim at a new path, such as /World/Shelf/Item",
     )
     text = _check(Case("create_prim", _PRIM_ARGS, "/scene/create", answer, {}, says), bridge, tmp_path)
     assert "delete_prim" not in text
+
+
+@pytest.mark.parametrize(
+    ("missed", "says"),
+    [
+        # Placed right, its masses left in the file's kilograms (review R2).
+        (
+            {
+                "prim_path": "/World/Crate",
+                "file": None,
+                "frame": None,
+                "values": {"meters_per_unit": None, "kilograms_per_unit": {"file": 0.001, "stage": 1.0}},
+                "reference": "/props/crate.usda",
+            },
+            "so the file's reference on it leaves its physics values in the file's units (kilogramsPerUnit 0.001 "
+            "where the stage's is 1). The reference stays on /World/Crate",
+        ),
+        # A frame turned so that neither axis is up, as a Kit-saved file's own turn leaves it before it is brought.
+        (
+            {
+                "prim_path": "/World/Saved",
+                "file": {"up_axis": "Z", "meters_per_unit": 1.0},
+                "frame": {"up_axis": None, "meters_per_unit": 100.0},
+                "values": None,
+                "reference": "/props/saved.usda",
+            },
+            "the frame inside /World/Saved turned so that neither Y nor Z is up in metersPerUnit 100)",
+        ),
+    ],
+    ids=["values-only", "neither-axis-up"],
+)
+def test_create_prim_names_what_a_prim_already_there_lacks(
+    missed: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    answer = {**PRIM, "up_axis_turn": None, "units_scale": None, "frame": None, "not_brought": missed}
+    _check(Case("create_prim", _PRIM_ARGS, "/scene/create", answer, {}, (says,)), bridge, tmp_path)
 
 
 @pytest.mark.parametrize(

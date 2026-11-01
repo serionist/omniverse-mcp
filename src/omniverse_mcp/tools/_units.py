@@ -98,14 +98,42 @@ def _said(side: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+def _left_values(values: dict[str, Any]) -> str:
+    said = [
+        f"{name} {float(pair['file']):g} where the stage's is {float(pair['stage']):g}"
+        for name, pair in (
+            ("metersPerUnit", values.get("meters_per_unit")),
+            ("kilogramsPerUnit", values.get("kilograms_per_unit")),
+        )
+        if pair
+    ]
+    return ", ".join(said)
+
+
 def not_brought_line(missed: dict[str, Any]) -> str:
     """The line for a reference on a prim that was there before the call, as the file is (#119): what the file's
-    content is, what the frame inside the prim is, and how to have the file brought, without touching the prim."""
+    content is beside the frame inside the prim, the physics values it leaves in the file's units, and that the
+    reference stays there, with how to take it off and have the file brought at a new path, without touching the
+    prim's other content."""
     path = missed["prim_path"]
+    lacks: list[str] = []
+    if missed.get("file") and missed.get("frame"):
+        lacks.append(
+            f"isn't turned or scaled to the stage (the file {_said(missed['file'])}, the frame inside {path} "
+            f"{_said(missed['frame'])})"
+        )
+    if values := missed.get("values"):
+        lacks.append(f"leaves its physics values in the file's units ({_left_values(values)})")
+    reference = missed.get("reference")
+    remove = (
+        f"stage.GetPrimAtPath({path!r}).GetReferences().RemoveReference(Sdf.Reference({reference!r}))"
+        if reference
+        else f"RemoveReference on {path}'s references"
+    )
     return (
-        f"Left as the file is: {path} was there before this call, so the file's reference on it isn't turned or "
-        f"scaled to the stage (the file {_said(missed['file'])}, the frame inside {path} {_said(missed['frame'])}); "
-        f"create_prim at a path under it, such as {path}/Item, to have the file brought to the stage"
+        f"Left as the file is: {path} was there before this call, so the file's reference on it "
+        f"{', and '.join(lacks)}. The reference stays on {path}: to have the file brought instead, take it off with "
+        f"execute_script, {remove}, then create_prim at a new path, such as {path}/Item"
     )
 
 
