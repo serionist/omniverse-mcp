@@ -667,7 +667,8 @@ tree[REGISTRIES] = [*before, {"name": NAME, "url": registry}]
 omni.kit.app.queue_event("omni.kit.registry.nucleus.REGISTRIES_CHANGED_EVENT")
 for _ in range(20):
     app.update()
-probe("registries after", plain([{"name": r.get("name", ""), "url": r.get("url", "")} for r in tree.get(REGISTRIES, [])]))
+after = [{"name": r.get("name", ""), "url": r.get("url", "")} for r in tree.get(REGISTRIES, [])]
+probe("registries after", plain(after))
 
 probe("sync_registry", manager.sync_registry())
 versions = manager.fetch_extension_versions(EXT)
