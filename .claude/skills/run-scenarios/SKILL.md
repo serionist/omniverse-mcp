@@ -27,12 +27,14 @@ running this skill sees only the summary. Why it works this way: `docs/plans/202
    - A refusal (port 8211, a stage someone may care about, a bridge that differs from this checkout's, another run's
      lock file): report it; its override (`--allow-port-8211`, `--any-stage`, `--any-bridge`) only on the
      maintainer's word.
-3. **Run:** `uv run tools/scenarios.py run --phases <phases>`, with the same `--port`, and `--budget` or `--model` as
-   asked. A full run took about 25 minutes and $9 with `claude-opus-5-5` (the plan's step 9): start it in the
-   background where the client can, else give the maintainer the command for a terminal of their own. It prints
-   each session as it ends, then the run's folder.
+3. **Run:** `uv run tools/scenarios.py run --phases <phases>`, with the same `--port` and any override the
+   maintainer gave `check`, and `--budget` or `--model` as asked. A full run takes about 25 minutes and $9 with
+   `claude-opus-5-5`, summed from two partial runs in the plan's step 9: start it in the background where the
+   client can, else give the maintainer the command for a terminal of their own. It prints each session as it
+   ends, then the run's folder.
 4. **Compare:** `uv run tools/scenarios.py compare` sets the newest run against the earlier ones; before a release,
-   `--against <the last release's tag>` sets it against the run made on that release's tree. It exits 1 on a
+   `--against <the last release's tag>` sets it against the run made on that release's tree, from a clean tree on
+   its PR's final head. While no release has a run, compare with the newest run and say so. It exits 1 on a
    regression or a scenario not run.
 5. **Report** to the maintainer: compare's counts and skill loads; each regression, FAIL and WARN with its note and
    capture; for each FAIL, what the session's transcript (`transcript-<session>.jsonl` in the run's folder) shows the

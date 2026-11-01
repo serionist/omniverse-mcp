@@ -101,8 +101,9 @@ skill never sets `OMNI_KIT_ACCEPT_EULA` (`AGENTS.md`, Build and test).
 **A Kit that hangs mid-run:** `run` reads `/health` every 30 s with conftest's 20 s probe (F9). Only when no answer has
 come for 140 s, counted from the start of the first probe that got none, longer than the server's 120 s call limit
 plus one probe, does it stop the tester and the run: a long handler holds `/health` back too, so a shorter silence can
-be a call at work. `results.md` says Kit stopped answering and names the tool call in flight: step 9's full run showed
-the cause can be a tester's own script holding Kit's main thread, not only a hang inside Kit (#54).
+be a call at work. `results.md` says Kit stopped answering and names the tool call in flight and any that timed out:
+step 9 met both a tester's own script holding Kit's main thread and a hang inside NVIDIA's driver (#54). Each session
+has a watch of its own, so a silence that ended with one session doesn't count against the next (review round 1).
 
 ### Scope (Q6)
 
@@ -134,8 +135,9 @@ the tree, so its status doesn't depend on which phases ran, and the next run's s
 
 ### The tester (Q4, Q5, Q7)
 
-One headless Claude Code session per phase, and one per group of setup IDs, each in `test_project/`. The command `run`
-builds, as step 2 found it (S1 to S13 below):
+One headless Claude Code session per phase, and one per group of setup IDs, each with its own output folder,
+`mcp_output/<session>/`, as its working folder, away from `test_project/` and earlier runs' verdicts (review round 1).
+The command `run` builds, as step 2 found it (S1 to S13 below):
 
 ```
 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
@@ -169,11 +171,13 @@ claude -p "<prompt>"
   their status, its plugins and its memory paths (S8). `run` stops the tester at once if a server other than
   `omniverse` is there, a claude.ai connector (`claude_ai_*`, I6) included, if `omniverse` isn't connected, if a tool
   outside the command's list is, if a plugin other than the run's copy and Claude Code's built-in ones (path
-  `builtin`) is, or if a memory path is. The maintainer's own MCP servers (mail, chat) never reach a session whose
-  tools are pre-approved.
+  `builtin`) is, or if a memory path is, and when the tester acts before any init event. Such a failure stops the run,
+  as every session would meet it. The maintainer's own MCP servers (mail, chat) never reach a session whose tools are
+  pre-approved.
 - **Skill loads, counted.** A load is a `Skill` call with `{"skill": "omniverse-mcp:<name>"}` (S10). The script counts
   each session's loads from its stream into `run.json`, and `results.md` and `compare` print them per session, "none"
-  included: a run in which no tester loaded a skill shows as such, not as a clean PASS.
+  included: a run in which no tester loaded a skill shows as such, not as a clean PASS. Only a plugin skill whose
+  load went through counts, not one `dontAsk` refused.
 - **The prompt,** the same text for any client: `scenarios.md`'s header, with its up-axis rule (I8), and the phase's
   text cut from it; its `Needs:` line, with each needed ID's status so far in this run, so the tester can SKIP on a
   failed one; `<run>/kit/` for the files Kit writes; the port; `new_scene()` first in a half's first session; and "end
@@ -184,7 +188,8 @@ claude -p "<prompt>"
   for it before deleting its config folder, ignoring delete errors, and starting the next session (I9).
 - **Limits.** Each session has 15 minutes, set from step 9's runs, whose longest session took 195 s. `--budget` caps the
   run's total, and each session's `--max-budget-usd` is what remains of it, summed from each session's `result` event
-  (I3).
+  (I3). A tester the script stops sends none: its whole allowance counts as spent, and its cost shows as unknown. An
+  interrupt or an error ends the tester and its server, gives the lock back and still writes `run.json`.
 - **The model:** the client's default, or `--model`. `run.json` records it, and `compare` names both when two runs
   differ.
 
@@ -375,7 +380,11 @@ loading a copy of the branch's bridge from a folder of its own; Claude Code 2.1.
 | `--phases 15,20`, `20261101-033809` | 5 sessions in the order the plan resolves (setup 2.1, 4.5, 10.1; Phase 15; setup 18.1, 18.2; Phase 20; Phase 27), 224 s, $1.47; skills loaded in 4 of 5 (`scene`, `simulate`, `geometry` twice). 25 PASS, 4 FAIL, 1 WARN; `compare`: 29 new, exit 0 |
 | Every phase, `20261101-034219`, on `f3ad7c8` | Phases 1 to 15 ran: 62 PASS, 4 FAIL, 14 WARN, about 13 minutes and $5.30. In Phase 16 the run stopped, "/health has given no answer for 141 s", and 16.1 to 27.1 were NOT RUN; `compare` exited 1. Not a hang inside Kit: the tester's own `execute_script`, importing the bridge's `handle_draw_debug` and waiting on `loop.time()` across frames for 16.8, held Kit's main thread past the server's call limit; a second such script followed, and Kit answered at once afterwards. Fixed by naming the call in flight in the stop, not #54, and by the tester's rules on code (`test_project/AGENTS.md`). The phases that didn't run are being run again |
 | Phases 16 to 27 again, `20261101-040028`, on `bd5529e`, a fresh Kit | Setup 2.1 and 4.5, then phases 16 to 25: 53 PASS, 3 FAIL, 7 WARN, about 9 minutes and $3.31. Phase 16 got through. In Phase 26 a real hang: `set_camera` answered, `capture_viewport(include_image=True)` timed out, `get_logs` got no answer either, and the watch stopped the run after 141 s of silence, so 26.1, 26.2 and 27.1 were NOT RUN. A native thread dump showed Kit's main thread in NVIDIA's driver (`DrvPresentBuffers` in `nvoglv64.dll`, under `carb.graphics-vulkan` and `carb.scenerenderer-rtx`), #54's kind; Kit was killed. The live proof that the watch ends a real hang. Replayed through `stop_message`, its stop now reads "..., while `get_logs` ran, after `capture_viewport` timed out: a script holding Kit's main thread, or a hang inside Kit" |
-| The tester's rules, `--phases 5-7,10,15-17,26`, `20261101-041353`, on `386baab`, a fresh Kit | The phases whose testers had waited inside scripts, under the new rules, and 26, which the hang cut off: 11 sessions, all run, about 12 minutes and $4.94; 38 PASS, 7 FAIL, 7 WARN, 1 SKIP. No script slept, waited for frames or imported `ovmcp.*` (10.3 measured its 2 s with `get_sim_state`); 16.9 was SKIPped for its `ovmcp` import; each session's files sat in `mcp_output/<session>/`. But 16.8 wrote its five draw-and-capture rounds out line by line in one script, six `await mcp.capture_viewport()` calls, which kept to the letter of the rule and not its point; the rule now allows at most one `await mcp.<handler>(...)` in a script, in a loop or written out |
+| The tester's rules, `--phases 5-7,10,15-17,26`, `20261101-041353`, on `386baab`, a fresh Kit | The phases whose testers had waited inside scripts, under the new rules, and 26, which the hang cut off: 11 sessions, all run, about 12 minutes and $4.94; 38 PASS, 7 FAIL, 7 WARN, 1 SKIP. No script slept, waited for frames or imported `ovmcp.*` (10.3 measured its 2 s with `get_sim_state`); 16.9 was SKIPped for its `ovmcp` import; each session's files sat in `mcp_output/<session>/`. But 16.8 wrote its five draw-and-capture rounds out line by line in one script, six `await mcp.capture_viewport()` calls, which kept to the letter of the rule and not its point. The rule now allows the tester's own code at most one `await mcp.<handler>(...)` in a script, in a loop or written out, and runs a scenario's own code as written unless it imports `ovmcp.*` or waits for time, so 25.3 and 25.4, each awaiting two handlers, still test what they test (review round 1, F7) |
+
+**A full run, summed from these:** phases 1 to 15 took 13 minutes and $5.30 (`20261101-034219`), 16 to 25 9 minutes
+and $3.31 (`20261101-040028`, with a setup a whole run doesn't need), 26 and 27 under a minute and $0.31
+(`20261101-041353`): about 25 minutes and $9, the figure the skill gives.
 
 **Phase 16 asks for such code itself:** 16.8's second Verify line wants the drawing drawn and captured five times "in
 one `execute_script` (`draw_debug`'s handler, then `mcp.capture_viewport()`)", and 16.9 gives an import of
@@ -431,10 +440,10 @@ while the rows of phases 3 and 12 cite that name. Each session now writes to `mc
   the gate and `release.py` are.
 - **Live, by hand:** step 9. `test_integration.py` and `test_scenarios.py` are unchanged; neither touches what this
   adds.
-- **What neither shows:** whether the tester judges right. The session reads ten rows against their transcripts and
-  evidence: every FAIL and WARN, and the PASS rows of 3.2, 12.8 and 22.5, which rest on an image. Whether a skill
-  loads when it should, not only that some load: the counts show a run with none, not a wrong choice. Codex as the
-  tester (Q4) stays untested, and so does ending a tester's process tree on Linux and macOS.
+- **What neither shows:** whether the tester judges right. Step 9 checked 14 rows against their transcripts and the
+  images the testers saw: every FAIL and WARN of the first runs, and 3.2, 12.8 and 22.5, which rest on an image.
+  Whether a skill loads when it should, not only that some load: the counts show a run with none, not a wrong
+  choice. Codex as the tester (Q4) stays untested, and so does ending a tester's process tree on Linux and macOS.
 
 ## Docs
 
@@ -462,7 +471,7 @@ while the rows of phases 3 and 12 cite that name. Each session now writes to `mc
 | The repo's developer rules, skills or the maintainer's memory load into the tester | Resolved: with no settings source and auto-memory off, no instruction file, repo skill or memory reaches it (S4, S13); the `init` check refuses a memory path |
 | The tester marks PASS without looking, or calls more than the scenario asks | Accepted, watched: one phase per session, transcripts kept, ten rows spot-checked in step 9 and the report naming the calls behind each FAIL |
 | Time and cost unknown | Accepted: `run.json` records both, the skill states them after step 9, `--budget` caps a run |
-| Kit stops answering mid-run: a hang inside Kit (#54), or a tester's script holding its main thread (step 9) | Resolved: the `/health` watch ends the run 140 s after the first unanswered probe and names the call in flight; the tester's rules forbid scripts that loop, wait or import the bridge's modules |
+| Kit stops answering mid-run: a hang inside Kit (#54), or a tester's script holding its main thread (step 9) | Resolved: the `/health` watch ends the run 140 s after the first unanswered probe and names the call in flight; the tester's rules forbid scripts of its own that wait on Kit, await more than one handler or import the bridge's modules |
 | A tester judges the same answer differently from run to run (step 9: FAIL, then WARN) | Accepted, a limit of an AI tester: `compare` lists such a change under other changes, not fixes, and the skill reads the answers in the transcripts before calling a change a fix or a regression |
 | The live suites, another session or two runs drive the same Kit | Partly: the lock stops two runs; the skill's Never covers the rest |
 | `Needs:` lines drift from the scenarios | Partly: the unit test reads the real file, so each ID exists, points back and stays in its half; it can't see a scenario that starts using a prim its line doesn't name, which shows as a FAIL or SKIP in a partial run |
