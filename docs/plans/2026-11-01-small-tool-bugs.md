@@ -195,11 +195,12 @@ percentage" gains "when A has faces".
 
 `rot` is read from `world_xform.RemoveScaleShear().ExtractRotation()`: the world matrix with its scale and shear
 taken out, which `Gf` factors as `Gf.Transform` does (U1). A mirrored prim reads as Gf factors it, a rotation with a
-negative scale; a prim scaled to 0 reads as no rotation. Both are as before for an unscaled prim. The line keeps its
-format, a quaternion `w, x, y, z`, and the description and `docs/TOOLS.md` say so.
+negative scale. An unscaled prim reads as before. The line keeps its format, a quaternion `w, x, y, z`, and the
+description and `docs/TOOLS.md` say so.
 
-`RemoveScaleShear` rather than `Gf.Transform`: one call, and it gives the matrix back unchanged when it can't factor it,
-where the formatter must never raise.
+A prim scaled to 0 on an axis has a singular matrix, with no rotation to read: both `RemoveScaleShear` and
+`Gf.Transform` read rotateY 30 at scale (0, 1, 1) as a 64° turn. Its block leaves the `rot` line out, as `usd.py`'s
+`factors` tells (built so: U1 checked only an unturned prim scaled 0, which reads as no turn either way).
 
 ### R3: a box is the outline's part on the image (`core/bounds.py`)
 
@@ -459,7 +460,7 @@ Each fix has a test that fails at the base the code starts from, `origin/main` a
 | File | What |
 |---|---|
 | `tests/test_tools.py` | R1: A with 0 faces prints `faces: +4 (A has 0 faces)` and no `%`; a vertex drop beside a face rise prints `vertices: -5`, a vertex rise beside a face drop `vertices: +9`, a zero `+0`; the existing case's `faces: -60 (-60.0%)` stays. R6: an answer with `up_axis_turn` prints the turned line with the turn added and the op's value, one without it or with `null` doesn't; one whose `op` differs from its `degrees`, P3's `+90` into an op that now reads 0, names both (P7) |
-| `tests/test_formatter.py` | R2: 2.2's cube gives `rot = 0.9239, 0.0000, 0.3827, 0.0000`; U1's cube under a scaled, turned parent gives the composed rotation; an unscaled turned prim reads as before; a prim scaled 0 gives `1.0000, 0.0000, 0.0000, 0.0000` and doesn't raise; a recording's frame (`format_frame_state`) gives the same `rot` |
+| `tests/test_formatter.py` | R2: 2.2's cube gives `rot = 0.9239, 0.0000, 0.3827, 0.0000`; U1's cube under a scaled, turned parent gives the composed rotation; an unscaled turned prim reads as before; a prim scaled 0 has no `rot` line and doesn't raise; a recording's frame (`format_frame_state`) gives the same `rot` |
 | `tests/test_bounds.py` | R3: the probe's 26.2 TestCube, through the probe's camera and `project_in_front`, is None (a box `[597.4, 213.1, 640, 480]` at `3b2b0cf`); the same camera's SettleTest box, as the probe measured within 0.5 px; a triangle wholly beyond a frame's corner, whose rectangle reaches in, is None; a triangle across a corner is boxed by its part on the frame; an outline that touches only an edge is None; points inside the frame are as before. `test_an_outline_partly_off_screen_is_clamped_to_the_viewport` gives a box's four corners, where its two points stood for a box's rectangle; their segment alone, which no box projects to, gets a case of its own |
 | `tests/test_camera_handler.py` | R4: `handle_capture` and `handle_camera_inspect` send `has_scene_lights`, true and false, in mode `stage` with an image that isn't black, and leave it out in mode `camera` |
 | `tests/test_tools_camera.py` | R4: `off` warns, with `is_black` false and with `has_scene_lights` absent (an older extension); `stage` with `has_scene_lights` false warns, with it absent doesn't; `camera`, `Default` and `stage` with lights don't; an all-black image gives today's warning and not a second; `inspect_prim` warns once for `off` |

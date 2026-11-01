@@ -119,7 +119,10 @@ attribute's value.
 | `prim_path` | string | required | Full USD path (e.g., `"/World/Robot"`) |
 
 **Returns:** Prim type, position, bounding box, and all USD properties. Relationships, such as a material binding, are
-named without their targets.
+named without their targets. The world rotation, `rot`, is a quaternion `w, x, y, z` with any scale and shear taken
+out, so a 45° turn reads as 45° at any scale; a prim scaled to 0 on an axis has no rotation to read, and no `rot`
+line. `get_scene_tree`'s file and `start_recording`'s `state.txt` give the same line. With an extension of 0.3.0 or
+older, a scaled prim's `rot` is off: Kit read it with the scale left in.
 
 **When to use:** to read one prim. `get_prim_bounds` when only its size and place matter, `get_scene_tree` to find
 paths, and with `include_properties` for many prims at once, written to a file.

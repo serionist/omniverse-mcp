@@ -25,6 +25,11 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ### Fixed
 
+- **`get_prim_properties` reads a scaled prim's rotation:** `rot` came from the world matrix with its scale left in,
+  so a 45° turn at scale 0.5 read as 84°, and a prim under a scaled parent could read as not turned. Recordings'
+  `state.txt` and `get_scene_tree`'s file gave the same `rot`. A prim scaled to 0 on an axis, which has no rotation
+  to read, has no `rot` line. The fix is in the Kit extension: run `uvx omniverse-mcp extension install`, then
+  restart Kit (#105).
 - **`compare_prims` gives no percentage from 0 faces,** where it said `+0%`, and each delta its own sign, where a
   drop in vertices beside a rise in faces read `+-5` (#105).
 

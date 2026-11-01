@@ -106,8 +106,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         every attribute's value.
 
         Use it to read one prim; get_prim_bounds when only its size and place matter, get_scene_tree to find paths, and
-        with include_properties for many prims at once, written to a file. Relationships, such as a material binding,
-        are named without their targets.
+        with include_properties for many prims at once, written to a file. The rotation, rot, is a quaternion w, x, y,
+        z with any scale taken out; a prim scaled to 0 has none. Relationships, such as a material binding, are named
+        without their targets.
         """
         resp = bridge_call(client.prim_properties, prim_path, fmt="text")
         text = resp["result"]["text"]
