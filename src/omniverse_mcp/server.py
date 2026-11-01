@@ -64,7 +64,9 @@ Drives an NVIDIA Omniverse Kit app (Isaac Sim, USD Composer, ...): its USD stage
   the gh CLI, signed in), you draft it for them to post, or no report and no second ask. A report holds the Kit app
   and version, the OS and the client; server_version and extension_version from get_sim_state; the exact call and
   its arguments, what came back and what was expected; get_logs(min_level="warn")'s lines around it, without tokens
-  or personal paths. File it only on the user's yes to the draft.
+  or personal paths. File it only on the user's yes to the draft. A security hole, such as a way past the token, a
+  file written outside its path or a secret in a log, goes to
+  https://github.com/serionist/omniverse-mcp/security/advisories/new instead, never to an issue.
 """
 
 

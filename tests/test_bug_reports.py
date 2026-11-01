@@ -1,6 +1,7 @@
 """Where an agent sends a bug report (#109): the server's instructions, the plugin's report-bug skill and the guide for
-clients without the plugin name this repository's issues, and the skill drafts on the bug form's own fields, in the
-form's order, so a draft filed with gh, or pasted into the form, reads as one filed from the form."""
+clients without the plugin name this repository's issues, and send a security hole to its private advisories instead;
+the skill drafts on the bug form's own fields, in the form's order, so a draft filed with gh, or pasted into the form,
+reads as one filed from the form."""
 
 import re
 import tomllib
@@ -12,13 +13,14 @@ from .conftest import REPO_ROOT
 SKILL = REPO_ROOT / "plugin" / "skills" / "report-bug" / "SKILL.md"
 GUIDE = REPO_ROOT / "docs" / "AI_GUIDE.md"
 FORM = REPO_ROOT / ".github" / "ISSUE_TEMPLATE" / "bug_report.yml"
+SECURITY = REPO_ROOT / "SECURITY.md"
 # The skill's table of the form's fields starts with this header and ends at a blank line.
 TABLE_HEAD = "| Field | What goes in it |"
 
 
-def _issues_url() -> str:
+def _urls() -> dict[str, str]:
     with (REPO_ROOT / "pyproject.toml").open("rb") as f:
-        return tomllib.load(f)["project"]["urls"]["Issues"]
+        return tomllib.load(f)["project"]["urls"]
 
 
 def _form_labels(text: str) -> list[str]:
@@ -33,16 +35,30 @@ def _skill_labels(text: str) -> list[str]:
 
 
 def test_the_instructions_the_skill_and_the_guide_send_reports_to_this_repository():
-    url = _issues_url()
+    url = _urls()["Issues"]
     form = f"{url}/new?template={FORM.name}"
     owner_repo = url.removeprefix("https://github.com/").removesuffix("/issues")
     skill, guide = SKILL.read_text(encoding="utf-8"), GUIDE.read_text(encoding="utf-8")
     assert url in INSTRUCTIONS
     assert form in skill
     assert form in guide
-    commands = re.findall(r"gh issue \w+ .*", skill)
-    assert commands, "the skill files with gh"
+    # Every gh call the skill makes names the repository: without --repo, gh reads the user's own checkout's remote.
+    commands = re.findall(r"gh (?:issue|release) \w+ .*", skill)
+    assert any(c.startswith("gh issue create ") for c in commands), "the skill files with gh"
+    assert any(c.startswith("gh release list ") for c in commands), commands
     assert all(f"--repo {owner_repo}" in c for c in commands), commands
+
+
+def test_a_security_hole_goes_to_a_private_advisory_never_an_issue():
+    # gh issue create --body-file never shows the bug form's own note pointing at private reports.
+    advisory = f"{_urls()['Repository']}/security/advisories/new"
+    what_counts = f"{_urls()['Repository']}/blob/main/SECURITY.md#what-counts"
+    skill, guide = SKILL.read_text(encoding="utf-8"), GUIDE.read_text(encoding="utf-8")
+    for text in (INSTRUCTIONS, skill, guide):
+        assert advisory in text
+    assert what_counts in skill
+    assert what_counts in guide
+    assert re.search(r"^## What counts$", SECURITY.read_text(encoding="utf-8"), re.MULTILINE)
 
 
 def test_the_instructions_and_the_skill_ask_for_get_sim_state_s_versions_and_kit_s_log():

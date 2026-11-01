@@ -54,6 +54,9 @@ move only while physics plays.
 
   A report holds the Kit app and version, the OS and the client; `server_version` and `extension_version` from
   `get_sim_state`; the exact call and its arguments, what came back and what was expected;
-  `get_logs(min_level="warn")`'s lines around it, without tokens or personal paths. The
+  `get_logs(min_level="warn")`'s lines around it, without tokens or personal paths. A security hole, such as a way
+  past the token, a file written outside its path or a secret in a log, goes to the
+  [private report](https://github.com/serionist/omniverse-mcp/security/advisories/new) instead, never to an issue
+  ([What counts](https://github.com/serionist/omniverse-mcp/blob/main/SECURITY.md#what-counts)). The
   [report-bug](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/report-bug/SKILL.md) skill has
   the steps.

@@ -22,8 +22,10 @@ under the user's GitHub account, and logs can name their folders and scenes: not
 1. **Check it is a bug of this repository.** Not one: a path or prim that isn't there, a value out of range, an error
    in `execute_script` code of your own, a Kit app or extension that isn't running (the `setup` skill). One: an error
    the arguments don't explain, an answer the stage contradicts (a capture, `get_prim_properties`), a success that
-   changed nothing, a call that hangs or times out. A way past the bridge token is a vulnerability: give the user the
-   [private report](https://github.com/serionist/omniverse-mcp/security/advisories/new) and stop.
+   changed nothing, a call that hangs or times out. A security hole, as
+   [What counts](https://github.com/serionist/omniverse-mcp/blob/main/SECURITY.md#what-counts) lists them (a way past
+   the bridge token, a file written outside what was asked, a secret in Kit's log), is never an issue: give the user
+   the [private report](https://github.com/serionist/omniverse-mcp/security/advisories/new) and stop.
 2. **Ask first,** before gathering anything the conversation doesn't hold. Say in a sentence or two what went wrong,
    that it looks like a bug in omniverse-mcp, and let the user choose (a user who asked for a report chooses a or b):
    - **a. You file it.** This needs the GitHub CLI, `gh`, installed and signed in: run `gh auth status`. Missing, say
@@ -39,7 +41,7 @@ under the user's GitHub account, and logs can name their folders and scenes: not
      it. When Kit hangs this fails too; the report says so.
    - The Kit app and its version: ask the user (Help > About in the app), unless they said.
    - The OS: this machine's, and Kit's too when `OMNIVERSE_MCP_HOST` names another machine (ask).
-   - The client: Claude Code, with the version `claude --version` prints.
+   - The client and its version (Claude Code: `claude --version`).
    - The call: the tool, its arguments exactly, its answer as it came, and the calls before it that set the stage up.
 4. **Make it reproducible:** the fewest calls that show it, from a stage anyone has: `new_scene`, prims from
    `create_prim`, a robot from `create_robot`, an asset that ships with the app. When it needs the user's own scene,
@@ -57,8 +59,8 @@ under the user's GitHub account, and logs can name their folders and scenes: not
 
    Without `gh`, tell the user to search the [issues](https://github.com/serionist/omniverse-mcp/issues) first.
 6. **Take out what must not be public,** from every field: any token, key or password; the user's home folder, as
-   `~`; their user name, as `<user>`; and any other path, scene or prim name they may not want shown, as `<path>`, or
-   ask.
+   `~`; their user name, as `<user>`; host names and IP addresses, as `<host>` (an error names Kit's machine when it
+   runs on another); and any other path, scene or prim name they may not want shown, as `<path>`, or ask.
 7. **Draft** a title, and the bug form's fields in its order:
 
    | Field | What goes in it |
@@ -77,10 +79,12 @@ under the user's GitHub account, and logs can name their folders and scenes: not
    the viewport's own camera". Write the body as GitHub writes a filed form: for each field `### <Field>`, a blank
    line, then its value; the log inside a `text` code fence; `_No response_` for an empty one. For a, write it to
    `mcp_output/bug-report.md`; for b, to the file the user named, or into the chat.
-8. **For a, show it and ask.** The title and the whole body, what step 6 took out, and that the issue is public
-   under their GitHub account; their yes ticks the last box. Post only on a yes to this text, and show it again
-   after any change. Then file it, or comment on step 5's open match, and give the user the URL `gh` prints. No
-   `--label`: setting one takes triage rights, and the maintainer adds `bug`.
+8. **For a, show it and ask.** Say where it goes: a new issue, or a comment on step 5's open match, `#<n>`, which
+   holds only what is new there, not the whole form. Show the title and the whole text, what step 6 took out, and
+   that it is public under their GitHub account; their yes ticks the last box. Post only on a yes to this text, and
+   show it again after any change. Then post it, and give the user the URL `gh` prints. No `--label`: setting one
+   takes triage rights, and the maintainer adds `bug`. Keep backticks, `$` and `"` out of the title, which the shell
+   would run or cut. When `gh` fails, a token without the right to write issues for one, say why, and go on as b.
 
    ```
    gh issue create --repo serionist/omniverse-mcp --title "<title>" --body-file mcp_output/bug-report.md
@@ -104,5 +108,5 @@ under the user's GitHub account, and logs can name their folders and scenes: not
 - Gather the details before the user chose a or b.
 - Post, comment or open anything on GitHub without the user's yes to the exact text; in b, anything at all.
 - Open a `bridge-<port>.token` file, or put the bridge token, `OMNIVERSE_MCP_TOKEN` or any other secret in a draft.
-- File a vulnerability as an issue: it goes through the private report.
+- File a security hole as an issue, or as a comment on one: it goes through the private report.
 - Run `execute_script` to gather details, or change the user's stage without their yes.
