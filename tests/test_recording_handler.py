@@ -135,7 +135,7 @@ def kit() -> FakeKit:
 
 @pytest.fixture
 def recording(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
-    timeline = SimpleNamespace(is_playing=lambda: kit.playing, get_current_time=lambda: kit.sim_time)
+    timeline = SimpleNamespace(get_current_time=lambda: kit.sim_time)
     context = SimpleNamespace(
         get_stage_id=lambda: kit.stage_id, get_stage_state=lambda: kit.stage_state, get_stage=lambda: kit.stage
     )
@@ -382,6 +382,25 @@ def test_stop_says_how_much_simulation_played_and_how_long_it_stood_still(record
     assert {k: stop["result"][k] for k in spans} == spans
     meta = _metadata(stop)
     assert {k: meta[k] for k in spans} == spans
+
+
+def test_each_step_a_recording_spans_counts_as_simulation(recording, kit, tmp_path):
+    # As sim_control's step: two updates playing, then a pause. The fake ticks the timeline after the recording's
+    # update, so the second 1/60 s shows on the update after the pause, and still counts (#111's code review).
+    async def scenario() -> dict[str, Any]:
+        await _start(recording, tmp_path, fps=1)
+        kit.update()
+        for _ in range(3):
+            kit.playing = True
+            kit.update()
+            kit.update()
+            kit.playing = False
+            kit.update()
+        await _settle()
+        kit.captures[0].set_result(PNG)
+        return await recording.handle_recording_stop({})
+
+    assert asyncio.run(scenario())["result"]["simulation_seconds"] == 0.1
 
 
 @pytest.mark.parametrize(("owed", "events"), [(63, ["settled 63", "subscribed"]), (0, ["subscribed"])])

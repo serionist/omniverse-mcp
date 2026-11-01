@@ -114,7 +114,7 @@ class Updates:
         `written` marks each frame's file written at once, so none stays in flight."""
         taken = []
         for _ in range(count):
-            number = self.clock.tick(self.playing, self.sim, self.now, render_pending)
+            number = self.clock.tick(self.sim, self.now, render_pending)
             if number is not None:
                 self.frames.append((self.update, number, self.clock.simulated, self.clock.idle))
                 if written:
@@ -171,8 +171,9 @@ def test_across_play_and_pause_each_frame_is_a_period_of_its_own_kind_after_the_
     # take the one update whose kind changed.
     assert all(abs(gap - 0.2) < 1 / 120 + 1e-9 for gap in gaps), gaps
     assert updates.clock.taken == 20
-    assert updates.clock.simulated == pytest.approx(119 / 60)
-    assert updates.clock.idle == pytest.approx(240 / 120)
+    # Every 1/60 s played, the last seen on the first update paused; the first update playing found no time moved.
+    assert updates.clock.simulated == pytest.approx(120 / 60)
+    assert updates.clock.idle == pytest.approx(239 / 120)
 
 
 def test_a_timeline_that_plays_and_doesnt_move_takes_frames_by_the_clock():
@@ -195,6 +196,19 @@ def test_a_step_back_while_playing_adds_that_update_s_wall_time():
     updates.run(1)
     assert updates.clock.simulated == simulated
     assert updates.clock.idle == pytest.approx(idle + 1 / 120)
+
+
+@pytest.mark.parametrize("seen", [(0, 1, 2), (1, 2, 2)], ids=["read before the timeline ticks", "read after"])
+def test_each_step_counts_whole_as_simulation_whichever_order_kit_ticks_in(seen):
+    # sim_control's step plays the timeline for two updates, each 1/60 s, then pauses it. An update that reads the
+    # timeline before Kit ticks it finds the second 1/60 s only on the update after, the timeline paused by then:
+    # reading the state there counted that half of each step as idle (#111's code review).
+    clock = FrameClock(5)
+    clock.tick(0.0, 0.0)  # stopped, before the first step
+    for step in range(10):
+        for update, ticks in enumerate(seen):
+            clock.tick((2 * step + ticks) / 60, (3 * step + update + 1) / 100)
+    assert clock.simulated == pytest.approx(20 / 60)
 
 
 def test_a_frame_held_by_a_pending_render_comes_on_the_next_update_that_can_take_it():
@@ -227,7 +241,7 @@ def test_no_number_is_given_twice_whatever_order_frames_end_in():
     clock = FrameClock(30)
     numbers = []
     for update in range(200):
-        number = clock.tick(False, 0.0, update / 60)
+        number = clock.tick(0.0, update / 60)
         if number is not None:
             numbers.append(number)
         if update % 3 == 0:

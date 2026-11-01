@@ -261,10 +261,9 @@ def _on_update(session: _Session) -> None:
     if reason:
         _stop_frames(session, reason)
         return
-    timeline = omni.timeline.get_timeline_interface()
     # Read now, not when the capture ends: the frame shows this update's simulation, give or take one (#25's E17).
-    sim_time = timeline.get_current_time()
-    number = session.clock.tick(timeline.is_playing(), sim_time, _monotonic(), render_pending=feed.waiting)
+    sim_time = omni.timeline.get_timeline_interface().get_current_time()
+    number = session.clock.tick(sim_time, _monotonic(), render_pending=feed.waiting)
     if number is None:
         return
     session.taking[number] = (sim_time, time.time() - session.started)

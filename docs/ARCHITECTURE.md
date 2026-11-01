@@ -339,11 +339,12 @@ its size never change (#25):
    Tracing, for the frames a capture waits for its samples (`capture.settle_frames`, none under RT 2.0), then
    subscribes to the app's update stream.
 2. **Each update,** `FrameClock` moves the recording's own clock and decides whether to take a frame. The clock adds
-   the simulation time the update advanced while the timeline plays and moves, and the wall time since the update
-   before otherwise (`time.monotonic`): stopped, paused, or a timeline that plays and doesn't move. Frame k is due once
-   it reaches k/`fps`; a due frame waits while the feed still awaits the last frame's render or four frames are still
-   being written, and the next is due at the first period boundary after the clock, so late frames are dropped, not
-   sent in a burst (#111). A frame gets its number, its `sim_time` and the tracked prims' state (appended to
+   the simulation time the update advanced when the timeline's time moved forward, and the wall time since the update
+   before otherwise (`time.monotonic`): stopped, paused, or a timeline that plays and doesn't move. It reads the time,
+   not the timeline's state, so a `sim_control` step counts whole whichever side of Kit's timeline tick the update
+   runs on. Frame k is due once it reaches k/`fps`; a due frame waits while the feed still awaits the last frame's
+   render or four frames are still being written, and the next is due at the first period boundary after the clock,
+   so late frames are dropped, not sent in a burst (#111). A frame gets its number, its `sim_time` and the tracked prims' state (appended to
    `state.txt`) at its tick, so numbers never repeat (#69) and the state matches the time. The clock's two totals are
    the stop answer's `simulation_seconds` and `idle_seconds`.
 3. **A frame** is taken as the viewport's are: a `FileCapture` delegate queued on the feed is handed the feed's next

@@ -903,9 +903,9 @@ prim the recording renders into, which it deletes at stop.
 
 - **When frames come:** one every 1/`fps` seconds of the recording's own clock, at most one an app update; play the
   simulation to record motion.
-  - The clock runs with the simulation while it plays: frames are 1/`fps` s of `sim_time` apart. A simulation faster
-    than real time, 1.25 to 2.5 times headless on Isaac Sim 6.2, so gives more than `fps` frames a second by the wall
-    clock.
+  - The clock runs with the simulation while it plays, `sim_control("step")`'s steps included: frames are 1/`fps` s
+    of `sim_time` apart. A simulation faster than real time, 1.25 to 2.5 times headless on Isaac Sim 6.2, so gives
+    more than `fps` frames a second by the wall clock.
   - It runs with the wall clock while the simulation is stopped or paused, or plays a timeline whose time doesn't move
     (a file with no time-code range): `fps` frames a second, whatever Kit's update rate.
   - The first frame comes on the first update after the start, which waits for the camera's first render and, under

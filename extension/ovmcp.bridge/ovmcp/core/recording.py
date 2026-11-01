@@ -87,11 +87,15 @@ def camera_error(stage: Usd.Stage, path: str) -> str | None:
 class FrameClock:
     """Which app updates take a frame, and the frame's number.
 
-    The recording keeps a clock of its own, in seconds. While the timeline plays and its time moves forward, an update
-    adds the simulation time it advanced; otherwise it adds the wall time since the update before: stopped, paused, or
+    The recording keeps a clock of its own, in seconds. An update that finds the timeline's time moved forward since the
+    update before adds the simulation time it advanced; any other adds the wall time since then: stopped, paused, or
     playing a timeline whose time doesn't move, such as a file with no time-code range. So frames are 1/fps s of
     simulation apart while things move and 1/fps s apart by the clock while they don't, whatever Kit's update rate,
     where counting updates gave 8.5 to 13 frames a second at fps=5 on a fast Kit while nothing played (#111).
+
+    The timeline's state isn't read: an update may find the time a sim_control step moved only after the step has
+    paused the timeline again, depending on whether Kit ticks the timeline before or after this update's callback,
+    and that time is still simulation.
 
     Frame k is due once the clock reaches k/fps, frame 0 on the first update. A due frame waits while the feed still
     awaits the last one's render, which would give two frames the same render (#25's E18), or MAX_IN_FLIGHT frames are
@@ -112,10 +116,10 @@ class FrameClock:
         self.simulated = 0.0
         self.idle = 0.0
 
-    def tick(self, playing: bool, sim_time: float, now: float, render_pending: bool = False) -> int | None:
+    def tick(self, sim_time: float, now: float, render_pending: bool = False) -> int | None:
         """This update's frame number, or None when it takes none. `sim_time` is the timeline's time and `now` the
         wall clock's, both in seconds, read on this update."""
-        self._advance(playing, sim_time, now)
+        self._advance(sim_time, now)
         periods = (self.simulated + self.idle) * self._fps
         if periods + PERIOD_TOLERANCE < self._due or render_pending or self.in_flight >= self._max_in_flight:
             return None
@@ -125,11 +129,11 @@ class FrameClock:
         self.in_flight += 1
         return number
 
-    def _advance(self, playing: bool, sim_time: float, now: float) -> None:
+    def _advance(self, sim_time: float, now: float) -> None:
         if self._last is not None:
             last_sim, last_now = self._last
             step = sim_time - last_sim
-            if playing and step > 0:
+            if step > 0:
                 self.simulated += step
             else:
                 # A step back too: a loop at the end time, or a time set by hand, costs this update's wall time.

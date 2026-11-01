@@ -1063,6 +1063,31 @@ class TestScenarios(PhysicsChecks):
         self.assertLess(difference, 1.0)
         self._pass()
 
+    def test_06_11_steps_count_as_simulation(self):
+        """Phase 6.11: Each sim_control('step') a recording spans counts whole in simulation_seconds, whichever side
+        of Kit's timeline tick the recording's update runs on (#111)"""
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+        camera = self._recording_camera()
+        self._stop_recording_after()
+        r = self.c.recording_start(
+            self._recordings("recordings_steps"), fps=5, width=160, height=120, camera_path=camera
+        )
+        self.assertEqual(r["status"], "success", r)
+        for _ in range(10):
+            step = self.c.sim_control("step")
+            self.assertEqual(step["status"], "success", step)
+        stepped = self.c.sim_state()["result"]["sim_time"]
+        stop = self.c.recording_stop()
+        self.c.sim_control("stop")
+        self.assertEqual(stop["status"], "success", stop)
+        simulated = stop["result"]["simulation_seconds"]
+        print(f"  10 steps: the timeline at {stepped:.4f} s, the recording's simulation_seconds {simulated}")
+        self.assertGreater(stepped, 0)
+        # simulation_seconds is rounded to the hundredth.
+        self.assertAlmostEqual(simulated, stepped, delta=0.006)
+        self._pass()
+
     # ===== Phase 7: Recording with Prim State Tracking =====
 
     def test_07_01_record_with_track_prims(self):
