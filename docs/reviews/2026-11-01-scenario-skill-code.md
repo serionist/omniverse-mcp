@@ -58,6 +58,42 @@ Improvements, with the coordinator's answers:
 - IB5, the PR cites Q13 beside the settings: taken in the PR draft.
 - IB6, the plan's Tests line on the spot-check and its Risks row on scripts: taken in `575adf8`.
 
+## Round 2
+
+**Where:** `8832805`, the change since `f310ef4`, read by one fresh reviewer on Claude Opus, who checked each fix by
+its test and ran nothing.
+
+**Verdict:** `clean`. F1 to F9 are fixed, each with a test that fails without it: F7 by the Phase 25 run below, F8 and
+F9 in the docs. Five new minors, all fixed: the script and its tests in `5665643`, the docs in `eb5f0ce`.
+
+| # | Sev | Where | Finding | Status |
+|---|---|---|---|---|
+| F10 | minor | `run_sessions`, `cmd_run`'s `finally` | A run cut short by an interrupt or an error was recorded as one that finished: the cut session with no stop, its cost known and no rows, and no record of the sessions after it. `compare` read it as the newest run with nothing missing and exited 0; before F5's fix such a run left no `run.json` | fixed in `5665643`: the cut session says "cut short" with its cost unknown, it and every later session give NOT RUN rows, then the exception goes on: `test_a_run_cut_short_gives_its_lock_back_and_writes_what_ran` |
+| F11 | minor | `docs/releasing.md` step 2, the skill's step 4 | The fallback "compare with the newest run" could be read as comparing the run just made with itself, which matches every row and exits 0 | fixed in `eb5f0ce`: plain `compare`, which sets it against the earlier runs |
+| F12 | minor | the PR draft, `test_project/AGENTS.md` | The PR ruled 16.8 out for its five awaited captures, which F7's wording allows in a scenario's own code; 16.8 is out only for the `ovmcp` import `draw_debug`'s handler needs. And a tester rebuilding 16.8's script, which the scenario only describes, with Kit's own drawing API could call it the scenario's code, as run `20261101-041353`'s did, so 16.8 could swing between runs | fixed: the PR line names the import, and in `eb5f0ce` the rules say a script a scenario only describes in words is the tester's own code, under the one-await rule |
+| F13 | minor | this record, the plan | Stale lines: F7's "pending" and the Checks line on Phase 25 here; the plan's Risks row's "ten rows", and its `OMNIVERSE_MCP_OUTPUT_DIR=<run>/mcp_output`, which is per session since `386baab` | fixed in `eb5f0ce` |
+| F14 | minor | `tests/test_scenario_runs.py`, `stream()` | Its docstring promised an init event it never adds; since IA1, a test written on that promise fails closed | fixed in `5665643`: the docstring says it adds none |
+
+Refuted, each from the code or the runs: IA1 and IA2 can't stop a healthy run, as the stream opens with its init event,
+hook events are system events, no step 9 session met a passing failure at init, and a halt shows as NOT RUN with
+`compare` exiting 1; the watch per session can't hide a hang, since a Kit silent between sessions fails `settle` and
+halts the run; a session stopped at its time limit halting the rest under `--budget` is the cap at work; the lock is
+taken after `check`, given back on any exception, and a refused run leaves the other's file as it was; IA5's
+`BridgeError` comes only from 401 and 403, the handshake and `answer()`, so "no answer" still means none; F7's wording
+agrees across the rules, the plan and the PR; IA3 is safe, as every path the tester gets is absolute and run
+`20261101-045626` passed the init check from the new folder; the writing rules are kept.
+
+Improvements, all taken:
+
+- `--no-session-persistence` for the tester, so a run leaves no project folders in `~/.claude/projects`: in `5665643`,
+  asserted by `test_the_tester_command_is_the_one_step_2_proved`; the plan's tester table says why.
+- "The budget may be spent: <session>'s cost is unknown" when such a session uses up `--budget`: in `5665643`,
+  `test_a_stopped_session_counts_its_whole_allowance_and_its_cost_as_unknown`.
+- `finish-work` describes the search for a change's phases in words, not with `grep -n`, which PowerShell lacks: in
+  `eb5f0ce`.
+- A release PR names its run's folder, so the next release can pass `--against <folder>` when the tag's tree differs
+  because `main` moved before the squash merge: in `eb5f0ce`, in `docs/releasing.md` and the skill.
+
 ## Live run
 
 Phase 25 alone on `7006994`, run `20261101-045626`, under F7's wording, on Isaac Sim 6.2.0 headless (Kit 110.4.0) at
@@ -73,3 +109,6 @@ after `f310ef4` change the script, which the unit tests cover, or the docs, and 
 - `uv run tools/gate.py full` on `575adf8`: 15 checks passed, 1648 tests passed and 206 skipped, coverage 96.85%.
 - Live: none for the script's fixes, which the unit tests cover. F7 changed the tester's rules, so Phase 25 ran
   alone on the maintainer's test Kit at 8212 under the new wording before round 2 (Live run).
+- After round 2: `uv run tools/gate.py full` on `eb5f0ce` with this section, 15 checks passed, 1648 tests passed and
+  206 skipped, coverage 96.85%. No live run: round 2's fixes change the run's record, the docs and the tester's
+  command, whose new `--no-session-persistence` Claude Code 2.1.316 lists for `-p`, and which the command test pins.
