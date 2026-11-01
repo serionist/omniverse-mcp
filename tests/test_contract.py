@@ -80,6 +80,10 @@ def test_every_tool_and_parameter_is_described(listed):
         ("inspect_prim", "lighting that lights nothing"),
         ("viewport_light", "warns that the lighting lights nothing"),
         ("create_robot", "A file that authors no upAxis is left as it is"),
+        # Each prim's own material, not one prims of a name share, and what copies and clones do with it (#113).
+        ("set_physics_properties", "a child named PhysMat (/World/Cube/PhysMat for /World/Cube)"),
+        ("set_physics_properties", "A copy made with clone_prim takes its own with it"),
+        ("set_physics_properties", "follows the source's material until a call on the clone"),
     ],
 )
 def test_a_description_says_what_the_tool_now_does(listed, tool: str, says: str):

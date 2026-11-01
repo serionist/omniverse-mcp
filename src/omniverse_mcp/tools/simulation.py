@@ -41,6 +41,26 @@ def _physics_values(r: dict[str, Any]) -> list[str]:
     return values
 
 
+def _also_changes(shared: dict[str, Any]) -> str:
+    """The other prims a write into the prim's material reached, such as clones that inherit it: the extension sends
+    the first few and the count."""
+    count = int(shared["count"])
+    prims = [str(p) for p in shared.get("prims", [])]
+    named = ", ".join(prims) + (f" and {count - len(prims)} more" if count > len(prims) else "")
+    return f"also changes {count} prim{'' if count == 1 else 's'}: {named}"
+
+
+def _old_material(old: dict[str, Any]) -> str:
+    """The older extension's shared material the call moved the prim off: deleted, with its folder once empty, or kept
+    and why."""
+    path = old["path"]
+    if "deleted" not in old:
+        return f"kept its old material, {path}: {old.get('kept', '')}"
+    text = f"deleted its old material, {path}, which no prim binds now"
+    folders = [p for p in old["deleted"] if p != path]
+    return text + (f", and {', '.join(folders)}, left empty" if folders else "")
+
+
 def _kit_app(r: dict[str, Any]) -> str:
     """The Kit app's name and version in one, as a bug form's "Kit app and version" asks: `Isaac-Sim Python 6.2.0`."""
     parts = [str(r[key]) for key in ("kit_app_name", "kit_app_version") if r.get(key) and r[key] != "unknown"]
@@ -138,12 +158,17 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Mass or density goes through MassAPI and makes the prim a rigid body (RigidBodyAPI) if it isn't one, so a
         static collider starts to fall when the simulation plays. Friction or restitution adds the Collision API if
-        missing, and sets them on a physics material, /World/PhysicsMaterials/<prim name>_PhysMat, bound to the prim
-        for physics only. That material starts from the body's own: the physics material bound to it before, else the
-        physics scene's default, else PhysX's (friction 0.5, restitution 0), so the one left out, and anything else the
-        replaced material held, stays. Prims of the same name share it, so setting one sets all its values on the
-        rest. The answer gives each value set and the APIs applied. For the prim's look, use set_material; to make a
-        new prim physical in one call, create_prim with enable_physics.
+        missing, and sets them on the prim's own physics material, a child named PhysMat (/World/Cube/PhysMat for
+        /World/Cube), bound to the prim for physics only; delete_prim removes it with the prim. That material starts
+        from the body's own: the physics material bound to it before, else the physics scene's default, else PhysX's
+        (friction 0.5, restitution 0), so the one left out, and anything else the replaced material held, stays. A copy
+        made with clone_prim takes its own with it. A clone that inherits from its source, as Isaac Sim's cloner makes
+        them, follows the source's material until a call on the clone, and the answer names the prims a call changes
+        so. An instance can hold no material of its own and is refused. A prim on an older extension's shared
+        /World/PhysicsMaterials/<prim name>_PhysMat moves to its own, and the call that moves the last prim off it
+        deletes it. A call with friction or restitution reads the whole stage, about 0.35 s per 100,000 prims. The
+        answer gives each value set, the material and the APIs applied. For the prim's look, use set_material; to make
+        a new prim physical in one call, create_prim with enable_physics.
         """
         resp = bridge_call(client.set_physics_properties, prim_path, mass, density, friction, restitution)
         r = resp["result"]
@@ -151,10 +176,17 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         if not values:
             return f"Nothing set on {r['prim_path']}: give mass, density, friction or restitution"
         text = f"Physics on {r['prim_path']}: {', '.join(values)}"
+        # An extension of 0.3.0 or older sends no material, nor the two clauses after the APIs.
+        if r.get("material"):
+            text += f"; material {r['material']}"
         # The extension names RigidBodyAPI and CollisionAPI only when it added them: the prim became a body or a
         # collider in this call.
         if r.get("applied"):
             text += f"; applied {', '.join(r['applied'])}"
+        if r.get("also_changes"):
+            text += f"; {_also_changes(r['also_changes'])}"
+        if r.get("old_material"):
+            text += f"; {_old_material(r['old_material'])}"
         return text
 
     @tool(mcp, EDITS)
