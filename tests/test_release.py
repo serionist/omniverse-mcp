@@ -200,7 +200,7 @@ version = "1.2.0"
 repository = "https://github.com/serionist/omniverse-mcp"
 readme = "docs/README.md"
 icon = "data/icon.png"
-preview_image = "data/preview.jpg"
+preview_image = "data/preview.png"
 
 [package.target]
 kit = ["107.0"]
@@ -219,7 +219,7 @@ def _good_files(toml: str = GOOD_TOML) -> dict[str, str]:
         "ovmcp.bridge/config/extension.toml": toml,
         "ovmcp.bridge/docs/README.md": "# Omniverse MCP Bridge\n",
         "ovmcp.bridge/data/icon.png": "png",
-        "ovmcp.bridge/data/preview.jpg": "jpg",
+        "ovmcp.bridge/data/preview.png": "png",
         "ovmcp.bridge/ovmcp/__init__.py": "",
     }
 
@@ -256,7 +256,12 @@ def _renamed(files: dict[str, str], prefix: str) -> dict[str, str]:
         (_good_files(GOOD_TOML.replace("repository = ", "# ")), "the extension's repository is None"),
         (_good_files(GOOD_TOML.replace('kit = ["107.0"]', "")), "has no [package.target] kit"),
         (_good_files(GOOD_TOML.replace('icon = "data/icon.png"\n', "")), "names no icon"),
-        (_without(_good_files(), "ovmcp.bridge/data/preview.jpg"), "preview_image, data/preview.jpg, isn't in the zip"),
+        (_without(_good_files(), "ovmcp.bridge/data/preview.png"), "preview_image, data/preview.png, isn't in the zip"),
+        # The window showed its placeholder for a JPEG preview from a registry (the plan's E4).
+        (
+            {**_good_files(GOOD_TOML.replace("preview.png", "preview.jpg")), "ovmcp.bridge/data/preview.jpg": "jpg"},
+            "preview_image, data/preview.jpg, isn't a PNG",
+        ),
     ],
     ids=[
         "toml at the root",
@@ -268,6 +273,7 @@ def _renamed(files: dict[str, str], prefix: str) -> dict[str, str]:
         "target",
         "icon",
         "preview",
+        "a JPEG preview",
     ],
 )
 def test_an_extension_zip_kit_would_misread_says_how(files, expected, tmp_path):

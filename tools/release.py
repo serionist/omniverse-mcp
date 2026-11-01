@@ -219,6 +219,10 @@ def archive_problems(path: Path, version: str) -> list[str]:
             problems.append(f"{path.name}: the extension names no {key}, which Kit's Extensions window shows")
         elif f"{EXTENSION}/{named}" not in names:
             problems.append(f"{path.name}: the extension's {key}, {named}, isn't in the zip")
+        elif key != "readme" and not str(named).lower().endswith(".png"):
+            # Kit's Extensions window shows a registry's image only as PNG (REMOTE_IMAGE_SUPPORTED_EXTS, Kit 107 and
+            # 110): any other type gets its placeholder.
+            problems.append(f"{path.name}: the extension's {key}, {named}, isn't a PNG, the only image Kit shows")
     return problems
 
 

@@ -17,7 +17,7 @@ The Kit extension's two, which Kit's Extensions window and Kit's community regis
 | File | What | How |
 |---|---|---|
 | `extension/ovmcp.bridge/data/icon.png` | the extension's icon | The plugin's icon scaled to 256 pixels, the size Kit recommends, with Pillow's Lanczos filter |
-| `extension/ovmcp.bridge/data/preview.jpg` | the preview on the extension's Overview | A copy of `hero-viewport.jpg` |
+| `extension/ovmcp.bridge/data/preview.png` | the preview on the extension's Overview | `hero-viewport.jpg` at 512 pixels, the most the window shows, in 256 colours with Pillow: Kit's Extensions window shows only PNG from a registry |
 
 **The scene**, built through the MCP tools:
 
