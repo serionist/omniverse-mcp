@@ -44,6 +44,10 @@ it runs one; they are hints, never security (the bridge's token is what keeps ot
 | destructive | Deletes or overwrites prims, the whole stage, or USD files on disk | `delete_prim`, `save_scene`, `open_scene`, `new_scene`, `flatten_usd`, `export_prim_as_file`, `update_material_paths` |
 | destructive, open world | Runs Python or loads extensions inside the Kit app: anything can happen | `execute_script`, `manage_extensions` |
 
+`set_physics_properties` deletes one prim of its own: the physics material an extension of 0.3.0 or older gave the
+prim, once no prim binds it and after its values have moved into the prim's own. Nothing is lost, so it stays not
+destructive.
+
 A value out of a parameter's range, or not one of its choices, is refused before the tool runs.
 
 ## Table of Contents
@@ -961,19 +965,27 @@ Set a prim's mass or density, and its friction or restitution, for PhysX; a valu
   clone that inherits from its source, as Isaac Sim's cloner makes them by default, composes its material from the
   source's: a call on the source reaches each clone that no call has given values of its own, and the answer names
   them. A call on the clone writes its own, and leaves the source as it was.
-- **Refused,** before anything is written, the mass given with it included: an instance (an instanceable prim with
-  its reference or payload), which USD lets hold no prim of its own, and a prim inside one, whose error names its
-  instance. A call on the instance's parent instead gives the parent's material to every prim under it that has none
-  of its own, the other instances there too. A child named `PhysMat` that isn't a `Material` is the user's own, and is
-  refused too.
+- **Refused,** a call with friction or restitution, before anything is written, the mass given with it included: on
+  an inactive prim, an instance (an instanceable prim with its reference or payload) or a prim inside one, which USD
+  lets hold no prim of its own; the error for a prim inside an instance names its instance. A call on the instance's
+  parent instead gives the parent's material to every prim under it that has none of its own, the other instances
+  there too. A child named `PhysMat` that isn't a `Material` is the user's own, and is refused too. A call with only
+  mass or density binds no material, and isn't refused.
 - **A prim bound to an older extension's shared material,** `/World/PhysicsMaterials/<prim name>_PhysMat`, which
   extensions of 0.3.0 and older gave every prim of one name, moves to its own on its next call, with the values it
   had. The call that moves the last prim off it deletes it, and `/World/PhysicsMaterials` once that leaves it empty,
-  when the material is exactly that path, a `Material` with `PhysicsMaterialAPI` that only the edit layer holds, and
-  no prim binds it, nor a material composed from it. It stays when another prim still binds it, when another layer
-  holds it, or when the stage holds an inactive prim or an unloaded payload, under which a prim could bind it unseen;
-  the answer says which. A material under any other path, a user's own, is never deleted. With an extension of 0.3.0
-  or older, a value left out on a new material is USD's 0, and a material bound before is replaced with all it held.
+  when the material is exactly that path, a `Material` with `PhysicsMaterialAPI` that only the edit layer holds at
+  that path, holding no prim of its own, and no prim binds it, nor a material composed from it. It stays, and the
+  answer says why, when:
+  - another prim still binds it, the called prim's links and other descendants included;
+  - another layer holds it, or it is composed from another path, through a reference, inherit or specialize;
+  - it holds prims of its own, which deleting it would take with it;
+  - the stage holds a prim under which the walk can't see, where a prim could bind it: an inactive prim with
+    something under it, an unloaded payload, or a prim with variant sets, whose variants not selected aren't on the
+    stage.
+
+  A material under any other path, a user's own, is never deleted. With an extension of 0.3.0 or older, a value left
+  out on a new material is USD's 0, and a material bound before is replaced with all it held.
 - **The walk:** a call with friction or restitution reads every prim's material bindings, on Kit's main thread, to
   find the other prims the write reaches and whether the older material may go: about 1 s per 100,000 prims on
   usd-core, whatever their number of properties. It doesn't enter instances: a prim in an instance's prototype that

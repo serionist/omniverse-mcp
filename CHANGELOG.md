@@ -62,10 +62,11 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   cloner makes them, still follows the source's until a call on the clone, and the answer names the prims a call
   changes so: `also changes 3 prims: ...`. A prim bound to such a shared material moves to its own on its next call,
   with the values it had; the shared one stays for the prims still bound to it, and the call that moves the last of
-  them deletes it, or says why it stays. An instance, which can hold no child, is refused. The answer names the
-  material: `material /World/Cube/PhysMat`. Each call with friction or restitution reads the whole stage, about 1 s
-  per 100,000 prims. The material is the Kit extension's part: run `uvx omniverse-mcp extension install`, then
-  restart Kit; the answer's clauses need this server too (#113).
+  them deletes it, or says why it stays. A call with friction or restitution on an instance or an inactive prim,
+  which can hold no child, is refused before anything is written. The answer names the material: `material
+  /World/Cube/PhysMat`. Each call with friction or restitution reads the whole stage, about 1 s per 100,000 prims.
+  The material is the Kit extension's part: run `uvx omniverse-mcp extension install`, then restart Kit; the
+  answer's clauses need this server too (#113).
 - **`compare_prims` gives no percentage from 0 faces,** where it said `+0%`, and each delta its own sign, where a
   drop in vertices beside a rise in faces read `+-5` (#105).
 - **`flatten_usd` and `export_prim_as_file` leave out Kit's session layer,** as Kit's own Save Flattened As does. A

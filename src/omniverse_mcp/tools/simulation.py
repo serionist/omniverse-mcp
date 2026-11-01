@@ -164,10 +164,11 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         (friction 0.5, restitution 0), so the one left out, and anything else the replaced material held, stays. A copy
         made with clone_prim takes its own with it. A clone that inherits from its source, as Isaac Sim's cloner makes
         them, follows the source's material until a call on the clone, and the answer names the prims a call changes
-        so. An instance can hold no material of its own and is refused. A prim on an older extension's shared
-        /World/PhysicsMaterials/<prim name>_PhysMat moves to its own, and the call that moves the last prim off it
-        deletes it. A call with friction or restitution reads the whole stage, about 1 s per 100,000 prims. The
-        answer gives each value set, the material and the APIs applied. For the prim's look, use set_material; to make
+        so. An instance or an inactive prim can hold no material of its own, so friction or restitution on one is
+        refused. A prim on an older extension's shared /World/PhysicsMaterials/<prim name>_PhysMat moves to its own,
+        and the call that moves the last prim off it deletes it. A call with friction or restitution reads the whole
+        stage, about 1 s per 100,000 prims. The answer gives each value set, the material and the APIs applied, and
+        whether the older shared material was deleted or kept, and why. For the prim's look, use set_material; to make
         a new prim physical in one call, create_prim with enable_physics.
         """
         resp = bridge_call(client.set_physics_properties, prim_path, mass, density, friction, restitution)

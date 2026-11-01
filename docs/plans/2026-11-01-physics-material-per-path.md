@@ -66,15 +66,18 @@ session's scratchpad):
   instanceable with no reference or payload is no instance (`IsInstance()` false) and takes a child.
 - **The walk:**
   - `GetAuthoredPropertiesInNamespace("material:binding")` holds `material:binding:physics` but not the all-purpose
-    `material:binding`; `GetAuthoredProperties` with a predicate on the name holds both, and every other purpose and
-    collection binding.
+    `material:binding`; `GetAuthoredPropertiesInNamespace("material")` holds both, and every other purpose and
+    collection binding. `GetAuthoredProperties` with a Python predicate on the name holds them too, but grows with a
+    prim's properties (code review E2).
   - `Usd.PrimRange.Stage` with `PrimAllPrimsPredicate` visits an inactive prim, whose binding reads, and none of its
     children, which aren't composed. A prim whose payload isn't loaded has `IsLoaded()` false and no children.
   - A prim in an instance's prototype can bind a material outside the instance, and the instance's proxies bind it;
     a walk without instance proxies doesn't see that prim when the prototype comes from another file.
-  - **Cost:** 104,000 prims, 26,000 bound, took 0.40 s (`113/walk-cost.py`). The walk as built, the predicate form,
-    on the same stage with 52,000 bound (a physics binding on a quarter, an all-purpose one on another quarter), took
-    0.35 s; the prim stacks of 26,000 bound targets 0.02 s.
+  - **Cost:** 104,000 prims, 26,000 bound, took 0.40 s (`113/walk-cost.py`); the prim stacks of 26,000 bound
+    targets 0.02 s. The walk as built after the code review (`113/walk-cost-3.py`, `r113/cost.py`), 100,000 meshes of
+    1, 15 and 30 authored properties each: 0.86 to 1.00 s with a quarter bound, 1.1 to 1.5 s with half, flat in the
+    property count; the predicate form it replaced took 0.6 s at 1 property and 2.9 s at 30. The machine was shared,
+    so the figures vary by about a third between runs.
 
 ## Design
 
@@ -99,6 +102,8 @@ The material is a child of the prim, named `PhysMat`:
   and `export_prim` carry it. `export_prim` keeps it because it is under the prim: it gathers outside materials from
   all-purpose bindings only (C10), so A's material would have been left out of the file.
 - **Refused, with friction or restitution, before anything is written,** mass and density included:
+  - an inactive prim, which USD lets hold no child either: `Material.Define` raised under it after the Collision API
+    and the mass were written (code review E3);
   - an instance, `prim.IsInstance()`, which USD lets hold no child; a prim flagged instanceable without a reference
     or payload is no instance and takes its material. The error says why, and that a call on its parent gives the
     parent's material to every prim under the parent that has none of its own, so to the other instances there too:
@@ -122,9 +127,12 @@ the same name" says instead: one made by an older extension, or before the prim 
 ### The other prims a write changes (Q3's B)
 
 After the write and the rebinding, one walk of the stage, `Usd.PrimRange.Stage` with `PrimAllPrimsPredicate` and no
-instance proxies, reads every prim's binding relationships, `material:binding` and every `material:binding:*`, into a
-map from each target to the prims that bind it, and notes the first inactive prim and the first prim whose payload
-isn't loaded. Prototypes and instance proxies aren't walked (Risks). The map serves the warning and Q4 both.
+instance proxies, reads every prim's binding relationships, `material:binding` and every `material:binding:*`, from
+one read of the `material` namespace, into a map from each target to the prims that bind it. It notes the first prim
+under which it can't see: an inactive prim with something under it in any of its specs, a payload or variants (an
+inactive leaf, as Kit leaves one on delete, hides nothing; code review I1), a prim whose payload isn't loaded, or a
+prim with variant sets, whose variants not selected aren't on the stage (code review E4). Prototypes and instance
+proxies aren't walked (Risks). The map serves the warning and Q4 both.
 
 - **Counted:** the other prims, not the called prim or its descendants, that are on the stage as bodies can be
   (defined, active, not a class), and that bind:
@@ -145,13 +153,16 @@ when all of these hold:
 
 - it is exactly `/World/PhysicsMaterials/<the prim's name>_PhysMat`, the path an older extension gave it;
 - it is a `Material` with `MaterialAPI`, and every spec of it is in the edit target's layer, at its own path;
+- it holds no prim of its own: `RemovePrim` takes the subtree, which an older extension never wrote (code review E1);
 - after the rebinding, no prim the walk met binds it or a material composed from it, the called prim and its
   descendants included;
-- the walk met no inactive prim and no unloaded payload, under which a prim could bind it unseen.
+- the walk met no prim under which it can't see, where a prim could bind it unseen.
 
 Otherwise it stays, and the answer says why: `1 prim still binds it: /World/Franka_2/panda_leftfinger`, `another layer
-holds it too: <layer>`, `/World/Robot/Visuals is inactive, so a prim under it could bind it`, or `the payload of
-/World/Env isn't loaded, so a prim in it could bind it`. `/World/PhysicsMaterials` goes too only when the delete
+holds it too: <layer>`, `it is composed from /World/Templates/Grip too` (an arc in the edit layer itself; code review
+E5), `it holds prims of its own: ...`, `/World/Robot/Visuals is inactive, so a prim under it could bind it`, `the
+payload of /World/Env isn't loaded, so a prim in it could bind it`, or `/World/Robot has variant sets, so a prim in a
+variant not selected could bind it`. `/World/PhysicsMaterials` goes too only when the delete
 empties it and it is typeless or a `Scope` with every spec in the edit target's layer. A material bound before under
 any other path, a user's own `Foo_PhysMat` elsewhere or a material another prim was bound to, is never looked at.
 
@@ -190,15 +201,19 @@ three fields, and the server prints none. `PROTOCOL` stays 1.
 ## Compatibility
 
 - **One-way doors:** none. The tool's name, schema and annotations stay (`tests/fixtures/mcp-tools.json`;
-  `tools/golden.py` leaves descriptions out). The route keeps its path and gains the answer fields `material`,
+  `tools/golden.py` leaves descriptions out). The annotations stay EDITS, not destructive, though the tool now deletes
+  a prim (code review S1, the maintainer's choice): it deletes only its own old material, under the name an older
+  extension gave it, once no prim binds it and after its values have moved into the prim's own, so nothing is lost.
+  `docs/TOOLS.md`'s hint table says so. The route keeps its path and gains the answer fields `material`,
   `also_changes` and `old_material`.
 - **What users notice:**
   - A call's material moves from `/World/PhysicsMaterials/<prim name>_PhysMat` to `<prim path>/PhysMat`, a new child
     of the prim. A prim moves to its own on its next call, with the values it had; the old one stays for the prims
     still bound to it, and the call that moves the last of them deletes it, with `/World/PhysicsMaterials` once empty.
   - A call on a source that inheriting clones follow names them: `also changes N prims: ...`.
-  - A call with friction or restitution on an instance, or inside one, is refused, where it bound a material.
-  - Each call with friction or restitution walks the stage: about 0.35 s per 100,000 prims on usd-core, on Kit's main
+  - A call with friction or restitution on an instance, inside one, or on an inactive prim is refused, where it
+    bound a material (an inactive prim's call raised partway on this branch before the code review).
+  - Each call with friction or restitution walks the stage: about 1 s per 100,000 prims on usd-core, on Kit's main
     thread.
   - It ships with #105 in 0.4.0, so no release writes all three values into a material prims of one name share.
 - **An older extension with this server:** the description names the new path, the extension binds the old one, and
@@ -254,7 +269,7 @@ The Fixed bullet, as drafted:
   changes so: `also changes 3 prims: ...`. A prim bound to such a shared material moves to its own on its next call,
   with the values it had; the shared one stays for the prims still bound to it, and the call that moves the last of
   them deletes it. An instance, which can hold no child, is refused. The answer names the material: `material
-  /World/Cube/PhysMat`. Each call with friction or restitution reads the whole stage, about 0.35 s per 100,000 prims.
+  /World/Cube/PhysMat`. Each call with friction or restitution reads the whole stage, about 1 s per 100,000 prims.
   The material is the Kit extension's part, and the answer's clauses need this server too (#113).
 
 ## Risks
@@ -265,15 +280,15 @@ The Fixed bullet, as drafted:
 | With D, a child of the user's own named `PhysMat`: one that isn't a `Material` is refused; one that is, such as an asset's bound to other prims too, is taken as the prim's own and written | Accepted: the name is the tool's own, and the refusal leaves the first untouched; the warning names the other prims that bind the second |
 | With D, a `Material` child under a gprim such as a Cube | Accepted: USD allows it, the material isn't imageable, and live `test_15_02b`'s Cubes show PhysX reads it |
 | With D, an inheriting clone follows its source's material until a call on the clone | Accepted (Q3's B): it is what the cloner's inheritance means, "mirror its changes" (C8), and the answer names each clone a call changes |
-| The walk holds Kit's main thread on each call with friction or restitution: 0.40 s per 104,000 prims with 26,000 bound on usd-core 26.11, 0.35 s in the form built with 52,000 bound | Accepted (Q3's B): the maintainer chose it knowing the cost. Kit's Python may be slower than usd-core's; a stage of Isaac Lab's size in Kit wasn't measured |
+| The walk holds Kit's main thread on each call with friction or restitution: about 1 s per 100,000 prims on usd-core 26.11 whatever their property count, against the 0.40 s the maintainer weighed in Q3: the namespace read the code review asked for (E2), and the checks for what the walk can't see (E4) | Accepted (Q3's B): the maintainer chose the walk knowing its cost, and the code review's E2 measured and stated it. Kit's Python may be slower than usd-core's; a stage of Isaac Lab's size in Kit wasn't measured |
 | The walk doesn't enter instances or their prototypes: a prim in a prototype from another file that binds the written material isn't named, and one that binds the older material doesn't stop its delete | Accepted: such a prototype would bind a path of the stage it is referenced into, which only a file saved from a stage of an older extension's calls holds; an instance root's own binding is walked |
-| An inactive prim or an unloaded payload anywhere on the stage keeps every older material | Accepted (Q4's A): what is under them could bind it unseen; the answer says which prim kept it |
+| An inactive prim with something under it, an unloaded payload, or a prim with variant sets anywhere on the stage keeps every older material | Accepted (Q4's A, code review E4): what is under them, or in a variant not selected, could bind it unseen; the answer says which prim kept it. An inactive leaf doesn't (code review I1) |
 | A user's own material at exactly `/World/PhysicsMaterials/<the prim's name>_PhysMat`, bound to this prim alone, is deleted when the call moves the prim off it | Accepted (Q4's A): it is the tool's own name, and its values move into the prim's own first |
 | With A, a prim at the stage's root, `/Box`, gets `/World/PhysicsMaterials/Box_PhysMat`, the name an older extension gave every prim named Box | Gone with Q1's D |
 | With A, a prim named `<x>_PhysMat` with children, beside a prim named `<x>`: the children's materials sit under `<x>`'s | Gone with Q1's D (P3); D's case, a child `PhysMat` that isn't a `Material`, is refused |
 | With A, the Scopes repeat the names of the prim's ancestors, so a search by name finds them | Gone with Q1's D |
 | With A, a copy shares its original's material, so a call on the original changes it | Gone with Q1's D |
-| Kit's PhysX doesn't read the material where it now sits | Open until the live `test_15_02b` runs |
+| Kit's PhysX doesn't read the material where it now sits | Resolved: `test_15_02b` passed on Isaac Sim 6.2, on a Z-up stage and on a Y-up one, with the extension at `5b56cb9`; its twins slid as their controls (code review I3) |
 
 ## Plan review
 
