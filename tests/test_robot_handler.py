@@ -7,7 +7,6 @@ tool."""
 import asyncio
 import json
 import sys
-import types
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +16,7 @@ from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 
 from ovmcp.core.usd import floats, is_a
 
-from .test_scene_handler import FakeKit, load_handler
+from .test_scene_handler import FakeKit, _module, load_handler
 
 
 @pytest.fixture
@@ -283,10 +282,8 @@ def _exponents(name: str, prim: Usd.Prim | None = None) -> Any:
 @pytest.fixture
 def table(monkeypatch: pytest.MonkeyPatch) -> None:
     """pxr.PhysicsSchemaTools.units, which only Kit's PhysX schema ships, faked with its own entries."""
-    units = types.ModuleType("pxr.PhysicsSchemaTools.units")
-    units.get_attribute_unit_exponents = _exponents  # type: ignore[attr-defined]
-    tools = types.ModuleType("pxr.PhysicsSchemaTools")
-    tools.units = units  # type: ignore[attr-defined]
+    units = _module("pxr.PhysicsSchemaTools.units", get_attribute_unit_exponents=_exponents)
+    tools = _module("pxr.PhysicsSchemaTools", units=units)
     monkeypatch.setitem(sys.modules, "pxr.PhysicsSchemaTools", tools)
     monkeypatch.setitem(sys.modules, "pxr.PhysicsSchemaTools.units", units)
 
@@ -297,8 +294,8 @@ def _stage_units(kit: FakeKit, meters: float, kilograms: float = 1.0, up_axis: s
     UsdPhysics.SetStageKilogramsPerUnit(kit.stage, kilograms)
 
 
-# 112-probe.py's robot in metres, Y-up: a fixed base, an arm with a density and an instanced pad, a hinge on an angular
-# force drive, a slide on a linear one with a sampled target velocity.
+# The robot of the plan's probe, trimmed, in metres, Y-up: a fixed base, an arm with a density and an instanced pad, a
+# hinge on an angular force drive, a slide on a linear one with a sampled target velocity.
 _PROBE_BOT = """#usda 1.0
 (
     defaultPrim = "Bot"
@@ -402,7 +399,7 @@ def Xform "Proto"
 }
 """
 
-# What Kit's assembler made of each of the probe robot's values on a centimetre stage (112-probe.out.txt, K2's after).
+# What Kit's assembler made of each of the probe robot's values on a centimetre stage (the plan's P2).
 _KITS: dict[tuple[str, str], Any] = {
     ("", "physxArticulation:sleepThreshold"): 50.0,
     ("Base", "physics:mass"): 2.0,
