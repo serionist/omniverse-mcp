@@ -191,7 +191,7 @@ Create a new prim in the scene.
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Where to create (e.g., `"/World/MyCube"`) |
 | `prim_type` | string | `"Xform"` | USD type: `Cube`, `Sphere`, `Cylinder`, `Cone`, `Capsule`, `Xform`, `Camera`, `DistantLight`, `SphereLight`, etc. |
-| `usd_path` | string | `null` | Reference a USD file instead: an absolute path on Kit's machine, or a URL; brought to the stage's up axis and units as `create_robot` brings a robot file |
+| `usd_path` | string | `null` | Reference a USD file instead: an absolute path on Kit's machine, a URL, or a path relative to the stage's file; brought to the stage's up axis and units as `create_robot` brings a robot file |
 | `position` | list[float] | `null` | `[x, y, z]` relative to the parent |
 | `rotation` | list[float] | `null` | Euler or quaternion |
 | `scale` | float or list[float] | `null` | Scale |
@@ -210,18 +210,27 @@ meshes under an Xform or a referenced file's root get no Collision API of their 
 brought to the stage as `create_robot` brings a robot file, and as Kit's metrics assembler brings a dropped one: turned
 upright in `xformOp:rotateX:unitsResolve`, scaled to its real size in `xformOp:scale:unitsResolve`, and its physics
 values and its cameras' distances converted to the stage's units. `create_robot`'s Up axis and Units paragraphs give
-the detail, the values left as they are among it. The answer says what was done.
+the detail, the values left as they are among it. The answer says what was done. A file whose root has no
+transform, typeless or a `Scope`, as many of Isaac Sim's assets have it, is made an `Xform` in the stage's layer to
+hold the ops; a root of another type USD gives no transform, such as a `Material`, holds nothing a turn or a scale
+would move, and gets neither. A payload inside the file that isn't loaded has its values left in the file's units,
+and loading it later brings them in so; Kit loads payloads when it opens a stage.
 
 - **The frame it lands in:** a file made inside an asset already brought to the stage, by either tool or by Kit's drop,
   is measured against the frame that asset's `:unitsResolve` ops make, as Kit measures it: a metre part under a metre
   robot on a centimetre stage needs no scale of its own, and a Z-up part under a turned Z-up robot no turn. A prim's
   own scale is the user's and doesn't change the frame. Its physics values are still converted to the stage's units.
   A file of the stage's own axis inside a turned asset is turned back and stands upright, where Kit's assembler
-  leaves it lying down; Kit's assembler, run again on an asset its drop made, may lay it down again.
-- **A prim already there** gets the reference as the file is, unturned and unscaled: the prim may hold other content,
-  which a turn or a scale would move too. The answer says what the file's content needs and the frame inside the prim
-  gives; `create_prim` at a path under it has the file brought. `create_prim` again on a prim it made from the same
-  file, to move it, turns and scales nothing a second time.
+  leaves it lying down. Kit's change listener, resolving again an asset its drop made when a prim under it is made,
+  writes its own values into a layer first among the root layer's sublayers: the stage's own layer, where
+  `create_prim` writes, outranks it, but with a sublayer as the edit target Kit's value may show instead and lay the
+  file down.
+- **A prim already there** gets the reference as the file is, unturned and unscaled, its physics values in the file's
+  units: the prim may hold other content, which a turn or a scale would move too. The answer says what the file's
+  content needs beside the frame inside the prim, and which values stay in the file's units. The reference stays on
+  the prim; to have the file brought instead, take it off with `execute_script`, as the answer shows, then
+  `create_prim` at a new path, such as one under the prim. `create_prim` again on a prim it made from the same file,
+  to move it, turns and scales nothing a second time.
 - **`position`, `rotation` and `scale`** stay in the parent's frame, outside the units ops: `scale=2` makes the file
   twice its real size.
 - A file that authors neither is left as it is, wherever it lands. With an extension of 0.3.0 or older, nothing is

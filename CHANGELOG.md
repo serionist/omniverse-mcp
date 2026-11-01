@@ -40,10 +40,12 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   large, its physics values in the file's units. It is now turned upright and scaled with the ops Kit's metrics
   assembler writes, its physics values and its cameras' distances converted, and the answer says so. A file placed
   inside an asset already turned or scaled, by either tool or by Kit, is measured against that asset's frame, as Kit
-  measures it, so it isn't turned or scaled twice. A reference added to a prim already there goes on as the file is,
-  and the answer says so. A file that can't be opened is now an error, where it made an empty prim. **A call that
-  turned or scaled such a prim itself, with `rotation` or `scale`, now turns or scales it twice: drop that.** The fix
-  is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#119).
+  measures it, so it isn't turned or scaled twice. A file whose root has no transform, typeless or a `Scope`, is
+  made an `Xform` to hold the turn and the scale. A reference added to a prim already there goes on as the file is,
+  and the answer says so, with how to take it off. A file that can't be opened is now an error, where it made an
+  empty prim. **A call that turned or scaled such a prim itself, with `rotation` or `scale`, now turns or scales it
+  twice: drop that.** The fix is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit
+  (#119).
 - **`get_prim_properties` reads a scaled prim's rotation:** `rot` came from the world matrix with its scale left in,
   so a 45° turn at scale 0.5 read as 84°, and a prim under a scaled parent could read as not turned. Recordings'
   `state.txt` and `get_scene_tree`'s file gave the same `rot`. A prim scaled to 0 on an axis, which has no rotation

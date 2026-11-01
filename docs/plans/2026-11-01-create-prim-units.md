@@ -216,6 +216,29 @@ Built as above, at the steps' commits, but for these, none of them a change of d
 - **`not_brought`** reads the turn of a frame by rotation, not by a table of turns: a frame turned so that neither Y
   nor Z is up, such as a Kit-saved file's own -90 on a Z-up stage before it is brought, is reported as such.
 
+After code review round 1 (two reviewers on `ba2865c`, six minors):
+
+- **A root with no transform (R1):** a file whose default prim is typeless or a `Scope`, as 42 of Isaac Sim's 179
+  bundled `.usda` files with a default prim have it, got its ops on a prim that isn't Xformable, and the answer said
+  turned and scaled while nothing moved. `bring_to_stage` now makes such a new prim an `Xform` in the edit layer
+  before it writes an op, so the file comes in as asked; refusing it instead would leave those files unusable on a
+  stage of the other axis or units, with no tool to work around it. A root of another type USD gives no transform,
+  such as a `Material`, holds nothing a turn or a scale would move, and gets neither.
+- **Values left on a prim already there (R2):** `not_brought` also reports the physics values a reference this call
+  added leaves in the file's units, where the file's units aren't the stage's; a reference held from before isn't, as
+  its values were converted when it was brought, or by no one the call can tell.
+- **The reference stays (R4):** the not-brought line says the reference stays on the prim and how to take it off
+  with `execute_script` before `create_prim` at a new path, or the file would be on the stage twice.
+- **The catch-all (R5):** step 6's "Placing the file failed" wasn't built: any exception other than a `ValueError`,
+  a USD error or a `StepError` left the prim and its ops. Every exception now takes away what the call made, the
+  others named by their step, "Placing the prim failed: ..."; `create_robot`'s two catch branches are one.
+- **`bring_to_stage(prim, layer, table, noun)` and `not_brought(prim, layer, added)`** read the stage's axis and
+  units through `prim.GetStage()`, and `bring_to_stage` the frame of `prim.GetParent()`, so neither handler repeats
+  them.
+- **`test_07c` reads each layer's own specs (R3):** Kit's resolve writes into a sublayer weaker than the edit layer,
+  so composed values couldn't show what it wrote; the test now reads the edit layer's ops before and after and the
+  resolve layer's, and prints what Kit wrote there, to pin.
+
 ### Alternatives
 
 - **Kit's assembler** (`resolve_hierarchy`) for `create_prim`: #112's Q1 B, turned down there for reasons that hold
@@ -325,9 +348,10 @@ instead. Kit with `conformToXformCommonAPI` on (K4, Risks).
 | Kit tells a nested prim's frame some other way than by its ancestors' ops, or converts its values against the frame | Closed by the probe: the frame from the ancestors' ops alone (N3, N4), the values against the stage (N1) |
 | N2's departure under Kit's change listener (K5): under a prop Kit dropped, `create_prim`'s `DefinePrim` makes Kit resolve the prop's whole hierarchy at the next update, and Kit may write its own 0 over the +90 this plan wrote for a file of the stage's axis, laying it down. Elsewhere Kit's resolve reaches the prim only when a user resolves it, or on reopening a stage, for a path Kit's drop recorded | Open until `test_07c` runs Kit's `resolve_hierarchy` on the outer path, as the listener does, and pins what Kit leaves. If Kit lays the file down: accepted, and `docs/TOOLS.md` says so for a file placed under an asset Kit dropped |
 | `conformToXformCommonAPI` on: Kit writes its turn and scale into a prim's own ops, which `frame_of` doesn't count (K4) | Accepted: off by default; a file placed inside such an asset is measured against the stage, as `create_robot` does today |
-| A net ancestor turn that is none of -90, +90 or 0 | Accepted: taken as the stage's axis; only hand-written ops give one |
+| A net ancestor turn that is none of -90, +90 or 0 | Accepted: taken as the stage's axis. Hand-written ops give one, and so does an ancestor referencing a file Kit resolved and saved, whose own -90 on a Z-up stage stands neither axis up until it is brought |
 | A prim already there gets nothing (Q1) | Accepted with Q1's A: the answer says what it left and how to get it |
-| A payload inside the file that isn't loaded: its values aren't converted, and loading it later brings them in the file's units | Accepted: Kit loads payloads by default; `docs/TOOLS.md` names it |
+| A payload inside the file that isn't loaded: its values aren't converted, and loading it later brings them in the file's units | Accepted: Kit loads payloads by default; `docs/TOOLS.md` names it (added after code review round 1, R5) |
+| `convert_units` walking a whole environment: `create_prim` can now be handed one, where `create_robot` took a robot | Accepted: #112 measured 12,000 prims and 42,000 attributes at 0.58 s on usd-core, on Kit's main thread, and only when the file's units aren't the stage's |
 | A file with no default prim: the reference brings nothing, and the ops land on an empty prim | Accepted: an empty prim, as today, now with the ops |
 | Refusing a file that can't be opened breaks a call that referenced a file to be written later | Accepted with Q3's A: named in CHANGELOG |
 | The move from `core/robot.py` | Closed by step 3: no behaviour change, the moved tests pass unchanged |
