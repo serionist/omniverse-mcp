@@ -9,6 +9,10 @@ Usage: python tools/release.py check <tag>      the tag is vX.Y.Z, every version
                                                 line, and the install lines: the release's notes
        python tools/release.py pr               when CHANGELOG.md has a section for pyproject.toml's version (a
                                                 release PR, and every change after one), check as its tag would
+       python tools/release.py archives <dir> [<tag>]
+                                                zip the Kit extension from HEAD into <dir> under the names a release
+                                                attaches, Kit's community registry's two among them, and check them;
+                                                the tag's version, or pyproject.toml's
 
 Standard library only, as the gate: CI runs it before anything is installed.
 """
@@ -16,6 +20,7 @@ Standard library only, as the gate: CI runs it before anything is installed.
 from __future__ import annotations
 
 import re
+import shutil
 import sys
 import tomllib
 import zipfile
@@ -26,6 +31,10 @@ import gate
 ROOT = Path(__file__).resolve().parents[1]
 TAG = re.compile(r"^v(\d+\.\d+\.\d+)$")
 EXTENSION_TOML = "omniverse_mcp/_extension/ovmcp.bridge/config/extension.toml"
+EXTENSION = "ovmcp.bridge"
+# Kit's community registry's crawler builds its archives' names from the repository and the tag (#101): renaming
+# either stops the listing, and a listed version installs from its release's file (AGENTS.md, One-way doors).
+REPOSITORY = "serionist/omniverse-mcp"
 # What PyPI can't show, with no repo around the README (#36): an image or a link that isn't absolute (or an anchor, or
 # mail), whatever its form, and an image pointing at a github.com page instead of the file. pyproject.toml's
 # substitutions rewrite the common forms; this finds any they miss, such as a link with a title or a reference.
@@ -155,6 +164,77 @@ def wheel_problems(path: Path, root: Path = ROOT) -> list[str]:
     return problems
 
 
+def archive_names(version: str) -> list[str]:
+    """The zips of the Kit extension a release attaches: `ovmcp.bridge-X.Y.Z.zip`, for people, and the two names Kit's
+    community registry's crawler reads, one per platform; a Python-only extension's are the same bytes (#101)."""
+    prefix = REPOSITORY.replace("/", "-")
+    return [f"{EXTENSION}-{version}.zip", *(f"{prefix}-{os}-x86_64-v{version}.zip" for os in ("linux", "windows"))]
+
+
+def build_archives(out: Path, version: str, root: Path = ROOT) -> list[Path]:
+    """Zip HEAD's extension, as `git archive` gives its tracked files, under each of archive_names(version)."""
+    out.mkdir(parents=True, exist_ok=True)
+    first, *copies = (out / name for name in archive_names(version))
+    done = gate.git(
+        "archive", "--format=zip", f"--prefix={EXTENSION}/", "-o", str(first), f"HEAD:extension/{EXTENSION}", cwd=root
+    )
+    if done.returncode != 0:
+        raise RuntimeError(f"git archive failed: {done.stderr.strip()}")
+    for copy in copies:
+        shutil.copyfile(first, copy)
+    return [first, *copies]
+
+
+def archive_problems(path: Path, version: str) -> list[str]:
+    """What would keep Kit, or Kit's community registry, from taking the zip as this release's extension (#101)."""
+    with zipfile.ZipFile(path) as archive:
+        names = archive.namelist()
+        problems = [
+            f"{path.name}: {name} is outside {EXTENSION}/, where Kit names the extension by its folder; at the root, "
+            "the community registry names it after its own temp folder"
+            for name in names
+            if not name.startswith(f"{EXTENSION}/")
+        ][:3]
+        problems += [
+            f"{path.name}: {name} is compiled Python, which Kit makes itself"
+            for name in names
+            if name.endswith(".pyc") or "/__pycache__/" in name
+        ][:3]
+        toml = f"{EXTENSION}/config/extension.toml"
+        if toml not in names:
+            return [*problems, f"{path.name} has no {toml}"]
+        package = tomllib.loads(archive.read(toml).decode("utf-8")).get("package", {})
+    if package.get("version") != version:
+        problems.append(f"{path.name} is the extension {package.get('version')!r}, the release {version!r}")
+    if package.get("repository") != f"https://github.com/{REPOSITORY}":
+        problems.append(
+            f"{path.name}: the extension's repository is {package.get('repository')!r}, not "
+            f"'https://github.com/{REPOSITORY}', which Kit's community registry requires"
+        )
+    if not (package.get("target") or {}).get("kit"):
+        problems.append(f"{path.name}: the extension has no [package.target] kit, the Kit floor Kit's window reads")
+    for key in ("readme", "icon", "preview_image"):
+        named = package.get(key)
+        if not named:
+            problems.append(f"{path.name}: the extension names no {key}, which Kit's Extensions window shows")
+        elif f"{EXTENSION}/{named}" not in names:
+            problems.append(f"{path.name}: the extension's {key}, {named}, isn't in the zip")
+    return problems
+
+
+def folder_problems(out: Path, version: str) -> list[str]:
+    """The release attaches every zip in the folder: only its own, each one Kit can take."""
+    want = archive_names(version)
+    problems = [
+        f"{name} is in {out}, and the release would attach it"
+        for name in sorted(p.name for p in out.glob("*.zip"))
+        if name not in want
+    ]
+    for name in want:
+        problems += archive_problems(out / name, version) if (out / name).is_file() else [f"{out / name} is missing"]
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     if args == ["pr"]:
@@ -165,6 +245,8 @@ def main(argv: list[str] | None = None) -> int:
         for problem in problems:
             print(f"release.py pr: {problem}", file=sys.stderr)
         return 1 if problems else 0
+    if args[:1] == ["archives"] and len(args) in (2, 3):
+        return _archives(Path(args[1]), args[2] if len(args) == 3 else None)
     if len(args) != 2 or args[0] not in ("check", "wheel", "notes"):
         print(__doc__, file=sys.stderr)
         return 2
@@ -181,6 +263,29 @@ def main(argv: list[str] | None = None) -> int:
         print(f"release.py {command}: {problem}", file=sys.stderr)
     if not problems:
         print(f"release.py {command} {value}: ok")
+    return 1 if problems else 0
+
+
+def _archives(out: Path, tag: str | None) -> int:
+    """`archives <dir> [<tag>]`: build and check the release's zips of the Kit extension."""
+    if tag is None:
+        with (ROOT / "pyproject.toml").open("rb") as f:
+            version = str(tomllib.load(f)["project"]["version"])
+    elif match := TAG.match(tag):
+        version = match.group(1)
+    else:
+        print(f"release.py archives: the tag {tag!r} is not vX.Y.Z", file=sys.stderr)
+        return 1
+    try:
+        build_archives(out, version)
+    except RuntimeError as e:
+        print(f"release.py archives: {e}", file=sys.stderr)
+        return 1
+    problems = folder_problems(out, version)
+    for problem in problems:
+        print(f"release.py archives: {problem}", file=sys.stderr)
+    if not problems:
+        print(f"release.py archives {version}: ok, {', '.join(archive_names(version))}")
     return 1 if problems else 0
 
 
