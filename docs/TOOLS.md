@@ -731,7 +731,7 @@ A call takes about 90 s at most, under the server's 120 s timeout: 80 s for the 
 Capture a camera at `width` x `height` and save **3 files** for full scene understanding:
 
 1. **Viewport image** (PNG) - what the camera sees
-2. **Bounding boxes** (TXT) - screen-space pixel coordinates for each visible mesh or shape under `/World`, plus world-space centre and dimensions. A prim behind the camera has none, and one across the camera's plane is boxed by its part in front
+2. **Bounding boxes** (TXT) - screen-space pixel coordinates for each visible mesh or shape under `/World`, plus world-space centre and dimensions. A box is the prim's world box where its outline lies on the image: a prim wholly outside the image has none, beside the view as behind the camera, and one across the camera's plane is boxed by its part in front. The box bounds the world box, not the prim's pixels, so a prim hidden behind another still has one; the segmentation shows what is seen. With an extension of 0.3.0 or older, a prim beside the view can get a box at the frame's edge
 3. **Instance segmentation** (PNG + legend TXT) - each prim rendered as a unique colour, with a legend mapping colours to prim paths
 
 Use files 2 and 3 to understand which object is where in the viewport image. Aim first with `set_camera`, at a point

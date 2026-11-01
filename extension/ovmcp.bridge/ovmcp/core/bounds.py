@@ -81,22 +81,84 @@ def _projected(c: Sequence[float]) -> list[float]:
 
 
 def screen_box(points: Sequence[Vec], viewport: tuple[int, int], image: tuple[int, int]) -> list[float] | None:
-    """The outline of points projected to the viewport, as [x0, y0, x1, y1] in the output image's pixels.
+    """Where the outline of points lies on the viewport, as [x0, y0, x1, y1] in the output image's pixels.
 
-    Each point's x and y are fractions of the viewport (0 to 1; a corner off-screen falls outside). The outline is
-    clamped to the viewport, then scaled from the viewport's size to the image's, and rounded to a tenth of a pixel.
-    None when it lies wholly off-screen.
+    Each point's x and y are fractions of the viewport (0 to 1; a corner off-screen falls outside). The outline is the
+    points' convex hull, which for a pinhole camera's points (project_in_front) is the projection of the box's part in
+    front of it. It is clipped to the viewport, and the clipped part's bounding rectangle scaled from the viewport's
+    size to the image's and rounded to a tenth of a pixel. None when what lies on the viewport has no width or no
+    height, or nothing does: a prim beside the view, whose corners' rectangle reaches a corner of the frame while its
+    outline doesn't, had a box there (#105).
     """
     vp_w, vp_h = viewport
     img_w, img_h = image
-    xs = [float(p[0]) * vp_w for p in points]
-    ys = [float(p[1]) * vp_h for p in points]
+    outline = _clipped(_hull([(float(p[0]) * vp_w, float(p[1]) * vp_h) for p in points]), float(vp_w), float(vp_h))
+    if not outline:
+        return None
+    xs = [x for x, _ in outline]
+    ys = [y for _, y in outline]
     x0, x1 = min(xs), max(xs)
     y0, y1 = min(ys), max(ys)
-    if x1 < 0 or x0 > vp_w or y1 < 0 or y0 > vp_h:
+    if x1 <= x0 or y1 <= y0:
         return None
     x0 = max(0.0, x0) * img_w / vp_w
     y0 = max(0.0, y0) * img_h / vp_h
     x1 = min(float(vp_w), x1) * img_w / vp_w
     y1 = min(float(vp_h), y1) * img_h / vp_h
     return [round(x0, 1), round(y0, 1), round(x1, 1), round(y1, 1)]
+
+
+Point = tuple[float, float]
+
+
+def _hull(points: list[Point]) -> list[Point]:
+    """The convex hull of points, counter-clockwise, by Andrew's monotone chain; fewer than three points, or points on
+    one line, give their ends."""
+    unique = sorted(set(points))
+    if len(unique) < 3:
+        return unique
+
+    def turn(o: Point, a: Point, b: Point) -> float:
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower: list[Point] = []
+    upper: list[Point] = []
+    for chain, ordered in ((lower, unique), (upper, list(reversed(unique)))):
+        for point in ordered:
+            while len(chain) >= 2 and turn(chain[-2], chain[-1], point) <= 0:
+                chain.pop()
+            chain.append(point)
+    return lower[:-1] + upper[:-1]
+
+
+def _clipped(polygon: list[Point], width: float, height: float) -> list[Point]:
+    """polygon cut to 0 <= x <= width and 0 <= y <= height, one edge of the frame at a time (Sutherland-Hodgman); a
+    point or a segment is cut as a polygon of one or two corners. Empty when nothing of it is inside."""
+    edges = (
+        (0, 0.0, True),  # x >= 0
+        (0, width, False),  # x <= width
+        (1, 0.0, True),  # y >= 0
+        (1, height, False),  # y <= height
+    )
+    for axis, bound, above in edges:
+
+        def inside(p: Point, axis: int = axis, bound: float = bound, above: bool = above) -> bool:
+            return p[axis] >= bound if above else p[axis] <= bound
+
+        def crossing(a: Point, b: Point, axis: int = axis, bound: float = bound) -> Point:
+            t = (bound - a[axis]) / (b[axis] - a[axis])
+            return (a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]))
+
+        cut: list[Point] = []
+        for i, current in enumerate(polygon):
+            previous = polygon[i - 1]
+            if inside(current):
+                if not inside(previous):
+                    cut.append(crossing(previous, current))
+                cut.append(current)
+            elif inside(previous):
+                cut.append(crossing(previous, current))
+        polygon = cut
+        if not polygon:
+            break
+    return polygon

@@ -111,7 +111,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Render one frame from a camera at width x height and save 3 files to mcp_output/captures/:
 
         1. **Image** (PNG): what the camera sees.
-        2. **Bounding boxes** (TXT): each visible mesh or shape under /World, its box in pixels, world centre and size.
+        2. **Bounding boxes** (TXT): each mesh or shape under /World whose world box lies on the image, its box in
+           pixels, world centre and size.
         3. **Instance segmentation** (PNG): each prim in a colour of its own, with a legend naming them.
 
         Use it to see the scene and tell which prim is where: the boxes for places, the segmentation for prims that

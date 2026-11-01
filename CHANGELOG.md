@@ -30,6 +30,9 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   `state.txt` and `get_scene_tree`'s file gave the same `rot`. A prim scaled to 0 on an axis, which has no rotation
   to read, has no `rot` line. The fix is in the Kit extension: run `uvx omniverse-mcp extension install`, then
   restart Kit (#105).
+- **`capture_viewport` gives no box to a prim beside the view:** it boxed any prim whose corners' rectangle
+  reached the image, so a cube beside the view got a box at the frame's edge. A box is now the prim's outline where
+  it lies on the image. The fix is in the Kit extension (#105).
 - **`compare_prims` gives no percentage from 0 faces,** where it said `+0%`, and each delta its own sign, where a
   drop in vertices beside a rise in faces read `+-5` (#105).
 
