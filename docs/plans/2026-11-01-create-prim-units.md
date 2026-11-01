@@ -50,7 +50,7 @@ same file, and from Kit's own drag and drop.
 
 ## What the code, the sources and the checks say
 
-### The code, at `84acfa5` (and #112's plan)
+### The code, at `84acfa5`, and #112's branch at `de975c8`
 
 | Where | What it does |
 |---|---|
@@ -58,7 +58,7 @@ same file, and from Kit's own drag and drop.
 | server `tools/scene.py:158-195` | Prints `Created {type} at {path}` and nothing of the file |
 | `handlers/robot.py:57-145`, `handle_create_robot` | Refuses a prim already there; opens the file first (`usd_file_url`, `Sdf.Layer.FindOrOpen`), refusing one it can't open; then #105's turn, `write_transform`, and any refusal removes the prim |
 | `core/robot.py:41-78` | #105: `UP_AXIS_OP`, `file_up_axis`, `up_axis_turn`, `stand_upright` |
-| #112's plan, Design | Adds to `core/robot.py` `UNITS_OP`, `Units`, `Factors`, `Exponents`, `layer_units`, `units_factors`, `scale_to_stage`, `unit_exponents`, `convert_units` (its uncommitted work also has `Converted` and `Table`); to `handlers/robot.py` `_physics_exponents()`, the PhysX schema's table, and the answer's `units_scale`; to `tools/robot.py` `_scaled_line`. The turn, scale and conversion all compare the file with the stage |
+| #112's branch, `de975c8`, in code review | Adds to `core/robot.py` `UNITS_OP`, `Units`, `Factors`, `Exponents`, `Converted`, `Table`, `layer_units`, `units_factors`, `scale_to_stage`, `unit_exponents`, `convert_units`; to `handlers/robot.py` `_physics_exponents()` (the PhysX schema's table), `_no_table`, `_units_answer` (the answer's `units_scale`), and a `step` variable that names a failed step in the error: "Turning the robot upright", "Scaling the robot to the stage's units", "Converting the robot's values to the stage's units", "Placing the robot"; to `tools/robot.py` `_scaled_lines`. `test_robot_handler.py:559-571` checks that error by patching `robot.convert_units`. The turn, scale and conversion all compare the file with the stage |
 | `tests/test_scene_handler.py:174-242` | `create_prim`'s handler on usd-core: the refusals and what each takes away |
 | `tests/test_integration.py:520-542`, `test_07b` | References `_ROBOT_USDA`, which authors no `upAxis` or `metersPerUnit`: unchanged by this plan |
 
@@ -72,6 +72,7 @@ Read on disk in Isaac Sim 6.2's install (`isaacsim/extscache/`) and in Isaac Sim
 | K2 | Attribute values are converted against the stage: `resolvedValue = value * (MPU / stageMPU) ^ metersExponent * ...`, MPU being the units of the layer the value is authored in | the same `docs/README.md:131` |
 | K3 | A payload is resolved as a reference is: `xformOp:scale:unitsResolve` on the prim holding it | the same `core/tests/payloadTests.py:102-122` |
 | K4 | `/metricsAssembler/conformToXformCommonAPI`, off by default (#112's P1 read it off in the session's Kit): when on, Kit writes the turn and the scale into the prim's own `rotateXYZ` and `scale` ops, with no `:unitsResolve` op | the same `docs/README.md:23`; `referenceTests.py:207-235` |
+| K5 | Kit's change listener: on a resync of any path, it walks up to an ancestor Kit's drop recorded and runs `re_resolve_layer` on that ancestor's whole hierarchy; reopening the stage resolves each recorded path again. So a prim made under a prop Kit dropped is resolved by Kit at the next update | `omni.usd.metrics.assembler.ui-110.1.3`: `metricsAssemblerChangeListener.py:142-170`; `tools.py:255-330` |
 
 ### usd-core 26.11 (scratch checks, `119/usd-checks.py` in the session's scratchpad, not kept)
 
@@ -110,21 +111,26 @@ assembler, whose job they do; `core/robot.py` keeps what is a robot's (`is_usd_f
 them from `core/robot.py` into the scene handler; left, since a module named for robots would then hold
 `create_prim`'s rules.
 
-Then a type and three functions:
+Then two types and three functions:
 
 | Name | What |
 |---|---|
-| `Frame` | Named tuple `(up_axis, meters, prims)`: the up axis and `metersPerUnit` of the frame a new prim lands in, and the ancestors whose `:unitsResolve` ops made it differ from the stage's |
-| `frame_of(parent, stage_axis, stage_meters)` | Walks `parent` and its ancestors. Each `xformOp:scale:unitsResolve` in an ancestor's op order multiplies the frame's `metersPerUnit` by its first value: a prim scaled ×100 on a centimetre stage holds metres. Each `xformOp:rotateX:unitsResolve` adds its degrees: a net -90 on a Y-up stage makes the frame Z-up, +90 on a Z-up stage Y-up, 0 the stage's; any other net turn is taken as the stage's (Risks). Ops not in the order, and an ancestor's own unsuffixed ops, a user's scale among them, don't count (N3); an ancestor that composes a file of other units but holds no op doesn't either (N4) |
-| `bring_to_stage(prim, layer, frame, stage, table)` | The sequence #105 and #112 put in `create_robot`'s handler, in one place: the turn from the file's up axis to the frame's (`file_up_axis`, `up_axis_turn`, `stand_upright`); the scale by the file's `metersPerUnit` over the frame's (`layer_units`, `units_factors`, `scale_to_stage`); and, when the file's units aren't the stage's, `convert_units(prim, file, stage, table)`, against the stage as Kit converts values (K2), whatever the frame. Gives `Brought(up_axis_turn, units_scale)`, the two answer fields as #105 and #112 define them, built here so both tools send the same and usd-core tests them. A turn of 0 or a factor of 1 writes no op, as #105 and #112 have it, where Kit writes one at that value (N1, N2): the prim stands the same. `table` None (no PhysX schema in this Kit) converts only the cameras' two values and sets `units_scale.table` false, as #112 has it |
-| `not_brought(layer, frame)` | For a prim already there (Q1): the file's up axis and units beside the frame's where they differ, else None |
+| `Frame` | Named tuple `(up_axis, meters, prims)`: the up axis and `metersPerUnit` of a frame, and the prims whose `:unitsResolve` ops made it differ from the stage's |
+| `frame_of(start, stage_axis, stage_meters)` | Walks `start` and its ancestors: a new prim's parent, for the frame the prim lands in; a prim already there, for the frame inside it, its own ops counted (Q1, P1). It stops after a prim whose op order holds `!resetXformStack!`, since the ops above that prim don't reach it. Each `xformOp:scale:unitsResolve` in a prim's op order multiplies the frame's `metersPerUnit` by its first value: a prim scaled ×100 on a centimetre stage holds metres. Each `xformOp:rotateX:unitsResolve` adds its degrees: a net -90 on a Y-up stage makes the frame Z-up, +90 on a Z-up stage Y-up, 0 the stage's; any other net turn is taken as the stage's (Risks). Ops not in the order, and an ancestor's own unsuffixed ops, a user's scale among them, don't count (N3); an ancestor that composes a file of other units but holds no op doesn't either (N4) |
+| `bring_to_stage(prim, layer, frame, stage, table, noun)` | The sequence #105 and #112 put in `create_robot`'s handler, in one place: the turn from the file's up axis to the frame's (`file_up_axis`, `up_axis_turn`, `stand_upright`); the scale by the file's `metersPerUnit` over the frame's (`layer_units`, `units_factors`, `scale_to_stage`); and, when the file's units aren't the stage's, `convert_units(prim, file, stage, table)`, against the stage as Kit converts values (K2), whatever the frame. Gives `Brought(up_axis_turn, units_scale)`, the two answer fields as #105 and #112 define them, with a `frame` key under a frame (P3); #112's `_units_answer` moves here to build `units_scale`, so both tools send the same and usd-core tests them. `noun`, "robot" or "file", names what each step works on (`StepFailed`). A turn of 0 or a factor of 1 writes no op, as #105 and #112 have it, where Kit writes one at that value (N1, N2): the prim stands the same. `table` None (no PhysX schema in this Kit) converts only the cameras' two values and sets `units_scale.table` false, as #112 has it |
+| `StepFailed` | Raised by `bring_to_stage` from any exception but a `ValueError` or a `Tf.ErrorException`, which pass as they are: its `step` names the step under way, "Turning the {noun} upright", "Scaling the {noun} to the stage's units" or "Converting the {noun}'s values to the stage's units", and its cause is the exception. The handlers print "{step} failed: {type}: {cause}", as #112's handler prints from its `step` variable today, and keep their own placing step for `write_transform` (P2) |
+| `not_brought(prim, layer, stage_axis, stage_meters)` | For a prim already there, whether it took the reference now or held it (Q1): the frame inside it, `frame_of(prim, ...)` with its own `:unitsResolve` ops counted, against the frame the file's content is in, its `upAxis` and `metersPerUnit` as its root's own `:unitsResolve` ops in the file leave them. Both where they differ, else None. So a prim this call or an earlier one brought, and a file Kit resolved and saved, whose root holds the ops, aren't reported; a reference an older extension left as it was, or one added to a prim brought for another file, is (P1) |
 
 ### The bridge
 
 - **`handlers/_utils.py`:** `_physics_exponents()` moves here from `handlers/robot.py`, so both handlers read the
   PhysX schema's table the one way.
-- **`handle_create_robot`:** `frame_of(prim.GetParent(), ...)` and `bring_to_stage` in place of its own steps; its
-  answer gains `frame`. A robot made under a turned or scaled asset is no longer turned or scaled twice (Q2).
+- **`handle_create_robot`:** `frame_of(prim.GetParent(), ...)` and `bring_to_stage(..., "robot")` in place of its
+  own steps; it catches `StepFailed` for its error and keeps "Placing the robot" for `write_transform`; its answer
+  gains `frame`. A robot made under a turned or scaled asset is no longer turned or scaled twice (Q2). #112's
+  `test_any_other_failure_while_converting_leaves_no_robot_and_names_the_step` then patches `metrics.convert_units`,
+  which `bring_to_stage` calls, in place of `robot.convert_units`, and still reads "Converting the robot's values to
+  the stage's units failed: KeyError: 'Acceleration'. The robot was not added" (P2).
 - **`handle_create_prim`,** in this order:
   1. The transform checked, as today.
   2. With a `usd_path`: the file opened, before anything is made, at the path the reference will compose:
@@ -133,16 +139,17 @@ Then a type and three functions:
      itself keeps `usd_path` as given, as today.
   3. The type check, `made` and `held`, as today; `DefinePrim` and `AddReference`, as today.
   4. A prim this call made (`made`): `bring_to_stage(prim, layer, frame_of(prim.GetParent(), ...), stage_units,
-     _physics_exponents())`. A prim already there that took the reference now (`added`): nothing is written, and
-     `not_brought(layer, frame)` goes into the answer (Q1). A prim that already held it: nothing, as today.
+     _physics_exponents(), "file")`. A prim already there, whether it took the reference now (`added`) or held it:
+     nothing is written, and `not_brought(prim, layer, ...)` goes into the answer (Q1, P1).
   5. `write_transform`, as today: `position`, `rotation` and `scale` go into the prim's own ops, before the
      `:unitsResolve` ops (`core/xform.py`'s `_is_units`), so they stay in the parent's frame and `scale=2` makes the
      file twice its real size.
   6. Any exception from step 4 to step 5 takes away what the call made, as today's refusal does: the prim it made,
      whose `RemovePrim` takes the ops and the converted values with it, all under its path in the edit layer; else
      the reference it added. A `ValueError` or a `Tf.ErrorException` keeps today's error and its ". Nothing was
-     created"; any other names the step, as #112's: "Converting the file's values to the stage's units failed:
-     KeyError: ... Nothing was created".
+     created"; a `StepFailed` names its step, as #112's handler does: "Converting the file's values to the stage's
+     units failed: KeyError: ... Nothing was created"; any other, from `write_transform`, is "Placing the file
+     failed: ...".
   7. `enable_physics`, as today, then the answer.
 
 The answer gains, beside `prim_path` and `type`:
@@ -158,27 +165,35 @@ The answer gains, beside `prim_path` and `type`:
 
 `up_axis_turn` and `units_scale` are #105's and #112's, null when nothing was done. `frame` is
 `{"up_axis": "Z", "meters_per_unit": 1.0, "prims": ["/World/Robot"]}` when an ancestor's `:unitsResolve` ops make
-the frame differ from the stage's; the turn's degrees and the scale's factor are then against it. `not_brought` is
-`{"prim_path": ..., "file": {"up_axis": "Z", "meters_per_unit": 0.01}, "frame": {"up_axis": "Y", "meters_per_unit":
-1.0}}` when a reference went onto a prim already there as the file is.
+the frame differ from the stage's. Then the turn's degrees and the scale's factor are against the frame, and each
+field says so beside `file` and `stage` (P3): `up_axis_turn` gains `"frame": "Z"`, and `units_scale`'s
+`meters_per_unit` gains `"frame": 1.0`, its `factor` against the frame and its conversion against the stage.
+`units_scale` is set when the file's units differ from either. `not_brought` is `{"prim_path": ..., "file":
+{"up_axis": "Z", "meters_per_unit": 0.01}, "frame": {"up_axis": "Y", "meters_per_unit": 1.0}}` when a prim already
+there holds the file as it is: the file's side as its root's own ops leave it, the frame inside the prim.
 
 ### The server
 
-- **`tools/_units.py`** (new): `_turned_line` and `_scaled_line` move here from `tools/robot.py`, with a frame line
-  and a `not_brought` line, and `units_lines(result)` gives all four for both tools:
+- **`tools/_units.py`** (new): `_turned_line` and `_scaled_lines` move here from `tools/robot.py`, with a frame
+  line and a `not_brought` line, and `units_lines(result, noun)` gives them all for both tools:
 
   ```text
   Turned upright: the file is Z-up and the stage Y-up, so -90° about X went into xformOp:rotateX:unitsResolve, which
   now reads -90, as Kit's metrics assembler turns a dropped file
   Measured against the frame it lands in, not the stage's: /World/Robot's :unitsResolve ops make it Z-up, in
   metersPerUnit 1
-  Left as the file is: /World/Shelf was there before this call, so its reference went on unturned and unscaled
-  (the file Z-up in metersPerUnit 0.01, the stage Y-up in 1); delete_prim it and create_prim again to have it brought
-  to the stage
+  Scaled to the frame it lands in: the file's metersPerUnit is 0.001 and the frame's 1, so a factor of 0.001 went
+  into xformOp:scale:unitsResolve, which now reads 0.001; 3 values (masses, inertia, drives, limits, camera
+  distances) were converted to the stage's units, metersPerUnit 0.01, as Kit's metrics assembler converts them with
+  its physics rules
+  Left as the file is: /World/Shelf was there before this call, so the file's reference on it is unturned and
+  unscaled (the file Z-up in metersPerUnit 0.01, the frame inside /World/Shelf Y-up in 1); create_prim at a path
+  under it, such as /World/Shelf/Item, to have the file brought to the stage
   ```
 
-  With a frame, the turned and scaled lines name "the frame it lands in" where they name the stage. An older
-  extension sends none of the fields, and nothing is printed.
+  With a frame, the turned line and the scale clause name the frame, and the conversion clause the stage (P3);
+  without one, both name the stage, as `create_robot` prints today. `_scaled_lines`' "the robot's physics values"
+  takes the tool's noun. An older extension sends none of the fields, and nothing is printed.
 - **`create_prim`'s description,** in place of "usd_path adds its reference to a prim already there.": "A usd_path
   file whose upAxis, metersPerUnit or kilogramsPerUnit isn't the stage's is brought to the stage as create_robot
   brings a robot file: turned upright, scaled, its physics values converted, and the answer says so; one that
@@ -222,8 +237,8 @@ Each step builds and passes `uv run tools/gate.py quick`; the PR ends with `fini
 | 0 | Done: the probe, N1 to N5, run by the session; this plan settled on it: Q2's options, the identity ops, N2's departure | `119-probe.out.txt` |
 | 1 | This plan, the branch's first commit; review round 1 and the maintainer's answers | `review-plan`, then the maintainer |
 | 2 | #112 merged: rebase onto main | its core and handler on the branch |
-| 3 | The move, no behaviour change: `core/robot.py`'s turn and units to `core/metrics.py`, their tests to `tests/test_metrics.py`; `_physics_exponents` to `handlers/_utils.py`; `_turned_line` and `_scaled_line` to `tools/_units.py` | the moved tests pass unchanged |
-| 4 | Core: `Frame`, `frame_of`, `bring_to_stage`, `not_brought`; `handle_create_robot` calls them | `tests/test_metrics.py`, `tests/test_robot_handler.py` |
+| 3 | The move, no behaviour change: `core/robot.py`'s turn and units to `core/metrics.py`, their tests to `tests/test_metrics.py`; `_physics_exponents` to `handlers/_utils.py`; `_turned_line` and `_scaled_lines` to `tools/_units.py` | the moved tests pass unchanged |
+| 4 | Core: `Frame`, `frame_of`, `bring_to_stage` with `_units_answer`, `StepFailed`, `not_brought`; `handle_create_robot` calls them | `tests/test_metrics.py`, `tests/test_robot_handler.py` |
 | 5 | Bridge: `handle_create_prim` | `tests/test_scene_handler.py` |
 | 6 | Server: `units_lines`, `create_prim`'s lines and description | `tests/test_tools.py`; `tests/test_contract.py`; the golden file unchanged |
 | 7 | Docs (below) | the gate's checks |
@@ -238,17 +253,17 @@ Each fails on main with #112 merged, where it can.
 
 | File | What |
 |---|---|
-| `tests/test_metrics.py` | The moved tests, unchanged. `frame_of`: no ancestor ops give the stage's and no prims; an ancestor scaled ×100 on a centimetre stage gives metres, naming it; two ancestors multiply; -90 on a Y-up stage gives Z, +90 on a Z-up stage Y, the two on two ancestors cancel; an op not in the order, and a user's unsuffixed scale of 100, don't count; a net turn of 180 gives the stage's axis. `bring_to_stage`: a Z-up centimetre file on a Y-up metre stage gets the turn then the scale and both answer fields; U2's file under U2's ancestor gets no op and its contact offset ×100, with the frame; a Y-up file under a turned Z-up frame on a Y-up stage gets +90; a file in the frame's units on a stage of others gets no op and its values converted; an unauthored file gets nothing, written or answered; `table` None converts only the cameras' values and says so. `not_brought`: both sides where they differ, None where they agree or the file authors neither |
-| `tests/test_scene_handler.py` | A Z-up centimetre file on a Y-up metre stage, at a new path: the ops `[file's own, rotateX:unitsResolve, scale:unitsResolve]`, the world box tallest along Y at 1/100 of the file's numbers, the answer's fields; with `position`, `rotation=[0, 90, 0]` and `scale=2`: the position in the parent's frame, the turn about the stage's Y, the box twice its real size. With a fake `pxr.PhysicsSchemaTools.units`, as #112's handler tests: a contact offset and a density converted. The same axis and units, and an unauthored file: no op, null fields. Under U2's ancestor: no op of its own, `frame` in the answer; a Y-up metre file there gets +90 and stands along Y (N2's departure). A plain Xform already at the path: the reference added, no op, no value written, `not_brought` set. The same call twice: one turn, one scale, the prim moved, `not_brought` null. A refusal after the turn (an animated root op in a Z-up file): no prim, no override left. A table that raises `KeyError`: no prim, the error naming the conversion. A file that can't be opened: refused, no prim. A relative `usd_path` beside a stage saved in a folder: opened from there (U1). The tests there today pass unchanged |
-| `tests/test_robot_handler.py` | `create_robot` under U2's ancestor: no op of its own, `frame` in the answer (Q2) |
-| `tests/test_tools.py` | `create_prim`'s answer with `up_axis_turn` and `units_scale` prints `create_robot`'s lines; `frame` prints the frame line and the two lines name the frame; `not_brought` prints its line; an answer without the fields, an older extension's, prints only `Created ...`. `create_robot`'s frame line |
+| `tests/test_metrics.py` | The moved tests, unchanged. `frame_of`: no ancestor ops give the stage's and no prims; an ancestor scaled ×100 on a centimetre stage gives metres, naming it; two ancestors multiply; -90 on a Y-up stage gives Z, +90 on a Z-up stage Y, the two on two ancestors cancel; an op not in the order, and a user's unsuffixed scale of 100, don't count; a net turn of 180 gives the stage's axis; a prim whose op order holds `!resetXformStack!` stops the walk; started at a prim, its own ops count. `bring_to_stage`: a Z-up centimetre file on a Y-up metre stage gets the turn then the scale and both answer fields; U2's file under U2's ancestor gets no op and its contact offset ×100, with the frame; a Y-up file under a turned Z-up frame on a Y-up stage gets +90; a file in the frame's units on a stage of others gets no op and its values converted; an unauthored file gets nothing, written or answered; `table` None converts only the cameras' values and says so; a millimetre file in a metre frame on a centimetre stage gets a factor of 0.001 and its values converted against 0.01, the `frame` keys set (P3); a `KeyError` from the table comes out a `StepFailed` naming "Converting the file's values to the stage's units", or the robot's, and a `ValueError` from an animated op comes out as it is (P2). `not_brought`: P1's shelf, brought in (-90, ×0.01), given a Y-up metre file, is reported, and given its own file again is not; a file Kit resolved and saved, whose root holds the ops, brought and asked again, is not; a held reference an older extension left without ops is; None where the file authors neither |
+| `tests/test_scene_handler.py` | A Z-up centimetre file on a Y-up metre stage, at a new path: the ops `[file's own, rotateX:unitsResolve, scale:unitsResolve]`, the world box tallest along Y at 1/100 of the file's numbers, the answer's fields; with `position`, `rotation=[0, 90, 0]` and `scale=2`: the position in the parent's frame, the turn about the stage's Y, the box twice its real size. With a fake `pxr.PhysicsSchemaTools.units`, as #112's handler tests: a contact offset and a density converted. The same axis and units, and an unauthored file: no op, null fields. Under U2's ancestor: no op of its own, `frame` in the answer; a Y-up metre file there gets +90 and stands along Y (N2's departure). A plain Xform already at the path: the reference added, no op, no value written, `not_brought` set. P1's shelf at the path, a Y-up metre file added: no op, `not_brought` set. The same call twice: one turn, one scale, the prim moved, `not_brought` null. A refusal after the turn (an animated root op in a Z-up file): no prim, no override left. A table that raises `KeyError`: no prim, the error "Converting the file's values to the stage's units failed: KeyError: ... Nothing was created". A file that can't be opened: refused, no prim. A relative `usd_path` beside a stage saved in a folder: opened from there (U1). The tests there today pass unchanged |
+| `tests/test_robot_handler.py` | `create_robot` under U2's ancestor: no op of its own, `frame` in the answer (Q2). #112's `test_any_other_failure_while_converting_leaves_no_robot_and_names_the_step` patches `metrics.convert_units`, its error unchanged (P2) |
+| `tests/test_tools.py` | `create_prim`'s answer with `up_axis_turn` and `units_scale` prints `create_robot`'s lines; `frame` prints the frame line and the two lines name the frame; `not_brought` prints its line, advising a path under the prim; P3's millimetre file names the frame in the scale clause and the stage in the conversion; an answer without the fields, an older extension's, prints only `Created ...`. `create_robot`'s frame line |
 | `tests/test_contract.py` | `test_a_description_says_what_the_tool_now_does` finds `create_prim`'s new sentence |
 
 **Live,** on Isaac Sim 6.2 headless at port 8212, run by the session:
 
 | Test | What |
 |---|---|
-| `test_07c_a_file_of_the_other_up_axis_and_units_comes_in_as_kit_brings_it` | A box file the test writes, of the up axis the stage hasn't and a `metersPerUnit` 1/100 of the stage's, tall along its own up axis, with a collider's contact offset. `create_prim` at a new path: the answer's turn and scale, the box tallest along the stage's up axis at its real size, the contact offset converted. Where `omni.metrics.assembler.core` imports, Kit's `resolve_hierarchy` after it adds no op and changes no value, as `test_27b` checks the turn. The same file under it: no op of its own, the same size, `frame` naming the outer prim (N1, N2's Z-up file). A file of the stage's own axis and units under it: turned back and scaled back, tallest along the stage's up axis at its real size; then Kit's `resolve_hierarchy` on it, where it imports, and what it leaves (N2's departure, Risks). `create_prim` again at the outer path with a new `position`: the ops unchanged, the box moved. Every prim deleted after |
+| `test_07c_a_file_of_the_other_up_axis_and_units_comes_in_as_kit_brings_it` | A box file the test writes, of the up axis the stage hasn't and a `metersPerUnit` 1/100 of the stage's, tall along its own up axis, with a collider's contact offset. `create_prim` at a new path: the answer's turn and scale, the box tallest along the stage's up axis at its real size, the contact offset converted. Where `omni.metrics.assembler.core` imports, Kit's `resolve_hierarchy` after it adds no op and changes no value, as `test_27b` checks the turn. The same file under it: no op of its own, the same size, `frame` naming the outer prim (N1, N2's Z-up file). A file of the stage's own axis and units under it: turned back and scaled back, tallest along the stage's up axis at its real size; then, where `omni.metrics.assembler.core` imports, Kit's `resolve_hierarchy` on the outer path, as Kit's change listener runs it for an asset its drop recorded (K5): the test asserts the value Kit leaves in the inner prim's turn, pinned at the first live run, so a change in Kit fails it (N2's departure, Risks). `create_prim` again at the outer path with a new `position`: the ops unchanged, the box moved. Every prim deleted after |
 | `test_27b`, #112's `test_27c` | Again, `create_robot` now on the shared core |
 
 **What neither shows:** Kit 107 (Isaac Sim 5.1) has the same assembler test (K1) and #112's table; no live run on
@@ -260,7 +275,8 @@ instead. Kit with `conformToXformCommonAPI` on (K4, Risks).
 - **`docs/TOOLS.md`,** `create_prim`: the `usd_path` row, "brought to the stage's up axis and units as
   `create_robot` brings a robot file"; a paragraph, Up axis and units: the turn, the scale and the converted values
   as `create_robot`'s paragraphs say, pointing there for the detail; the frame a prim lands in, and a file of the
-  stage's own axis inside a turned asset stood upright, where Kit's assembler leaves it lying down; a prim already there
+  stage's own axis inside a turned asset stood upright, where Kit's assembler leaves it lying down, and what Kit does
+  to it under an asset Kit dropped (K5, as `test_07c` pins it); a prim already there
   gets the reference as the file is, and the answer says so; a file that authors none is left as it is; a file that
   can't be opened is an error; `scale` multiplies the file's real size; with an extension of 0.3.0 or older, nothing
   is turned or scaled. `create_robot`: the frame sentence, and #112's "create_prim doesn't yet" taken out.
@@ -291,7 +307,7 @@ instead. Kit with `conformToXformCommonAPI` on (K4, Risks).
 |---|---|
 | Kit's assembler, run on the prim later, turns, scales or converts it a second time | Closed for `create_robot` by #112's P5 and `test_27b`; `create_prim` writes the same ops and values through the same core, and `test_07c` checks it. On a nested prim Kit's resolve would add its identity op where this plan wrote none (N1): the prim stands the same |
 | Kit tells a nested prim's frame some other way than by its ancestors' ops, or converts its values against the frame | Closed by the probe: the frame from the ancestors' ops alone (N3, N4), the values against the stage (N1) |
-| N2's departure: Kit's assembler, run later on a file of the stage's axis inside a turned asset, could set the +90 this plan wrote back to its own 0 and lay the file down | Open until `test_07c` runs Kit's resolve on such a prim and reads what it leaves. Kit's resolve reaches a prim only when a user resolves it or its drop recorded it (#112's Risks); if it lays the file down, accepted, and `docs/TOOLS.md` names it |
+| N2's departure under Kit's change listener (K5): under a prop Kit dropped, `create_prim`'s `DefinePrim` makes Kit resolve the prop's whole hierarchy at the next update, and Kit may write its own 0 over the +90 this plan wrote for a file of the stage's axis, laying it down. Elsewhere Kit's resolve reaches the prim only when a user resolves it, or on reopening a stage, for a path Kit's drop recorded | Open until `test_07c` runs Kit's `resolve_hierarchy` on the outer path, as the listener does, and pins what Kit leaves. If Kit lays the file down: accepted, and `docs/TOOLS.md` says so for a file placed under an asset Kit dropped |
 | `conformToXformCommonAPI` on: Kit writes its turn and scale into a prim's own ops, which `frame_of` doesn't count (K4) | Accepted: off by default; a file placed inside such an asset is measured against the stage, as `create_robot` does today |
 | A net ancestor turn that is none of -90, +90 or 0 | Accepted: taken as the stage's axis; only hand-written ops give one |
 | A prim already there gets nothing (Q1) | Accepted with Q1's A: the answer says what it left and how to get it |
@@ -303,4 +319,51 @@ instead. Kit with `conformToXformCommonAPI` on (K4, Risks).
 
 ## Plan review
 
-None yet: `review-plan` writes each round here.
+### Round 1
+
+**How:** one fresh reviewer, started by the session, read only, 2026-11-01, on `66f3097`, with a usd-core script of
+its own (`check.py`, in the session's scratchpad's `119review/`). **Verdict:** needs-fixes: no blocker or major, four
+minors; no further round. **Now:** P1 to P4 fixed and improvements 1 to 4 taken, in the commit after `66f3097`; Q1 to
+Q4 are with the maintainer.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P1 | minor | Bridge step 4 measured a reference added to a prim already there against `frame_of(prim.GetParent())`, but the reference composes under the prim's own ops, `:unitsResolve` included. `/World/Shelf` brought in (-90, ×0.01), then a Y-up metre file added to it: `not_brought` null, and the items lie along -Z at 1/100. A second Z-up centimetre file: the answer said "delete_prim it", which deletes the shelf | fixed: `not_brought` measures against `frame_of(prim)`, the prim's own ops counted, and reads the file's side as its root's own ops leave it, so a file Kit resolved and saved isn't reported once brought; it also reports a held reference an older extension left as it was. The advice is a path under the prim (improvement 2; Design, Tests) |
+| P2 | minor | One `bring_to_stage` call does the turn, the scale and the conversion, so #112's handler can't name the failed step from its own `step` variable, and #112's `test_any_other_failure_while_converting_leaves_no_robot_and_names_the_step` patches `robot.convert_units` (`test_robot_handler.py:566`), which a `bring_to_stage` in `core/metrics.py` never calls through | fixed: `bring_to_stage` raises `StepFailed`, naming its step with the noun the handler passes, "robot" or "file"; `ValueError` and `Tf.ErrorException` pass as they are; the test patches `metrics.convert_units`, its error unchanged (Design, Tests) |
+| P3 | minor | Under a frame, `units_scale.meters_per_unit.stage` can't hold both the frame's units, the factor's measure, and the stage's, the conversion's: a millimetre file in a metre frame on a centimetre stage would print "the file's metersPerUnit is 0.001 and the stage's 0.01, so a factor of 0.001" | fixed: `up_axis_turn` and `units_scale.meters_per_unit` gain a `frame` key beside `file` and `stage`; the scale clause names the frame, the conversion clause the stage (Design, the server, Tests) |
+| P4 | minor | The N2 Risks row said Kit's resolve reaches a prim only when a user resolves it or its drop recorded it. Kit's change listener walks up from every resynced path to a recorded ancestor and re-resolves its hierarchy (`metricsAssemblerChangeListener.py:142-170`), and reopening the stage resolves each recorded path (`ui/tools.py:255-330`): under a prop Kit dropped, Q2's own example, `create_prim`'s `DefinePrim` makes Kit resolve the prop at the next update, which may overwrite the +90 | fixed: K5; `test_07c` runs `resolve_hierarchy` on the outer path and pins Kit's value; the Risks row names the listener, and `docs/TOOLS.md` says what Kit does under an asset Kit dropped (Design, Tests, Docs, Risks) |
+
+**Refuted:**
+
+- Q3's open step and anonymous ids: an anonymous layer's identifier anchors to itself and `FindOrOpen` finds it while
+  it lives (`check.py`, case 1), so today's handler tests, which reference anonymous layers, still open.
+- Relative paths on unsaved stages: anchored to an anonymous edit layer a relative path stays as given, and
+  `FindOrOpen` and the reference both read it from the working folder (`check.py`, case 2): they agree.
+- Imports of the moved names: step 3 moves every import with them, and its proof is the moved tests passing
+  unchanged, with the gate's type check.
+- `_physics_exponents`' cache: moved to `handlers/_utils.py`, it is still read once per load of the handlers.
+- The tool contract: no name, parameter or annotation changes; `golden.py` strips descriptions.
+- The `AGENTS.md` line cap: the change adds words to one row, so its 150 lines stay 150.
+- The readings of K1 and N1 to N5: they match the sources and `119-probe.out.txt`.
+- The frame rule nested two deep, and in N3 and N4: products and sums over the ancestors give Kit's values; a user's
+  own scale and an ancestor that composes a file without ops don't count, as Kit's don't.
+- Physics against the stage with the scale against the frame: N1's contact offsets come out 2, against the stage,
+  as K2's formula has it.
+- Q1's A turning twice: a prim already there gets nothing written, so a second call on the same path adds no turn.
+- The writing rules: no word `AGENTS.md` bars, no em dash, British spelling.
+
+**Owner calls:**
+
+| # | Question | Recommendation | Answer |
+|---|---|---|---|
+| Q1 to Q4 | Decisions for the maintainer | The reviewer agrees with A on each | with the maintainer |
+
+**Improvements:**
+
+1. `frame_of` stops at a prim whose op order holds `!resetXformStack!`, since the ops above it don't reach what is
+   under it (`check.py`, case 3): taken (Design, Tests).
+2. `not_brought`'s advice is "create_prim at a path under it", not "delete_prim it", which would delete what the
+   prim already held: taken (the server, Tests).
+3. Name what `test_07c` asserts on N2's departure: Kit's value, pinned at the first live run: taken (Tests).
+4. The small citations: #112's function is `_scaled_lines`: taken. K2's formula is at `README.md:130`: left, line
+   131 by `grep -n` on 6.2's `omni.usd.metrics.assembler-110.1.2` README; 130 is the code fence above it.
