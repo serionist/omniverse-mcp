@@ -1,14 +1,16 @@
 """The save_scene handler against a usd-core stage (#85): a file_path that names another layer of the open stage is
 refused with nothing written, the stage's own file is saved whatever names it, and a layer Kit holds for the path is
-read again after the write.
+read again after the write. The kept capture feed is released first, and the lock held through the write (#114).
 
 handlers/scene.py is loaded from its file with Kit's modules and the handlers' _utils faked in sys.modules, as
 tests/test_recording_handler.py loads its handler.
 """
 
 import asyncio
+import contextlib
 import importlib.util
 import sys
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -34,6 +36,26 @@ def _file(path: Path, prim: str) -> Path:
     return path
 
 
+class KeptFeed:
+    """camera_feed.without_kept_feed as a route sees it: what the route did while it held the viewport lock with no
+    capture feed kept, and whether its file was written by the time it let the lock go (#114)."""
+
+    def __init__(self) -> None:
+        self.log: list[Any] = []
+        self.written: Callable[[], bool] = lambda: False
+
+    @contextlib.asynccontextmanager
+    async def without_kept_feed(self) -> AsyncIterator[None]:
+        self.log.append("lock taken, feed released")
+        yield
+        self.log.append(("lock let go, file written", self.written()))
+
+
+@pytest.fixture
+def kept() -> KeptFeed:
+    return KeptFeed()
+
+
 @pytest.fixture
 def scene(tmp_path: Path) -> Path:
     """scene.usda: /World over the sublayer sub.usda. Beside it, other.usda, which the stage doesn't use."""
@@ -55,7 +77,7 @@ def stage(scene: Path) -> Usd.Stage:
 
 
 @pytest.fixture
-def handler(stage: Usd.Stage, monkeypatch: pytest.MonkeyPatch) -> Any:
+def handler(stage: Usd.Stage, kept: KeptFeed, monkeypatch: pytest.MonkeyPatch) -> Any:
     async def next_update() -> None:
         await asyncio.sleep(0)
 
@@ -76,6 +98,9 @@ def handler(stage: Usd.Stage, monkeypatch: pytest.MonkeyPatch) -> Any:
             _next_update=next_update,
             _physics_exponents=None,
             _serialize_value=None,
+        ),
+        "handlers_under_test.camera_feed": _module(
+            "handlers_under_test.camera_feed", without_kept_feed=kept.without_kept_feed
         ),
     }
     for name, module in fakes.items():
@@ -143,3 +168,21 @@ def test_a_save_without_a_file_path_saves_the_stages_own_file(handler, stage: Us
     assert Path(r["result"]["file_path"]).samefile(scene)
     assert not stage.GetRootLayer().dirty
     assert Sdf.Layer.OpenAsAnonymous(str(scene)).GetPrimAtPath("/World/Unsaved")
+
+
+@pytest.mark.parametrize("as_new", [True, False], ids=["save-as", "save"])
+def test_a_save_releases_the_kept_capture_feed_first_and_holds_the_lock_through_its_write(
+    handler, kept: KeptFeed, scene: Path, as_new: bool
+):
+    # Kit keeps the feed's render product in the root layer, which a save writes; a capture between the release and
+    # the write would make another.
+    out = scene.parent / "saved.usda" if as_new else scene
+
+    def written() -> bool:
+        layer = Sdf.Layer.OpenAsAnonymous(str(out))  # held: a layer no one holds is gone before it is read
+        return bool(layer and layer.GetPrimAtPath("/World/Unsaved"))
+
+    kept.written = written
+    r = _save(handler, str(out) if as_new else "")
+    assert r["status"] == "success", r
+    assert kept.log == ["lock taken, feed released", ("lock let go, file written", True)]

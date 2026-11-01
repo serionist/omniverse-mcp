@@ -1,14 +1,17 @@
 """The flatten_usd and export_prim_as_file handlers against a usd-core stage in Kit's light mode Default (#118): the
 file leaves out Kit's session layer, its light rig and its hiding of the stage's own light, keeps the open stage's
-unsaved edits, and the open stage stays as it was.
+unsaved edits, and the open stage stays as it was. The kept capture feed is released first, and the lock held
+through the write (#114).
 
 handlers/usd_advanced.py is loaded from its file with the handlers' _utils faked in sys.modules, as
 tests/test_scene_save_handler.py loads its handler.
 """
 
 import asyncio
+import contextlib
 import importlib.util
 import sys
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -28,6 +31,26 @@ def _module(name: str, **attrs: Any) -> ModuleType:
     module = ModuleType(name)
     module.__dict__.update(attrs)
     return module
+
+
+class KeptFeed:
+    """camera_feed.without_kept_feed as a route sees it: what the route did while it held the viewport lock with no
+    capture feed kept, and whether its file was written by the time it let the lock go (#114)."""
+
+    def __init__(self) -> None:
+        self.log: list[Any] = []
+        self.written: Callable[[], bool] = lambda: False
+
+    @contextlib.asynccontextmanager
+    async def without_kept_feed(self) -> AsyncIterator[None]:
+        self.log.append("lock taken, feed released")
+        yield
+        self.log.append(("lock let go, file written", self.written()))
+
+
+@pytest.fixture
+def kept() -> KeptFeed:
+    return KeptFeed()
 
 
 @pytest.fixture
@@ -56,7 +79,7 @@ def stage(scene: Path) -> Usd.Stage:
 
 
 @pytest.fixture
-def handler(stage: Usd.Stage, monkeypatch: pytest.MonkeyPatch) -> Any:
+def handler(stage: Usd.Stage, kept: KeptFeed, monkeypatch: pytest.MonkeyPatch) -> Any:
     async def next_update() -> None:
         await asyncio.sleep(0)
 
@@ -68,6 +91,9 @@ def handler(stage: Usd.Stage, monkeypatch: pytest.MonkeyPatch) -> Any:
             _compute_mesh_stats=None,
             _get_stage=lambda: stage,
             _next_update=next_update,
+        ),
+        "handlers_under_test.camera_feed": _module(
+            "handlers_under_test.camera_feed", without_kept_feed=kept.without_kept_feed
         ),
     }
     for name, module in fakes.items():
@@ -154,3 +180,25 @@ def test_an_export_of_the_rigs_over_alone_is_refused(handler, stage: Usd.Stage, 
     r = asyncio.run(handler.handle_export_prim({"prim_path": RIG, "output_path": str(scene.parent / "kit.usda")}))
     assert r["status"] == "error", r
     assert "comes from Kit's session layer" in r["error"]
+
+
+@pytest.mark.parametrize(
+    ("route", "body"),
+    [
+        ("handle_flatten_usd", {}),
+        ("handle_flatten_usd", {"input_path": "SCENE"}),
+        ("handle_export_prim", {"prim_path": "/World"}),
+    ],
+    ids=["flatten", "flatten-its-own-file", "export"],
+)
+def test_a_write_releases_the_kept_capture_feed_first_and_holds_the_lock_through_it(
+    handler, kept: KeptFeed, scene: Path, route: str, body: dict[str, Any]
+):
+    # Kit keeps the feed's render product in the root layer, which each of these writes; an input of the open stage's
+    # own file takes it too, through the layer Kit holds.
+    out = scene.parent / "out.usda"
+    kept.written = out.exists
+    sent = {k: str(scene) if v == "SCENE" else v for k, v in body.items()}
+    r = asyncio.run(getattr(handler, route)({**sent, "output_path": str(out)}))
+    assert r["status"] == "success", r
+    assert kept.log == ["lock taken, feed released", ("lock let go, file written", True)]

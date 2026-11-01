@@ -30,6 +30,7 @@ from ._utils import (
     _physics_exponents,
     _serialize_value,
 )
+from .camera_feed import without_kept_feed
 
 # ---------------------------------------------------------------------------
 # /scene/tree
@@ -565,7 +566,12 @@ async def handle_set_visibility(body: dict) -> dict:
 
 async def handle_save_scene(body: dict) -> dict:
     file_path = body.get("file_path", "")
+    # The kept capture feed's render product is in the root layer, which is what this writes (#114).
+    async with without_kept_feed():
+        return await _save_scene(file_path)
 
+
+async def _save_scene(file_path: str) -> dict:
     await _next_update()
     stage = _get_stage()
 

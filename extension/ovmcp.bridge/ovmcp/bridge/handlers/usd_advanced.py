@@ -16,6 +16,7 @@ from ._utils import (
     _get_stage,
     _next_update,
 )
+from .camera_feed import without_kept_feed
 
 # ---------------------------------------------------------------------------
 # /scene/flatten
@@ -30,6 +31,13 @@ async def handle_flatten_usd(body: dict) -> dict:
     if not output_path:
         return {"status": "error", "error": "output_path is required"}
 
+    # The kept capture feed's render product is in the root layer, which an input of the open stage's own file takes
+    # too, through the layer Kit holds for it (#114).
+    async with without_kept_feed():
+        return await _flatten_usd(input_path, output_path)
+
+
+async def _flatten_usd(input_path: str, output_path: str) -> dict:
     await _next_update()
 
     stage = _get_stage()
@@ -87,6 +95,12 @@ async def handle_export_prim(body: dict) -> dict:
     if not output_path.lower().endswith((".usd", ".usda", ".usdc", ".usdz")):
         output_path += ".usdc"
 
+    # The kept capture feed's render product is in the root layer, under /Render (#114).
+    async with without_kept_feed():
+        return await _export_prim(prim_path, output_path)
+
+
+async def _export_prim(prim_path: str, output_path: str) -> dict:
     await _next_update()
 
     stage = _get_stage()
