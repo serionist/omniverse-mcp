@@ -1,9 +1,9 @@
 ---
 title: Give each prim its own physics material in set_physics_properties
 issue: "#113"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-11-01
 ---
 
 # Give each prim its own physics material in set_physics_properties
