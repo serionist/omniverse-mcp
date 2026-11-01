@@ -30,7 +30,7 @@ def _defines(layer: Sdf.Layer, path: Sdf.Path) -> bool:
     return spec is not None and spec.specifier in _DEFINING
 
 
-def _instance_of(prim: Usd.Prim) -> Usd.Prim:
+def instance_of(prim: Usd.Prim) -> Usd.Prim:
     """The instance prim a proxy is inside."""
     instance = prim.GetParent()
     while instance and not instance.IsInstance():
@@ -43,7 +43,7 @@ def why_kept(prim: Usd.Prim, edit_layer: Sdf.Layer) -> str | None:
     stage = prim.GetStage()
     path = prim.GetPath()
     if prim.IsInstanceProxy():
-        instance = _instance_of(prim).GetPath()
+        instance = instance_of(prim).GetPath()
         # set_visibility can't author on the proxy itself either (core/isolation.py): the instance is what it hides.
         return (
             f"{path} is not deleted: it is inside the instance {instance}, whose prims can't be changed one by one. "
