@@ -36,6 +36,7 @@ from ._utils import (
     _get_stage,
     _next_update,
     _reset_renderer,
+    _settle_frames,
     _settle_viewport,
     capture_feed_png,
 )
@@ -259,14 +260,6 @@ def _turn_segmentation_on(feed: CameraFeed) -> str | None:
     except Exception as e:
         carb.log_warn(f"[MCP Bridge] Instance segmentation could not be turned on: {e}")
         return f"Instance segmentation failed: {e}"
-
-
-def _settle_frames() -> int:
-    """The frames a feed renders after its first before a capture: for Path Tracing to reach its samples (core)."""
-    settings = carb.settings.get_settings()
-    return capture.settle_frames(
-        settings.get("/rtx/rendermode"), settings.get("/rtx/pathtracing/spp"), settings.get("/rtx/pathtracing/totalSpp")
-    )
 
 
 def _segmentation_key(feed: CameraFeed) -> tuple:

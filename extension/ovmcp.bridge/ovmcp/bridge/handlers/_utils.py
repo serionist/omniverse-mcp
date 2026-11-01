@@ -79,6 +79,16 @@ def _get_stage() -> Usd.Stage:
 
 CAMERA_SETTLE_FRAMES = 20
 
+
+def _settle_frames() -> int:
+    """The frames a camera feed renders after its first before a capture, or before a recording's first frame: for
+    Path Tracing to reach its samples (core)."""
+    settings = carb.settings.get_settings()
+    return capture.settle_frames(
+        settings.get("/rtx/rendermode"), settings.get("/rtx/pathtracing/spp"), settings.get("/rtx/pathtracing/totalSpp")
+    )
+
+
 # A capture that took longer than this logs how long its frame and its file took, for the cold-start runs of #27.
 SLOW_CAPTURE_SECONDS = 2.0
 

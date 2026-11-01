@@ -22,8 +22,7 @@ from ovmcp.core import capture
 from ovmcp.core.formatter import format_frame_state
 from ovmcp.core.recording import FrameClock, RecordingArgs, camera_error, recording_args
 
-from ._utils import _get_active_camera_path, _get_stage, capture_feed_png
-from .camera import _settle_frames
+from ._utils import _get_active_camera_path, _get_stage, _settle_frames, capture_feed_png
 from .camera_feed import CameraFeed, discard, forget
 
 # What the tools can follow: start_recording has no force, which only the route takes (#82).
@@ -147,7 +146,12 @@ async def _start(args: RecordingArgs) -> dict:
         # waits for them as a capture does. None under RT 2.0, nor with Isaac Sim's 64 samples a frame of 64 (#111).
         settle = _settle_frames()
         if settle:
-            await feed.wait_frames(settle)
+            try:
+                await feed.wait_frames(settle)
+            except capture.OutOfTimeError as e:
+                # The feed renders, as its first frame showed: the settle only polishes frame 0, so a Kit too slow to
+                # give it every sample in time starts anyway. A frame that never comes (NoFrameError) still fails.
+                carb.log_warn(f"[MCP Recording] Started before Path Tracing reached its samples, frame 0 short: {e}")
         if _state.closed:
             # Shut down or hot-reloaded meanwhile: a recording started now would run where nothing could stop it.
             raise RuntimeError("The extension shut down while the recording started")

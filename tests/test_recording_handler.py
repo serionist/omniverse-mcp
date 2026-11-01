@@ -2,9 +2,9 @@
 when it takes frames and how it numbers them, what they span, how frames stop when the stage changes or the camera
 goes, and how start, stop and shutdown clean up.
 
-handlers/recording.py is loaded from its file with Kit's modules, its _utils, its camera handler and its camera feed
-faked in sys.modules, as tests/test_debug_draw_handler.py loads its handler. The stage is a real usd-core one, and the
-Kit-free core is the real one. The handler's monotonic clock is the fake Kit's, which each update moves on.
+handlers/recording.py is loaded from its file with Kit's modules, its _utils and its camera feed faked in sys.modules,
+as tests/test_debug_draw_handler.py loads its handler. The stage is a real usd-core one, and the Kit-free core is the
+real one. The handler's monotonic clock is the fake Kit's, which each update moves on.
 """
 
 import asyncio
@@ -45,8 +45,8 @@ class FakeFeed:
     async def wait_frames(self, count: int, budget: Any = None) -> None:
         assert budget is None  # bounded as a viewport frame is, each frame and all of them (capture.frames)
         self.kit.events.append(f"settled {count}")
-        if self.kit.settle_fails:
-            raise capture.NoFrameError("The camera /World/RecCam rendered no frame in 30 s")
+        if self.kit.settle_raises is not None:
+            raise self.kit.settle_raises
 
     def drop(self) -> None:
         self.dropped = True
@@ -72,9 +72,10 @@ class FakeKit:
         self.now = 0.0
         self.wall_step = 1 / 60
         self.sim_step = 1 / 60
-        # Frames Path Tracing still owes after the feed's first, as handlers/camera.py's _settle_frames reads them.
+        # Frames Path Tracing still owes after the feed's first, as _utils' _settle_frames reads them, and what their
+        # wait raises, if anything.
         self.settle_frames = 0
-        self.settle_fails = False
+        self.settle_raises: Exception | None = None
         # What the start did, in order: the frames it waited for, and its subscription.
         self.events: list[str] = []
         self.feeds: list[FakeFeed] = []
@@ -158,9 +159,9 @@ def recording(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
             "handlers_under_test._utils",
             _get_active_camera_path=lambda: "/OmniverseKit_Persp",
             _get_stage=lambda: kit.stage,
+            _settle_frames=lambda: kit.settle_frames,
             capture_feed_png=kit.capture_feed_png,
         ),
-        "handlers_under_test.camera": _module("handlers_under_test.camera", _settle_frames=lambda: kit.settle_frames),
         "handlers_under_test.camera_feed": _module(
             "handlers_under_test.camera_feed",
             CameraFeed=kit.make_feed,
@@ -393,8 +394,9 @@ def test_the_start_waits_the_frames_path_tracing_still_owes_before_it_takes_any(
     assert kit.events == events
 
 
-def test_a_settle_that_fails_is_an_error_that_leaves_nothing(recording, kit, tmp_path):
-    kit.settle_frames, kit.settle_fails = 63, True
+def test_a_settle_whose_frame_never_comes_is_an_error_that_leaves_nothing(recording, kit, tmp_path):
+    kit.settle_frames = 63
+    kit.settle_raises = capture.NoFrameError("The camera /World/RecCam rendered no frame in 30 s")
     r = asyncio.run(_start(recording, tmp_path))
     assert r["status"] == "error"
     assert "rendered no frame in 30 s" in r["error"]
@@ -610,3 +612,15 @@ def test_a_frame_comes_back_from_the_last_recording(recording, kit, tmp_path):
     assert r["status"] == "success"
     assert r["result"]["frame"] == 0
     assert r["result"]["image_base64"]
+
+
+def test_a_settle_that_runs_out_of_time_starts_anyway(recording, kit, tmp_path):
+    # The feed renders, as its first frame showed: a Kit too slow to give frame 0 every sample of Path Tracing within
+    # the settle's 30 s still records, where it did before the settle (#111's code review F1).
+    kit.settle_frames = 255
+    kit.settle_raises = capture.OutOfTimeError("The 30 s this call may take ran out")
+    r = asyncio.run(_start(recording, tmp_path))
+    assert r["status"] == "success", r
+    assert kit.events == ["settled 255", "subscribed"]
+    assert kit.discarded == []
+    assert recording.recording_active()
