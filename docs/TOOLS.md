@@ -435,7 +435,8 @@ Textures and other files the stage points at are not copied.
 - **Kit's session layer is left out,** as Kit's own File > Save Flattened As leaves it out: what Kit keeps for the
   session and never saves, such as the viewport's light rig, a light mode's hiding of the stage's own lights, and
   Kit's own cameras. The open stage is flattened from its root layer and the layers under it, unsaved edits included;
-  a muted sublayer and a payload it hasn't loaded stay out of the file. An extension of 0.3.0 or older wrote the
+  a muted sublayer and a payload it hasn't loaded stay out of the file, and so does an edit made while the session
+  layer was Kit's edit target, as with Kit's own command. An extension of 0.3.0 or older wrote the
   session layer in too: a flatten in a light mode such as Default gave a file lit by the rig, with the scene's own
   lights hidden.
 - **An `input_path` Kit has loaded** is flattened as Kit holds it, unsaved edits included, and the open stage is left
