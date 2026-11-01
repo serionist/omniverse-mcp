@@ -221,6 +221,95 @@ def test_viewport_light_reports_the_resulting_mode(tmp_path, action):
     assert client.calls == [("viewport_light", (action, False), {"mode": "Default"})]
 
 
+# ---- viewport_light's get: the stage's own lights, apart from a light rig's (#117) ----
+
+KIT_MODES = ("off", "camera", "stage", "Colored Lights", "Default", "Grey Studio")
+SUN = {"path": "/World/Sun", "type": "DistantLight", "intensity": 1000.0}
+NO_LIGHTS_RIG = (
+    "The light rig 'Default' lights the viewport with lights of its own, which aren't the stage's: in mode 'stage', "
+    "or in another app, the stage's surfaces render black. create_prim (DistantLight, DomeLight) lights the stage "
+    "itself."
+)
+LIGHTS_RIG = (
+    "The light rig 'Default' lights the viewport in place of the stage's lights, which Kit hides, all but a light "
+    "inside an instance with other prims, until the mode is 'stage'."
+)
+
+
+def _get_answer(mode, lights, available=KIT_MODES):
+    return {
+        "status": "success",
+        "result": {
+            "lighting_mode": mode,
+            "available_modes": list(available),
+            "has_scene_lights": bool(lights),
+            "scene_lights": lights,
+        },
+    }
+
+
+def _get(tmp_path, answer):
+    fns, client = _tools(tmp_path, {"viewport_light": answer})
+    out = fns["viewport_light"]()
+    assert client.calls == [("viewport_light", ("get", True), {"mode": ""})]
+    return out.splitlines()
+
+
+def test_the_get_in_a_rig_mode_on_a_stage_without_lights_says_what_mode_stage_would_show(tmp_path):
+    lines = _get(tmp_path, _get_answer("Default", []))
+    assert lines == [
+        "Lighting mode: Default",
+        f"Available modes: {', '.join(KIT_MODES)}",
+        "Scene has lights: no",
+        NO_LIGHTS_RIG,
+    ]
+
+
+def test_the_get_in_a_rig_mode_on_a_lit_stage_says_the_rig_lights_in_their_place(tmp_path):
+    lines = _get(tmp_path, _get_answer("Default", [SUN]))
+    assert lines[2:] == [
+        "Scene has lights: yes",
+        LIGHTS_RIG,
+        "Scene lights (1):",
+        "  /World/Sun (DistantLight, intensity=1000.0)",
+    ]
+
+
+def test_a_rig_the_modes_on_offer_dont_list_is_a_rig_all_the_same(tmp_path):
+    # Kit's list of rigs can fail with one warning, leaving the three modes the bridge always offers.
+    lines = _get(tmp_path, _get_answer("Grey Studio", [], available=("off", "camera", "stage")))
+    assert lines[-1].startswith("The light rig 'Grey Studio' lights the viewport with lights of its own")
+
+
+@pytest.mark.parametrize("mode", ["stage", "camera", "off", None])
+def test_the_get_names_no_rig_in_another_mode(tmp_path, mode):
+    answer = _get_answer(mode, [SUN])
+    if mode is None:
+        del answer["result"]["lighting_mode"]  # an answer that names no mode reads "unknown"
+    lines = _get(tmp_path, answer)
+    assert lines[2:] == ["Scene has lights: yes", "Scene lights (1):", "  /World/Sun (DistantLight, intensity=1000.0)"]
+
+
+def test_the_get_marks_a_light_inside_an_instance_read_only(tmp_path):
+    bulb = {"path": "/World/Lamp/Bulb", "type": "SphereLight", "intensity": 30.0, "in_instance": True}
+    lines = _get(tmp_path, _get_answer("stage", [bulb, SUN]))
+    assert lines[-2:] == [
+        "  /World/Lamp/Bulb (SphereLight, intensity=30.0, inside an instance, read only)",
+        "  /World/Sun (DistantLight, intensity=1000.0)",
+    ]
+
+
+@pytest.mark.parametrize(("count", "more"), [(20, None), (25, "  ... and 5 more")])
+def test_the_get_lists_the_first_20_lights_and_counts_the_rest(tmp_path, count, more):
+    lights = [{"path": f"/World/Lamp{i}/Bulb", "type": "SphereLight", "in_instance": True} for i in range(count)]
+    lines = _get(tmp_path, _get_answer("stage", lights))
+    listed = [line for line in lines if line.startswith("  /World/Lamp")]
+    assert f"Scene lights ({count}):" in lines
+    assert listed[0] == "  /World/Lamp0/Bulb (SphereLight, intensity=N/A, inside an instance, read only)"
+    assert len(listed) == 20
+    assert lines[-1] == (more or listed[-1])
+
+
 def test_a_black_capture_with_the_camera_light_on_does_not_suggest_it_again(tmp_path):
     fns, _ = _tools(tmp_path, {"capture_viewport": _capture_answer("camera", False)})
     out = fns["capture_viewport"]()

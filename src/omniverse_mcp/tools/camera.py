@@ -105,6 +105,29 @@ def _unlit_warning(lighting_mode: str, has_scene_lights: object) -> str | None:
     return None
 
 
+# The modes that aren't a light rig, and the get's "unknown" for an answer that names none. A rig is told from the
+# mode alone: Kit's list of rigs, which available_modes holds, can fail with one warning (#117).
+_NOT_RIGS = frozenset({"off", "camera", "stage", "unknown", ""})
+# The lights the get lists, as the other tools cut a long list: a stage of instanced lamps can hold hundreds.
+LIGHTS_LISTED = 20
+
+
+def _rig_line(mode: str, has_scene_lights: bool) -> str:
+    """The line that says a light rig apart from the stage's own lights: the rig lights the viewport, and mode stage,
+    or another app, shows only the stage's own (#117). Kit hides the stage's lights while a rig is on, all but a light
+    inside an instance with other prims, such as a lamp asset's bulb beside its shade."""
+    if has_scene_lights:
+        return (
+            f"The light rig '{mode}' lights the viewport in place of the stage's lights, which Kit hides, all but a "
+            "light inside an instance with other prims, until the mode is 'stage'."
+        )
+    return (
+        f"The light rig '{mode}' lights the viewport with lights of its own, which aren't the stage's: in mode "
+        "'stage', or in another app, the stage's surfaces render black. create_prim (DistantLight, DomeLight) lights "
+        "the stage itself."
+    )
+
+
 def _legend_beside(seg_path: str) -> str:
     """The legend file beside a segmentation image, from the path save_png gave: relative to the working folder, or
     absolute. Only the file's own suffix changes, whatever its folders are called."""
@@ -412,27 +435,36 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Use it when a capture comes back black, or warns that the lighting lights nothing (mode off, or stage with no
         scene lights, though Kit's grid shows), then capture again. "get" (the default) answers the mode, the modes on
-        offer, and the stage's lights with their intensity. "set" takes a mode "get" lists: "stage" (the stage's own
-        lights), "camera" (a light that follows the camera), "off", or a light rig such as "Default", "Colored Lights"
-        or "Grey Studio"; rigs need Kit's lighting menu, omni.kit.viewport.menubar.lighting, and a mode not on offer is
-        an error. "set_camera_light" is the older switch, turning the camera light on or off with enabled. To add a
-        light to the stage itself, use create_prim (DistantLight, DomeLight).
+        offer, and the stage's own lights with their intensity, inside instances too, the first 20 listed; a light
+        rig's lights are the viewport's, not the stage's, and aren't among them. "set" takes a mode "get" lists:
+        "stage" (the stage's own lights), "camera" (a light that follows the camera), "off", or a light rig such as
+        "Default", "Colored Lights" or "Grey Studio"; rigs need Kit's lighting menu, omni.kit.viewport.menubar.lighting,
+        and a mode not on offer is an error. "set_camera_light" is the older switch, turning the camera light on or off
+        with enabled. To add a light to the stage itself, use create_prim (DistantLight, DomeLight).
         """
         resp = bridge_call(client.viewport_light, action, enabled, mode=mode)
 
         r = resp["result"]
         lines: list[str] = []
         if action == "get":
-            lines.append(f"Lighting mode: {r.get('lighting_mode', 'unknown')}")
+            mode_now = r.get("lighting_mode", "unknown")
+            lines.append(f"Lighting mode: {mode_now}")
             available = r.get("available_modes", [])
             if available:
                 lines.append(f"Available modes: {', '.join(available)}")
-            lines.append(f"Scene has lights: {'yes' if r.get('has_scene_lights') else 'no'}")
+            has_lights = bool(r.get("has_scene_lights"))
+            lines.append(f"Scene has lights: {'yes' if has_lights else 'no'}")
+            if mode_now not in _NOT_RIGS:
+                lines.append(_rig_line(mode_now, has_lights))
             scene_lights = r.get("scene_lights", [])
             if scene_lights:
                 lines.append(f"Scene lights ({len(scene_lights)}):")
-                for lt in scene_lights:
-                    lines.append(f"  {lt['path']} ({lt['type']}, intensity={lt.get('intensity', 'N/A')})")
+                for lt in scene_lights[:LIGHTS_LISTED]:
+                    # USD refuses an edit to a prim inside an instance: its source holds the light.
+                    read_only = ", inside an instance, read only" if lt.get("in_instance") else ""
+                    lines.append(f"  {lt['path']} ({lt['type']}, intensity={lt.get('intensity', 'N/A')}{read_only})")
+                if len(scene_lights) > LIGHTS_LISTED:
+                    lines.append(f"  ... and {len(scene_lights) - LIGHTS_LISTED} more")
         elif action in ("set", "set_camera_light"):
             lines.append(f"Lighting mode: {r.get('lighting_mode', 'unknown')}")
             if r.get("message"):
