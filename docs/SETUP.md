@@ -189,5 +189,6 @@ The server and the bridge come from one release; update both, then restart Kit a
 | The server doesn't start | `uvx` isn't on the PATH the client starts with: restart the client after installing uv. Claude Code's `/mcp` shows the error. |
 | The server starts, then fails importing a package | A `PYTHONPATH` from Isaac Sim's environment reached it: set it empty in the client's config. |
 | `get_sim_state` has a `note` | Kit runs another release's bridge: install the server's, as the note says, and restart Kit. |
+| Isaac Sim 5.1 crashes as it starts, in `librtx.scenedb.plugin.so` | A known fault of 5.1's renderer on NVIDIA's 595 drivers: run 5.1 on a 580 driver, or use Isaac Sim 6.2. |
 | A black capture | Kit apps have no default light. `viewport_light(action="set", mode="Default")`, or `mode="camera"`. |
 | Kit stops answering the first time physics plays with a robot | 0.2.0's bridge hung Kit while Isaac Sim cooked the robot's collision meshes: update to 0.2.1 or later, and install its bridge ([#5](https://github.com/serionist/omniverse-mcp/issues/5)). |
