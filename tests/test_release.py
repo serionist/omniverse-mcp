@@ -178,4 +178,14 @@ def test_the_notes_are_the_section(tmp_path, monkeypatch, capsys):
     assert release.main(["notes", "1.2.0"]) == 0
     assert capsys.readouterr().out == f"### Added\n\n- A thing.\n\n{release.INSTALL.format(version='1.2.0')}"
     assert release.main(["notes", "1.3.0"]) == 1
+
+
+def test_the_notes_pair_the_registry_s_bridge_with_its_server():
+    # A bridge from Kit's community registry comes without its server: the notes name the release's (#101).
+    (registry,) = [
+        line for line in release.INSTALL.format(version="1.2.0").splitlines() if "community registry" in line
+    ]
+    assert "*Omniverse MCP Bridge* 1.2.0" in registry
+    assert "`uvx omniverse-mcp==1.2.0`" in registry
+    assert "docs/SETUP.md#from-kits-community-registry" in registry
     assert release.main(["release"]) == 2

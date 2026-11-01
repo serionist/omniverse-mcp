@@ -51,6 +51,10 @@ INSTALL = (
     "- **Other MCP clients:** `uvx omniverse-mcp=={version} extension install`, then the server,"
     " `uvx omniverse-mcp=={version}`, in the client's config"
     " ([Install](https://github.com/serionist/omniverse-mcp#other-mcp-clients)).\n"
+    "- **Kit's community registry:** from the day after, Kit's Extensions window lists *Omniverse MCP Bridge*"
+    " {version}; run the server of the same release, `uvx omniverse-mcp=={version}`"
+    " ([From Kit's community registry](https://github.com/serionist/omniverse-mcp/blob/main/docs/SETUP.md"
+    "#from-kits-community-registry)).\n"
 )
 
 
