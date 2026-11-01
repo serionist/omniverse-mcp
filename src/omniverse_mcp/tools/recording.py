@@ -83,9 +83,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         Takes a frame every 1/fps seconds of the recording's own clock, at most one an app update. The clock runs with
         the simulation while it plays, so a simulation faster than real time gives more than fps frames a wall second,
         and with the wall clock while it is stopped or paused. Play it to record motion. Frames taken while it is
-        stopped or paused show Kit's grid, as the viewport does; Isaac Sim 6.2 hides the grid while it plays. Frames stop if the stage changes or the camera is deleted; stop_recording says so. Frames are
-        saved as PNGs in mcp_output/recordings/, by Kit itself. One recording runs at a time: another start is refused
-        until stop_recording. Use stop_recording when done, then get_recording_frame to review any frame.
+        stopped or paused show Kit's grid, as the viewport does; Isaac Sim 6.2 hides the grid while it plays. Frames
+        stop if the stage changes or the camera is deleted; stop_recording says so. Frames are saved as PNGs in
+        mcp_output/recordings/, by Kit itself. One recording runs at a time: another start is refused until
+        stop_recording. Use stop_recording when done, then get_recording_frame to review any frame.
 
         Optionally tracks prim state (transforms, properties) alongside video frames, in state.txt.
         """

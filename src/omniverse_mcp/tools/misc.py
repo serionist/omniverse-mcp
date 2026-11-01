@@ -2,7 +2,7 @@
 
 import json
 import re
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -22,15 +22,16 @@ SHOWN = 200
 AROUND_MATCH = 80
 
 
-def _log_lines(entry: dict, search: str) -> list[str]:
+def _log_lines(entry: dict[str, Any], search: str) -> list[str]:
     """An entry as get_logs prints it: its level, its channel whole and the first SHOWN characters of its message,
     saying how many more it has. When `search` matched only past them, a `matched:` line shows the match, where an
     entry whose shown text lacks the word searched for read as a wrong hit (#111)."""
-    msg = entry["msg"]
+    msg: str = entry["msg"]
+    level: str = entry["level"]
     shown = msg[:SHOWN]
     if len(msg) > SHOWN:
         shown += f" ... (+{len(msg) - SHOWN:,} characters)"
-    lines = [f"  [{entry['level'].upper().ljust(5)}] {entry['channel'] or ''}: {shown}"]
+    lines = [f"  [{level.upper().ljust(5)}] {entry['channel'] or ''}: {shown}"]
     # The bridge matches the whole message, in any case. A match ending past the shown part shows too little of itself.
     match = re.search(re.escape(search), msg, re.IGNORECASE) if search else None
     if match is not None and match.end() > SHOWN:
