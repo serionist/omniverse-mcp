@@ -133,17 +133,19 @@ the tree, so its status doesn't depend on which phases ran, and the next run's s
 
 ### The tester (Q4, Q5, Q7)
 
-One headless Claude Code session per phase, and one per group of setup IDs, each in `test_project/` so its
-`CLAUDE.md` (an import of `AGENTS.md`, Q10) loads. The command `run` builds, each flag to be confirmed in step 2:
+One headless Claude Code session per phase, and one per group of setup IDs, each in `test_project/`. The command `run`
+builds, as step 2 found it (S1 to S13 below):
 
 ```
+CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
 claude -p "<prompt>"
   --plugin-dir <config>/plugin
   --strict-mcp-config --mcp-config <config>/mcp.json
-  --setting-sources project
+  --setting-sources ""
+  --append-system-prompt "<test_project/AGENTS.md>"
   --tools Read,Grep,Glob,Skill
   --permission-mode dontAsk
-  --allowedTools mcp__plugin_omniverse-mcp_omniverse Read Grep Glob
+  --allowedTools mcp__omniverse Read Grep Glob
                  "Skill(omniverse-mcp:<name>)", one for each of the plugin's five skills
   --output-format stream-json --verbose
   --max-budget-usd <what remains of --budget>
@@ -153,20 +155,24 @@ claude -p "<prompt>"
 | Part | What it gives |
 |---|---|
 | `<config>` | A folder the script writes afresh for each session in the system's temp folder, outside the runs folder, and deletes after: nothing a session leaves reaches the next session's plugin, hooks or servers |
-| `<config>/plugin` (Q5) | A copy of `plugin/` whose `.mcp.json` runs `uv run --no-sync --project <checkout> omniverse-mcp` with `OMNIVERSE_MCP_HOST=127.0.0.1`, `OMNIVERSE_MCP_PORT=<port>`, `OMNIVERSE_MCP_TOKEN=""` (the port's token file then), `OMNIVERSE_MCP_OUTPUT_DIR=<run>/mcp_output` and an empty `PYTHONPATH` (F8). Tool names as plugin users see them, the skills found by their descriptions, the server's instructions, as `docs/releasing.md` step 2 already checks the plugin |
-| `--strict-mcp-config`, `<config>/mcp.json` | Only the run's servers: `mcp.json` holds none, as a plugin user's `plugin/.mcp.json` starts only `omniverse` (Q12). If step 2 finds the strict flag drops a plugin's server too, the server moves into `mcp.json` and the copy keeps only the skills |
-| `--setting-sources project` (I2) | No user or local settings: no user plugins (an installed omniverse-mcp at another version among them), no hooks or hand-granted allows from `settings.local.json`, no user `CLAUDE.md` |
+| `<config>/plugin` (Q5) | A copy of `plugin/` without its `.mcp.json`: the skills found by their descriptions, as `docs/releasing.md` step 2 already checks the plugin. The strict flag drops a plugin's own server (S1) |
+| `--strict-mcp-config`, `<config>/mcp.json` | The run's one server, `omniverse`: `uv run --no-sync --project <checkout> omniverse-mcp` with `OMNIVERSE_MCP_HOST=127.0.0.1`, `OMNIVERSE_MCP_PORT=<port>`, `OMNIVERSE_MCP_TOKEN=""` (the port's token file then), `OMNIVERSE_MCP_OUTPUT_DIR=<run>/mcp_output` and an empty `PYTHONPATH` (F8); no Context7 (Q12). Its tools are `mcp__omniverse__<tool>`, where a plugin user sees `mcp__plugin_omniverse-mcp_omniverse__<tool>`: the server's instructions and descriptions are the same |
+| `--setting-sources ""` (I2, S13) | No settings at all, so no user plugins (an installed omniverse-mcp at another version among them), no hooks or allows from any settings file, no `CLAUDE.md` or `AGENTS.md`, and no skills from the user's or the repo's folders: I2's "project, without local" went one further when step 2 showed the project source brings the repo's developer skills and `CLAUDE.md` files (S5, S6) |
+| `--append-system-prompt` | The tester's rules, the text of `test_project/AGENTS.md`, which then reach the tester whatever settings load (S13) |
+| `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` | The maintainer's auto-memory stays out: without it, the tester got its `MEMORY.md` (S4) |
 | `--tools`, `--permission-mode dontAsk`, `--allowedTools` | No shell, no web, no file writes (I1). Every omniverse tool, reading, and loading one of the plugin's five skills by name run without asking (`Skill(omniverse-mcp:<name>)`, in the form step 2 confirms); anything else is refused, never asked: another skill the session can see (Claude Code's own, one in the git-ignored `test_project/.claude/skills/`, a user's) could pre-approve its own tools, while the plugin's name only read-only ones (F10) |
 | Rows (I1) | The tester writes no file. The prompt asks for its rows as a table at the end of its last message, and the script writes `phase-NN.md` from it; captures land in `mcp_output/`, and saves and exports are Kit's own writes |
 | `--output-format stream-json --verbose` | The transcript, `transcript-NN.jsonl`: every call the tester made and each answer |
 
-- **Isolation, checked.** The stream's first event (`system`, `init`) lists the session's tools and MCP servers with
-  their status. `run` stops the tester at once if a server other than the plugin's is there, a claude.ai connector
-  (`claude_ai_*`, I6) included, if `omniverse` isn't connected, or if a tool outside the command's list is. The
-  maintainer's own MCP servers (mail, chat) never reach a session whose tools are pre-approved.
-- **Skill loads, counted.** The script reads each session's skill loads from its stream into `run.json`, and
-  `results.md` and `compare` print them per session, "none" included: a run in which no tester loaded a skill shows
-  as such, not as a clean PASS.
+- **Isolation, checked.** The stream's first event (`system`, `init`) lists the session's tools, its MCP servers with
+  their status, its plugins and its memory paths (S8). `run` stops the tester at once if a server other than
+  `omniverse` is there, a claude.ai connector (`claude_ai_*`, I6) included, if `omniverse` isn't connected, if a tool
+  outside the command's list is, if a plugin other than the run's copy and Claude Code's built-in ones (path
+  `builtin`) is, or if a memory path is. The maintainer's own MCP servers (mail, chat) never reach a session whose
+  tools are pre-approved.
+- **Skill loads, counted.** A load is a `Skill` call with `{"skill": "omniverse-mcp:<name>"}` (S10). The script counts
+  each session's loads from its stream into `run.json`, and `results.md` and `compare` print them per session, "none"
+  included: a run in which no tester loaded a skill shows as such, not as a clean PASS.
 - **The prompt,** the same text for any client: `scenarios.md`'s header, with its up-axis rule (I8), and the phase's
   text cut from it; its `Needs:` line, with each needed ID's status so far in this run, so the tester can SKIP on a
   failed one; `<run>/kit/` for the files Kit writes; the port; `new_scene()` first in a half's first session; and "end
@@ -180,6 +186,29 @@ claude -p "<prompt>"
   (I3).
 - **The model:** the client's default, or `--model`. `run.json` records it, and `compare` names both when two runs
   differ.
+
+**What step 2 found,** on Claude Code 2.1.316, run from the coordinating session's shell on 2026-11-01, all from the
+worktree's `test_project/`: runs A and C setup checks with no omniverse call, runs B and B2 Phase 1 on the maintainer's
+Kit at 8212.
+
+| # | Question | Found | Run |
+|---|---|---|---|
+| S1 | Does the plugin's own server start under `--strict-mcp-config` with `--plugin-dir`? | No: `mcp_servers` was empty and Phase 1 was SKIPped for want of tools. The plan's fallback holds: the server in `mcp.json` | A, B |
+| S2 | Do user plugins load with `--setting-sources project`? | No: only the run's copy (`omniverse-mcp@inline`) and Claude Code's built-in `cc-plugin-agents-md`, `cc-plugin-telemetry` and `cc-plugin-plugin-authoring` | A, B |
+| S3 | Does the user `CLAUDE.md` load? | No | A |
+| S4 | Does the maintainer's auto-memory load? | Yes: `memory_paths.auto` was the maintainer's project memory, and the tester was given its `MEMORY.md`. `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` turns it off for one session (Claude Code's memory docs) | A |
+| S5 | Which instruction files load? | The worktree's `.claude/CLAUDE.md` and `test_project/CLAUDE.md`, without their `@` imports, which lie outside the working folder: the repo's `AGENTS.md`, `docs/AI_GUIDE.md` and the four skills stayed out | A |
+| S6 | Which skills does the session list? | The plugin's five; the repo's five from `.claude/skills/`; Claude Code's bundled ones (`deep-research` among them: it stays in run C, with no settings source) | A, C |
+| S7 | Which allow loads a plugin skill, and is another refused? | `Skill(omniverse-mcp:scene)` loaded by rule; `keybindings-help` was refused under `dontAsk` and listed in `permission_denials` | A |
+| S8 | What does the `init` event carry? | `tools`, `mcp_servers`, `plugins` (name, path, source), `skills`, `slash_commands`, `memory_paths`, `model`, `permissionMode`, `cwd`, `claude_code_version` and more | A, B |
+| S9 | Any claude.ai connector? | None | A, B |
+| S10 | How does a skill load show in the stream? | A `tool_use` named `Skill` with `{"skill": "omniverse-mcp:scene"}`; its result's `tool_use_result` names the skill and its `allowedTools` | A |
+| S11 | What does the `result` event carry? | `subtype`, `is_error`, `num_turns`, `total_cost_usd` (0.12 for A, 0.07 for B), `permission_denials`, `terminal_reason` and more | A, B |
+| S12 | Does `--tools` filter MCP tools? | No: with the server in `mcp.json` (`omniverse`, connected, source `dynamic`), the session had 42 tools, the four built-ins and the 38 `mcp__omniverse__` ones. Phase 1 passed through them, at $0.29 in 9 s, and `memory_paths` was gone with `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` | B2 |
+| S13 | Can the run load no settings at all (`--setting-sources ""`), with the tester's rules appended? | Yes: no instruction file of any kind reached the tester, the appended text did, the plugin's skill loaded, and the repo's skills were gone. Claude Code's bundled skills stay listed; `dontAsk` refuses them (S7) | C |
+
+Runs B2 and C were made on the same Kit and Claude Code, B2 with `--setting-sources project` and C with none. B was run
+once more as B2 because of S1; B3, B2 without `--tools`, wasn't needed.
 
 ### Results (Q8)
 
@@ -234,8 +263,8 @@ It stays where it is, and slims:
 
 | File | Change |
 |---|---|
-| `AGENTS.md` (new) | The tester's rules, for any client: the role; the statuses and what a row's notes hold; SKIP when a needed scenario's status, which the prompt gives, isn't PASS or WARN; every file a scenario saves or exports under `<run>/kit/`; no file of its own, its rows a table at the end of its last message; the repo's rules for changing code, which load from the root too, don't apply to a tester. No `@` imports: the skills come from the plugin (Q5) |
-| `CLAUDE.md` | `@AGENTS.md`, as the repo's own `.claude/CLAUDE.md` does |
+| `AGENTS.md` (new) | The tester's rules, for any client: the role; the statuses and what a row's notes hold; SKIP when a needed scenario's status, which the prompt gives, isn't PASS or WARN; every file a scenario saves or exports under `<run>/kit/`; no file of its own, its rows a table at the end of its last message. No `@` imports: the skills come from the plugin (Q5). A run appends its text to the tester's system prompt (S13) |
+| `CLAUDE.md` | `@AGENTS.md`, as the repo's own `.claude/CLAUDE.md` does, for a client opened in `test_project/` by hand |
 | `scenarios.md` | `Needs:` lines; the eight file paths (the seven `results/` ones and 17.7's temp file) become `<run>/kit/...`; 27.1 becomes stop, `new_scene()` and a check of the tree; the header says how phases depend and which have no pytest twin, drops the line on phases 24 to 26 "added after", and line 3 no longer names `results/test_results.md` or `CLAUDE.md`'s format (I8) |
 | `.mcp.json.example` | Stays, for opening `test_project/` by hand in any client (`CONTRIBUTING.md` names it); such a run writes to a folder of its own under `results/runs/` |
 | `results/` | Unchanged; pytest's files stay there (F2), and no tester writes `test_results.md` again |
@@ -333,7 +362,8 @@ Each step passes `uv run tools/gate.py full`. The skill, `finish-work` and `writ
 - **Unit, in CI:** `tests/test_scenario_runs.py`, as `tests/test_release.py` tests `tools/release.py`: parsing the real
   `scenarios.md`; the halves and resolution; `check` against the mock bridge, with no request for a refused port; the
   bridge hash; the lock file; the command line `run` builds; the `init` check; skill loads; rows from the last message;
-  the health watch; the budget; NOT RUN; the merge; `compare`. `tools/` is outside the coverage floor's source, as the gate and `release.py` are.
+  the health watch; the budget; NOT RUN; the merge; `compare`. `tools/` is outside the coverage floor's source, as
+  the gate and `release.py` are.
 - **Live, by hand:** step 9. `test_integration.py` and `test_scenarios.py` are unchanged; neither touches what this
   adds.
 - **What neither shows:** whether the tester judges right. The session reads ten rows against their transcripts and
@@ -364,7 +394,7 @@ Each step passes `uv run tools/gate.py full`. The skill, `finish-work` and `writ
 | A tester rewrites the next session's plugin, servers or hooks, or an earlier phase's rows (P12) | Resolved: each session's config is written afresh outside the runs folder, and a tester writes no file (I1); only the plugin's skills load, and theirs pre-approve read-only tools alone |
 | A run wipes a stage someone cares about | Resolved: port, stage and bridge rules; the override needs the maintainer's word |
 | `execute_script` is pre-approved in the tester and runs Python in Kit with the user's rights, so "no shell" doesn't fence the machine. The tester writes its own code for 6.3, 15.6 to 15.8, 15.14, 15.15 and 17.4, so the code isn't only the repo's | Accepted (Q12): Context7 is dropped, so the code comes from the scenarios, the skills and the model, and runs on the test Kit, as the live suites' code does |
-| The repo's developer rules load into the tester (the root's `.claude/CLAUDE.md` through parent discovery, if step 2 shows it does) | Accepted: the tester's `AGENTS.md` says they don't apply to it |
+| The repo's developer rules, skills or the maintainer's memory load into the tester | Resolved: with no settings source and auto-memory off, no instruction file, repo skill or memory reaches it (S4, S13); the `init` check refuses a memory path |
 | The tester marks PASS without looking, or calls more than the scenario asks | Accepted, watched: one phase per session, transcripts kept, ten rows spot-checked in step 9 and the report naming the calls behind each FAIL |
 | Time and cost unknown | Accepted: `run.json` records both, the skill states them after step 9, `--budget` caps a run |
 | Kit hangs mid-run (#54) | Resolved: the `/health` watch ends the run 140 s after the first unanswered probe, longer than any call may take |
