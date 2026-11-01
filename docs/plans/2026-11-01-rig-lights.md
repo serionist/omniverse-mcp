@@ -1,9 +1,9 @@
 ---
 title: Leave the viewport's light rig out of viewport_light's scene lights
 issue: "#117"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-11-01
 ---
 
 # Leave the viewport's light rig out of viewport_light's scene lights
@@ -171,7 +171,7 @@ working.
 ### Round 1
 
 **How:** one fresh reviewer, Claude Opus, read only, 2026-11-01, on `86e7bf3`, with a usd-core check of its own.
-**Verdict:** approved: no blocker or major, five minors; Q1 and Q2 wait on the maintainer. **Now:** P1 to P5 fixed,
+**Verdict:** approved: no blocker or major, five minors; Q1 and Q2 answered by the maintainer since. **Now:** P1 to P5 fixed,
 improvements 1 to 4 taken and the probe's results added (The probe), in the commit after `86e7bf3`.
 
 Checked and holding: K1 to K5 on disk, the rig path at `actions.py:195` and `:282` in 107.3.4 and `:185` and `:272`
@@ -211,8 +211,8 @@ defined. The main session's probe showed the same live (The probe).
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 | What the get says of the rig's lights: A, left out, the server naming the rig from the mode; B, a new `rig_lights` key, listed apart; C, left out, nothing said | A. The reviewer agrees: it hides nothing an agent needs, the "Lighting mode" line stays, and rig paths aren't for an agent to edit; B hands it Kit's prims, C leaves "lit viewport, no lights" unexplained. A needs P1's wording (done) | open |
-| Q2 | The list's length: A, every light; B, the first 20, then `... and N more`; C, the whole answer through `text_response` | B. The reviewer agrees: the other tools' form, though `manage_extensions` cuts at 50 and `create_robot` at 10 (taken into Q2) | open |
+| Q1 | What the get says of the rig's lights: A, left out, the server naming the rig from the mode; B, a new `rig_lights` key, listed apart; C, left out, nothing said | A. The reviewer agrees: it hides nothing an agent needs, the "Lighting mode" line stays, and rig paths aren't for an agent to edit; B hands it Kit's prims, C leaves "lit viewport, no lights" unexplained. A needs P1's wording (done) | A (serionist, 2026-11-01) |
+| Q2 | The list's length: A, every light; B, the first 20, then `... and N more`; C, the whole answer through `text_response` | B. The reviewer agrees: the other tools' form, though `manage_extensions` cuts at 50 and `create_robot` at 10 (taken into Q2) | B (serionist, 2026-11-01) |
 
 **Improvements:**
 
@@ -235,7 +235,7 @@ defined. The main session's probe showed the same live (The probe).
 | B | The bridge sends them as `rig_lights`; the server lists them under their own heading | Shows exactly what lights the viewport | A new answer key; puts Kit's prims in front of an agent as if they were editable |
 | C | The bridge leaves them out; the server says nothing more | Extension alone, no plan needed | In Default the viewport looks lit while the get says no lights, with no word why |
 
-Recommendation: A.
+Recommendation: A. **Answer:** A (serionist, 2026-11-01).
 
 **Q2. The list's length, now that instances can multiply it.** A warehouse with 300 instanced lamps lists 300 lights.
 
@@ -246,4 +246,4 @@ Recommendation: A.
 | C | The whole answer through `text_response`: inline up to 1000 characters, else to a file, and "Scene has lights" with it |
 
 Recommendation: B. "Scene has lights" and the count stay inline, where C can move them into a file, and 20 lights
-are enough to see what lights the stage.
+are enough to see what lights the stage. **Answer:** B (serionist, 2026-11-01).
