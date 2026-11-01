@@ -53,9 +53,19 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 - **`set_physics_properties` keeps the friction when given only restitution, and the reverse:** the physics material
   it made held only the value given, so PhysX read USD's 0 for the other, and a body given a bounce slid as on ice.
   A physics material the prim had before, such as an asset's, was replaced, and every value it held went with it.
-  The material now starts from the body's own, the one bound before, the physics scene's default or PhysX's.
-  Prims of one name still share the material, so a call on one now sets all its values for each of them, until
-  #113 gives each prim its own. The fix is in the Kit extension (#105).
+  The material now starts from the body's own, the one bound before, the physics scene's default or PhysX's. The fix
+  is in the Kit extension (#105).
+- **`set_physics_properties` gives each prim a physics material of its own,** a child of the prim:
+  `/World/Franka_1/panda_leftfinger/PhysMat`. It was `/World/PhysicsMaterials/<prim name>_PhysMat`, so prims of one
+  name, such as two Frankas' fingers, shared one, and setting one set the other. A copy made with `clone_prim` takes
+  its own with it, and `delete_prim` removes it with its prim. A clone that inherits from its source, as Isaac Sim's
+  cloner makes them, still follows the source's until a call on the clone, and the answer names the prims a call
+  changes so: `also changes 3 prims: ...`. A prim bound to such a shared material moves to its own on its next call,
+  with the values it had; the shared one stays for the prims still bound to it, and the call that moves the last of
+  them deletes it, or says why it stays. An instance, which can hold no child, is refused. The answer names the
+  material: `material /World/Cube/PhysMat`. Each call with friction or restitution reads the whole stage, about 0.35 s
+  per 100,000 prims. The material is the Kit extension's part: run `uvx omniverse-mcp extension install`, then
+  restart Kit; the answer's clauses need this server too (#113).
 - **`compare_prims` gives no percentage from 0 faces,** where it said `+0%`, and each delta its own sign, where a
   drop in vertices beside a rise in faces read `+-5` (#105).
 - **`flatten_usd` and `export_prim_as_file` leave out Kit's session layer,** as Kit's own Save Flattened As does. A

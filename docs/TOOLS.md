@@ -948,21 +948,49 @@ Set a prim's mass or density, and its friction or restitution, for PhysX; a valu
 
 - **Mass or density** makes the prim a rigid body (`RigidBodyAPI`) if it isn't one, so a static collider starts to fall
   when the simulation plays.
-- **Friction or restitution** adds the Collision API if missing, and sets them on a physics material,
-  `/World/PhysicsMaterials/<prim name>_PhysMat`, bound to the prim for physics only. That material starts from the
-  body's own: the physics material bound to it before (a physics binding, else an all-purpose one, with
-  `PhysicsMaterialAPI`), else the one bound to the physics scene, its default, else PhysX's own (friction 0.5,
-  restitution 0). So the friction or restitution left out stays as PhysX applied it, and so does everything else the
-  replaced material held: its density and `PhysxMaterialAPI`'s attributes, such as combine modes, are copied over.
-  Prims of the same name share the material, so setting one sets all its values on the rest; #113 gives each prim
-  its own. With an extension of 0.3.0 or older, a value left out on a new material is USD's 0, and a material bound
-  before is replaced with all it held.
+- **Friction or restitution** adds the Collision API if missing, and sets them on the prim's own physics material, a
+  child of the prim named `PhysMat` (`/World/Cube/PhysMat` for `/World/Cube`), bound to the prim for physics only.
+  That material starts from the body's own: the physics material bound to it before (a physics binding, else an
+  all-purpose one, with `PhysicsMaterialAPI`), else the one bound to the physics scene, its default, else PhysX's own
+  (friction 0.5, restitution 0). So the friction or restitution left out stays as PhysX applied it, and so does
+  everything else the replaced material held: its density and `PhysxMaterialAPI`'s attributes, such as combine modes,
+  are copied over.
+- **Copies and clones:** the material goes where its prim goes. `delete_prim` removes it with the prim, and
+  `save_scene`, `flatten_usd` and `export_prim_as_file` carry it. A copy made with `clone_prim`, or by Isaac Sim's
+  cloner with `copy_from_source`, takes a material of its own, so a call on the original leaves the copy as it was. A
+  clone that inherits from its source, as Isaac Sim's cloner makes them by default, composes its material from the
+  source's: a call on the source reaches each clone that no call has given values of its own, and the answer names
+  them. A call on the clone writes its own, and leaves the source as it was.
+- **Refused,** before anything is written, the mass given with it included: an instance (an instanceable prim with
+  its reference or payload), which USD lets hold no prim of its own, and a prim inside one, whose error names its
+  instance. A call on the instance's parent instead gives the parent's material to every prim under it that has none
+  of its own, the other instances there too. A child named `PhysMat` that isn't a `Material` is the user's own, and is
+  refused too.
+- **A prim bound to an older extension's shared material,** `/World/PhysicsMaterials/<prim name>_PhysMat`, which
+  extensions of 0.3.0 and older gave every prim of one name, moves to its own on its next call, with the values it
+  had. The call that moves the last prim off it deletes it, and `/World/PhysicsMaterials` once that leaves it empty,
+  when the material is exactly that path, a `Material` with `PhysicsMaterialAPI` that only the edit layer holds, and
+  no prim binds it, nor a material composed from it. It stays when another prim still binds it, when another layer
+  holds it, or when the stage holds an inactive prim or an unloaded payload, under which a prim could bind it unseen;
+  the answer says which. A material under any other path, a user's own, is never deleted. With an extension of 0.3.0
+  or older, a value left out on a new material is USD's 0, and a material bound before is replaced with all it held.
+- **The walk:** a call with friction or restitution reads every prim's material bindings, on Kit's main thread, to
+  find the other prims the write reaches and whether the older material may go: about 0.35 s per 100,000 prims on
+  usd-core. It doesn't enter instances: a prim in an instance's prototype that binds the material isn't named.
 
-**Returns:** each value set, as the Kit extension set it, then the APIs applied:
-`Physics on /World/RedCube: mass=5.0; applied MassAPI`. Friction says `(static and dynamic)`, as it is set as both;
-a mass or density of 0 says it is unset. `RigidBodyAPI` and `CollisionAPI` are named only when the call added them,
-so the prim became a rigid body or a collider; `MassAPI` and `PhysicsMaterial` whenever their values were set. A call
-without a value sets nothing and says so.
+**Returns:** each value set, as the Kit extension set it, then the material bound, then the APIs applied:
+`Physics on /World/RedCube: friction=0.8 (static and dynamic), restitution=0.3; material /World/RedCube/PhysMat;
+applied PhysicsMaterial`. Friction says `(static and dynamic)`, as it is set as both; a mass or density of 0 says it
+is unset. `RigidBodyAPI` and `CollisionAPI` are named only when the call added them, so the prim became a rigid body
+or a collider; `MassAPI` and `PhysicsMaterial` whenever their values were set. A call without a value sets nothing
+and says so. Then, when there are any:
+
+- the other prims the write changed, the first five named: `also changes 2 prims: /World/envs/env_1/Robot/link,
+  /World/envs/env_2/Robot/link`;
+- the older shared material: `deleted its old material, /World/PhysicsMaterials/Box_PhysMat, which no prim binds now`,
+  or `kept its old material, /World/PhysicsMaterials/Box_PhysMat: 1 prim still binds it: /World/Shelf/Box`.
+
+The material and these clauses need the Kit extension of this release.
 
 **When to use:** for how a prim behaves in physics. Its look is `set_material`'s; to make a new prim physical in one
 call, use `create_prim` with `enable_physics`.
