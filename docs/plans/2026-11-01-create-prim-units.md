@@ -16,9 +16,10 @@ bring the same file in alike, as Kit's metrics assembler brings a dropped one.
 
 Reading `create_prim` shows three things `create_robot` never meets: a prim already at `prim_path` takes the
 reference (Q1), a prim can be made inside an asset already brought to the stage (Q2), and the file is never opened,
-so one that can't be opened makes an empty prim reported as created (Q3). Kit's own tests answer Q2: Kit measures a
-file referenced inside a prim it resolved against that prim's frame, not the stage (K1). This plan does the same, for
-both tools.
+so one that can't be opened makes an empty prim reported as created (Q3). Kit's own test and a live probe answer
+Q2: Kit scales a file referenced inside a prim it resolved against that prim's frame, set by the ancestors'
+`:unitsResolve` ops alone, and converts its physics values against the stage (K1, N1, N3, N4). This plan does the
+same, for both tools. For the turn it departs from Kit in one case, where Kit leaves the file lying down (N2).
 
 ## Goal
 
@@ -30,8 +31,8 @@ When this is done, with this release's Kit extension:
   converted by #112's rules. The answer says so, in the same lines as `create_robot`'s.
 - A file placed inside an asset already brought to the stage (a robot `create_robot` turned, a prop Kit dropped) is
   measured against the frame it lands in: the stage's, turned and scaled by its ancestors' `:unitsResolve` ops, as
-  Kit's assembler measures it (K1, Q2). Its physics values are still converted to the stage's units. `create_robot`
-  does the same.
+  Kit's assembler scales it (K1, N1, Q2). Its physics values are still converted to the stage's units, as Kit
+  converts them (N1). `create_robot` does the same.
 - A reference added to a prim already at `prim_path` goes on as the file is, and the answer says what it left and how
   to get it (Q1).
 - A file that can't be opened is refused before anything is made, as `create_robot` refuses one (Q3).
@@ -67,7 +68,7 @@ Read on disk in Isaac Sim 6.2's install (`isaacsim/extscache/`) and in Isaac Sim
 
 | # | What | Where |
 |---|---|---|
-| K1 | Kit's assembler's recursive test: a metre file referenced at `/World/xformInst` on a centimetre stage, resolved (×100); then the same file at `/World/xformInst/xformInst`, defined in the stage's root layer. Its cube sits at 100 before the nested prim is resolved and still at 100 after, and the nested prim gets `xformOp:scale:unitsResolve`: the nested file is measured against the frame it lands in, already metres, not against the stage. Kit 107's test is the same | `omni.usd.metrics.assembler-110.1.2`: `core/tests/referenceTests.py:239-276`; `-107.3.1`: the same test |
+| K1 | Kit's assembler's recursive test: a metre file referenced at `/World/xformInst` on a centimetre stage, resolved (×100); then the same file at `/World/xformInst/xformInst`, defined in the stage's root layer. Its cube sits at 100 before the nested prim is resolved and still at 100 after, and the nested prim gets `xformOp:scale:unitsResolve` (N1 reads it at 1): the nested file is measured against the frame it lands in, already metres, not against the stage. Kit 107's test is the same | `omni.usd.metrics.assembler-110.1.2`: `core/tests/referenceTests.py:239-276`; `-107.3.1`: the same test |
 | K2 | Attribute values are converted against the stage: `resolvedValue = value * (MPU / stageMPU) ^ metersExponent * ...`, MPU being the units of the layer the value is authored in | the same `docs/README.md:131` |
 | K3 | A payload is resolved as a reference is: `xformOp:scale:unitsResolve` on the prim holding it | the same `core/tests/payloadTests.py:102-122` |
 | K4 | `/metricsAssembler/conformToXformCommonAPI`, off by default (#112's P1 read it off in the session's Kit): when on, Kit writes the turn and the scale into the prim's own `rotateXYZ` and `scale` ops, with no `:unitsResolve` op | the same `docs/README.md:23`; `referenceTests.py:207-235` |
@@ -80,19 +81,22 @@ Read on disk in Isaac Sim 6.2's install (`isaacsim/extscache/`) and in Isaac Sim
 | U2 | A metre Z-up box, 1 tall, under a prim that references the same file and holds `rotateX:unitsResolve` -90 and `scale:unitsResolve` 100, on a centimetre Y-up stage: with no ops of its own it stands 100 tall along Y, as its ancestor's does. Given the stage's ops (-90, ×100) as well, it is 10,000 long and lies along -Z |
 | U3 | `AddReference` twice with the same file keeps one reference |
 
-### The probe (pending)
+### The probe
 
-`119-probe.py`, in the session's scratchpad's `119/`, run through `119-probe.sh` on the session's headless Isaac Sim 6.2
-at 8212 with main's extension. In-memory stages in USD's stage cache, resolved into an anonymous layer of each, as
-#112's probe did; nothing is turned on or off. It reads what Kit's `resolve_hierarchy` writes in five cases:
+`119-probe.py`, in the session's scratchpad's `119/`, run by the session through `119-probe.sh` on its headless Isaac
+Sim 6.2 at 8212 (an extension serving `/execute`, #113's branch). Exit 0, an empty stderr; `119-probe.out.txt` beside
+it. In-memory stages in USD's stage cache, resolved into an anonymous layer of each, as #112's probe did; nothing was
+turned on or off. N0: the assembler, its UI and its physics rules on; mode Auto, `conformToXformCommonAPI` off. Each
+box file holds a 0.5 by 1 by 0.5 box, tall along its own up axis, its base at the origin, with a contact offset of
+0.02. What Kit's `resolve_hierarchy` wrote:
 
-| # | Case | What it settles |
-|---|---|---|
-| N1 | A metre file under a resolved metre prim, on a centimetre stage: the inner prim's ops, both shapes' world boxes, both contact offsets and their layer | K1's value read out: the inner op at 1, and whether its contact offset is converted against the stage (2) or the frame (0.02) |
-| N2 | A Z-up and a Y-up file under a resolved Z-up prim, on a metre Y-up stage | No turn for the Z-up file, +90 for the Y-up one |
-| N3 | A metre file under a plain Xform holding a scale of 100 of its own, on a centimetre stage | Whether Kit counts a parent's own scale as the frame's units: this plan doesn't |
-| N4 | A metre file under a prim that references a metre file but holds no op, on a centimetre stage | Whether Kit tells the frame by the ancestors' ops, as this plan does, or by their composition |
-| N5 | One prim referencing a centimetre file and a metre file, on a metre stage | What Kit does with two references of different units on one prim (Q1) |
+| # | Case | What Kit wrote | So |
+|---|---|---|---|
+| N1 | A metre file under a resolved metre prim (×100), on a centimetre Y-up stage | The inner prim `xformOp:scale:unitsResolve` = 1; its box 50 by 100 by 50 before and after, as the outer's; both contact offsets 2, in the resolve layer | The scale is against the frame (K1); the values against the stage (K2). This plan's rule |
+| N2 | A Z-up file and a Y-up file under a resolved Z-up prim (-90), on a metre Y-up stage | Both inner prims `xformOp:rotateX:unitsResolve` = 0. The Z-up file stands along Y, as the outer one. The Y-up file lies along -Z: its box runs from z -1 to 0 | A file of the asset's own axis gets no turn, as this plan's rule. A file of the stage's axis inside the turned asset is left lying down, where this plan's rule turns it +90 and stands it upright: the plan departs from Kit there (Q2) |
+| N3 | A metre file under a plain Xform holding a scale of 100 of its own, on a centimetre stage | The inner op 100; its box 10,000 tall | A parent's own scale isn't the frame's units: it scales its children as the user asked. This plan's rule |
+| N4 | A metre file under a prim that references a metre file but holds no op, on a centimetre stage | The inner op 100; the outer left as it was, 1 tall, its contact offset 0.02 | The frame comes from the ancestors' ops, not from what they compose. This plan's rule |
+| N5 | One prim referencing a centimetre file, then a metre file, on a metre stage | One op, 0.01; both boxes 0.01 tall; both contact offsets 0.0002 | Kit brings the whole prim by its first reference's units: the metre file's box comes in 100 times too small, and its contact offset is converted as if centimetres, where its README says each value's own layer (K2). A prim holding another file's content can't be scaled for a second file (Q1) |
 
 ## Design
 
@@ -111,8 +115,8 @@ Then a type and three functions:
 | Name | What |
 |---|---|
 | `Frame` | Named tuple `(up_axis, meters, prims)`: the up axis and `metersPerUnit` of the frame a new prim lands in, and the ancestors whose `:unitsResolve` ops made it differ from the stage's |
-| `frame_of(parent, stage_axis, stage_meters)` | Walks `parent` and its ancestors. Each `xformOp:scale:unitsResolve` in an ancestor's op order multiplies the frame's `metersPerUnit` by its first value: a prim scaled ×100 on a centimetre stage holds metres. Each `xformOp:rotateX:unitsResolve` adds its degrees: a net -90 on a Y-up stage makes the frame Z-up, +90 on a Z-up stage Y-up, 0 the stage's; any other net turn is taken as the stage's (Risks). Ops not in the order, and an ancestor's own unsuffixed ops, a user's scale among them, don't count (N3) |
-| `bring_to_stage(prim, layer, frame, stage, table)` | The sequence #105 and #112 put in `create_robot`'s handler, in one place: the turn from the file's up axis to the frame's (`file_up_axis`, `up_axis_turn`, `stand_upright`); the scale by the file's `metersPerUnit` over the frame's (`layer_units`, `units_factors`, `scale_to_stage`); and, when the file's units aren't the stage's, `convert_units(prim, file, stage, table)`, against the stage as Kit converts values (K2), whatever the frame. Gives `Brought(up_axis_turn, units_scale)`, the two answer fields as #105 and #112 define them, built here so both tools send the same and usd-core tests them. `table` None (no PhysX schema in this Kit) converts only the cameras' two values and sets `units_scale.table` false, as #112 has it |
+| `frame_of(parent, stage_axis, stage_meters)` | Walks `parent` and its ancestors. Each `xformOp:scale:unitsResolve` in an ancestor's op order multiplies the frame's `metersPerUnit` by its first value: a prim scaled ×100 on a centimetre stage holds metres. Each `xformOp:rotateX:unitsResolve` adds its degrees: a net -90 on a Y-up stage makes the frame Z-up, +90 on a Z-up stage Y-up, 0 the stage's; any other net turn is taken as the stage's (Risks). Ops not in the order, and an ancestor's own unsuffixed ops, a user's scale among them, don't count (N3); an ancestor that composes a file of other units but holds no op doesn't either (N4) |
+| `bring_to_stage(prim, layer, frame, stage, table)` | The sequence #105 and #112 put in `create_robot`'s handler, in one place: the turn from the file's up axis to the frame's (`file_up_axis`, `up_axis_turn`, `stand_upright`); the scale by the file's `metersPerUnit` over the frame's (`layer_units`, `units_factors`, `scale_to_stage`); and, when the file's units aren't the stage's, `convert_units(prim, file, stage, table)`, against the stage as Kit converts values (K2), whatever the frame. Gives `Brought(up_axis_turn, units_scale)`, the two answer fields as #105 and #112 define them, built here so both tools send the same and usd-core tests them. A turn of 0 or a factor of 1 writes no op, as #105 and #112 have it, where Kit writes one at that value (N1, N2): the prim stands the same. `table` None (no PhysX schema in this Kit) converts only the cameras' two values and sets `units_scale.table` false, as #112 has it |
 | `not_brought(layer, frame)` | For a prim already there (Q1): the file's up axis and units beside the frame's where they differ, else None |
 
 ### The bridge
@@ -192,8 +196,8 @@ the frame differ from the stage's; the turn's degrees and the scale's factor are
 
 | Q | Question | Options | Recommendation | Answer |
 |---|---|---|---|---|
-| Q1 | `create_prim` puts `usd_path`'s reference on a prim already at `prim_path`. Which prims are turned, scaled and converted? | **A.** Only a prim this call makes. A reference added to a prim already there goes on as the file is, and the answer says so and how to get it brought. **B.** Also a prim already there that composes no reference or payload, such as an Xform made first; its edit-layer spec is copied aside before the call and put back on a refusal, since `RemovePrim` would take the prim itself. **C.** Every prim | A: it never turns or scales content the call didn't bring, and the case it must get right, `create_prim` called again on the same path and file to move the prim, is a prim that already holds the reference, where a second turn would lay it down (U3). B serves an Xform made first, a rare order, for a snapshot of the edit layer; C turns whatever else the prim holds (N5) | |
-| Q2 | A prim made inside an asset already brought to the stage, such as a gripper file under a robot `create_robot` turned, or a part under a prop Kit dropped and scaled? | **A.** Measure the file against the frame it lands in: the stage's, turned and scaled by the ancestors' `:unitsResolve` ops, as Kit's recursive test does (K1); physics values still against the stage (K2). For `create_prim` and `create_robot`. **B.** Against the stage, as `create_robot` does today. **C.** B, and a line naming the ancestor | A: what Kit does, and the only one that leaves the file its real size and upright: with B, a metre file inside a metre asset on a centimetre stage comes in 100 times too large, and a Z-up file inside a turned robot lies on its side (U2), where today, with no op at all, both come out right by their ancestor's. The probe reads Kit's values (N1, N2) and how it tells the frame (N3, N4); where Kit differs, the plan says so and this is asked again | |
+| Q1 | `create_prim` puts `usd_path`'s reference on a prim already at `prim_path`. Which prims are turned, scaled and converted? | **A.** Only a prim this call makes. A reference added to a prim already there goes on as the file is, and the answer says so and how to get it brought. **B.** Also a prim already there that composes no reference or payload, such as an Xform made first; its edit-layer spec is copied aside before the call and put back on a refusal, since `RemovePrim` would take the prim itself. **C.** Every prim | A: it never turns or scales content the call didn't bring, and the case it must get right, `create_prim` called again on the same path and file to move the prim, is a prim that already holds the reference, where a second turn would lay it down (U3). B serves an Xform made first, a rare order, for a snapshot of the edit layer; C scales whatever else the prim holds, as Kit does with two references, leaving one file 100 times too small (N5) | |
+| Q2 | A prim made inside an asset already brought to the stage, such as a gripper file under a robot `create_robot` turned, or a part under a prop Kit dropped and scaled? | **A.** Measure the file against the frame it lands in: the stage's, turned and scaled by the ancestors' `:unitsResolve` ops; physics values still against the stage. For `create_prim` and `create_robot`. Kit's values in N1, N3 and N4, and for N2's Z-up file; for N2's Y-up file, a turn of +90 that stands it, where Kit leaves it lying down. **B.** Kit's values in every case, N2's Y-up file left lying down. **C.** Against the stage, as `create_robot` does today. **D.** C, and a line naming the ancestor | A: the only one that leaves every file its real size and upright. It gives Kit's values wherever Kit's file comes out right (N1 to N4), and stands the one Kit lays down (N2), as #112 departs from Kit's table where its result is wrong. With C, a metre file inside a metre asset on a centimetre stage comes in 100 times too large, and a Z-up file inside a turned robot lies on its side (U2), where today, with no op at all, both come out right by their ancestor's. B copies a result that lies on its side | |
 | Q3 | A `usd_path` that can't be opened: today it makes an empty prim, answered as created | **A.** Refused before anything is made, as `create_robot` refuses one: "Could not open <path>: ...". **B.** Referenced as today, nothing turned or scaled, a line saying the file couldn't be read | A: the file has to be read for its units anyway, and an empty prim reported as created helps no one. The path is anchored as the reference anchors it (U1), so a relative path that composes today still opens | |
 | Q4 | Someone who turned or scaled such a prim themselves, with `rotation` or `scale`, now gets it turned or scaled twice | **A.** CHANGELOG's Fixed entry says so, in bold, as #105's Q7 and #112's Q7. **B.** Under Breaking changes | A: the schema doesn't change, and the answer names the turn and the scale | |
 
@@ -215,7 +219,7 @@ Each step builds and passes `uv run tools/gate.py quick`; the PR ends with `fini
 
 | Step | What | Proven by |
 |---|---|---|
-| 0 | The probe, N1 to N5, run by the session; this plan updated on what it shows | `119-probe.out.txt` |
+| 0 | Done: the probe, N1 to N5, run by the session; this plan settled on it: Q2's options, the identity ops, N2's departure | `119-probe.out.txt` |
 | 1 | This plan, the branch's first commit; review round 1 and the maintainer's answers | `review-plan`, then the maintainer |
 | 2 | #112 merged: rebase onto main | its core and handler on the branch |
 | 3 | The move, no behaviour change: `core/robot.py`'s turn and units to `core/metrics.py`, their tests to `tests/test_metrics.py`; `_physics_exponents` to `handlers/_utils.py`; `_turned_line` and `_scaled_line` to `tools/_units.py` | the moved tests pass unchanged |
@@ -235,7 +239,7 @@ Each fails on main with #112 merged, where it can.
 | File | What |
 |---|---|
 | `tests/test_metrics.py` | The moved tests, unchanged. `frame_of`: no ancestor ops give the stage's and no prims; an ancestor scaled ×100 on a centimetre stage gives metres, naming it; two ancestors multiply; -90 on a Y-up stage gives Z, +90 on a Z-up stage Y, the two on two ancestors cancel; an op not in the order, and a user's unsuffixed scale of 100, don't count; a net turn of 180 gives the stage's axis. `bring_to_stage`: a Z-up centimetre file on a Y-up metre stage gets the turn then the scale and both answer fields; U2's file under U2's ancestor gets no op and its contact offset ×100, with the frame; a Y-up file under a turned Z-up frame on a Y-up stage gets +90; a file in the frame's units on a stage of others gets no op and its values converted; an unauthored file gets nothing, written or answered; `table` None converts only the cameras' values and says so. `not_brought`: both sides where they differ, None where they agree or the file authors neither |
-| `tests/test_scene_handler.py` | A Z-up centimetre file on a Y-up metre stage, at a new path: the ops `[file's own, rotateX:unitsResolve, scale:unitsResolve]`, the world box tallest along Y at 1/100 of the file's numbers, the answer's fields; with `position`, `rotation=[0, 90, 0]` and `scale=2`: the position in the parent's frame, the turn about the stage's Y, the box twice its real size. With a fake `pxr.PhysicsSchemaTools.units`, as #112's handler tests: a contact offset and a density converted. The same axis and units, and an unauthored file: no op, null fields. Under U2's ancestor: no op of its own, `frame` in the answer. A plain Xform already at the path: the reference added, no op, no value written, `not_brought` set. The same call twice: one turn, one scale, the prim moved, `not_brought` null. A refusal after the turn (an animated root op in a Z-up file): no prim, no override left. A table that raises `KeyError`: no prim, the error naming the conversion. A file that can't be opened: refused, no prim. A relative `usd_path` beside a stage saved in a folder: opened from there (U1). The tests there today pass unchanged |
+| `tests/test_scene_handler.py` | A Z-up centimetre file on a Y-up metre stage, at a new path: the ops `[file's own, rotateX:unitsResolve, scale:unitsResolve]`, the world box tallest along Y at 1/100 of the file's numbers, the answer's fields; with `position`, `rotation=[0, 90, 0]` and `scale=2`: the position in the parent's frame, the turn about the stage's Y, the box twice its real size. With a fake `pxr.PhysicsSchemaTools.units`, as #112's handler tests: a contact offset and a density converted. The same axis and units, and an unauthored file: no op, null fields. Under U2's ancestor: no op of its own, `frame` in the answer; a Y-up metre file there gets +90 and stands along Y (N2's departure). A plain Xform already at the path: the reference added, no op, no value written, `not_brought` set. The same call twice: one turn, one scale, the prim moved, `not_brought` null. A refusal after the turn (an animated root op in a Z-up file): no prim, no override left. A table that raises `KeyError`: no prim, the error naming the conversion. A file that can't be opened: refused, no prim. A relative `usd_path` beside a stage saved in a folder: opened from there (U1). The tests there today pass unchanged |
 | `tests/test_robot_handler.py` | `create_robot` under U2's ancestor: no op of its own, `frame` in the answer (Q2) |
 | `tests/test_tools.py` | `create_prim`'s answer with `up_axis_turn` and `units_scale` prints `create_robot`'s lines; `frame` prints the frame line and the two lines name the frame; `not_brought` prints its line; an answer without the fields, an older extension's, prints only `Created ...`. `create_robot`'s frame line |
 | `tests/test_contract.py` | `test_a_description_says_what_the_tool_now_does` finds `create_prim`'s new sentence |
@@ -244,7 +248,7 @@ Each fails on main with #112 merged, where it can.
 
 | Test | What |
 |---|---|
-| `test_07c_a_file_of_the_other_up_axis_and_units_comes_in_as_kit_brings_it` | A box file the test writes, of the up axis the stage hasn't and a `metersPerUnit` 1/100 of the stage's, tall along its own up axis, with a collider's contact offset. `create_prim` at a new path: the answer's turn and scale, the box tallest along the stage's up axis at its real size, the contact offset converted. Where `omni.metrics.assembler.core` imports, Kit's `resolve_hierarchy` after it adds no op and changes no value, as `test_27b` checks the turn. The same file under it: no op of its own, the same size, `frame` naming the outer prim. `create_prim` again at the outer path with a new `position`: the ops unchanged, the box moved. Every prim deleted after |
+| `test_07c_a_file_of_the_other_up_axis_and_units_comes_in_as_kit_brings_it` | A box file the test writes, of the up axis the stage hasn't and a `metersPerUnit` 1/100 of the stage's, tall along its own up axis, with a collider's contact offset. `create_prim` at a new path: the answer's turn and scale, the box tallest along the stage's up axis at its real size, the contact offset converted. Where `omni.metrics.assembler.core` imports, Kit's `resolve_hierarchy` after it adds no op and changes no value, as `test_27b` checks the turn. The same file under it: no op of its own, the same size, `frame` naming the outer prim (N1, N2's Z-up file). A file of the stage's own axis and units under it: turned back and scaled back, tallest along the stage's up axis at its real size; then Kit's `resolve_hierarchy` on it, where it imports, and what it leaves (N2's departure, Risks). `create_prim` again at the outer path with a new `position`: the ops unchanged, the box moved. Every prim deleted after |
 | `test_27b`, #112's `test_27c` | Again, `create_robot` now on the shared core |
 
 **What neither shows:** Kit 107 (Isaac Sim 5.1) has the same assembler test (K1) and #112's table; no live run on
@@ -255,7 +259,8 @@ instead. Kit with `conformToXformCommonAPI` on (K4, Risks).
 
 - **`docs/TOOLS.md`,** `create_prim`: the `usd_path` row, "brought to the stage's up axis and units as
   `create_robot` brings a robot file"; a paragraph, Up axis and units: the turn, the scale and the converted values
-  as `create_robot`'s paragraphs say, pointing there for the detail; the frame a prim lands in; a prim already there
+  as `create_robot`'s paragraphs say, pointing there for the detail; the frame a prim lands in, and a file of the
+  stage's own axis inside a turned asset stood upright, where Kit's assembler leaves it lying down; a prim already there
   gets the reference as the file is, and the answer says so; a file that authors none is left as it is; a file that
   can't be opened is an error; `scale` multiplies the file's real size; with an extension of 0.3.0 or older, nothing
   is turned or scaled. `create_robot`: the frame sentence, and #112's "create_prim doesn't yet" taken out.
@@ -284,8 +289,9 @@ instead. Kit with `conformToXformCommonAPI` on (K4, Risks).
 
 | Risk | Status |
 |---|---|
-| Kit's assembler, run on the prim later, turns, scales or converts it a second time | Closed for `create_robot` by #112's P5 and `test_27b`; `create_prim` writes the same ops and values through the same core, and `test_07c` checks it |
-| Kit tells a nested prim's frame some other way than by its ancestors' ops (N3, N4), or converts its values against the frame (N1) | Open until the probe runs: where Kit differs, this plan says so and Q2 is asked again |
+| Kit's assembler, run on the prim later, turns, scales or converts it a second time | Closed for `create_robot` by #112's P5 and `test_27b`; `create_prim` writes the same ops and values through the same core, and `test_07c` checks it. On a nested prim Kit's resolve would add its identity op where this plan wrote none (N1): the prim stands the same |
+| Kit tells a nested prim's frame some other way than by its ancestors' ops, or converts its values against the frame | Closed by the probe: the frame from the ancestors' ops alone (N3, N4), the values against the stage (N1) |
+| N2's departure: Kit's assembler, run later on a file of the stage's axis inside a turned asset, could set the +90 this plan wrote back to its own 0 and lay the file down | Open until `test_07c` runs Kit's resolve on such a prim and reads what it leaves. Kit's resolve reaches a prim only when a user resolves it or its drop recorded it (#112's Risks); if it lays the file down, accepted, and `docs/TOOLS.md` names it |
 | `conformToXformCommonAPI` on: Kit writes its turn and scale into a prim's own ops, which `frame_of` doesn't count (K4) | Accepted: off by default; a file placed inside such an asset is measured against the stage, as `create_robot` does today |
 | A net ancestor turn that is none of -90, +90 or 0 | Accepted: taken as the stage's axis; only hand-written ops give one |
 | A prim already there gets nothing (Q1) | Accepted with Q1's A: the answer says what it left and how to get it |
