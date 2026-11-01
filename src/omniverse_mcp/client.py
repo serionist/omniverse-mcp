@@ -85,7 +85,7 @@ class BridgeClient:
                 if not self._answers():
                     raise KitSilentError(
                         f"Kit at {self.host}:{self.port} is still silent: /health got no answer in {HEALTH_SECONDS:g} "
-                        "s, as since a call timed out"
+                        "s, as it has been since a call timed out"
                     )
                 self._silent = False
             try:
@@ -107,8 +107,9 @@ class BridgeClient:
         return data
 
     def _answers(self) -> bool:
-        """Whether Kit answers GET /health within HEALTH_SECONDS, on a connection of its own: any answer, a refusal
-        too, shows its loop runs."""
+        """Whether Kit isn't silent: it answers GET /health within HEALTH_SECONDS, on a connection of its own, where any
+        answer, a refusal too, shows its loop runs; or nothing listens on its port, as while a hung Kit is restarted,
+        which the request's own connection error then names better than "silent"."""
         deadline = time.monotonic() + HEALTH_SECONDS
         try:
             with socket.create_connection((self.host, self.port), timeout=HEALTH_SECONDS) as sock:
@@ -118,6 +119,8 @@ class BridgeClient:
                 sock.settimeout(left)
                 sock.sendall(self._build("/health", None, "GET"))
                 return bool(sock.recv(1))
+        except ConnectionRefusedError:
+            return True
         except OSError:
             return False
 

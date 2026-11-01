@@ -1057,6 +1057,34 @@ def test_a_call_kit_never_answers_is_named_once_health_is_silent_too(silent: _Si
         client.close()
 
 
+def test_a_call_that_times_out_on_a_kept_alive_connection_is_named_too(silent: _SilentBridge):
+    client = BridgeClient(port=silent.port, token="invented-test-token", timeout=0.3)
+    silent.answering = True
+    try:
+        assert client.health()["status"] == "success"
+        silent.answering = False  # Kit hangs between two calls on one connection
+        with pytest.raises(KitSilentError, match="stopped answering"):
+            client.scene_tree()
+        assert silent.paths == ["/bridge", "/health", "/scene/tree", "/health"]
+    finally:
+        client.close()
+
+
+def test_a_port_nothing_listens_on_lets_the_connection_error_stand(silent: _SilentBridge, monkeypatch):
+    # While the user restarts a hung Kit nothing listens on its port: each call says so, as before, not "still
+    # silent ... restart the Kit app".
+    client = BridgeClient(port=silent.port, token="invented-test-token", timeout=0.3)
+    try:
+        with pytest.raises(KitSilentError):
+            client.health()
+        silent.stop()
+        monkeypatch.setattr(client_module, "HEALTH_SECONDS", 3.0)  # Windows refuses a closed port after about 2 s
+        with pytest.raises(ConnectionRefusedError):
+            client.health()
+    finally:
+        client.close()
+
+
 def test_a_call_that_times_out_while_health_answers_keeps_its_timeout(silent: _SilentBridge, monkeypatch):
     client = BridgeClient(port=silent.port, token="invented-test-token", timeout=0.3)
     probes: list[bool] = []
