@@ -1,9 +1,9 @@
 ---
 title: Run the AI scenario suite as a skill
 issue: "#102"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-11-01
 ---
 
 # Run the AI scenario suite as a skill
@@ -89,7 +89,7 @@ each rule holds, in this order:
 | `/health` answers with that port's token | No Kit, no run | none |
 | The stage is `(unsaved)`, a file under the runs folder, or a local path under the system temp folder that no longer exists | The suite wipes the stage (`new_scene`, deletes); any other stage, a URL's included, is someone's scene. The live suites leave the stage tied to a deleted `ovmcp-open-*` temp copy (F4) | `--any-stage`, on the maintainer's word |
 | The bridge Kit loaded has this checkout's files: each file `git ls-files extension/ovmcp.bridge` lists, hashed by its relative path, against the same file in the folder Kit reports for `ovmcp.bridge` (one read-only `/execute`); caches ignored, an extra `.py` there named | A run tests this checkout's server and bridge together; a copy elsewhere is fine when equal (F14); Kit writes its own `__pycache__` | `--any-bridge` |
-| No other run holds the port's lock, `runs/.lock-<port>` with its pid | Two runs on one stage | `run` alone takes over a lock whose pid is gone; `check` only reads it (I4 would drop the takeover) |
+| No run holds the port's lock, the file `runs/.lock-<port>` (I4) | Two runs on one stage | none: while the file exists, `check` and `run` refuse and say how to clear it, by deleting it once no run is going. No pid check: `os.kill(pid, 0)` on Windows sends `CTRL_C_EVENT` |
 
 It prints the Kit app's name and version, the bridge's version and folder, the stage and its prim count.
 
@@ -134,47 +134,50 @@ the tree, so its status doesn't depend on which phases ran, and the next run's s
 ### The tester (Q4, Q5, Q7)
 
 One headless Claude Code session per phase, and one per group of setup IDs, each in `test_project/` so its
-`CLAUDE.md` (an import of `AGENTS.md`, Q10) loads. The command `run` builds, each flag to be confirmed in step 2; the
-parts marked I1 go if the maintainer takes I1 (Plan review):
+`CLAUDE.md` (an import of `AGENTS.md`, Q10) loads. The command `run` builds, each flag to be confirmed in step 2:
 
 ```
 claude -p "<prompt>"
   --plugin-dir <config>/plugin
   --strict-mcp-config --mcp-config <config>/mcp.json
-  --setting-sources project,local
-  --tools Read,Grep,Glob,Skill,Write,Edit                       # Write,Edit: I1
+  --setting-sources project
+  --tools Read,Grep,Glob,Skill
   --permission-mode dontAsk
   --allowedTools mcp__plugin_omniverse-mcp_omniverse Read Grep Glob
                  "Skill(omniverse-mcp:<name>)", one for each of the plugin's five skills
-                 "Write(<run>/phase-NN.md)" "Edit(<run>/phase-NN.md)"   # I1
-                 [mcp__context7]                                 # Q12
   --output-format stream-json --verbose
-  [--model <model>] [--max-budget-usd <amount>]
+  --max-budget-usd <what remains of --budget>
+  [--model <model>]
 ```
 
 | Part | What it gives |
 |---|---|
-| `<config>` | A folder the script writes afresh for each session in the system's temp folder, outside the runs folder, and deletes after: nothing a tester writes reaches the next session's plugin, hooks or servers |
+| `<config>` | A folder the script writes afresh for each session in the system's temp folder, outside the runs folder, and deletes after: nothing a session leaves reaches the next session's plugin, hooks or servers |
 | `<config>/plugin` (Q5) | A copy of `plugin/` whose `.mcp.json` runs `uv run --no-sync --project <checkout> omniverse-mcp` with `OMNIVERSE_MCP_HOST=127.0.0.1`, `OMNIVERSE_MCP_PORT=<port>`, `OMNIVERSE_MCP_TOKEN=""` (the port's token file then), `OMNIVERSE_MCP_OUTPUT_DIR=<run>/mcp_output` and an empty `PYTHONPATH` (F8). Tool names as plugin users see them, the skills found by their descriptions, the server's instructions, as `docs/releasing.md` step 2 already checks the plugin |
-| `--strict-mcp-config`, `<config>/mcp.json` | Only the run's servers: Context7 if Q12 keeps it, else none. If step 2 finds the strict flag drops a plugin's server too, the server moves into `mcp.json` and the copy keeps only the skills |
-| `--setting-sources project,local` | No user settings: no user plugins (an installed omniverse-mcp at another version among them), hooks or user `CLAUDE.md` |
-| `--tools`, `--permission-mode dontAsk`, `--allowedTools` | No shell and no web. Every omniverse tool, reading, and loading one of the plugin's five skills by name run without asking (`Skill(omniverse-mcp:<name>)`, in the form step 2 confirms); anything else is refused, never asked: another skill the session can see (Claude Code's own, one in the git-ignored `test_project/.claude/skills/`, a user's) could pre-approve its own tools, while the plugin's name only read-only ones (F10) |
-| Rows (I1) | The tester writes its rows to `<run>/phase-NN.md`, the one file it may write. If I1 is taken, `Write` and `Edit` go, the prompt asks for the rows as a table in the session's last message, and the script writes `phase-NN.md` from it |
+| `--strict-mcp-config`, `<config>/mcp.json` | Only the run's servers: `mcp.json` holds none, as a plugin user's `plugin/.mcp.json` starts only `omniverse` (Q12). If step 2 finds the strict flag drops a plugin's server too, the server moves into `mcp.json` and the copy keeps only the skills |
+| `--setting-sources project` (I2) | No user or local settings: no user plugins (an installed omniverse-mcp at another version among them), no hooks or hand-granted allows from `settings.local.json`, no user `CLAUDE.md` |
+| `--tools`, `--permission-mode dontAsk`, `--allowedTools` | No shell, no web, no file writes (I1). Every omniverse tool, reading, and loading one of the plugin's five skills by name run without asking (`Skill(omniverse-mcp:<name>)`, in the form step 2 confirms); anything else is refused, never asked: another skill the session can see (Claude Code's own, one in the git-ignored `test_project/.claude/skills/`, a user's) could pre-approve its own tools, while the plugin's name only read-only ones (F10) |
+| Rows (I1) | The tester writes no file. The prompt asks for its rows as a table at the end of its last message, and the script writes `phase-NN.md` from it; captures land in `mcp_output/`, and saves and exports are Kit's own writes |
 | `--output-format stream-json --verbose` | The transcript, `transcript-NN.jsonl`: every call the tester made and each answer |
 
 - **Isolation, checked.** The stream's first event (`system`, `init`) lists the session's tools and MCP servers with
-  their status. `run` stops the tester at once if a server other than the plugin's (and Context7, Q12) is there, if
-  `omniverse` isn't connected, or if a tool outside the command's list is. The maintainer's own MCP servers (mail,
-  chat) never reach a session whose tools are pre-approved.
+  their status. `run` stops the tester at once if a server other than the plugin's is there, a claude.ai connector
+  (`claude_ai_*`, I6) included, if `omniverse` isn't connected, or if a tool outside the command's list is. The
+  maintainer's own MCP servers (mail, chat) never reach a session whose tools are pre-approved.
 - **Skill loads, counted.** The script reads each session's skill loads from its stream into `run.json`, and
   `results.md` and `compare` print them per session, "none" included: a run in which no tester loaded a skill shows
   as such, not as a clean PASS.
-- **The prompt,** the same text for any client: the phase's text cut from `scenarios.md`; its `Needs:` line, with each
-  needed ID's status so far in this run, so the tester can SKIP on a failed one; the run folder's absolute path, and
-  `<run>/kit/` for the files Kit writes; the port; `new_scene()` first in a half's first session; and "write each row
-  to `<run>/phase-NN.md` as soon as it is judged" (I1: "end with the rows as a table").
-- **Limits.** Each session has 45 minutes, a constant set from the first full run's times (step 9); `--max-budget-usd`
-  passes to each session, and `--budget` caps the run's total, summed from each session's `result` event.
+- **The prompt,** the same text for any client: `scenarios.md`'s header, with its up-axis rule (I8), and the phase's
+  text cut from it; its `Needs:` line, with each needed ID's status so far in this run, so the tester can SKIP on a
+  failed one; `<run>/kit/` for the files Kit writes; the port; `new_scene()` first in a half's first session; and "end
+  your last message with your rows as a table".
+- **Between sessions.** Before each session the script stops the timeline and any recording, which a stopped session
+  can leave running (I7). Stopping a tester ends its whole process tree, on Windows with `taskkill /T /F`, since
+  `Popen.kill` ends only `claude.exe` and its server's call in Kit can run 120 s into the next phase; the script waits
+  for it before deleting its config folder, ignoring delete errors, and starting the next session (I9).
+- **Limits.** Each session has 45 minutes, a constant set from the first full run's times (step 9). `--budget` caps the
+  run's total, and each session's `--max-budget-usd` is what remains of it, summed from each session's `result` event
+  (I3).
 - **The model:** the client's default, or `--model`. `run.json` records it, and `compare` names both when two runs
   differ.
 
@@ -186,7 +189,7 @@ every worktree's runs sit together and outlive the worktree (F15). One folder pe
 | File | Written by | Holds |
 |---|---|---|
 | `run.json` | the script | Commit, branch, whether the tree was clean, port, Kit app and version, bridge version and folder, the stage at the start, client and version, model, phases asked, IDs with setup, each session's start, end, exit, tokens, cost and skill loads |
-| `phase-NN.md` | the tester (the script, under I1) | Its rows, `\| ID \| Test \| Status \| Notes \|`, and its issues; a FAIL or WARN names its capture under `mcp_output/` |
+| `phase-NN.md` | the script, from the session's last message | Its rows, `\| ID \| Test \| Status \| Notes \|`, and its issues; a FAIL or WARN names its capture under `mcp_output/` |
 | `results.md` | the script | Run Info from `run.json`, the skill loads per session, every asked ID in order, `NOT RUN` where no row came, then the issues |
 | `transcript-NN.jsonl` | the client | Each session's stream |
 | `mcp_output/` | the server | Captures, recordings, dumps |
@@ -194,10 +197,11 @@ every worktree's runs sit together and outlive the worktree (F15). One folder pe
 
 Statuses: PASS, FAIL, WARN, SKIP from the tester (F1's meanings); NOT RUN from the script.
 
-`uv run tools/scenarios.py compare [<run>] [--against <run>]` compares the newest run by default, each ID against the
-newest earlier run with a tester status for it, or against `--against`. It lists regressions first (PASS or WARN to
-FAIL, PASS to WARN), then fixes, other changes, new IDs and NOT RUN, each changed row with both notes and the earlier
-run's folder, then the counts. It exits 1 on a regression.
+`uv run tools/scenarios.py compare [<run>] [--against <run or tag>]` compares the newest run by default, each ID
+against the newest earlier run with a tester status for it, or against `--against`: a run, or a tag for the newest run
+at that tag's commit (I5). It lists regressions first (PASS or WARN to FAIL, PASS to WARN), then fixes, other changes,
+new IDs and NOT RUN, each changed row with both notes and the earlier run's folder, then the counts. It exits 1 on a
+regression or a NOT RUN.
 
 ```
 Run 20261102-141000 (Phases 1-27, 144 IDs; main 67a5069; Isaac Sim 6.2.0 on 8212)
@@ -230,9 +234,9 @@ It stays where it is, and slims:
 
 | File | Change |
 |---|---|
-| `AGENTS.md` (new) | The tester's rules, for any client: the role; the statuses and what a row's notes hold; SKIP when a needed scenario's status, which the prompt gives, isn't PASS or WARN; every file a scenario saves or exports under `<run>/kit/`; the repo's rules for changing code, which load from the root too, don't apply to a tester. No `@` imports: the skills come from the plugin (Q5) |
+| `AGENTS.md` (new) | The tester's rules, for any client: the role; the statuses and what a row's notes hold; SKIP when a needed scenario's status, which the prompt gives, isn't PASS or WARN; every file a scenario saves or exports under `<run>/kit/`; no file of its own, its rows a table at the end of its last message; the repo's rules for changing code, which load from the root too, don't apply to a tester. No `@` imports: the skills come from the plugin (Q5) |
 | `CLAUDE.md` | `@AGENTS.md`, as the repo's own `.claude/CLAUDE.md` does |
-| `scenarios.md` | `Needs:` lines; the eight file paths (the seven `results/` ones and 17.7's temp file) become `<run>/kit/...`; 27.1 becomes stop, `new_scene()` and a check of the tree; the header says how phases depend and which have no pytest twin, and drops the line on phases 24 to 26 "added after" |
+| `scenarios.md` | `Needs:` lines; the eight file paths (the seven `results/` ones and 17.7's temp file) become `<run>/kit/...`; 27.1 becomes stop, `new_scene()` and a check of the tree; the header says how phases depend and which have no pytest twin, drops the line on phases 24 to 26 "added after", and line 3 no longer names `results/test_results.md` or `CLAUDE.md`'s format (I8) |
 | `.mcp.json.example` | Stays, for opening `test_project/` by hand in any client (`CONTRIBUTING.md` names it); such a run writes to a folder of its own under `results/runs/` |
 | `results/` | Unchanged; pytest's files stay there (F2), and no tester writes `test_results.md` again |
 
@@ -257,9 +261,8 @@ Done means `results.md` exists and the maintainer has `compare`'s summary. Never
 it; start Kit or set `OMNI_KIT_ACCEPT_EULA` on its own; run beside the live suites or another session on the same Kit;
 commit anything under `results/`; edit a finished run's files.
 
-Whether `.claude/settings.json` allows the bare `check` and `compare` is Q13: an allow widens a permission
-(`REVIEW.md`, The harness). With or without it, a form with flags and every `run` ask, as `run` drives Kit and spends
-tokens.
+`.claude/settings.json` allows the bare `uv run tools/scenarios.py check` and `uv run tools/scenarios.py compare`, each
+named whole (Q13); a form with flags and every `run` ask, as `run` drives Kit and spends tokens.
 
 ### Where a run fits (Q11)
 
@@ -294,19 +297,19 @@ tester's server writes the usual output layout under the run folder.
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 | Where the skill lives: a repo skill whose script runs a headless tester; the server added to this session; or a plugin skill for users? | The repo skill and a headless tester: the session's context holds only the summary, the tester's pre-approvals stay inside it, and the steps are commands any agent can follow. The second needs a restart and fills the session; the third tests the released server, can't carry the scenarios and would wipe users' stages | open |
-| Q2 | The Kit app: 8212 by default with 8211 refused unless the maintainer names it, plus the stage and bridge rules; 8211 never; or the port rule alone? | 8212, 8211 behind `--allow-port-8211`, and the stage and bridge rules: the port is a convention, while an unsaved stage and the checkout's bridge files are facts `check` can read | open |
-| Q3 | Starting Kit: the skill asks, and runs the maintainer's approved command on their word; a `kit` subcommand that starts a headless Isaac Sim with a copy of the bridge; or the skill starts Kit when the EULA variable is set? | Ask: Kit's launchers differ (the pip `isaacsim`, `isaac-sim.bat`, `python.sh` with `SimulationApp`), the maintainer already has an approved command, and the EULA is theirs. A `kit` subcommand is its own issue if starting Kit becomes the slow part | open |
-| Q4 | The tester's client: Claude Code now and Codex in its own issue; both now; or whichever client runs the skill? | Claude Code now: Codex isn't installed here, so its path can't be proven live, and its MCP approvals in `exec` and its skill discovery (the repo's `.agents/skills`, the developers' skills) need their own look. The skill itself stays usable from Codex, which then starts a Claude tester | open |
-| Q5 | What the tester is given: a run copy of `plugin/` on this checkout's server; today's `@` imports of `AI_GUIDE.md` and four skills with the server from `--mcp-config`; or both as two kinds of run? | The plugin copy: #102's question is whether the descriptions and skills lead an agent to the right calls, which needs the skills found by description as users find them. The imports put 20 KB of skills in every session up front and never test a skill's description | open |
-| Q6 | Scope: phases with `Needs:` lines the script resolves; a range that always starts at phase 1 (or at 18 or 24); or every phase only? | `Needs:` lines: phase 15 alone costs three setup scenarios, not fourteen phases, and a unit test keeps every line pointing at real, earlier IDs | open |
-| Q7 | Sessions: one per phase; one per run, the client's compaction keeping it going; or one per block between stage resets (1-17, 18-23, 24-27)? | One per phase: the state lives in Kit, so a new session loses nothing a scenario needs; each context holds one phase; a stopped session ends one phase; a transcript per phase. The fixed prompt repeats 27 times, mostly a cache read when sessions follow each other. One session would hold some 500 calls, compacted several times | open |
-| Q8 | Results: in the main checkout's `test_project/results/runs/`, in the running checkout's, or in the user's data folder; and nothing in git, or a dated record per release in `docs/reviews/`? | The main checkout's, nothing in git: runs from every worktree compare with each other and outlive the worktree; a run holds machine paths, images and transcripts that don't belong on `main`; a PR quotes `compare` | open |
-| Q9 | Duplication with pytest: run all by default, one header line naming the phases with no twin, a follow-up issue for scenarios written as outcomes; mark each covered scenario and run the rest by default; or drop the covered scenarios? | Run all, the header line, the follow-up: the tester judges images and answers, which pytest can't; per-scenario marks would drift as the names already have (F5) | open |
-| Q10 | `test_project/`: stays and slims (`AGENTS.md`, `CLAUDE.md` an import, `Needs:` lines); moves to `tests/scenarios/`; or moves into the skill's folder? | Stays and slims: four files name its paths, and the tester's working folder must not be under `.claude/` | open |
-| Q11 | Where a run fits: every release (`docs/releasing.md` step 2) with an optional line in `finish-work`; releases only; or required in `finish-work` for a change to a description or a skill? | Every release, optional in `finish-work`: a release is when users meet the descriptions and skills; making it required needs a Kit app for every such PR, and hosted CI never runs one | open |
-| Q12 | Context7 in the tester (round 1, P9): drop it; or keep it and accept by name that text from outside the repo can become code `execute_script` runs in Kit without asking, with the user's rights? The tester writes its own Kit code for 6.3, 15.6 to 15.8, 15.14, 15.15 and 17.4. Keeping it without pre-approving `execute_script` isn't an option: `dontAsk` would refuse it, and with it 27 scenarios: phases 4 and 25 whole, 6.3, 11.3, 16.6 to 16.9, 17.3, 17.4, 24.6 and the scripted setups of 15.6 to 15.8, 15.14 and 15.15 | Drop it: the run is unattended with code execution pre-approved, where outside text matters most, and a plugin user has no Context7 either (`plugin/.mcp.json` starts only `omniverse`). The cost: the script skill's "look the API up" can't be followed, so a guessed API may FAIL a scripted scenario, which its transcript shows | open |
-| Q13 | `.claude/settings.json` (round 1, P10): allow the bare `uv run tools/scenarios.py check` and `uv run tools/scenarios.py compare`, named whole; allow `compare` only; or allow neither? | Allow both: each is fixed and read-only, `check` reaching only 8212 with one read-only `/execute` of the script's own code and only reading the lock (`run` alone takes a stale one over, unless I4 drops that), `compare` only reading run folders; every form with flags, and every `run`, still asks, so 8211 and the overrides never pass unseen | open |
+| Q1 | Where the skill lives: a repo skill whose script runs a headless tester; the server added to this session; or a plugin skill for users? | The repo skill and a headless tester: the session's context holds only the summary, the tester's pre-approvals stay inside it, and the steps are commands any agent can follow. The second needs a restart and fills the session; the third tests the released server, can't carry the scenarios and would wipe users' stages | As recommended (2026-11-01) |
+| Q2 | The Kit app: 8212 by default with 8211 refused unless the maintainer names it, plus the stage and bridge rules; 8211 never; or the port rule alone? | 8212, 8211 behind `--allow-port-8211`, and the stage and bridge rules: the port is a convention, while an unsaved stage and the checkout's bridge files are facts `check` can read | As recommended (2026-11-01) |
+| Q3 | Starting Kit: the skill asks, and runs the maintainer's approved command on their word; a `kit` subcommand that starts a headless Isaac Sim with a copy of the bridge; or the skill starts Kit when the EULA variable is set? | Ask: Kit's launchers differ (the pip `isaacsim`, `isaac-sim.bat`, `python.sh` with `SimulationApp`), the maintainer already has an approved command, and the EULA is theirs. A `kit` subcommand is its own issue if starting Kit becomes the slow part | As recommended (2026-11-01) |
+| Q4 | The tester's client: Claude Code now and Codex in its own issue; both now; or whichever client runs the skill? | Claude Code now: Codex isn't installed here, so its path can't be proven live, and its MCP approvals in `exec` and its skill discovery (the repo's `.agents/skills`, the developers' skills) need their own look. The skill itself stays usable from Codex, which then starts a Claude tester | As recommended (2026-11-01) |
+| Q5 | What the tester is given: a run copy of `plugin/` on this checkout's server; today's `@` imports of `AI_GUIDE.md` and four skills with the server from `--mcp-config`; or both as two kinds of run? | The plugin copy: #102's question is whether the descriptions and skills lead an agent to the right calls, which needs the skills found by description as users find them. The imports put 20 KB of skills in every session up front and never test a skill's description | As recommended (2026-11-01) |
+| Q6 | Scope: phases with `Needs:` lines the script resolves; a range that always starts at phase 1 (or at 18 or 24); or every phase only? | `Needs:` lines: phase 15 alone costs three setup scenarios, not fourteen phases, and a unit test keeps every line pointing at real, earlier IDs | As recommended (2026-11-01) |
+| Q7 | Sessions: one per phase; one per run, the client's compaction keeping it going; or one per block between stage resets (1-17, 18-23, 24-27)? | One per phase: the state lives in Kit, so a new session loses nothing a scenario needs; each context holds one phase; a stopped session ends one phase; a transcript per phase. The fixed prompt repeats 27 times, mostly a cache read when sessions follow each other. One session would hold some 500 calls, compacted several times | As recommended (2026-11-01) |
+| Q8 | Results: in the main checkout's `test_project/results/runs/`, in the running checkout's, or in the user's data folder; and nothing in git, or a dated record per release in `docs/reviews/`? | The main checkout's, nothing in git: runs from every worktree compare with each other and outlive the worktree; a run holds machine paths, images and transcripts that don't belong on `main`; a PR quotes `compare` | As recommended (2026-11-01) |
+| Q9 | Duplication with pytest: run all by default, one header line naming the phases with no twin, a follow-up issue for scenarios written as outcomes; mark each covered scenario and run the rest by default; or drop the covered scenarios? | Run all, the header line, the follow-up: the tester judges images and answers, which pytest can't; per-scenario marks would drift as the names already have (F5) | As recommended (2026-11-01) |
+| Q10 | `test_project/`: stays and slims (`AGENTS.md`, `CLAUDE.md` an import, `Needs:` lines); moves to `tests/scenarios/`; or moves into the skill's folder? | Stays and slims: four files name its paths, and the tester's working folder must not be under `.claude/` | As recommended (2026-11-01) |
+| Q11 | Where a run fits: every release (`docs/releasing.md` step 2) with an optional line in `finish-work`; releases only; or required in `finish-work` for a change to a description or a skill? | Every release, optional in `finish-work`: a release is when users meet the descriptions and skills; making it required needs a Kit app for every such PR, and hosted CI never runs one | As recommended (2026-11-01) |
+| Q12 | Context7 in the tester (round 1, P9): drop it; or keep it and accept by name that text from outside the repo can become code `execute_script` runs in Kit without asking, with the user's rights? The tester writes its own Kit code for 6.3, 15.6 to 15.8, 15.14, 15.15 and 17.4. Keeping it without pre-approving `execute_script` isn't an option: `dontAsk` would refuse it, and with it 27 scenarios: phases 4 and 25 whole, 6.3, 11.3, 16.6 to 16.9, 17.3, 17.4, 24.6 and the scripted setups of 15.6 to 15.8, 15.14 and 15.15 | Drop it: the run is unattended with code execution pre-approved, where outside text matters most, and a plugin user has no Context7 either (`plugin/.mcp.json` starts only `omniverse`). The cost: the script skill's "look the API up" can't be followed, so a guessed API may FAIL a scripted scenario, which its transcript shows | As recommended: Context7 dropped (2026-11-01) |
+| Q13 | `.claude/settings.json` (round 1, P10): allow the bare `uv run tools/scenarios.py check` and `uv run tools/scenarios.py compare`, named whole; allow `compare` only; or allow neither? | Allow both: each is fixed and read-only, `check` reaching only 8212 with one read-only `/execute` of the script's own code and only reading the lock (`run` alone takes a stale one over, unless I4 drops that), `compare` only reading run folders; every form with flags, and every `run`, still asks, so 8211 and the overrides never pass unseen | As recommended: only the bare `check` and `compare` (2026-11-01); with I4 taken, no command takes a lock over |
 
 ## Steps
 
@@ -315,13 +318,13 @@ Each step passes `uv run tools/gate.py full`. The skill, `finish-work` and `writ
 | Step | What | Proven by |
 |---|---|---|
 | 1 | This plan, the branch's first commit | `review-plan`, then the maintainer |
-| 2 | The CLI checked by hand, phase 1 on 8212 with a small budget: `--strict-mcp-config` with `--plugin-dir` (does the plugin's server load), `--setting-sources` (user plugins and `CLAUDE.md` gone, the repo's root `.claude/CLAUDE.md` loaded or not), `--tools` with `dontAsk`, the `init` event's fields, the skills the session lists (user skills gone or not), and a plugin skill loading under these exact flags: a prompt that needs one, and the allow form that names it. With I1 not taken, also `Write(<run>/phase-NN.md)` on Windows. The findings go into this plan's Design before any code | The findings table, in this plan; a transcript that shows the skill load |
-| 3 | `scenarios.md`: `Needs:` lines, the `<run>/kit/` paths, 27.1's stop, `new_scene()` and tree check, the header. `tools/scenarios.py`: parsing, the halves and resolution, the run folder, the per-session config folder, the prompts with their `Needs:` statuses and command lines, and `run --dry-run`, which prints them without starting a tester | `tests/test_scenario_runs.py`: the real `scenarios.md` parses to 144 IDs in 27 phases; every `Needs:` ID exists, points back and stays in its half; `--phases 2,5` and `--phases 15,20` resolve to the examples under Scope |
-| 4 | `check`: the port rule first, with no I/O; host and token pinned; the stage and bridge rules; the overrides, the lock, the printout | The same file, against `tests/mock_bridge.py`: each refusal and its override; no request and no token read for a refused 8211; the hash ignores `__pycache__` and names an extra `.py` |
-| 5 | `run`: sessions in order, a fresh config folder for each, the `init` check, skill loads counted, the `/health` watch at 140 s, the limits, `run.json`, the merge into `results.md`. With I1 taken, the script also writes `phase-NN.md` from each session's last message | The same file, with a stub client (a Python script writing stream-json events, and a phase file unless I1): a foreign MCP server stops it; 140 s from the first unanswered probe ends the run, and a 120 s call that starts just before a probe doesn't; skill loads land in `run.json`; a phase with no rows gives NOT RUN; the budget stops the next session |
-| 6 | `compare` | The same file, over fixture runs: regressions first, `--against`, the skill loads, exit 1 |
+| 2 | The CLI checked by hand, phase 1 on 8212 with a small budget: `--strict-mcp-config` with `--plugin-dir` (does the plugin's server load), `--setting-sources` (user plugins and `CLAUDE.md` gone, the repo's root `.claude/CLAUDE.md` loaded or not), `--tools` with `dontAsk`, the `init` event's fields, no claude.ai connector (`claude_ai_*`) among its servers, the skills the session lists (user skills gone or not), and a plugin skill loading under these exact flags: a prompt that needs one, and the allow form that names it. Run from inside a Claude Code session's shell, as the skill will (I6). The findings go into this plan's Design before any code | The findings table, in this plan; a transcript that shows the skill load |
+| 3 | `scenarios.md`: `Needs:` lines, the `<run>/kit/` paths, 27.1's stop, `new_scene()` and tree check, the header and line 3 (I8). `tools/scenarios.py`: parsing, the halves and resolution, the run folder, the per-session config folder, the prompts with the header, their `Needs:` statuses and command lines, and `run --dry-run`, which prints them without starting a tester | `tests/test_scenario_runs.py`: the real `scenarios.md` parses to 144 IDs in 27 phases; every `Needs:` ID exists, points back and stays in its half; `--phases 2,5` and `--phases 15,20` resolve to the examples under Scope |
+| 4 | `check`: the port rule first, with no I/O; host and token pinned; the stage and bridge rules; the overrides, the lock file (I4), the printout | The same file, against `tests/mock_bridge.py`: each refusal and its override; no request and no token read for a refused 8211; the hash ignores `__pycache__` and names an extra `.py`; a lock file refuses, with how to clear it |
+| 5 | `run`: sessions in order, a fresh config folder for each, the `init` check, skill loads counted, `phase-NN.md` written from each session's last message (I1), the timeline and recording stopped before each session (I7), a stopped tester's process tree ended and waited for (I9), the `/health` watch at 140 s, the budget (I3), `run.json`, the merge into `results.md` | The same file, with a stub client (a Python script writing stream-json events, its last message ending with rows): a foreign MCP server or a `claude_ai_*` connector stops it; 140 s from the first unanswered probe ends the run, and a 120 s call that starts just before a probe doesn't; skill loads land in `run.json`; a last message without rows gives NOT RUN; each session's `--max-budget-usd` is what remains, and none is left to start the next |
+| 6 | `compare` | The same file, over fixture runs: regressions first, `--against` with a run and with a tag, the skill loads, exit 1 on a regression or a NOT RUN (I5) |
 | 7 | `test_project/AGENTS.md`, `CLAUDE.md` as an import | Step 9's run reads them |
-| 8 | The skill: `SKILL.md`, `uv run tools/setup.py link run-scenarios`, `AGENTS.md` in place, `write-skill` step 5's exception, `finish-work`, `docs/releasing.md`, `CONTRIBUTING.md`, and `.claude/settings.json` as Q13 says | `uv run tools/gate.py quick`: frontmatter, link, listing, 150 lines; `tests/test_gate.py` for the settings |
+| 8 | The skill: `SKILL.md`, `uv run tools/setup.py link run-scenarios`, `AGENTS.md` in place, `write-skill` step 5's exception, `finish-work`, `docs/releasing.md`, `CONTRIBUTING.md`, and `.claude/settings.json`'s two allows (Q13) | `uv run tools/gate.py quick`: frontmatter, link, listing, 150 lines; `tests/test_gate.py` for the settings |
 | 9 | Live, on Isaac Sim 6.2 headless on 8212 with this branch's bridge: `check` refusing a stage saved outside the runs folder and a bridge copy that differs (8211 is proven by step 4's unit test alone, never live); phase 1 alone; `--phases 15,20`; every phase; `compare` twice. The run's time and cost go into the skill, the per-session limit is set from them | The run folders, read by the session; skill loads above none; ten rows checked against their transcripts (Tests) |
 | 10 | `finish-work` | The PR, with the full run's `compare` output |
 
@@ -329,14 +332,14 @@ Each step passes `uv run tools/gate.py full`. The skill, `finish-work` and `writ
 
 - **Unit, in CI:** `tests/test_scenario_runs.py`, as `tests/test_release.py` tests `tools/release.py`: parsing the real
   `scenarios.md`; the halves and resolution; `check` against the mock bridge, with no request for a refused port; the
-  bridge hash; the command line `run` builds; the `init` check; skill loads; the health watch; the budget; NOT RUN; the
-  merge; `compare`. `tools/` is outside the coverage floor's source, as the gate and `release.py` are.
+  bridge hash; the lock file; the command line `run` builds; the `init` check; skill loads; rows from the last message;
+  the health watch; the budget; NOT RUN; the merge; `compare`. `tools/` is outside the coverage floor's source, as the gate and `release.py` are.
 - **Live, by hand:** step 9. `test_integration.py` and `test_scenarios.py` are unchanged; neither touches what this
   adds.
 - **What neither shows:** whether the tester judges right. The session reads ten rows against their transcripts and
   evidence: every FAIL and WARN, and the PASS rows of 3.2, 12.8 and 22.5, which rest on an image. Whether a skill
   loads when it should, not only that some load: the counts show a run with none, not a wrong choice. Codex as the
-  tester (Q4), and the path rules on Linux and macOS (gone with I1), stay untested.
+  tester (Q4) stays untested, and so does ending a tester's process tree on Linux and macOS.
 
 ## Docs
 
@@ -347,7 +350,7 @@ Each step passes `uv run tools/gate.py full`. The skill, `finish-work` and `writ
 | `docs/releasing.md` | Step 2's bullet (Q11) |
 | `.claude/skills/finish-work/SKILL.md` | Step 3's sentence (Q11) |
 | `.claude/skills/write-skill/SKILL.md` | Step 5: a script that drives the server or the bridge imports the server's package and needs `uv sync`, as `tools/scenarios.py` does |
-| `.claude/settings.json` | Q13's allows, if any |
+| `.claude/settings.json` | The bare `check` and `compare` allowed (Q13) |
 | `test_project/AGENTS.md`, `CLAUDE.md`, `scenarios.md` | Q10 |
 | `CHANGELOG.md`, `README.md`, `docs/TOOLS.md`, `docs/ARCHITECTURE.md` | None: no user, tool, route or protocol change |
 
@@ -355,12 +358,12 @@ Each step passes `uv run tools/gate.py full`. The skill, `finish-work` and `writ
 
 | Risk | Status |
 |---|---|
-| The CLI's flags act otherwise than read: the strict flag and plugin servers, setting sources, a skill load, path rules on Windows | Resolved before code: step 2, its findings in this plan |
+| The CLI's flags act otherwise than read: the strict flag and plugin servers, setting sources, a skill load | Resolved before code: step 2, its findings in this plan |
 | No tester loads a skill, and a run still reports PASS (round 1, P1) | Resolved: step 2 proves a load under the run's flags; `run.json`, `results.md` and `compare` count loads per session |
 | The maintainer's own MCP servers or plugins reach a tester whose tools are pre-approved | Resolved: strict MCP config, setting sources, and the `init` check that stops the tester |
-| A tester rewrites the next session's plugin, servers or hooks, or an earlier phase's rows (P12) | Resolved: each session's config is written afresh outside the runs folder, and a tester may write only its own phase file (nothing at all under I1); only the plugin's skills load, and theirs pre-approve read-only tools alone |
+| A tester rewrites the next session's plugin, servers or hooks, or an earlier phase's rows (P12) | Resolved: each session's config is written afresh outside the runs folder, and a tester writes no file (I1); only the plugin's skills load, and theirs pre-approve read-only tools alone |
 | A run wipes a stage someone cares about | Resolved: port, stage and bridge rules; the override needs the maintainer's word |
-| `execute_script` is pre-approved in the tester and runs Python in Kit with the user's rights, so "no shell" doesn't fence the machine. The tester writes its own code for 6.3, 15.6 to 15.8, 15.14, 15.15 and 17.4, so the code isn't only the repo's | Q12: with Context7 dropped, accepted as the live suites' code is, on the test Kit; with it kept, text from outside the repo can shape that code, accepted by name |
+| `execute_script` is pre-approved in the tester and runs Python in Kit with the user's rights, so "no shell" doesn't fence the machine. The tester writes its own code for 6.3, 15.6 to 15.8, 15.14, 15.15 and 17.4, so the code isn't only the repo's | Accepted (Q12): Context7 is dropped, so the code comes from the scenarios, the skills and the model, and runs on the test Kit, as the live suites' code does |
 | The repo's developer rules load into the tester (the root's `.claude/CLAUDE.md` through parent discovery, if step 2 shows it does) | Accepted: the tester's `AGENTS.md` says they don't apply to it |
 | The tester marks PASS without looking, or calls more than the scenario asks | Accepted, watched: one phase per session, transcripts kept, ten rows spot-checked in step 9 and the report naming the calls behind each FAIL |
 | Time and cost unknown | Accepted: `run.json` records both, the skill states them after step 9, `--budget` caps a run |
@@ -413,14 +416,14 @@ wait on the maintainer; the parts I1 removes are marked I1, so taking it deletes
 
 | # | Improvement | Recommendation | Answer |
 |---|---|---|---|
-| I1 | Drop `Write` and `Edit` from the tester: the script writes `phase-NN.md` from the rows in each session's last message; captures land in `mcp_output/`, saves and exports are Kit's own writes | Take: it cuts the tester's writes, the Windows path-rule question and what is left of P12 together. The parts marked I1 go (the command, the Rows row, step 2's path check) and step 5's script writes the phase files | pending the maintainer |
-| I2 | `--setting-sources project`, without `local`: `settings.local.json` may hold hooks or hand-granted allows | Take | pending the maintainer |
-| I3 | One budget flag, `--budget`, for the run's total; each session gets what remains as its `--max-budget-usd`, a hard cap | Take, as long as it stays one flag | pending the maintainer |
-| I4 | A simpler lock: refuse while the lock file exists and say how to clear it, with no pid check; `os.kill(pid, 0)` on Windows sends `CTRL_C_EVENT` | Take | pending the maintainer |
-| I5 | `compare` exits non-zero when IDs are NOT RUN; `--against` takes a tag, the newest run at that commit | Take | pending the maintainer |
-| I6 | Step 2 runs from inside a Claude Code session's shell, as the skill will, and the `init` check refuses claude.ai connectors (`claude_ai_*` servers) | Take | pending the maintainer |
-| I7 | Before each session the script stops the timeline and any recording, which a killed session can leave running | Take | pending the maintainer |
-| I8 | `scenarios.md` line 3 still points at `results/test_results.md` and `CLAUDE.md`'s format: rewrite it, and send the header with its axis rule in every phase's prompt | Take | pending the maintainer |
+| I1 | Drop `Write` and `Edit` from the tester: the script writes `phase-NN.md` from the rows in each session's last message; captures land in `mcp_output/`, saves and exports are Kit's own writes | Take: it cuts the tester's writes, the Windows path-rule question and what is left of P12 together. The parts marked I1 go (the command, the Rows row, step 2's path check) and step 5's script writes the phase files | taken (2026-11-01) |
+| I2 | `--setting-sources project`, without `local`: `settings.local.json` may hold hooks or hand-granted allows | Take | taken (2026-11-01) |
+| I3 | One budget flag, `--budget`, for the run's total; each session gets what remains as its `--max-budget-usd`, a hard cap | Take, as long as it stays one flag | taken (2026-11-01) |
+| I4 | A simpler lock: refuse while the lock file exists and say how to clear it, with no pid check; `os.kill(pid, 0)` on Windows sends `CTRL_C_EVENT` | Take | taken (2026-11-01) |
+| I5 | `compare` exits non-zero when IDs are NOT RUN; `--against` takes a tag, the newest run at that commit | Take | taken (2026-11-01) |
+| I6 | Step 2 runs from inside a Claude Code session's shell, as the skill will, and the `init` check refuses claude.ai connectors (`claude_ai_*` servers) | Take | taken (2026-11-01) |
+| I7 | Before each session the script stops the timeline and any recording, which a killed session can leave running | Take | taken (2026-11-01) |
+| I8 | `scenarios.md` line 3 still points at `results/test_results.md` and `CLAUDE.md`'s format: rewrite it, and send the header with its axis rule in every phase's prompt | Take | taken (2026-11-01) |
 
 ### Round 2
 
@@ -455,4 +458,8 @@ alone takes over a stale lock and `check` only reads it.
 
 | # | Improvement | Recommendation | Answer |
 |---|---|---|---|
-| I9 | On Windows, stop a tester by ending its whole process tree (`taskkill /T /F` or a job object), and wait for it before deleting its config folder (ignoring delete errors) and starting the next session: `Popen.kill` ends only `claude.exe`, and its server's call in Kit can run up to 120 s into the next phase | Take | pending the maintainer |
+| I9 | On Windows, stop a tester by ending its whole process tree (`taskkill /T /F` or a job object), and wait for it before deleting its config folder (ignoring delete errors) and starting the next session: `Popen.kill` ends only `claude.exe`, and its server's call in Kit can run up to 120 s into the next phase | Take | taken (2026-11-01) |
+
+**The maintainer** (serionist) approved the plan on 2026-11-01: Q1 to Q13 as recommended, with Context7 dropped from
+the tester (Q12) and only the bare `check` and `compare` allowed (Q13), and I1 to I9 taken. Each is worked into the
+Design, the Steps, the Tests and the Risks above.
