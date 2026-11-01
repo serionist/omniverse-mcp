@@ -39,8 +39,10 @@ Needs: none
 - Create a ground plane: `create_prim("/World/Ground", "Cube", position=[0,-0.05,0], scale=[10,0.1,10])`
 - Create a cube: `create_prim("/World/RedCube", "Cube", position=[0,2,0], scale=0.3)`
 - Create a sphere: `create_prim("/World/BlueSphere", "Sphere", position=[1,0.5,0], scale=0.2)`
-- Create a light: `create_prim("/World/Light", "DistantLight", rotation=[-50,30,0])`. A distant light shines along
-  its own -Z, which this turns down onto the scene from the side 3.2's camera stands on
+- Create a light: `create_prim("/World/Light", "DistantLight", rotation=[-50,30,0])`, then
+  `execute_script("UsdLux.DistantLight(omni.usd.get_context().get_stage().GetPrimAtPath('/World/Light')).CreateIntensityAttr(3000.0)")`.
+  A distant light shines along its own -Z, which the rotation turns down onto the scene from the side 3.2's camera
+  stands on; 3000 is Kit's own sun's intensity, where the default 50000 washes the scene out white
 - Verify: `get_scene_tree` shows all 4 new prims
 
 ### 2.2 Transform Operations (Individual)
@@ -567,9 +569,9 @@ script.
 - `draw_debug("lines", ..., duration=10)` a red zigzag across the view, then `capture_viewport()`
 - Verify: the zigzag shows in the capture, and the render products, read again, are the ones read before the
   captures: each capture's own render went with it (#51)
-- Not this scenario's: a drawing captured at once, 5 times over, through `draw_debug`'s handler and
-  `mcp.capture_viewport()` in one script. That needs an `ovmcp.*` import and five awaited captures, which the tester's
-  rules forbid; pytest's `test_16_08` checks it, live
+- Not judged here, so it leaves this row's status alone: a drawing captured at once, 5 times over, through
+  `draw_debug`'s handler and `mcp.capture_viewport()` in one script. That needs an `ovmcp.*` import and five awaited
+  captures, which the tester's rules forbid; pytest's `test_16_08` checks it, live
 
 ### 16.9 The omni.debugdraw Backend
 - pytest's, not this suite's: `test_16_09` switches the bridge's drawing to `omni.debugdraw` with the bridge's own
@@ -604,7 +606,7 @@ Needs: none
 - `execute_script` with `result = int(omni.syntheticdata.sensors.get_instance_segmentation(get_active_viewport()).size)`
   (import `omni.syntheticdata` and `get_active_viewport` from `omni.kit.viewport.utility`)
 - Verify: 0. `omni.syntheticdata` drops its sensors on every stage open, so the new stage has no segmentation yet
-- `create_prim("/World/SegmentationCube", "Cube", position=[0, 0.5, 0], size=0.5)`
+- `create_prim("/World/SegmentationCube", "Cube", position=[0, 0.5, 0], scale=0.25)`, a cube 0.5 across
 - `inspect_prim("/World/SegmentationCube", angles=["front"], include_segmentation=True)`
 - Verify: the angle has a segmentation file with the cube in its legend, and no `seg: ERROR`: the bridge turned the
   sensor on for the capture's own render and waited for its first data
