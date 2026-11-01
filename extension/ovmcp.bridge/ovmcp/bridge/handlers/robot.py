@@ -4,34 +4,30 @@ Robot handlers.
 Handles robot creation, info, joint states, and joint target setting.
 """
 
-import functools
 import os
 
 from pxr import Sdf, Tf, Usd, UsdGeom, UsdPhysics
 
-from ovmcp.core.robot import (
+from ovmcp.core.metrics import (
     UNITS_OP,
     UP_AXIS_OP,
     Converted,
     Exponents,
     Factors,
-    Table,
     Units,
-    articulation_root,
     convert_units,
     file_up_axis,
-    is_usd_file,
     layer_units,
-    robot_prim_path,
     scale_to_stage,
     stand_upright,
     units_factors,
     up_axis_turn,
 )
+from ovmcp.core.robot import articulation_root, is_usd_file, robot_prim_path
 from ovmcp.core.usd_files import LIBRARY_PREFIX, usd_file_url
 from ovmcp.core.xform import check_transform, write_transform
 
-from ._utils import _first_missing, _get_stage, _next_update
+from ._utils import _first_missing, _get_stage, _next_update, _physics_exponents
 
 # ---------------------------------------------------------------------------
 # Robot asset registry
@@ -63,25 +59,6 @@ def _assets_root() -> str | None:
     except ImportError:
         return None
     return get_assets_root_path()
-
-
-@functools.cache
-def _physics_exponents() -> Table | None:
-    """The PhysX schema's table of units, the one Kit's metrics assembler's physics rules register, imported once;
-    None in a Kit app without the PhysX schema."""
-    try:
-        from pxr.PhysicsSchemaTools import units
-    except ImportError:
-        return None
-
-    def exponents(name: str, prim: Usd.Prim) -> Exponents | None:
-        found = units.get_attribute_unit_exponents(name, prim)
-        # A dict holds units the table can't tell apart for this prim; None, a name it doesn't hold.
-        if not isinstance(found, tuple):
-            return None
-        return Exponents(mass=found[0], distance=found[1])
-
-    return exponents
 
 
 def _no_table(_name: str, _prim: Usd.Prim) -> Exponents | None:

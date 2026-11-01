@@ -5,6 +5,7 @@ These are internal utilities — not exposed as HTTP endpoints.
 """
 
 import contextlib
+import functools
 import json
 import tempfile
 import time
@@ -19,6 +20,7 @@ from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade
 # The module, not its names: its limits are read when a wait runs, so a live test can shorten one.
 from ovmcp.core import capture
 from ovmcp.core.extensions import extension_step, is_listed
+from ovmcp.core.metrics import Exponents, Table
 
 DEFAULT_CAMERA_PATH = "/OmniverseKit_Persp"
 
@@ -75,6 +77,25 @@ def _get_stage() -> Usd.Stage:
     if stage is None:
         raise RuntimeError("No USD stage is open")
     return stage
+
+
+@functools.cache
+def _physics_exponents() -> Table | None:
+    """The PhysX schema's table of units, the one Kit's metrics assembler's physics rules register, imported once;
+    None in a Kit app without the PhysX schema. create_robot and create_prim read it to convert a file's values."""
+    try:
+        from pxr.PhysicsSchemaTools import units
+    except ImportError:
+        return None
+
+    def exponents(name: str, prim: Usd.Prim) -> Exponents | None:
+        found = units.get_attribute_unit_exponents(name, prim)
+        # A dict holds units the table can't tell apart for this prim; None, a name it doesn't hold.
+        if not isinstance(found, tuple):
+            return None
+        return Exponents(mass=found[0], distance=found[1])
+
+    return exponents
 
 
 CAMERA_SETTLE_FRAMES = 20
