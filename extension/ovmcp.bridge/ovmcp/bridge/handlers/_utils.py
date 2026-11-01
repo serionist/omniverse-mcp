@@ -119,6 +119,17 @@ async def _next_update():
     await omni.kit.app.get_app().next_update_async()
 
 
+class _OnFeed:
+    """A capture delegate queued on a camera feed, whose result fails at once when the feed is let go during the
+    capture (CameraFeed.result_of), not after FRAME_SECONDS."""
+
+    def __init__(self, feed, delegate):
+        self._feed, self._delegate = feed, delegate
+
+    def wait_for_result(self):
+        return self._feed.result_of(self._delegate)
+
+
 async def capture_feed_png(feed, budget: capture.Budget | None = None) -> bytes:
     """A camera feed's next frame as PNG bytes (capture_file_png), taken as the viewport's are (camera_feed.py).
 
@@ -132,7 +143,7 @@ async def capture_feed_png(feed, budget: capture.Budget | None = None) -> bytes:
 
     def schedule(path: str):
         scheduled.append(feed.schedule(FileCapture(path)))
-        return scheduled[-1]
+        return _OnFeed(feed, scheduled[-1])
 
     try:
         return await capture_file_png(schedule, budget)

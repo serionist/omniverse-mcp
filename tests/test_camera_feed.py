@@ -36,8 +36,11 @@ class FakeTexture:
         self.updates: list[bool] = []
         self.stream_subscriptions: list[tuple[Any, ...]] = []
         self._log = log if log is not None else []
+        self.refuses_camera = False
 
     def __setattr__(self, name: str, value: Any) -> None:
+        if name == "camera_path" and getattr(self, "refuses_camera", False):
+            raise RuntimeError("Kit refused the camera")
         if name in ("camera_path", "width", "height"):
             self._log.append((name, value))
         super().__setattr__(name, value)
@@ -573,6 +576,7 @@ def test_a_call_at_the_size_of_the_last_reuses_its_feed_and_sets_a_new_camera_on
     other = feeds.kept_feed("/World/Other", 320, 240)
     assert other is first
     assert len(kit.created) == 1  # no new texture, so no new RTX view (#114's K15)
+    assert kit.created[0][0].startswith("ovmcp_capture_")
     assert kit.log == [("camera_path", "/World/Other")]
     # The boxes and segmentation read the feed's camera: they follow the texture's.
     assert (first.camera_path, first.resolution) == ("/World/Other", (320, 240))
@@ -654,8 +658,8 @@ def test_a_calls_segmentation_is_turned_off_as_its_feed_is_kept_and_its_graphs_f
     kit.log.clear()
 
     _put_back(feeds, feed)
-    # Off between calls: left on, Kit's updates a second while idle fell from 137 to 110 (#114's step 1). The graph
-    # stays.
+    # Off between calls: left on, Kit's updates a second while idle fell from 157 to 110 (#114's step 1, S1). The
+    # graph stays.
     assert kit.log == [("disable", feed.render_product_path, ["InstanceSegmentation"])]
     assert (feed.segmented, feed.sensor_on) == (True, False)
     assert kit.registry._nodeGraphs
@@ -767,13 +771,85 @@ def test_the_stages_events_are_observed_once(feeds, kit):
     assert names == ["stage event closing", "stage event saving"]
 
 
-def test_a_feed_let_go_during_a_call_fails_its_waits_at_once(feeds, kit):
+def test_a_feed_let_go_during_a_call_fails_its_waits_at_once(feeds, utils, kit):
+    # Kit saves during the call: no wait runs its FRAME_SECONDS for a frame that can't come.
+    fresh = feeds.kept_feed("/World/Cam", 320, 240)  # a new feed, waiting for its first frame
+    kit.stage_event("saving")
+    with pytest.raises(capture.NoFrameError, match="was let go during the call"):
+        asyncio.run(asyncio.wait_for(fresh.first_frame(capture.FRAME_SECONDS), 1.0))
+
     feed = _kept_with_frames(feeds, kit)
-    kit.stage_event("saving")  # Kit saves during the call
+
+    async def saved_while_a_capture_waits() -> bytes:
+        scheduled = asyncio.Event()
+        schedule = feed.schedule
+
+        def schedule_and_say(delegate: Any) -> Any:
+            scheduled.set()
+            return schedule(delegate)
+
+        feed.schedule = schedule_and_say
+        taking = asyncio.ensure_future(utils.capture_feed_png(feed))
+        await scheduled.wait()
+        kit.stage_event("saving")  # drop takes the waiting capture back: it would never get its frame
+        return await asyncio.wait_for(taking, 1.0)
+
+    with pytest.raises(capture.NoFrameError, match="was let go during the call"):
+        asyncio.run(saved_while_a_capture_waits())
     with pytest.raises(capture.NoFrameError, match="was let go during the call"):
         asyncio.run(feed.wait_frames(20))
     with pytest.raises(capture.NoFrameError, match="was let go during the call"):
         feed.schedule(FakeDelegate())
+
+
+def test_kits_save_during_a_release_deletes_its_render_product_before_it_writes(feeds, kit):
+    # The caller let the feed go before release's updates, so Kit's Save between them finds no kept feed.
+    feed = _segmented(feeds, kit)
+    feeds._observe_stage()
+    at_the_save: list[Any] = []
+
+    def save_during_the_updates(_event: Any) -> None:
+        if not at_the_save:
+            kit.stage_event("saving")
+            at_the_save.extend([list(kit.log), bool(kit.stage.GetPrimAtPath(feed.render_product_path))])
+
+    kit.on_update = save_during_the_updates
+    asyncio.run(feeds.release(feed))
+    done_by_then, product_left = at_the_save
+    # Stopped and its graph freed before the save, as the measured teardown has it; its render product gone at it.
+    assert done_by_then == [
+        ("disable", feed.render_product_path, ["InstanceSegmentation"]),
+        ("updates", False),
+        ("reset", "this feed's graph", "session layer"),
+        "update",
+    ]
+    assert product_left is False
+    assert feeds._releasing == set()
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+
+
+def test_kits_save_still_drops_and_deletes_after_an_error_no_step_expects(feeds, kit):
+    feed = _segmented(feeds, kit)
+    feeds._kept.keep(feed, kit.stage_id)
+    feeds._observe_stage()
+    kit.sensor_error = OSError("the graph went away")
+    with pytest.raises(OSError, match="the graph went away"):
+        kit.stage_event("saving")
+    assert kit.log == [("updates", False), ("reset", "this feed's graph", "session layer")]
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+
+
+def test_a_kept_feed_that_will_not_take_the_calls_camera_is_discarded(feeds, kit):
+    feed = _kept_with_frames(feeds, kit)
+    _put_back(feeds, feed)
+    kit.textures[-1].refuses_camera = True
+    with pytest.raises(RuntimeError, match="refused the camera"):
+        feeds.kept_feed("/World/Other", 320, 240)
+    # Half aimed it would render one camera while the boxes said another.
+    assert feeds._kept.feed is None
+    assert kit.textures[0].updates == [False]
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+    assert feeds.kept_feed("/World/Other", 320, 240) is not feed
 
 
 def test_a_route_that_writes_the_stage_holds_the_lock_with_no_feed_kept(feeds, kit):
