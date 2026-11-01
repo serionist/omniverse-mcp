@@ -178,12 +178,12 @@ too (C7, C8), and its fake keeps the drawable-changed observers it has.
 
 | Q | Question | Options | Recommendation | Answer |
 |---|---|---|---|---|
-| Q1 | One helper, or the call in each place? | **A.** `handlers/_updates.py`'s `on_update(name, callback)` holds the event, the order and the name; the three call it. **B.** The `observe_event` call inline in each, as `camera_feed._subscribe` inlines the drawable-changed one | A: the order and why live in one place with one test, and the next Kit change is one edit. It costs `test_camera_feed.py` a package-style load (C7) | |
-| Q2 | Where in the update? | **A.** Order 0 of the update event, where the stream's subscriptions ran (C4); P1 measured the stream's 0 as that place. **B.** The post-update event, after Hydra's render is scheduled. **C.** The pre-update event, before USD's update and physics | A, settled by P1: the three run where they ran, so nothing measured under #25, #57 and #69 moves. B would read a frame's simulation time after its render was scheduled and move `omni.debugdraw`'s lines out of the update they were drawn for; C would read the simulation time before this update's step | |
-| Q3 | A fallback for a Kit without the update event? | **A.** None: Kit 107.3.3 has it (K1 to K5). **B.** The stream where `omni.kit.app` lacks `GLOBAL_EVENT_UPDATE`, as `_subscribe` does for drawable-changed | A: B adds a branch no supported Kit takes and only a fake can run. Isaac Sim 5.0 is not on disk (Risks) | |
-| Q4 | How is each released? | **A.** The guard dropped, as now and as Kit's own code does (`async_engine.py` `on_shutdown`); K3 gives collection `reset()`'s guarantee, from inside its own call too. **B.** `reset()` called, then the guard dropped | A, settled by P3: a guard dropped in its own call ended the calls as `reset()` did, and P5 saw none after a drop | |
-| Q5 | A CI guard against the deprecated app streams? | **A.** `tests/test_updates.py` fails when any file under `extension/ovmcp.bridge` names one of the app's stream getters K1 lists, but the log stream's, which `tests/test_logs.py` refuses already. **B.** None | A: CI runs on every PR, the live suites only by hand | |
-| Q6 | How is Kit's log checked live? | **A.** A scenario test, `test_17_08`, in phase 17, which already changes the stage: a recording stopped by a new stage, then a 0.5 s drawing; `get_logs` since its start holds the bridge's own Info line and no "Use Events 2.0" notice naming `ovmcp/bridge`. **B.** By hand: those notices in a live-suite run's Kit log, on main's extension and the branch's, in the PR. **C.** Both | C: A keeps it checked and fails on main's extension; B gives the whole run's numbers, before and after | |
+| Q1 | One helper, or the call in each place? | **A.** `handlers/_updates.py`'s `on_update(name, callback)` holds the event, the order and the name; the three call it. **B.** The `observe_event` call inline in each, as `camera_feed._subscribe` inlines the drawable-changed one | A: the order and why live in one place with one test, and the next Kit change is one edit. It costs `test_camera_feed.py` a package-style load (C7) | A (serionist, 2026-11-01) |
+| Q2 | Where in the update? | **A.** Order 0 of the update event, where the stream's subscriptions ran (C4); P1 measured the stream's 0 as that place. **B.** The post-update event, after Hydra's render is scheduled. **C.** The pre-update event, before USD's update and physics | A, settled by P1: the three run where they ran, so nothing measured under #25, #57 and #69 moves. B would read a frame's simulation time after its render was scheduled and move `omni.debugdraw`'s lines out of the update they were drawn for; C would read the simulation time before this update's step | A, settled by P1 (serionist, 2026-11-01) |
+| Q3 | A fallback for a Kit without the update event? | **A.** None: Kit 107.3.3 has it (K1 to K5). **B.** The stream where `omni.kit.app` lacks `GLOBAL_EVENT_UPDATE`, as `_subscribe` does for drawable-changed | A: B adds a branch no supported Kit takes and only a fake can run. Isaac Sim 5.0 is not on disk (Risks) | A (serionist, 2026-11-01) |
+| Q4 | How is each released? | **A.** The guard dropped, as now and as Kit's own code does (`async_engine.py` `on_shutdown`); K3 gives collection `reset()`'s guarantee, from inside its own call too. **B.** `reset()` called, then the guard dropped | A, settled by P3: a guard dropped in its own call ended the calls as `reset()` did, and P5 saw none after a drop | A, settled by P3 (serionist, 2026-11-01) |
+| Q5 | A CI guard against the deprecated app streams? | **A.** `tests/test_updates.py` fails when any file under `extension/ovmcp.bridge` names one of the app's stream getters K1 lists, but the log stream's, which `tests/test_logs.py` refuses already. It skips `__pycache__`, as `tests/test_logs.py` does, so a stale `.pyc` left by a pull, or Kit 107's `cpython-311` one, can't fail it on fixed code. **B.** None | A: CI runs on every PR, the live suites only by hand | A (serionist, 2026-11-01) |
+| Q6 | How is Kit's log checked live? | **A.** A scenario test, `test_17_08`, in phase 17, which already changes the stage: a recording stopped by a new stage, then a 0.5 s drawing; `get_logs` since its start holds the bridge's own Info line and no "Use Events 2.0" notice naming `ovmcp/bridge`. **B.** By hand: those notices in a live-suite run's Kit log, on main's extension and the branch's, in the PR. Kit is started again for each run, so each run's notices are a Kit log file of their own, from its first line. **C.** Both | C: A keeps it checked and fails on main's extension; B gives the whole run's numbers, before and after | C (serionist, 2026-11-01) |
 
 ## Compatibility
 
@@ -202,7 +202,7 @@ Each step builds and passes `uv run tools/gate.py quick`.
 |---|---|---|
 | 0 | Done: the probe, run by the session on Isaac Sim 6.2 at 8212; its results are above, and settle `ORDER` (Q2), Q4 and the helper's error handling | `122-probe.out.txt` |
 | 1 | This plan, the branch's first commit; `review-plan`; the maintainer's answers | |
-| 2 | Wait for #114 and #111 to merge; rebase onto `origin/main`; read `camera_feed.py`, `recording.py` and `debug_draw.py` again and list every update subscription; amend C1 to C3 and the roles if they moved | `rg "update_event_stream\|create_subscription_to_pop" extension` |
+| 2 | Wait for #114 and #111 to merge; rebase onto `origin/main`; read `camera_feed.py`, `recording.py` and `debug_draw.py` again and list every update subscription; amend C1 to C3 and the roles if they moved | The guard's scan (Q5, step 7), run on the rebased tree before any edit: the files it names are the work |
 | 3 | `handlers/_updates.py`; `FakeUpdates` in `tests/conftest.py` | `tests/test_updates.py` |
 | 4 | U2: `debug_draw.py` through `on_update` | `tests/test_debug_draw_handler.py` |
 | 5 | U1: `recording.py` through `on_update` | `tests/test_recording_handler.py` |
@@ -210,7 +210,7 @@ Each step builds and passes `uv run tools/gate.py quick`.
 | 7 | U5: the guard (Q5) | `tests/test_updates.py` |
 | 8 | U6: `test_17_08` (Q6) | Run by the session |
 | 9 | The docs (Docs) | The gate |
-| 10 | The live suites by the session on Isaac Sim 6.2 at 8212, whole, on the default up axis (nothing here reads it), main's extension then the branch's: `test_17_08` fails then passes; the notices naming the bridge in each run's Kit log counted (Q6 B). On Isaac Sim 5.1 too, if the session has one | No failure beyond main's on the same Kit |
+| 10 | The live suites by the session on Isaac Sim 6.2 at 8212, whole, on the default up axis (nothing here reads it), main's extension then the branch's, each on a Kit started for it: `test_17_08` fails then passes; the notices naming `ovmcp/bridge` counted in each run's own Kit log file (Q6 B). Isaac Sim 5.1 is a later check (Plan review, improvement 1) | No failure beyond main's on the same Kit |
 | 11 | `finish-work`: the gate in full, `review-code` | |
 
 ## Tests
@@ -219,7 +219,7 @@ Each step builds and passes `uv run tools/gate.py quick`.
 
 | File | What | At `84acfa5` |
 |---|---|---|
-| `tests/test_updates.py` (new) | `on_update` observes `GLOBAL_EVENT_UPDATE` at order 0 as `ovmcp.bridge <name>`; calls back once an update, with no argument; a guard reset, dropped, or dropped in its own call, ends the calls. The guard (Q5): each deprecated getter is found in a sample; `on_update`'s own call passes; no file under the extension names one | The guard fails: three files name the update stream |
+| `tests/test_updates.py` (new) | `on_update` observes `GLOBAL_EVENT_UPDATE` at order 0 as `ovmcp.bridge <name>`; calls back once an update, with no argument; a guard reset, dropped, or dropped in its own call, ends the calls. The guard (Q5): each deprecated getter is found in a sample; `on_update`'s own call passes; no file under the extension names one, `__pycache__` skipped as `tests/test_logs.py` skips it | The guard fails: three files name the update stream |
 | `tests/test_debug_draw_handler.py` | Its fake app loses the stream; updates come through `FakeUpdates`. One observer while drawings show, none once the book is idle or the backend is off, as now | Fails: the handler calls the stream |
 | `tests/test_recording_handler.py` | The same; one observer a recording, gone at stop, at a forced restart and at shutdown | Fails likewise |
 | `tests/test_camera_feed.py` | The same, for both Kit forms of the drawable event; `camera_feed.py` loaded into a fake package | Fails likewise |
@@ -251,11 +251,48 @@ USD Composer. The observers' thread there rests on K2 and K3.
 |---|---|
 | The stream's order 0 and the observers' order 0 are different places in the update | Resolved by P1 on Kit 110: one place. Kit 107 wasn't probed; its orders and `next_update_async` are the same (K4, K5) |
 | Kit stops calling an observer whose callback raised, where it went on calling a stream's | Resolved by P4 on Kit 110: Kit calls both again |
-| Isaac Sim 5.0 isn't on disk: a Kit 107 before 107.3.3 might lack the update event | Accepted: the extension supports Kit 107 and later, and 5.1's Kit 107.3.3 has it, with Kit's own `next_update_async` and Replicator observing it (K5) |
+| Isaac Sim 5.0 isn't on disk: a Kit 107 before 107.3.3 might lack the update event | Accepted: the extension supports Kit 107 and later, and 5.1's Kit 107.3.3 has it, with Kit's own `next_update_async` and Replicator observing it (K5). `122-probe.py` on Isaac Sim 5.1 is a later check: no 5.1 Kit runs in this batch |
 | #114 or #111 adds or moves an update subscription | Accepted: step 2 reads the code again after both merge, and the guard (Q5) fails on any stream left |
 | The observers' thread in Isaac Sim's GUI or another Kit app | Accepted: P2 measured the main thread on Isaac Sim 6.2 headless, with async rendering off; elsewhere it rests on the update event being the main run loop's (K2), dispatched by its thread (K3) |
 | A guard kept alive by a stray reference goes on calling | Accepted: each is held in one attribute, as each subscription is now, and the unit tests drop each and count the calls after |
 
 ## Plan review
 
-Not reviewed yet.
+### Round 1
+
+**How:** one fresh reviewer, started by the main session, read only, 2026-11-01, on `81850b3`. **Verdict:** approved:
+no blocker or major, one minor; no further round. **Now:** P1 fixed, improvements 2 and 3 taken, in the commit after
+`81850b3`. The maintainer answered Q1 A, Q3 A, Q5 A and Q6 C; Q2 and Q4 are A, settled by the probe (2026-11-01).
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P1 | minor | Q5 and Tests (`tests/test_updates.py`): the guard reads every file under the extension, `__pycache__` included. After a pull, a stale `recording.cpython-312.pyc` that still holds the old name fails the guard on code already fixed, and a Kit 107 `cpython-311.pyc` would do the same; the main checkout has 43 `.pyc` files under `extension/`. `tests/test_logs.py` skips them (`"__pycache__" not in p.parts`) | fixed: Q5 and the Tests row say the guard skips `__pycache__`, as `tests/test_logs.py` does |
+
+**Refuted:**
+
+- Order 0 is the stream's place: P1 gave `update-9`, `stream-9`, `update+0`, `stream+0`, ..., `update+31`,
+  `stream+31`, `update+49` in all 7 whole updates, and the stream's subscriptions default to 0
+  (`carb/events/_events.pyi:96`).
+- The thread: P2, with `loop_thread_is_main` true.
+- An observer that raises: the stream subscription does the same (P4), so no new risk.
+- The guards' lifetimes: the same attributes and the same release sites as the subscriptions they replace.
+- #111: its `_on_update` adds no subscription.
+- Kit 107: Isaac Sim 5.1 has `GLOBAL_EVENT_UPDATE`, `UPDATE_ORDER_UNSPECIFIED`, `observe_event`,
+  `ObserverGuard.reset`, and `next_update_async` at 50; Isaac Sim 5.0 is an accepted risk.
+- The guard's false hits: none.
+- `test_17_08` sees the call stack: a multi-line entry's continuation lines join its `msg` (`core/logs.py:198`).
+- Phases 22 to 26: unaffected.
+
+**Owner calls:**
+
+| # | Question | Recommendation | Answer |
+|---|---|---|---|
+| Q1 to Q6 | Decisions for the maintainer | The reviewer agrees with each | Q1 A, Q3 A, Q5 A, Q6 C; Q2 A and Q4 A, settled by P1 and P3 (serionist, 2026-11-01) |
+
+**Improvements:**
+
+1. Run `122-probe.py` on Isaac Sim 5.1: left: no 5.1 Kit is started in this batch; a later check (Risks).
+2. Step 2's `rg` command, whose `\|` the table escapes: taken. Step 2's proof is the guard's scan, run on the
+   rebased tree.
+3. Q6 B: say how each run's part of Kit's log is cut: taken. Each run is on a Kit started for it, so its notices are
+   that start's own log file (Q6, step 10).
