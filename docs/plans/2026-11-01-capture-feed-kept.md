@@ -62,7 +62,7 @@ K7, K11 and K12.
 | K12 | Moved after the texture is made, the root layer's `def` copied into the session layer and removed from the root layer with its products target, the feed keeps rendering (24 frames in 30 updates), captures (not black), the root layer names it nowhere, and `release` still deletes it from both. Kit's own viewport render product is in the root layer's products too | `move.txt` |
 | K13 | A Kit that had run #119's live suites (about 94 views) hung on the third view of a probe, at view 97, the log ending at the view's set-up | `p2-rootspecs-*` |
 | K14 | A feed kept alive after a camera move shows the previous view for 1 update or 2: #51's E14, 10.7 at 0 and 1 updates, 0.45 at 3; under Path Tracing 7.0 at 0 and 1, 0.0 from 3 | #51's plan, E14 |
-| K15 | Camera switches on one kept feed don't hang: `--mode flicker --switch`, one feed rendering throughout, its `camera_path` set between the active camera and `/OmniverseKit_Top` every 3 frames, 8,000 switches in 7 minutes, no hang, where flicker's new views hung within 41 to 421. Kit's log gained no `createViewport` and no `View 1 ... assigned to device 0` lines for them after the first: 161 assignment lines before the probe, 166 after, the probe's feed made, its first switch and its release among the five. K12's move logged the assignment lines once too | `r4-camswitch.jsonl`, `r4-camswitch-kit.log` |
+| K15 | Camera switches on one kept feed don't hang: `--mode flicker --switch`, one feed rendering throughout, its `camera_path` set between the active camera and `/OmniverseKit_Top` every 3 frames, 8,000 switches in 7 minutes, no hang, where flicker's new views hung within 41 to 421. Kit's log gained no `createViewport` and no `View 1 ... assigned to device 0` lines for them after the first: 161 assignment lines before the probe, 166 after: the viewport's View 0, the probe's feed made, its updates turned back on (the probe turns them off after the first frame, which a kept feed never does), its first switch, and View 0 again after `new_scene`. K12's move logged the assignment lines once too | `r4-camswitch.jsonl`, `r4-camswitch-kit.log` |
 | K16 | `Sdf.CopySpec` replaces the destination spec, it doesn't merge: onto a session `over` holding `deviceIds`, `viewportHandle`, a segmentation `orderedVars` target and `ogPostProcessPath`, it left the root's `def` alone; a partial root `over` copied onto a full session `def` left a typeless `over`. omni.syntheticdata writes its segmentation into the session layer as soon as it is turned on (`SyntheticData.py`, `activate_node_template` under `Usd.EditContext(stage, session_layer)`) | round 2's usd-core checks, `copyspec.py`, `copyspec2.py` |
 | K17 | After K12's move, Kit writes each later change into the root layer as an `over`: a camera change wrote `camera` = Top and `resolution`; a resize wrote `resolution` = 640x480 and `camera` read back from the composed value (Persp). The texture renders the composed render product, so the moved session spec hid both: the capture stayed Persp at 320x240 | `move2.json` |
 | K18 | A moved feed renders exactly as an unmoved one (difference 0.0), and a camera switch on an unmoved feed exactly as a fresh feed of that camera (0.01). Replacing the session spec's properties with Kit's root `over` after a change gave the right camera and size but a different image (mean 226 of 255 against a fresh feed's 3) | `move3b.json`, `114-move4.py`, `114-move5.py`, `move3png/` |
@@ -85,10 +85,12 @@ maintainer's to stop), on Linux, on Isaac Sim 5.x (Kit 107), or with a render mo
   and #57's guard for every call: the frame taken comes 20 of the feed's frames after the call starts, more than a
   fresh feed's 15 updates. `inspect_prim`'s per-angle settle stays as it is.
 - **Saves:** the render product stays where Kit puts it, in the root layer with an `over` in the session layer
-  (K11). `save_scene`, `flatten_usd` and `export_prim` call `release_kept()` first, which takes `_viewport` and
-  releases the kept feed in `release`'s order, so none of them writes it. Kit's own Save within the 30 s writes it into
-  the file, as Kit writes its viewport's own render product (K12); Q7 asks whether that is acceptable. The live tests
-  call `release_kept()` through `execute_script` too.
+  (K11). `save_scene`, `flatten_usd` (with or without `input_path`, since `open_to_flatten` takes Kit's held
+  layers) and `export_prim` take `_viewport`, release the kept feed in `release`'s order, and hold the lock through
+  their write, so no call makes a feed in between and none of them writes it. Kit's own Save while a feed is kept
+  writes it into the file, as Kit writes its viewport's own render product (K12): that is up to 30 s after each
+  capture, so for an agent capturing more often, the agent's whole session. Q7 asks whether that is acceptable. The
+  live tests call `release_kept()` through `execute_script`.
 - **`put_back(feed, healthy)`** replaces `release(feed)` at the end of each handler. A healthy feed starts the idle
   timer: 30 s with no call (Q2), then `release`. A feed is released at once when any exception escaped the capture
   (`NoFrameError`, `OutOfTimeError`, the handler's "Kit captured nothing" `CaptureError`, or one it didn't expect, an
@@ -97,6 +99,9 @@ maintainer's to stop), on Linux, on Isaac Sim 5.x (Kit 107), or with a render mo
   kept (`_SEGMENTATION_AS_BEFORE`'s "capture again" then gets a feed of
   its own). A Kit without omni.syntheticdata, where `enable_segmentation` returns a reason and touches nothing, keeps
   its feed. A feed the stage event already discarded is left alone.
+- **The lock:** `_viewport` moves from `camera.py` into `camera_feed.py`, which `camera.py` already imports, so
+  `release_kept`, the timer and the save handlers take the one lock. It isn't re-entrant (`serial.py`), so the
+  at-once releases inside `kept_feed` and `put_back`, which run holding it, call `release` directly.
 - **The timer:** a module constant, the idle seconds, so the unit tests run fast. Its release takes `_viewport`, then
   checks that the feed is still the kept one and that no call took it since (a generation number), so a timer that
   fires as a call puts the feed back does nothing.
@@ -110,11 +115,12 @@ maintainer's to stop), on Linux, on Isaac Sim 5.x (Kit 107), or with a render mo
   (`omni.usd.get_context().stage_event_name(...)` with `carb.eventdispatcher`, which Kit 107's `omni.usd` 1.13.10
   has too). omni.syntheticdata resets its own graphs on `CLOSING`, so none leak. `kept_feed` also checks the stage is
   the one the feed was made on.
-- **Shutdown:** `forget` stops the timer, turns the kept feed's segmentation off and frees its graphs (both
-  synchronous in `release`), drops it, and deletes its render product when the stage is `OPENED`
-  (`remove_render_product` already checks that), without `release`'s two updates, which shutdown can't wait. Step 1
-  checks that this order leaves Kit's log quiet (#51's E16); if it doesn't, a segmented feed's render product is left
-  for the next stage's leftovers, and a disable within the 30 s is a Risks row.
+- **Shutdown:** `forget` stops the timer and tears the kept feed down in `release`'s order without its two updates,
+  which shutdown can't wait: segmentation off, the feed dropped, the graphs freed, the render product deleted when the
+  stage is `OPENED` (`remove_render_product` already checks that). Step 1 checks that this leaves Kit's log quiet in
+  #51's E16 windows (2 s, a save, a new stage, the viewport's segmentation afterwards). If it doesn't, a segmented
+  feed's render product is left in the root layer, since nothing of the extension runs after shutdown (`forget` also
+  clears the leftovers), and a save after a disable within the window writes it into the file: a Risks row.
 - **The answer:** unchanged. `inspect_prim`'s and `capture_viewport`'s results don't say whether the feed was kept.
 
 Alternatives:
@@ -150,23 +156,24 @@ server keeps its feed and gets today's error. Both are fine (0.x).
 ## Steps
 
 1. **Measure and look up:** Kit's stage events on Events 2.0 in Kit 110 and 107 (Context7, the installed sources);
-   whether a resize or a camera change writes into the root layer again; a kept feed's idle cost at 640x480,
+   a kept feed's idle cost at 640x480,
    1920x1080 and 4096x4096 (frames a second, Kit's updates a second, the 3D engine's share, VRAM), with and without
    segmentation, which sets the size cap and the segmentation rule; a resized feed's segmentation at the new size; a
-   segmented kept feed, resized and re-aimed, still giving a legend and capturing both cameras right; shutdown's order
-   (segmentation off, graphs freed, the render product deleted with no updates) leaving Kit's log quiet. Recorded in
-   this plan.
+   segmented kept feed, resized and re-aimed, still giving a legend and capturing both cameras right; shutdown's
+   order (segmentation off, drop, graphs freed, the render product deleted, no updates) leaving Kit's log quiet in
+   E16's windows; and a file saved by Kit with a kept feed's render product in it, reopened: what Kit logs and
+   renders. Recorded in this plan.
 2. **`camera_feed.py`:** `kept_feed`, `put_back`, `release_kept`, the timer with its generation, the stage
    subscription, `forget`. Unit tests in `tests/test_camera_feed.py` with the fake texture: same size reused with the
    camera set on both; another size resized in place; above the cap a feed of its own; the timer releases after the
    idle seconds and a call stops it; a stale timer does nothing; an escaped exception and a sensor that raised release
    at once, a Kit without omni.syntheticdata and an empty legend keep the feed; `release_kept` with none kept is a
    no-op; a stage closing drops and discards; shutdown turns segmentation off, frees the graphs, drops and deletes.
-   `save_scene`, `flatten_usd` and `export_prim` call `release_kept` first (`test_scene_save_handler.py`,
-   `test_usd_advanced_handler.py`).
+   `save_scene`, `flatten_usd` and `export_prim` release the kept feed first and hold the lock through their write
+   (`test_scene_save_handler.py`, `test_flatten_handler.py`).
 3. **`camera.py`:** both handlers through `kept_feed` and `put_back`, and the settle on every capture;
-   `test_camera_handler.py` checks a call's feed is put back, the second call at the same size makes none, and the
-   settle is waited when the feed already has frames.
+   `test_camera_handler.py` checks a call's feed is put back, the second call at the same size makes none, the
+   settle is waited when the feed already has frames, and an `inspect_prim` angle's error releases the feed.
 4. **The server:** `client.py`'s silent mark and health check, `_bridge.py`'s message; `test_client.py` and
    `test_tools.py`.
 5. **Docs and CHANGELOG** (Docs, below).
@@ -184,10 +191,11 @@ server keeps its feed and gets today's error. Both are fine (0.x).
     `ovmcp_capture` render product on the stage);
   - `test_26_04`: camera B straight after camera A at one size, and a USD move then `mcp.capture_viewport()` inside one
     `execute_script`, each against a fresh feed's capture within K7's bounds;
-  - `test_26_05`: `save_scene`, `flatten_usd` and `export_prim` straight after a capture write no `ovmcp_capture_`.
+  - `test_26_05`: `save_scene`, `flatten_usd` and `export_prim` of `/Render`, the subtree the render product is in,
+    straight after a capture write no `ovmcp_capture_`.
 - **Live, changed,** each still checking what it checked, after the kept feed goes:
-  - `test_12d` and `test_13b`: `_assert_nothing_left` runs after the kept feed's release, which the tests ask for
-    through `execute_script`. `test_12d`'s failing half checks straight after the call with no release asked for,
+  - `test_12d` and `test_13b`: the kept feed is released, through `execute_script`, before `before` is read and
+    again before `_assert_nothing_left`, so both compare stages with no kept feed. `test_12d`'s failing half checks straight after the call with no release asked for,
     since the handler's "Kit captured nothing" escapes the capture and releases its feed itself;
   - `test_16_08` and `test_16_09`: `_a_capture_at_once_holds_the_drawing` releases any kept feed (through
     `execute_script`) before each `HYDRA_TEXTURES` read, so both reads compare stages with no kept feed and an extra
@@ -211,7 +219,10 @@ server keeps its feed and gets today's error. Both are fine (0.x).
 - `AGENTS.md` Traps: #51/#57's row's guard rewritten (the frame taken comes 20 of the feed's frames after the call
   sets the camera), and a row for this hang only if a line can be freed (it is at its 150-line cap); else
   `docs/ARCHITECTURE.md` alone.
-- `CHANGELOG.md`: Fixed, the hang made rarer and named; Changed, the GPU cost while kept.
+- `CHANGELOG.md`: Fixed, the hang made rarer and named; Changed, the GPU cost while kept, and (Q7's A) that Kit's
+  own Save while a feed is kept writes its render product into the file.
+- `docs/TOOLS.md`, with Q7's A: the same, under `inspect_prim` and `capture_viewport`, and that the bridge's own
+  saves release the feed first.
 
 ## Risks
 
@@ -220,7 +231,7 @@ server keeps its feed and gets today's error. Both are fine (0.x).
 | The hang still comes, on a new size, after 30 s idle, above the cap, or in Kit's own views | Accepted: fewer views, not none; the server names it when it comes; the NVIDIA report (Q4) |
 | A kept feed costs GPU and app updates while the user works in Kit (K6) | Accepted for 30 s after a capture, below the size cap; Q1 and Q2 are the maintainer's |
 | Kit's own Save, or a save from `execute_script`, within 30 s of a capture writes the kept feed's render product into the user's file | Q7: accepted and documented, as Kit writes its viewport's own; the bridge's own saves release it first (G3) |
-| A disable of the extension within the 30 s leaves the render product in the root layer | `forget` deletes it when the stage is open; step 1 checks the order leaves Kit's log quiet |
+| A disable of the extension while a feed is kept leaves the render product in the root layer | `forget` deletes it when the stage is open; if step 1 finds that noisy for a segmented feed, its render product stays in the root layer and a later save writes it: accepted, documented |
 | A kept feed renders a camera the user deletes while it is kept | Kit renders a missing camera as it does for the viewport; the next call sets its own camera, and the feed goes in 30 s. Checked live in step 6 |
 | The timer's release racing a call | The same lock and the generation number (Design) |
 | The 5 s health check takes a Kit busy with a long synchronous `execute_script` for a hung one | The message says it may be busy, and only to restart if it stays silent for minutes; the next call clears the mark once `/health` answers |
@@ -233,9 +244,9 @@ server keeps its feed and gets today's error. Both are fine (0.x).
 | Q2 | How long is the feed kept after a call, and up to what size? 10 s, 30 s or 60 s; a cap at 1920x1080, or none | 30 s and 1920x1080, to be confirmed by step 1's costs: an agent's calls in one task usually come within 30 s, and #51's A11 puts a 4096x4096 feed at 75 % of the app's updates |
 | Q3 | Should the server name the hang and fail in 5 s once Kit is silent (G4)? A: yes, worded as busy or stuck. B: no, today's "timed out" after 120 s on every call | A: the cost of a wrong guess is a message that says "may be busy" for a script past 125 s |
 | Q4 | A report to NVIDIA with the repro and dumps? A: I draft it in `.local/` for you to post on NVIDIA's developer forum. B: none | A: only NVIDIA can fix the loop |
-| Q5 | `capture_viewport` keeps `readOnlyHint` (#51's Q7), with the stage holding a kept feed's render product for up to 30 s after a call, and the feed costing 32 % to 42 % of the app's updates in that time (K6)? A: keep it. B: drop it, a one-way door changed | A: the user's scene is unchanged, as with Kit's viewport's own render product, and the bridge's saves never write it; the cost is the user's GPU's, not the stage's |
+| Q5 | `capture_viewport` keeps `readOnlyHint` (#51's Q7), with the stage holding a kept feed's render product for up to 30 s after a call, and the feed costing 32 % to 42 % of the app's updates in that time (K6)? A: keep it. B: drop it, a one-way door changed | A: the scene the user made is unchanged, as with Kit's viewport's own render product; the bridge's saves never write it, Kit's own Save while a feed is kept does (Q7); the cost is the user's GPU's, not the stage's |
 | Q6 | #54? A: `Refs #54`, kept open for its other shapes. B: `Closes #54` | A: its `usdrt` spin and descriptor errors aren't this, and its first hang came at a view Kit made |
-| Q7 | Kit's own Save (File > Save, `save_stage`) within 30 s of a capture writes the kept feed's render product into the file. A: accept it and say so in TOOLS.md, as Kit writes its viewport's own. B: on Kit's `SAVING` event, drop the kept feed and delete its render product at once, without `release`'s two updates, risking #51's E16 log flood for a segmented feed | A: an inert render product prim beside Kit's own; B trades it for a known failure |
+| Q7 | Kit's own Save (File > Save, `save_stage`) while a feed is kept writes its render product into the file: up to 30 s after each capture, so for an agent capturing more often, its whole session. A: accept it and say so in TOOLS.md and CHANGELOG, as Kit writes its viewport's own. B: on Kit's `SAVING` event, tear the kept feed down as shutdown does (segmentation off, drop, graphs freed, delete, no updates), which step 1 measures | A, unless step 1 finds the no-update teardown quiet in E16's windows, then B: A leaves a render product prim beside Kit's own (step 1 checks what reopening such a file does); B is clean only if that teardown is |
 
 ## Plan review
 
@@ -327,3 +338,31 @@ Improvements:
 - At shutdown, segmentation off and graphs freed before the render product goes: taken.
 - Step 1 runs a moved, segmented feed through camera switches: replaced by K17 and K18's probes; step 1 keeps the
   segmented, resized, re-aimed check.
+
+### Round 4
+
+**How:** one fresh reviewer, Claude Opus, 2026-11-01, on `5fe8907`, reading the edits and P14 to P18. **Verdict:**
+approved, four minors, all fixed in this revision; no further round.
+
+P14 fixed (the move dropped), P15 moot, P16 and P17 fixed, P18 completed by P21's fix.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P19 | minor | Shutdown's fallback said a segmented feed's render product "is left for the next stage's leftovers", but `forget` clears the leftovers and nothing of the extension runs after: it stays in the root layer and a later save writes it | fixed: the consequence stated, in Design and Risks |
+| P20 | minor | `test_12d` and `test_13b` read `before` while the warm call's feed is kept, so `assertEqual(after, before)` fails once it is released | fixed: released before `before` too |
+| P21 | minor | `test_26_05`'s `export_prim` leg passes either way: the handler copies `prim_path`'s subtree only | fixed: it exports `/Render` |
+| P22 | minor | Q7's B called "a known failure" though shutdown uses the same no-update teardown, which step 1 measures; "inert" unmeasured; "within 30 s" undersells an agent capturing more often; Q5 left out Kit's own Save; Q7's A had no Docs or CHANGELOG line | fixed: Q5 and Q7 reworded, the recommendation following step 1; step 1 reopens such a file; Docs and CHANGELOG lines |
+
+Refuted: deadlock or re-entrancy (the save handlers aren't `@serial(_viewport)`); a save while a capture holds the
+lock (it waits, then releases); a recording's feed (separate); `release`'s two updates in the save handlers (all
+async); other routes writing the root layer to a file (none; `flatten_usd` with `input_path` included now); K17 and
+K18 not supporting the drop (decoded offline: 0.0, 0.01, 226.0 against 2.0); `test_26_03`'s counts against K15's log
+(the probe's second view came from turning its updates back on, which a kept feed never does); `test_16_08`,
+`test_16_09`, `test_06_05`, `test_15f` loosened.
+
+Improvements, all taken: step 1's leftover check removed; K15's five lines named; `_viewport` moved into
+`camera_feed.py`, the at-once releases calling `release` directly; shutdown in `release`'s order minus the updates,
+with E16's windows checked; `test_flatten_handler.py` named; an `inspect_prim` angle error test; the saves hold the
+lock through their write.
+
+**Verdict of the review:** approved: no blocker or major open; the owner calls Q1 to Q7 wait for the maintainer.
