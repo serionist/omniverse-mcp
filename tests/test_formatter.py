@@ -138,6 +138,14 @@ def test_rot_at_a_tiny_scale_is_its_turn(stage, scale):
     assert _rot(_turned(stage, "/World/Tiny", (0, 45, 0), (scale, scale, scale))) == [0.9239, 0.0, 0.3827, 0.0]
 
 
+def test_a_prim_too_flat_to_factor_has_no_rot_line(stage):
+    # Scale 1e-16 on one axis isn't singular at 1e-30, but Factor can't recover the ratio: it read rotateY 30 as
+    # rot = 1.0000, 0.0000, 2686424.8522, 0.0000 (review F7). At 1e-15 it still reads right.
+    lines = format_prim_block(_turned(stage, "/World/Flat", (0, 30, 0), (1, 1, 1e-16)), include_properties=False)
+    assert not any(line.startswith("rot = ") for line in lines.splitlines())
+    assert _rot(_turned(stage, "/World/Thin", (0, 30, 0), (1, 1, 1e-15))) == [0.9659, 0.0, 0.2588, 0.0]
+
+
 def test_a_prim_scaled_to_0_has_no_rot_line_and_no_error(stage):
     # Its matrix is singular: Gf reads a 64° turn into rotateY 30, so no line is better than that one.
     lines = format_prim_block(_turned(stage, "/World/Flat", (0, 30, 0), (0, 1, 1)), include_properties=False)

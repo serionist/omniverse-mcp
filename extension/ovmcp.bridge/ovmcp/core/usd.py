@@ -118,14 +118,21 @@ class _FactorsWithin(Protocol):
 
 
 # Factor's own tolerance, 1e-10 on the determinant, calls a uniform scale below about 4.6e-4 singular: a millimetre
-# asset under a parent scaled 0.1. Only a scale of 0 makes a matrix with no rotation to read (#105, review F4).
+# asset under a parent scaled 0.1 (#105, review F4). A far smaller one lets those through; a scale of 0 still fails.
 _SINGULAR = 1e-30
+# Below that, one axis's scale under about 3e-16 of the others' is past double precision: Factor answers a rotation
+# that isn't one, of length 2.7e6 at 1e-16 (review F7). A real one has length 1.
+_UNIT = 1e-6
 
 
 def rotation_of(matrix: Gf.Matrix4d) -> Gf.Quatd | None:
-    """matrix's rotation with its scale and shear taken out, or None when it is singular and has none."""
+    """matrix's rotation with its scale and shear taken out, or None when it has none to read: singular, or scaled
+    so flat on an axis that what Factor answers isn't a rotation."""
     factored = cast("_FactorsWithin", matrix).Factor(_SINGULAR)
-    return factored[3].ExtractRotationQuat() if factored[0] else None
+    if not factored[0]:
+        return None
+    quat = factored[3].ExtractRotationQuat()
+    return quat if abs(quat.GetLength() - 1.0) <= _UNIT else None
 
 
 class ArcNode(Protocol):

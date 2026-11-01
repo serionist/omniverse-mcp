@@ -202,7 +202,9 @@ A prim scaled to 0 on an axis has a singular matrix, with no rotation to read: b
 `Gf.Transform` read rotateY 30 at scale (0, 1, 1) as a 64° turn. Its block leaves the `rot` line out, as `usd.py`'s
 `rotation_of` tells (built so: U1 checked only an unturned prim scaled 0, which reads as no turn either way). It
 factors with a tolerance of 1e-30 on the determinant, and reads the rotation from the factored matrix: `Factor`'s
-own 1e-10 called a uniform world scale below about 4.6e-4 singular (code review F4).
+own 1e-10 called a uniform world scale below about 4.6e-4 singular (code review F4). A rotation it answers whose
+length isn't 1, within 1e-6, gives no `rot` line either: one axis scaled under about 3e-16 of the others is past
+double precision, and read rotateY 30 at scale (1, 1, 1e-16) as a quaternion of length 2.7e6 (code review F7).
 
 ### R3: a box is the outline's part on the image (`core/bounds.py`)
 
