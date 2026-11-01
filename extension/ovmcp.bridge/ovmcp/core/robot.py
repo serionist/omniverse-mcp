@@ -11,6 +11,7 @@ from typing import cast
 from pxr import Sdf, Tf, Usd, UsdGeom, UsdPhysics
 
 from .usd import has_api, xform_ops
+from .xform import add_local_op
 
 USD_SUFFIXES = (".usd", ".usda", ".usdc", ".usdz")
 
@@ -73,10 +74,5 @@ def stand_upright(prim: Usd.Prim, degrees: float) -> float:
         value = float(cast("float", attr.Get() or 0.0)) + degrees
         attr.Set(value)
         return value
-    added = xformable.AddRotateXOp(opSuffix="unitsResolve")
-    added.Set(degrees)
-    inverse = [i for i, op in enumerate(order) if op.IsInverseOp()]
-    if inverse:
-        order.insert(inverse[0], added)
-        xformable.SetXformOpOrder(order, xformable.GetResetXformStack())
+    add_local_op(prim, UsdGeom.XformOp.TypeRotateX, "unitsResolve").GetAttr().Set(degrees)
     return degrees

@@ -173,6 +173,8 @@ def test_a_file_kit_resolved_and_saved_gets_the_turn_it_still_owes(robot, kit, t
     assert r["result"]["up_axis_turn"]["degrees"] == 90.0
     assert r["result"]["up_axis_turn"]["op"] == 0.0
     assert _ops(kit, "/World/Bot") == ["xformOp:translate", "xformOp:orient", "xformOp:rotateX:unitsResolve"]
+    # What the answer says is what the op holds (review F5).
+    assert kit.stage.GetPrimAtPath("/World/Bot").GetAttribute("xformOp:rotateX:unitsResolve").Get() == 0.0
 
 
 def test_a_refusal_after_the_turn_leaves_no_robot(robot, kit, tmp_path):

@@ -122,8 +122,9 @@ async def handle_create_robot(body: dict) -> dict:
             value = stand_upright(prim, degrees)
             turned = {"file": file_axis, "stage": stage_axis, "degrees": degrees, "op": value, "op_name": UP_AXIS_OP}
         write_transform(prim, parts)
-    except ValueError as e:
-        # Such as an animated root op in the file: what this call made goes, so a retry isn't refused as taken.
+    except (ValueError, Tf.ErrorException) as e:
+        # Such as an animated root op in the file, or USD refusing an op: what this call made goes, so a retry isn't
+        # refused as taken.
         stage.RemovePrim(made)
         return {"status": "error", "error": f"{e}. The robot was not added"}
 

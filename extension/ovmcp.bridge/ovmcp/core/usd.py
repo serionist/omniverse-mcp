@@ -102,10 +102,10 @@ def xform_ops(xformable: UsdGeom.Xformable) -> list[UsdGeom.XformOp]:
 
 
 def add_xform_op(
-    xformable: UsdGeom.Xformable, op_type: Tf.Type, precision: UsdGeom.XformOp.Precision
+    xformable: UsdGeom.Xformable, op_type: Tf.Type, precision: UsdGeom.XformOp.Precision, suffix: str = ""
 ) -> UsdGeom.XformOp:
     """AddXformOp with an op type as the XformOp constants are typed."""
-    return xformable.AddXformOp(cast("UsdGeom.XformOp.Type", op_type), precision)
+    return xformable.AddXformOp(cast("UsdGeom.XformOp.Type", op_type), precision, suffix)
 
 
 def factors(matrix: Gf.Matrix4d) -> bool:

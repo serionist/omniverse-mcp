@@ -152,6 +152,19 @@ def test_a_root_that_holds_the_op_gets_the_sum_in_place(stage: Usd.Stage):
 
     assert stand_upright(prim, 90.0) == 0.0
     assert _names(prim) == ["xformOp:translate", UP_AXIS_OP]
+    # The sum is in the op, not only in the answer: "now reads 0" must hold when it is read back (review F5).
+    assert prim.GetAttribute(UP_AXIS_OP).Get() == 0.0
+
+
+def test_a_turn_reuses_an_attribute_of_its_name_out_of_the_order_in_its_precision(stage: Usd.Stage):
+    # A double attribute of the op's name, not in the order: a float op raised Tf.ErrorException, a 500 (review F3).
+    prim = _prim(stage, ["translate"])
+    prim.CreateAttribute(UP_AXIS_OP, Sdf.ValueTypeNames.Double).Set(12.0)
+
+    assert stand_upright(prim, -90.0) == -90.0
+    assert _names(prim) == ["xformOp:translate", UP_AXIS_OP]
+    assert prim.GetAttribute(UP_AXIS_OP).GetTypeName() == Sdf.ValueTypeNames.Double
+    assert prim.GetAttribute(UP_AXIS_OP).Get() == -90.0
 
 
 def test_an_animated_op_is_refused(stage: Usd.Stage):
