@@ -25,7 +25,7 @@ after 120 s on every later call.
 | Row | True when done | Shown by |
 |---|---|---|
 | G1 | `inspect_prim` and `capture_viewport` render through one kept feed. A call at the size of the last one, any camera, makes no new RTX view; a call at another size resizes the kept feed in place, one new view and the same render product. The kept feed is released after 30 s with no capture (Q1, Q2), when the stage closes, when a call fails in a way that leaves the feed in doubt, and when the extension shuts down, whatever its size (Q2) | `test_camera_feed.py`, `test_camera_handler.py`; live `test_26_03` (new, `test_scenarios.py`): views gained in Kit's log over a run of calls |
-| G2 | A capture through a kept feed shows what one through a fresh feed shows, within K7's bounds (mean 0.2 of 255, 99th percentile 4), its segmentation and boxes agreeing with it (#51). That holds when the camera changed, or the stage was edited, just before the call, inside the same request (`execute_script`) | live `test_26_04` (new): camera B straight after camera A at one size, and a USD move then `mcp.capture_viewport()` in one script, each against a fresh feed |
+| G2 | A capture through a kept feed shows what one through a fresh feed shows: no ghost of a moved prim's old place, the prim at its new one, and the rest within a mean of 1 of 255 and a 99th percentile of 12, at most a third of the change itself (K19, which replaced K7's bounds of a still view), its segmentation and boxes agreeing with it (#51). That holds when the camera changed, or the stage was edited, just before the call, inside the same request (`execute_script`) | live `test_26_04` (new): camera B straight after camera A at one size, and a USD move then `mcp.capture_viewport()` in one script, each against a fresh feed |
 | G3 | The bridge's own `save_scene`, `flatten_usd` and `export_prim` release the kept feed first, so they never write its render product; Kit's own Save tears it down on `SAVING`, before it writes (Q7's B, step 1); the extension's shutdown deletes it when the stage is open | live `test_26_05` (new): `save_scene`, `flatten_usd`, `export_prim` and Kit's own Save straight after a capture write no `ovmcp_capture_` |
 | G4 | A call whose socket, once connected, gets no answer for the server's timeout, when Kit then answers no `/health` within 5 s either, fails with a message that Kit has stopped answering; that it may be busy with a long script or stuck, most likely in NVIDIA's renderer (#114); and that if it stays silent for minutes it needs a restart. Each later call checks `/health` first, for 5 s, and fails at once the same way while Kit stays silent (Q3) | `test_client.py` with a fake socket that accepts and never answers; `test_tools.py` |
 | G5 | `docs/TOOLS.md`, the plugin's scene skill, the README's troubleshooting and `docs/ARCHITECTURE.md` say what the hang looks like, what the bridge does about it and what a kept feed costs, by size (step 1) | review |
@@ -188,6 +188,42 @@ Built as above, at the steps' commits, with step 1's outcomes (S1 to S6), and th
 - **Not settled without Kit:** that `SAVING` comes on Kit's main thread for `save_stage_async` and File > Save (the
   teardown edits USD); that Kit 107 logs the counted lines alike; the live tests themselves, written, not run.
 
+After code review round 1 (two reviewers on `de25baf`, six minors) and the maintainer's live run of it (Isaac Sim
+6.2.0, port 8212: both suites whole on Z-up, 200 passed; `test_26_03` and `test_26_05` passed on Z-up and Y-up;
+`test_26_04` failed every run, and `test_06_10` failed on main's extension too, #127):
+
+| # | What | Evidence |
+|---|---|---|
+| K19 | A kept feed's capture straight after a change, against a fresh feed's: `test_26_04`'s camera switch 0.16 to 0.61 mean of 255, 99th percentile 4 to 10; its move 0.42 to 0.49, 7 to 8. The probe: two fresh feeds after a move 0.09, 2 (max 134); the kept feed straight after it 0.24, 5, and 120 frames later 0.16 to 0.18, 3 to 4; the move itself 1.9 to 2.1, 46 to 47. Every pixel differing by more than 8 sits at the cube's new place; none of the 192 to 194 of its old place differs: edge and face noise that fades with frames, no ghost | `114-moveghost.py` and `moveghost/` in the maintainer's session scratchpad (`scratchpad/114/`), two runs |
+
+- **L1, `test_26_04`:** K7's bounds came from a still view and don't fit a scene that just changed (K19). The test
+  now checks what a real fault shows, a ghost or a stale frame: no pixel of the cube's old place (blue before, not in
+  the fresh capture after) differs from the fresh capture by more than 8; at least 80 % of its new place shows it in
+  the kept capture (its edges may cross the blue test); and the rest within a mean of 1 and a 99th percentile of 12,
+  at most a third of the change itself. A third, not a quarter: the worst live move, 0.49, is about a quarter of a
+  1.9 move. A recalibration on evidence with the ghost check added, not a loosening: a stale frame differs by the
+  whole change and fails each check.
+- **R1:** a new feed's first frame and a capture already handed to a feed waited their full 30 s when a stage event
+  let the feed go during the call. `first_frame` now looks whether the feed was let go, and `capture_feed_png` waits
+  for a capture's result through `CameraFeed.result_of`, which looks every 0.05 s; Kit's own `_set_completed` on its
+  capture delegate is private, so isn't used.
+- **R2:** Kit's Save during any `release` (the idle one, a failed call's, `release_kept`) found no kept feed, so its
+  render product went into the file. Feeds stay in `_releasing` until it goes, and `SAVING` deletes theirs at once,
+  their graphs already freed: the measured teardown.
+- **R3:** Kit's File > Save Flattened As without the session layer opens the root layer as a stage of its own and
+  exports it with no `SAVING` (`omni.kit.window.file`'s `file_window.py`), so it writes the render product while a
+  feed is kept: named beside the `execute_script` caveat, and TOOLS.md's and CHANGELOG's wording softened.
+- **R4:** the scene skill names the new error, the restart, and the kept render's 30 s cost (G5).
+- **R5:** TOOLS.md's `execute_script` says a script that blocks past the timeout gets "stopped answering", and later
+  calls fail in 5 s until it ends (Q3's accepted cost).
+- **R6:** a refused health check counts as Kit not silent, so while a hung Kit is restarted each call gives today's
+  connection error, not "still silent ... restart it".
+- **Improvements taken:** the teardown at `SAVING` and shutdown shares `release`'s steps (`_stop`), so one that raises
+  doesn't skip the drop and the deletion; `_release_idle` calls `_release_kept`; a kept feed whose `aim` raises is let
+  go and discarded; the capture prefix assertion is back; a client test of a timeout on a kept-alive connection; the
+  still-silent message reads "as it has been since a call timed out"; segmentation's idle cost is one number, 157 to
+  110 (S1); `_assert_nothing_left`'s docstring and AGENTS.md's segmentation row follow the kept feed.
+
 ## Compatibility
 
 No tool, schema, route, setting or output path changes. Two things users notice: the GPU busier for 30 s after a
@@ -234,7 +270,7 @@ server keeps its feed and gets today's error. Both are fine (0.x).
     change; K15); a sixth at another size one more view; the feed gone 30 s after the last call (no
     `ovmcp_capture` render product on the stage);
   - `test_26_04`: camera B straight after camera A at one size, and a USD move then `mcp.capture_viewport()` inside one
-    `execute_script`, each against a fresh feed's capture within K7's bounds;
+    `execute_script`, each against a fresh feed's capture, by K19's checks (G2);
   - `test_26_05`: `save_scene`, `flatten_usd` and `export_prim` of `/Render`, the subtree the render product is in,
     straight after a capture write no `ovmcp_capture_`.
 - **Live, changed,** each still checking what it checked, after the kept feed goes:

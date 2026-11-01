@@ -111,7 +111,8 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   1920x1080 and 69 at 4096x4096, its share of the GPU's 3D engine rose from 9 % to 25 %, 28 % and 65 %, and it took
   about 0.3, 1.0 and 5.5 GB more video memory. It goes when the stage closes, when a capture fails, and when the
   extension is turned off. `save_scene`, `flatten_usd`, `export_prim_as_file` and Kit's own Save let it go before they
-  write, so no file holds it. Every capture now waits 20 frames of its render after it sets the camera, so a camera
+  write; Kit's File > Save Flattened As without the session layer, and a script that writes the root layer itself,
+  write it while it is kept. Every capture now waits 20 frames of its render after it sets the camera, so a camera
   moved or a drawing made just before the call shows, as it did with a render made for each call (#114).
 
 - **Tested on Linux and on Isaac Sim 5.1:** both live suites pass on Isaac Sim 6.2 on Linux, and on 5.1 (Kit 107).

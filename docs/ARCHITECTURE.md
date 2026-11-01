@@ -489,16 +489,22 @@ inside NVIDIA's renderer; a feed made for each call made a new view each call, a
   `export_prim_as_file` take the viewport lock, release the kept feed in `release`'s order and hold the lock through
   their write (`without_kept_feed`). Kit's own Save sends `SAVING` synchronously before it writes, so the feed is torn
   down then in `release`'s order with no update between the steps, which a synchronous event can't wait for; measured
-  quiet in #51's E16 windows (as it ran, 2 s after, a save, a new stage, a segmented capture after). A script that
-  writes the root layer through USD itself, from `execute_script`, writes the render product while a feed is kept.
+  quiet in #51's E16 windows (as it ran, 2 s after, a save, a new stage, a segmented capture after). A feed part way
+  through `release`, already let go, waits in `_releasing` until its render product goes, so `SAVING` deletes that at
+  once too: only the two updates were left. Two writes send no `SAVING` and write the render product while a feed is
+  kept: a script that writes the root layer through USD itself, from `execute_script`, and Kit's File > Save
+  Flattened As when it leaves the session layer out, which opens the root layer as a stage of its own and exports it
+  (`omni.kit.window.file`'s `file_window.py`).
 - **Segmentation:** on for the call that asks, off as it puts the feed back: left on, a kept 640x480 feed cost Kit
   110 updates a second while idle against 157 with it off and 183 with no feed. Its graphs stay until the feed goes.
 - **Shutdown:** `forget` tears the feed down as at `SAVING`, its render product deleted while a stage is open.
 - **Cost while kept,** idle, on headless Isaac Sim 6.2 and an RTX 5090: Kit's updates a second fell from 183 with no
   feed to 157 at 640x480, 153 at 1920x1080 and 69 at 4096x4096, its share of the GPU's 3D engine rose from 9 % to
   25 %, 28 % and 65 %, and it took about 0.3, 1.0 and 5.5 GB more video memory.
-- **A call that meets a let-go feed:** a stage event or shutdown during a call drops the feed under it; its next frame
-  wait fails at once (`NoFrameError`), not after 30 s, and `put_back` leaves it alone.
+- **A call that meets a let-go feed:** a stage event or shutdown during a call drops the feed under it; its waits fail
+  at once (`NoFrameError`), not after 30 s: a new feed's first frame, each next frame, and a capture already handed to
+  the feed, whose result `CameraFeed.result_of` races against the feed being let go, since `drop` takes back the
+  captures still waiting. `put_back` leaves the feed alone.
 
 **Releasing a feed:** `omni.syntheticdata` keeps the graph it makes under the feed's render product in a registry,
 and one left there when the render product goes makes Kit log `Invalid object in Py_Graph` on every update until the

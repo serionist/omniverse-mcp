@@ -39,7 +39,7 @@ it runs one; they are hints, never security (the bridge's token is what keeps ot
 
 | Hints | What they mean | Tools |
 |---|---|---|
-| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs and while it is kept for the next capture, up to 30 s after, and leaves Kit's unsaved-edits flag set; no save writes it) | `get_scene_tree`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
+| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs and while it is kept for the next capture, up to 30 s after, and leaves Kit's unsaved-edits flag set; the bridge's saves and Kit's own Save leave it out of the file) | `get_scene_tree`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
 | not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `inspect_prim`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug` |
 | destructive | Deletes or overwrites prims, the whole stage, or USD files on disk | `delete_prim`, `save_scene`, `open_scene`, `new_scene`, `flatten_usd`, `export_prim_as_file`, `update_material_paths` |
 | destructive, open world | Runs Python or loads extensions inside the Kit app: anything can happen | `execute_script`, `manage_extensions` |
@@ -874,8 +874,9 @@ world_dimensions = [1.0, 1.0, 1.0]
 > Segmentation is on only during a capture: left on, it cost a 640x480 render another 47 updates a second while idle.
 > The render goes 30 s after the last capture, when the stage closes, when a capture fails, and when the extension
 > is turned off. `save_scene`, `flatten_usd`, `export_prim_as_file` and Kit's own Save (File > Save) let it go before
-> they write, so no file holds it; a script that writes the stage's root layer through USD itself, in
-> `execute_script`, writes it while it is kept.
+> they write, so their files don't hold it. Two writes do while it is kept: a script that writes the stage's root
+> layer through USD itself, in `execute_script`, and Kit's File > Save Flattened As when it leaves the session layer
+> out.
 
 ---
 
@@ -1333,7 +1334,9 @@ Execute arbitrary Python code inside the running Omniverse application.
 
 Set `result = <value>` to return JSON-serialisable data to the AI assistant; anything else comes back as its `str`.
 stdout and stderr come back too, and an exception as an error with the traceback's last lines. The script runs on
-Kit's main thread, so one that blocks freezes Kit: the call gives up after 120 s, and the script runs on.
+Kit's main thread, so one that blocks freezes Kit: the call gives up after 120 s, and the script runs on. Kit then
+answers nothing, `/health` included, so the call fails with "Kit at ... stopped answering", and every later call fails
+the same way in 5 s until the script ends and Kit answers again.
 
 **Example (sync):**
 ```python
