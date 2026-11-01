@@ -1,12 +1,15 @@
 # Omniverse MCP Test Scenarios
 
-Run each phase in order. Record results in `results/test_results.md` using the format from `CLAUDE.md`.
+The AI scenario suite. `run-scenarios` (`uv run tools/scenarios.py run`) gives each phase to a headless tester of its
+own, whose rules are `AGENTS.md`; a client opened here by hand reads them through `CLAUDE.md`.
 
 Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 
-> Phases build on each other. If a phase creates prims, later phases may depend on them.
-> After Phase 17 (`new_scene`), the scene is wiped — Phases 18+ create their own prims.
-> Phases 24-26 test logging, async scripting, and camera settling (added after initial 23 phases).
+> Each phase opens with a `Needs:` line: the scenarios whose prims or state it uses, which a run of that phase alone
+> runs first. Phases 1 to 17 and 18 to 27 are two halves, each started on a new stage, and no `Needs:` line crosses
+> them. Phase 27 ends every run.
+> A path that starts `<run>/` lies in the run's folder, which a run fills in.
+> Phases 18 to 21 and 27 have no twin in `tests/test_scenarios.py`.
 > Vectors below are written for a Y-up stage, which `new_scene` makes. On a Z-up stage (`get_sim_state`'s `up_axis`;
 > Isaac Sim's own new stage is Z-up), swap each vector's Y and Z, so heights stay along the up axis and the ground
 > stays a floor.
@@ -14,6 +17,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 ---
 
 ## Phase 1: Connectivity & State
+
+Needs: none
 
 ### 1.1 Health Check
 - Call `get_sim_state`
@@ -27,6 +32,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 ---
 
 ## Phase 2: Scene Manipulation
+
+Needs: none
 
 ### 2.1 Create Primitives
 - Create a ground plane: `create_prim("/World/Ground", "Cube", position=[0,-0.05,0], scale=[10,0.1,10])`
@@ -70,6 +77,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 
 ## Phase 3: Camera & Visual
 
+Needs: 2.1
+
 ### 3.1 Basic Viewport Capture
 - Call `capture_viewport(640, 480)`
 - Verify: returns image path, bounding box file, segmentation files; the image is 640x480, the size asked for, not the
@@ -99,6 +108,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 ---
 
 ## Phase 4: Script Execution
+
+Needs: 2.1
 
 ### 4.1 Basic Print
 - `execute_script("print('Hello MCP!')")`
@@ -146,6 +157,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 
 ## Phase 5: Simulation & Physics
 
+Needs: 2.1, 4.5
+
 ### 5.1 Play/Pause/Stop
 - `sim_control("play")` → verify state is "playing"
 - `sim_control("pause")` → verify state is "paused"
@@ -164,6 +177,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 ---
 
 ## Phase 6: Recording (Basic)
+
+Needs: 2.1, 4.5
 
 ### 6.1 Record a Falling Cube
 - Reset cube: `set_prim_transform("/World/RedCube", position=[0,3,0])`
@@ -201,6 +216,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 
 ## Phase 7: Recording with Prim State Tracking
 
+Needs: 2.1, 4.5
+
 ### 7.1 Record with track_prims
 - Reset cube: `set_prim_transform("/World/RedCube", position=[0,3,0])`
 - `start_recording(fps=10, width=320, height=240, track_prims=["/World/RedCube"])`
@@ -227,6 +244,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 ---
 
 ## Phase 8: Scene Dump (Prim-Block Format)
+
+Needs: 2.1, 4.5
 
 ### 8.1 Full Scene Dump
 - `get_scene_tree(root="/World", include_properties=True)`
@@ -259,6 +278,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 
 ## Phase 9: Extension Management
 
+Needs: none
+
 ### 9.1 List Extensions
 - `manage_extensions(action="list", search="replicator")`
 - Verify: shows extensions with ON/OFF status
@@ -273,6 +294,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 ---
 
 ## Phase 10: Robot Spawning
+
+Needs: 2.1, 4.5
 
 ### 10.1 Spawn G1 Robot
 - `create_robot("g1", position=[3, 0.74, 0])`
@@ -293,6 +316,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 ---
 
 ## Phase 11: Error Cases
+
+Needs: none
 
 ### 11.1 Invalid Prim Path
 - `get_prim_properties("/Nonexistent/Path")` → error
@@ -316,6 +341,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 ---
 
 ## Phase 12: Materials
+
+Needs: 2.1
 
 ### 12.1 Set Material - Basic Color
 - `set_material("/World/RedCube", color=[1,0,0])`
@@ -353,6 +380,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 
 ## Phase 13: Visibility & Cloning
 
+Needs: 2.1
+
 ### 13.1 Hide a Prim
 - `set_visibility("/World/RedCube", visible=False)`
 - Verify: visible=false in response
@@ -384,6 +413,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 
 ## Phase 14: Robot Control
 
+Needs: 2.1, 4.5, 10.1
+
 ### 14.1 Get Robot Info
 - `get_robot_info("/World/G1")`
 - Verify: returns joints, dof_count > 0, link_count > 0
@@ -408,6 +439,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 ---
 
 ## Phase 15: Physics Properties & Forces
+
+Needs: 2.1, 4.5, 10.1
 
 ### 15.1 Set Mass
 - `set_physics_properties("/World/RedCube", mass=5.0)`
@@ -481,6 +514,8 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 
 ## Phase 16: Raycasting & Debug Draw
 
+Needs: 2.1, 4.5
+
 ### 16.1 Raycast Hit
 - `sim_control("play")` (PhysX needs running sim)
 - Cast ray downward from [0,10,0] direction [0,-1,0]: `raycast(origin=[0,10,0], direction=[0,-1,0])`
@@ -536,8 +571,10 @@ Each step waits for its drawings to expire before the next.
 
 ## Phase 17: Scene Lifecycle
 
+Needs: none
+
 ### 17.1 Save Scene to File
-- `save_scene(file_path="results/mcp_test_scene.usd")`
+- `save_scene(file_path="<run>/kit/mcp_test_scene.usd")`
 - Verify: file_path and action in response
 
 ### 17.2 Create New Scene
@@ -573,8 +610,8 @@ Each step waits for its drawings to expire before the next.
   stage (#51)
 
 ### 17.7 An Opened File Stops a Recording and Drops the Drawings
-- `save_scene(file_path=<a temp .usda>)`, then `start_recording(fps=10, width=320, height=240)` and
-  `draw_debug("line", start=[0, 0, 0], end=[1, 0, 0], duration=30)`, then `open_scene(<that .usda>)`, then
+- `save_scene(file_path="<run>/kit/opened_scene.usda")`, then `start_recording(fps=10, width=320, height=240)` and
+  `draw_debug("line", start=[0, 0, 0], end=[1, 0, 0], duration=30)`, then `open_scene("<run>/kit/opened_scene.usda")`, then
   `stop_recording()`
 - Verify: no frames after the open, a `Note:` naming the stage, the answer's `render_product` not on the opened
   stage, the line gone within 5 s, and a capture of a cube with its segmentation on the opened stage
@@ -582,6 +619,8 @@ Each step waits for its drawings to expire before the next.
 ---
 
 ## Phase 18: Geometry & Mesh Analysis
+
+Needs: none
 
 > **Setup:** Phase 17.2 wiped the scene. This phase creates its own prims.
 >
@@ -615,30 +654,34 @@ Each step waits for its drawings to expire before the next.
 
 ## Phase 19: USD Operations
 
+Needs: 18.2
+
 ### 19.1 Flatten USD (Current Stage)
-- Save scene first: `save_scene(file_path="results/test_flatten_source.usda")`
-- `flatten_usd("results/test_flatten_output.usdc")`
+- Save scene first: `save_scene(file_path="<run>/kit/test_flatten_source.usda")`
+- `flatten_usd("<run>/kit/test_flatten_output.usdc")`
 - Verify: success, output file path returned
 
 ### 19.2 Flatten USD (External File)
-- `flatten_usd("results/test_flatten_output2.usdc", "results/test_flatten_source.usda")`
+- `flatten_usd("<run>/kit/test_flatten_output2.usdc", "<run>/kit/test_flatten_source.usda")`
 - Verify: success, flattened from the external file
 
 ### 19.3 Export Prim as File
-- `export_prim_as_file("/World/TestCube", "results/exported_cube.usdc")`
+- `export_prim_as_file("/World/TestCube", "<run>/kit/exported_cube.usdc")`
 - Verify: success, returns prim_path, output_path, target_root, materials_included, up_axis
 
 ### 19.4 Export Prim with Materials
 - First apply a material: `set_material("/World/TestCube", color=[1,0,0])`
-- `export_prim_as_file("/World/TestCube", "results/exported_cube_mats.usdc")`
+- `export_prim_as_file("/World/TestCube", "<run>/kit/exported_cube_mats.usdc")`
 - Verify: success, materials_included > 0 (materials are always included automatically)
 
 ### 19.5 Export Invalid Prim
-- `export_prim_as_file("/World/Nonexistent", "results/fail.usdc")` → error
+- `export_prim_as_file("/World/Nonexistent", "<run>/kit/fail.usdc")` → error
 
 ---
 
 ## Phase 20: Variant Tools
+
+Needs: 18.1, 18.2
 
 ### 20.1 Create Variant Structure
 - `create_variant_structure("/World/TestCube", "detail", ["high", "low"])`
@@ -673,6 +716,8 @@ Each step waits for its drawings to expire before the next.
 
 ## Phase 21: Material Path Updates
 
+Needs: 18.2
+
 ### 21.1 Update Material Paths
 - Ensure a material exists: `set_material("/World/TestCube", color=[1,0,0], material_path="/World/Looks/TestMat")`
 - `update_material_paths("/World/Looks", "/World/NewLooks", "/World")`
@@ -685,6 +730,8 @@ Each step waits for its drawings to expire before the next.
 ---
 
 ## Phase 22: Enhanced Inspect Prim
+
+Needs: 18.1, 18.2
 
 > **Auto-fit:** `inspect_prim` computes camera distance from the prim's bounding sphere and camera FOV,
 > so the prim fills the viewport with ~10px margin. The `zoom_offset` parameter adjusts this:
@@ -722,6 +769,8 @@ Each step waits for its drawings to expire before the next.
 ---
 
 ## Phase 23: Viewport Lighting
+
+Needs: 18.2
 
 > **Lighting modes:** The MCP exposes all Omniverse viewport lighting options:
 > `"off"`, `"camera"`, `"stage"`, and light rig presets (`"Default"`, `"Colored Lights"`, `"Grey Studio"`).
@@ -766,6 +815,8 @@ Each step waits for its drawings to expire before the next.
 
 ## Phase 24: Logging
 
+Needs: none
+
 ### 24.1 Get Logs (Default)
 - Call `get_logs()`
 - Verify: returns entries array, total_captured > 0, buffer_size > 0
@@ -798,6 +849,8 @@ Each step waits for its drawings to expire before the next.
 ---
 
 ## Phase 25: Async Script Execution (MCP Bridge)
+
+Needs: none
 
 > **Note:** These tests verify the `mcp` bridge object available inside `execute_script`.
 > Scripts using `await` are automatically detected as async and wrapped accordingly.
@@ -890,6 +943,8 @@ Each step waits for its drawings to expire before the next.
 
 ## Phase 26: Camera Frame Settling
 
+Needs: 23.2
+
 > **Note:** These tests verify that camera moves properly settle before capture.
 > The camera handlers now use `_settle_viewport()` (20 frames) instead of 1-2 `_next_update()` calls.
 
@@ -910,7 +965,9 @@ Each step waits for its drawings to expire before the next.
 
 ## Phase 27: Cleanup
 
+Needs: none
+
 ### 27.1 Clean Up Scene
-- `sim_control("stop")`
-- Delete all test prims: `/World/Franka`, `/World/TestCube`, `/World/Looks`, `/World/NewLooks`, and any other prims created during testing
-- Verify: `get_scene_tree` shows minimal default prims
+- `sim_control("stop")`, and `stop_recording()` if `get_sim_state` says one runs
+- `new_scene()`, which drops every prim the run made, whichever phases ran
+- Verify: `get_scene_tree` shows only a new stage's own prims
