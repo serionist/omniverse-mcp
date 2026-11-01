@@ -38,7 +38,7 @@ server can also tell an agent what happened, at once, instead of after 120 s on 
 
 On my own headless Isaac Sim 6.2.0 (Kit 110.4.0), Windows 11, RTX 5090, port 8212, main's extension, with the
 maintainer's other Kit apps on the same GPU (a windowed Isaac Sim and a 4096-environment training run). Every run's
-lines, dumps and Kit log are in the session's scratchpad `114/`. The probe is `114-probe.py`; `114-views.py` and
+lines, dumps and Kit log are in the main checkout's git-ignored `.local/handoff-2026-11-01/114/r2-r3/`. The probe is `114-probe.py`; `114-views.py` and
 `114-ghost.py` measured K4 to K6.
 
 | # | What | Evidence |
