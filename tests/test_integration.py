@@ -975,7 +975,9 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(result["status"], "success", result)
         boxes = {b["prim_path"]: b["screen_bbox"] for b in result["result"]["screen_bboxes"]}
         self.assertNotIn(side, boxes)
-        self.assertNotIn(side, result["result"].get("segmentation_legend") or {})
+        # An empty legend from a segmentation that failed would pass for one without the side cube (I13).
+        self.assertIsNone(result["result"].get("segmentation_error"), result["result"].get("segmentation_error"))
+        self.assertNotIn(side, result["result"]["segmentation_legend"])
         # The probe measured the near cube at [145.7, 87.6, 494.3, 444.1]; mirrored on a Z-up stage, it is centred.
         self.assertLess(abs((boxes[near][0] + boxes[near][2]) / 2 - 320), 16, boxes[near])
         print(f"  near {boxes[near]}, beside the view none")
@@ -996,14 +998,19 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
                 self.assertEqual(self.client.viewport_light("set", mode=mode)["status"], "success")
                 erred, text = call_tool("capture_viewport", {"width": 160, "height": 120}, out)
                 self.assertFalse(erred, text)
-                said = "the scene's surfaces render black" in text or "its surfaces render black" in text
+                # Kit 110's grid keeps an unlit image from being all black, so the lighting's warning comes; where a
+                # Kit renders it all black, the black image's warning names the lighting instead (review F6).
+                said = "surfaces render black" in text or ("Image is all-black" in text and mode != "camera")
                 self.assertEqual(said, warns, text)
                 if mode == "off":
                     erred, text = call_tool(
                         "inspect_prim", {"prim_path": prim, "angles": ["front"], "width": 160, "height": 120}, out
                     )
                     self.assertFalse(erred, text)
-                    self.assertEqual(text.count("Lighting mode is 'off'"), 1, text)
+                    # Once a call: the lighting's warning, or the black one's where the angle is all black.
+                    self.assertEqual(
+                        text.count("Lighting mode is 'off'") + text.count("captures are all-black"), 1, text
+                    )
 
     def test_13_camera_inspect_auto_fit(self):
         """Inspect with auto-fit distance (no zoom_offset)."""
