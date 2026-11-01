@@ -49,8 +49,13 @@ Improvements, with the coordinator's answers:
 2. Phase 18's note said the dome lights every capture after it, though the rig and the camera light hide it in
    Phases 23 and 26. Taken in `2e3e933`: "every capture of Phases 19 to 22".
 3. The pytest twins have drifted: `test_02_01` still lights at `[45,0,0]` and 50000, `test_24_05` still tests
-   `since_index` on the bridge, and `test_24_06` asserts nothing about the log. Open: the maintainer decides whether
-   it lands in #103.
+   `since_index` on the bridge, and `test_24_06` asserts nothing about the log. Taken in `b995409`, as the maintainer
+   chose:
+   - `test_02_01` lights as 2.1 does and checks the cube's material.
+   - `test_24_05_get_logs_by_count` checks count as 24.5 does.
+   - `test_24_06` logs one error and raises another, and checks each lands where 24.6 says.
+   - Two more twins the text had moved: `test_05_02` checks the step leaves the timeline paused about two frames on,
+     and `test_17_04` makes its cube with `scale=0.25` instead of a `size` the bridge ignores.
 4. The red cube is unchecked in Phases 3, 12, 13 and 16 since `a65189f`. Taken by the main session: a confirming run
    of those phases.
 5. The PR names the new WARNs in `20261101-115226` that come from the tools, outside #103: 6.1 and 6.3 (frames about
@@ -84,4 +89,5 @@ All on Isaac Sim 6.2.0 headless (Kit 110.4.0) at 8212, Windows, with `main`'s 0.
 
 - `tests/test_scenario_runs.py`: 77 passed at each commit.
 - `uv run tools/gate.py full` on `a65189f` and on `2e3e933`: 15 checks passed, 1673 tests passed and 206 skipped,
-  coverage 96.85%.
+  coverage 96.85%. On `b995409`, with the twins changed: the same 15 checks and counts, coverage 96.87%. The changed
+  twins are live tests, which skip there; the main session runs both live suites on its Kit at 8212.
