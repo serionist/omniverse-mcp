@@ -993,9 +993,14 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(self.client.create_prim(prim, "Cube", scale=0.5)["status"], "success")
         out = self._output_folder()
 
-        for mode, warns in (("off", True), ("stage", not found["result"]["has_scene_lights"]), ("camera", False)):
+        for mode in ("off", "stage", "camera"):
             with self.subTest(mode=mode):
                 self.assertEqual(self.client.viewport_light("set", mode=mode)["status"], "success")
+                # Whether the stage has lights is read in the mode the capture runs in: a light rig, such as Default,
+                # puts lights of its own on the stage, which mode stage takes away. Read before the switch, in the
+                # mode the test found, a rig's lights said the stage was lit (#105's live run, step 3).
+                lit = self.client.viewport_light("get")["result"]["has_scene_lights"]
+                warns = {"off": True, "stage": not lit, "camera": False}[mode]
                 erred, text = call_tool("capture_viewport", {"width": 160, "height": 120}, out)
                 self.assertFalse(erred, text)
                 # Kit 110's grid keeps an unlit image from being all black, so the lighting's warning comes; where a
