@@ -57,7 +57,7 @@ the quickest fix, `mode="camera"` a light that follows the camera. When neither 
 | Trap | What to do |
 |---|---|
 | The up axis guessed | `get_sim_state` before placing anything |
-| Code of your own in `execute_script` that reads the viewport right after a camera move sees the old view | wait 20 of the viewport's frames first; `capture_viewport` and `inspect_prim` need nothing: they render the camera afresh for each call, so the move shows |
+| Code of your own in `execute_script` that reads the viewport right after a camera move sees the old view | wait 20 of the viewport's frames first; `capture_viewport` and `inspect_prim` need nothing: each waits 20 frames of its own render after it sets the camera, so a move or a drawing made before the call shows |
 | Segmentation missing | the answer says why, as `Segmentation: ERROR` or an angle's `seg: ERROR`: without `omni.syntheticdata` (Isaac Sim has it), `manage_extensions` enables it; with no data yet, capture again; if it stays empty, `get_logs(channel="syntheticdata")` shows what omni.syntheticdata reported, and `get_logs(search="segmentation")` how long the bridge waited |
 | Materials look grey at first | MDL compiles on first use: capture again before deciding a material is broken |
 | `UsdGeom.Cube` and the like have no faces | implicit shapes, not meshes: `get_mesh_stats` counts only `UsdGeom.Mesh` |
