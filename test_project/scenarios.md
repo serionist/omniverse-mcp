@@ -41,8 +41,9 @@ Needs: none
 - Create a sphere: `create_prim("/World/BlueSphere", "Sphere", position=[1,0.5,0], scale=0.2)`
 - Create a light: `create_prim("/World/Light", "DistantLight", rotation=[-50,30,0])`, then
   `execute_script("UsdLux.DistantLight(omni.usd.get_context().get_stage().GetPrimAtPath('/World/Light')).CreateIntensityAttr(3000.0)")`.
-  A distant light shines along its own -Z, which the rotation turns down onto the scene from the side 3.2's camera
-  stands on; 3000 is Kit's own sun's intensity, where the default 50000 washes the scene out white
+  A distant light shines along its own -Z. This rotation turns it down onto the scene from the side 3.2's camera
+  stands on, lighting the faces turned to +X, the side and the top, on a Y-up stage and a Z-up one alike: keep it as
+  it is on either, unswapped. 3000 is Kit's own sun's intensity, where the default 50000 washes the scene out white
 - Verify: `get_scene_tree` shows all 4 new prims
 
 ### 2.2 Transform Operations (Individual)
