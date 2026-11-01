@@ -72,6 +72,22 @@ def test_every_tool_and_parameter_is_described(listed):
     assert not bare, f"describe these: {bare}"
 
 
+@pytest.mark.parametrize(
+    ("tool", "says"),
+    [
+        # An agent reading these learns when to reach for viewport_light: not only for an all-black image (#105).
+        ("capture_viewport", "lighting that lights nothing"),
+        ("inspect_prim", "lighting that lights nothing"),
+        ("viewport_light", "warns that the lighting lights nothing"),
+        ("create_robot", "A file that authors no upAxis is left as it is"),
+    ],
+)
+def test_a_description_says_what_the_tool_now_does(listed, tool: str, says: str):
+    tools, _, _ = listed
+    (description,) = [" ".join((t.description or "").split()) for t in tools if t.name == tool]
+    assert says in description
+
+
 def test_no_description_carries_its_source_indentation(listed):
     # The SDK sends a docstring as it is, and Python before 3.13 keeps its source indentation in __doc__. A line
     # indented within the text, such as a code example's, is the description's own.

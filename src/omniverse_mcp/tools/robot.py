@@ -77,7 +77,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         Without prim_path, the prim is named after the robot or the file: /World/Franka, or /World/MyBot for MyBot.usd.
         A prim already at prim_path, or a file that can't be opened, is an error. A file whose upAxis isn't the
         stage's is stood upright on it, as Kit stands a dropped file, and the answer says so: Isaac Sim's robots are
-        Z-up, so each is turned on a Y-up stage. position and rotation stay in the stage's frame. For anything but a
+        Z-up, so each is turned on a Y-up stage. A file that authors no upAxis is left as it is. position and rotation
+        stay in the stage's frame. For anything but a
         robot, use create_prim; get_robot_info then lists the robot's joints.
         """
         resp = bridge_call(client.create_robot, robot_type, prim_path, position, rotation)

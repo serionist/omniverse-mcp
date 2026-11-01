@@ -331,7 +331,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         distance is fitted to the prim's size at width x height, then moved by zoom_offset. It moves whichever camera
         the viewport looks through, a scene camera included, and leaves it at the last angle. isolate hides everything
         but the prim and the lights while it captures, then shows them again. A call has about 80 s: an angle that
-        fails says why, and the angles after it say Not captured. An orthographic camera is refused.
+        fails says why, and the angles after it say Not captured. An orthographic camera is refused. An all-black angle,
+        or lighting that lights nothing (mode off, or stage with no scene lights) though Kit's grid shows, comes with a
+        warning, once a call, saying what to change with viewport_light.
         """
         resp = bridge_call(
             client.camera_inspect,
@@ -408,7 +410,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Read or set the viewport's lighting mode, which decides how the viewport and its captures are lit, without
         changing the scene.
 
-        Use it when a capture comes back black, then capture again. "get" (the default) answers the mode, the modes on
+        Use it when a capture comes back black, or warns that the lighting lights nothing (mode off, or stage with no
+        scene lights, though Kit's grid shows), then capture again. "get" (the default) answers the mode, the modes on
         offer, and the stage's lights with their intensity. "set" takes a mode "get" lists: "stage" (the stage's own
         lights), "camera" (a light that follows the camera), "off", or a light rig such as "Default", "Colored Lights"
         or "Grey Studio"; rigs need Kit's lighting menu, omni.kit.viewport.menubar.lighting, and a mode not on offer is
