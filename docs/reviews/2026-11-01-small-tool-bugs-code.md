@@ -72,6 +72,43 @@ went to a fresh refuter, who confirmed it. The fixes were made on the branch, th
 | I12 | `test_23_06` puts lighting back to Default in its cleanup | taken, `651e52e` |
 | I13 | `test_12i` checks the segmentation ran before reading its legend | taken, `612d90c` |
 
+## Round 2
+
+**Where:** the fixes, `b2094b1..1c2088f` (round 1's head after the rebase onto `c4fd60e`, to the record's commit), read
+by one fresh reviewer, Claude Opus, read only, with scratch checks on usd-core 26.11. **Verdict:** clean: F1 to F6 are
+each fixed, with a test that fails without the fix; one new minor, F7, so no third round.
+
+| # | Sev | Where | Finding | Status |
+|---|---|---|---|---|
+| F1 | major | `tests/test_scenarios.py` `test_15_16` | Round 1's | fixed: `USD_ROTATION` against PhysX's pose at load and after 30 steps fails on a base pulled back at load |
+| F2 | minor | the three descriptions | Round 1's | fixed: `tests/test_contract.py` `test_a_description_says_what_the_tool_now_does` |
+| F3 | minor | `stand_upright`, `handle_create_robot` | Round 1's | fixed: `tests/test_robot.py` `test_a_turn_reuses_an_attribute_of_its_name_out_of_the_order_in_its_precision` |
+| F4 | minor | `core/formatter.py` | Round 1's | fixed: `tests/test_formatter.py` `test_rot_at_a_tiny_scale_is_its_turn` |
+| F5 | minor | the summed op's tests | Round 1's | fixed: both read the attribute back |
+| F6 | minor | `test_12j` | Round 1's | fixed: either warning, once an `inspect_prim` call |
+| F7 | minor | `core/usd.py` `rotation_of` | A prim whose world scale on one axis is under about 3e-16 of the others', but not 0, passes the tolerance of 1e-30, and `Factor` can't recover a ratio past double precision: `rotateY 30` at scale (1, 1, 1e-16) printed `rot = 1.0000, 0.0000, 2686424.8522, 0.0000`, where `main` printed no `rot` line. The quaternion's length was 4.8e6 at 3.16e-16, 26864 at 1e-20, 1.29 at 1e-29, and 1.0 at 1e-15. The comment "only a scale of 0 makes a matrix with no rotation to read" overclaimed | fixed in `bf84a65`: a factored rotation whose length isn't 1, within 1e-6, gives none; the comment reworded; `tests/test_formatter.py` `test_a_prim_too_flat_to_factor_has_no_rot_line` at 1e-16, and 1e-15 still read |
+
+**Refuted:**
+- **I7's cost:** `handle_capture` already walks `/World` with instance proxies every call, for its boxes
+  (`camera.py:342`).
+- **I8 reaching other materials:** its only caller passes the tool's own `_PhysMat` (`simulation.py:152-158`); the
+  sharing is Q9's accepted risk, for #113, and `RemoveProperty` acts only on the edit target.
+- **I6:** `carb.log_warn` isn't a Python log hook (AGENTS.md, Traps, #5).
+- **I9 to I13:** each sound: I10's `[1.5, 2, 1]` is distinct, `kit_app()` returns a copy, and `_segmentation` gives an
+  error string with no PNG.
+- **The rebase:** `test_24_06` is `c4fd60e`'s; the Verify lines of 2.2, 10.1, 20.6 and 26.2, and the Phase 23 note,
+  sit well with #103's text.
+- **The writing rules:** clean.
+
+**Improvements,** all taken, in `f17b1d7`:
+
+| # | What | Answer |
+|---|---|---|
+| 1 | 23.6's Verify names only the lighting's warning: word it as a warning naming lighting mode `off` and `viewport_light`, so a Kit that renders the unlit capture all black passes too | taken |
+| 2 | A handler test with a `float3 xformOp:rotateX:unitsResolve` on the file's root, pinning the `Tf.ErrorException` catch and the robot's removal | taken: `tests/test_robot_handler.py` `test_a_usd_error_writing_the_turn_leaves_no_robot` |
+| 3 | I6's warning was logged before the log reader starts, so `get_logs` never showed it: read the facts after `start_log_reader` | taken |
+| 4 | `test_12j` counted any "Image is all-black" as the lighting's, so a lit stage whose capture is black for a renderer not yet warm would fail: count only the texts that name the lighting | taken, on `e1a47f7`'s version of the test |
+
 ## Live run
 
 Run by the session on its own headless Isaac Sim 6.2.0 (Kit 110.4.0+feature.386251.187cf21b.gl), Windows, RTX 5090,
