@@ -61,12 +61,15 @@ def test_a_security_hole_goes_to_a_private_advisory_never_an_issue():
     assert re.search(r"^## What counts$", SECURITY.read_text(encoding="utf-8"), re.MULTILINE)
 
 
-def test_the_instructions_and_the_skill_ask_for_get_sim_state_s_versions_and_kit_s_log():
-    # get_sim_state answers `server_version = ...` and `extension_version = ...` (tests/test_tools.py).
-    for text in (INSTRUCTIONS, SKILL.read_text(encoding="utf-8")):
-        assert "server_version" in text
-        assert "extension_version" in text
+def test_the_instructions_the_skill_and_the_guide_ask_for_get_sim_state_s_facts_and_kit_s_log():
+    # get_sim_state answers `kit_app = ...`, `kit_version = ...`, `kit_os = ...`, `server_version = ...` and
+    # `extension_version = ...` (tests/test_tools.py): the Kit app is no longer asked for (#105).
+    for text in (INSTRUCTIONS, SKILL.read_text(encoding="utf-8"), GUIDE.read_text(encoding="utf-8")):
+        for fact in ("kit_app", "kit_version", "kit_os", "server_version", "extension_version"):
+            assert fact in text
         assert 'get_logs(min_level="warn")' in text
+        # An extension from before #105 answers unknown: the user is asked then, as before.
+        assert "unknown" in text
 
 
 def test_the_skill_drafts_on_the_bug_form_s_fields_in_its_order():

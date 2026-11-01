@@ -35,12 +35,14 @@ under the user's GitHub account, and logs can name their folders and scenes: not
      link; they review it and post it themselves. You post nothing.
    - **c. No report.** Drop it, go back to their task, and don't ask again about this bug in this session.
 3. **Gather the details,** for a or b:
-   - `get_sim_state`: `server_version` and `extension_version`. A `note` line means they differ, which is often the
-     cause: the `setup` skill matches them; report only if the bug outlasts that.
+   - `get_sim_state`: `kit_app`, `kit_version` and `kit_os`, the Kit app and its version, Kit's version and the OS
+     Kit runs on; `server_version` and `extension_version`. A `note` line means the two versions differ, which is
+     often the cause: the `setup` skill matches them; report only if the bug outlasts that.
    - `get_logs(min_level="warn")`: keep the lines around the failing call. A long answer is written to a file: open
      it. When Kit hangs this fails too; the report says so.
-   - The Kit app and its version: ask the user (Help > About in the app), unless they said.
-   - The OS: this machine's, and Kit's too when `OMNIVERSE_MCP_HOST` names another machine (ask).
+   - Any of `kit_app`, `kit_version` and `kit_os` that reads `unknown`, as an extension older than the server
+     gives: ask the user (Help > About in the Kit app), unless they said.
+   - The OS: Kit's is `kit_os`. Add this machine's only when it differs: Kit can run on another machine.
    - The client and its version (Claude Code: `claude --version`).
    - The call: the tool, its arguments exactly, its answer as it came, and the calls before it that set the stage up.
 4. **Make it reproducible:** the fewest calls that show it, from a stage anyone has: `new_scene`, prims from
@@ -65,8 +67,8 @@ under the user's GitHub account, and logs can name their folders and scenes: not
 
    | Field | What goes in it |
    |---|---|
-   | Kit app and version | `Isaac Sim 5.1.0` |
-   | Operating system | both, when Kit runs on another machine |
+   | Kit app and version | `kit_app` (`kit_version`): `Isaac-Sim Python 6.2.0 (Kit 110.4.0+feature.386251.187cf21b.gl)` |
+   | Operating system | `kit_os`, and this machine's when it differs |
    | MCP client and version | `Claude Code 2.1.0` |
    | Server version or commit | `server_version` |
    | Extension version | `extension_version` |

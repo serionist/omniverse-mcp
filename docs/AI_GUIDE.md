@@ -52,8 +52,9 @@ move only while physics plays.
     [bug form](https://github.com/serionist/omniverse-mcp/issues/new?template=bug_report.yml) themselves;
   - no report, and you don't ask again about that bug.
 
-  A report holds the Kit app and version, the OS and the client; `server_version` and `extension_version` from
-  `get_sim_state`; the exact call and its arguments, what came back and what was expected;
+  A report holds `kit_app`, `kit_version`, `kit_os`, `server_version` and `extension_version` from `get_sim_state`
+  (ask the user for any that reads `unknown`); this machine's OS when it differs, and the client; the exact call and
+  its arguments, what came back and what was expected;
   `get_logs(min_level="warn")`'s lines around it, without tokens or personal paths. A security hole, such as a way
   past the token, a file written outside its path or a secret in a log, goes to the
   [private report](https://github.com/serionist/omniverse-mcp/security/advisories/new) instead, never to an issue
