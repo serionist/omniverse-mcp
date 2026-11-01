@@ -1,8 +1,8 @@
 # The release: pushing a tag vX.Y.Z on main builds the wheel and the sdist, checks them and the repo against the tag,
 # waits for ci.yml to have passed on the tagged commit, publishes to PyPI once a maintainer approves the pypi
 # environment, and makes the GitHub release with CHANGELOG.md's section and the install lines as its notes, the wheel,
-# the sdist and a zip of the Kit extension attached, and publishes server.json to the official MCP registry.
-# docs/releasing.md is the runbook (plans S9 and S10).
+# the sdist and the Kit extension's zips attached (two of them under the names Kit's community registry reads), and
+# publishes server.json to the official MCP registry. docs/releasing.md is the runbook (plans S9 and S10).
 #
 # No API token exists anywhere: PyPI trusts this workflow, in the pypi environment, through a trusted publisher, and
 # pypa/gh-action-pypi-publish trades the job's OIDC token for a short-lived one and attests the files it uploads. The
@@ -53,12 +53,10 @@ jobs:
           uvx twine==7.0.0 check --strict dist/*
           uvx check-wheel-contents==0.6.3 dist/*.whl
           uv run --no-project tools/release.py wheel dist/*.whl
-      # The extension alone, for a Kit app pointed at a folder: unzip it into one of Kit's extension search paths.
+      # The extension alone: ovmcp.bridge-X.Y.Z.zip for a Kit app pointed at a folder, and the same zip under the two
+      # names Kit's community registry's crawler reads (#101). Each is checked for what Kit needs to take it.
       - name: Zip the Kit extension
-        run: |
-          mkdir release
-          git archive --format=zip --prefix=ovmcp.bridge/ -o "release/ovmcp.bridge-${GITHUB_REF_NAME#v}.zip" \
-            HEAD:extension/ovmcp.bridge
+        run: uv run --no-project tools/release.py archives release "$GITHUB_REF_NAME"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
