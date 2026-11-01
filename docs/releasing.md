@@ -3,7 +3,8 @@
 A release is one pull request that dates the changelog and bumps every version, then a tag `vX.Y.Z` on its merge
 commit. The tag starts `.github/workflows/release.yml`, which checks, waits for CI, publishes to PyPI once the
 maintainer approves, makes the GitHub release and publishes `server.json` to the official MCP registry. The
-plan's S9, S10 and D7 say why it works this way.
+plan's S9, S10 and D7 say why it works this way. Kit's community registry reads the release itself, overnight
+(`docs/plans/2026-11-01-community-registry.md`).
 
 ## Once
 
@@ -13,6 +14,7 @@ plan's S9, S10 and D7 say why it works this way.
 | The environment `pypi`, with the maintainer as required reviewer, deploying from `v*` tags only | GitHub, Settings, Environments | 2026-10-28 |
 | The ruleset "release tags": only admins create, move or delete a `v*` tag | GitHub, Settings, Rules | 2026-10-28 |
 | Nothing for the MCP registry: it takes a GitHub Actions OIDC token from any repository `serionist` owns for `io.github.serionist/*`, and the README on PyPI for the package; here only `release.yml`'s `registry` job asks for one | none | |
+| The topic `omniverse-kit-extension`, which Kit's community registry's nightly crawler looks for; after the first release that carries the extension's two registry zips, so the first listing is theirs. It lists every earlier release too, from GitHub's source zip | GitHub, the repo page's **About** gear, **Topics**; or `gh repo edit serionist/omniverse-mcp --add-topic omniverse-kit-extension` | |
 
 ## Each release
 
@@ -46,9 +48,16 @@ plan's S9, S10 and D7 say why it works this way.
 4. **Approve the deployment.** The run waits at `Publish to PyPI` for the `pypi` environment's reviewer, after its
    checks and a green `ci.yml` run on the tagged commit.
 5. **Check it:** `uvx omniverse-mcp==X.Y.Z --help` runs, PyPI's page shows the README's images and its in-page links
-   land on their headings, the GitHub release has the wheel, the sdist and `ovmcp.bridge-X.Y.Z.zip`, with the
-   changelog section and the install lines as its notes, and the registry lists X.Y.Z:
+   land on their headings, the GitHub release has the wheel, the sdist, `ovmcp.bridge-X.Y.Z.zip` and the two
+   `serionist-omniverse-mcp-<linux|windows>-x86_64-vX.Y.Z.zip`, with the changelog section and the install lines as
+   its notes, and the registry lists X.Y.Z:
    `curl "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.serionist/omniverse-mcp"`.
+6. **The next day, Kit's community registry:** its crawler runs overnight, and then this answers 200. The package id
+   carries the Kit floor, `+107.0`, written `%2B`; with `+` it is a 404.
+
+   ```
+   curl -sI "https://dw290v42wisod.cloudfront.net/exts/kit/community/3/archives/ovmcp.bridge/ovmcp.bridge-X.Y.Z%2B107.0.json"
+   ```
 
 ## When it fails
 
@@ -66,3 +75,7 @@ Nothing is published before the approval. Then:
 - **The MCP registry job:** it tries five times over five minutes, for PyPI to show the upload. Re-run it while
   the registry lacks the version; a version it has is refused, so a re-run after a success changes nothing. A
   refusal of `server.json` itself is fixed in the next patch version, since `ci.yml` checks it on every PR.
+- **Kit's community registry doesn't list it:** nothing to re-run here; the crawler reads the release each night.
+  Check the topic, and that the release has the two `serionist-omniverse-mcp-...` zips: without them the crawler takes
+  GitHub's source zip of the tag, the whole repo. Never delete or replace a release's zips: Kit installs every listed
+  version from them (AGENTS.md, One-way doors).

@@ -84,7 +84,8 @@ This keeps the MCP context window clean - the AI reads files on demand rather th
 - The bridge token on every request (see [The bridge token](#the-bridge-token)), read again after a 401
 - A handshake, `GET /bridge`, at the start of every new connection; an extension of another protocol is refused
   with the command that installs this server's: `uvx omniverse-mcp==X.Y.Z extension install`, or from a checkout
-  `uv run --project <checkout> omniverse-mcp extension install`
+  `uv run --project <checkout> omniverse-mcp extension install`, and, for an extension from Kit's community
+  registry, the version to install in Kit's Extensions window (`kit_extension.install_advice()`)
 - Automatic reconnection on failure (1 retry, 2 total attempts)
 - A 120-second timeout on each request; the bridge's capture calls answer within about 90 s, under it
   ([Viewport Capture](#viewport-capture))
@@ -111,6 +112,11 @@ extension come from one release. `omniverse-mcp extension install` (`src/omniver
 - **A checkout** has no `_extension` folder in its editable install: the command copies `extension/ovmcp.bridge`, and
   Kit can as well point at the checkout's `extension/` folder.
 - **`extension path`** prints the `exts` folder, and fails while nothing is installed there.
+- **Kit's community registry** is the other way in. Each release also attaches the extension's zip under the two
+  names the registry's crawler reads (`tools/release.py archives`, which checks the layout: everything under
+  `ovmcp.bridge/`). Kit downloads a listed version from its release into its own cache and links it into its
+  registry folder, where `extension install`'s folder never reaches; turning the extension on doesn't download it,
+  the Extensions window's **Install** does. `[package.target] kit` keeps it from Kit apps before 107.
 
 ### Key files
 

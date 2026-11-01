@@ -5,6 +5,15 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Added
+
+- **The bridge in Kit's community extension registry:** each release also attaches the Kit extension as
+  `serionist-omniverse-mcp-linux-x86_64-vX.Y.Z.zip` and `-windows-x86_64-`, the names the registry reads, and the
+  extension names its repository, keywords, icon and preview, which Kit's Extensions window shows. A Kit app then
+  installs *Omniverse MCP Bridge* from its Extensions window, Isaac Sim 6.2 once it adds the registry; the server
+  still comes from PyPI, at the bridge's version
+  ([From Kit's community registry](docs/SETUP.md#from-kits-community-registry)) (#101).
+
 ### Changed
 
 - **Tested on Linux and on Isaac Sim 5.1:** both live suites pass on Isaac Sim 6.2 on Linux, and on 5.1 (Kit 107).

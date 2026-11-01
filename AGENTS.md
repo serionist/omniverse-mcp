@@ -29,7 +29,7 @@ extension it talks to.
 | `docs/plans/`, `docs/reviews/` | plans of non-trivial changes, with the template; review records. Dated records, never current truth |
 | `tools/` | `gate.py` (the gate), `hooks.py` (behind `.githooks/`), `setup.py` (once per clone; `link` for skills), `release.py` (the release's checks and notes, and the Kit extension's zips, `archives`), standard library only; `golden.py` writes `tests/fixtures/mcp-tools.json` from the server |
 | `.githooks/` | `commit-msg` refuses attribution, `pre-push` runs gate quick on what the push sends, `post-checkout` and `post-merge` name changed AI setup files |
-| `.github/` | `workflows/`: `ci.yml` (gate quick on Linux; the tests on Linux 3.11-3.14, Windows 3.11 and 3.14, macOS 3.14; the package built and checked; its `CI` job), `release.yml` (a `v*` tag publishes to PyPI after the maintainer approves, then to the MCP registry; `docs/releasing.md`), `pr-text.yml` (gate text on a PR's title and description; its `PR text` job), `codeql.yml`, `dependabot-auto-merge.yml` (turns on auto-merge for Dependabot's minor and patch updates); `CI` and `PR text` are the required checks; `dependabot.yml`, the issue forms, the PR template, `CODEOWNERS` |
+| `.github/` | `workflows/`: `ci.yml` (gate quick on Linux; the tests on Linux 3.11-3.14, Windows 3.11 and 3.14, macOS 3.14; the package built and checked; its `CI` job), `release.yml` (a `v*` tag publishes to PyPI after the maintainer approves, then to the MCP registry, and attaches the extension's zips Kit's community registry reads; `docs/releasing.md`), `pr-text.yml` (gate text on a PR's title and description; its `PR text` job), `codeql.yml`, `dependabot-auto-merge.yml` (turns on auto-merge for Dependabot's minor and patch updates); `CI` and `PR text` are the required checks; `dependabot.yml`, the issue forms, the PR template, `CODEOWNERS` |
 | `.claude/` | `CLAUDE.md` (imports this file), `settings.json` (no attribution; allows the repo's own checks and read-only git and gh, each named whole but the git ones `tests/test_gate.py` sweeps and gh's reads; asks before `git blame` and the usual spellings of a `git diff` out of the repo; asks and denies twinned for PowerShell), `skills/` (below) |
 | `.claude-plugin/`, `plugin/` | the repo as a Claude Code marketplace (`marketplace.json`) of one plugin: `plugin/.claude-plugin/plugin.json`, `plugin/.mcp.json` (starts `uvx omniverse-mcp==<version>`), `plugin/skills/` (setup and the workflows, for the plugin's users; write-skill), `plugin/README.md`, the icon for a directory listing |
 | `.agents/skills/` | links to `.claude/skills/<name>` for Codex, written into git's index by `uv run tools/setup.py link` |
@@ -111,7 +111,7 @@ in its issue; in `0.x` a minor may break the tool contract, under CHANGELOG's Br
 - the console script, its flags and its environment variables (`OMNIVERSE_MCP_*`);
 - the plugin's and the server key's names, and the MCP registry's (`server.json`);
 - tool names, schemas and annotations (`tests/fixtures/mcp-tools.json`);
-- the Kit extension id `ovmcp.bridge` and its settings;
+- the Kit extension id `ovmcp.bridge` and its settings; its release archives' names and layout, never deleted;
 - the wire protocol: paths, the auth header, the token file's place;
 - the output folder's layout;
 - where `extension install` puts the extension: `exts` in the user's data folder, which Kit's search paths hold.

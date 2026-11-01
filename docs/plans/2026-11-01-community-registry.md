@@ -371,7 +371,8 @@ archives (step 11); R1 to R13 stand in for it until then.
 | `docs/images/README.md` | The icon's and the preview's rows |
 | `CHANGELOG.md` | Unreleased, Added: the bridge in Kit's community registry, the release's two archives, the listing's fields; Changed: the extension declares Kit 107 or later, and the mismatch texts name the registry's fix |
 | `AGENTS.md` | The extension's row: `data/`; the `.github/` row: `release.yml` attaches the archives Kit's community registry reads; the `tools/` row: `release.py` builds them; One-way doors: line 114 as Q7 gives it, 110 characters, so the file stays at 150 lines |
-| `docs/ARCHITECTURE.md`, `docs/TOOLS.md` | None: no route, protocol, token or tool changes |
+| `docs/ARCHITECTURE.md` | Changed in the work, where the plan said none: the handshake's refusal names the registry's fix (Q6), and Delivery names the registry as the other way in, with E1's finding that only a pull downloads |
+| `docs/TOOLS.md` | None: no tool changes, and its texts on the mismatch stay true |
 
 ## Risks
 
