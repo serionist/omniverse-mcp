@@ -74,6 +74,7 @@ def handler(stage: Usd.Stage, monkeypatch: pytest.MonkeyPatch) -> Any:
             _first_missing=None,
             _get_stage=lambda: stage,
             _next_update=next_update,
+            _physics_exponents=None,
             _serialize_value=None,
         ),
     }
