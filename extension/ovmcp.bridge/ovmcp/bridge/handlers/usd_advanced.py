@@ -38,12 +38,13 @@ async def handle_flatten_usd(body: dict) -> dict:
     if refusal:
         return {"status": "error", "error": refusal}
 
+    # An input's stage is opened with an empty session layer of its own; the open stage's is Kit's, left out (#118).
     if input_path:
         src_stage = layers.open_to_flatten(stage, input_path)
         if src_stage is None:
             return {"status": "error", "error": f"Could not open {input_path}: no file there, or none USD reads"}
     else:
-        src_stage = stage
+        src_stage = layers.without_session(stage)
         input_path = src_stage.GetRootLayer().realPath or "(current stage)"
 
     layer_count = len(src_stage.GetUsedLayers())
@@ -89,12 +90,22 @@ async def handle_export_prim(body: dict) -> dict:
     await _next_update()
 
     stage = _get_stage()
-    prim = stage.GetPrimAtPath(prim_path)
-    if not prim.IsValid():
+    open_prim = stage.GetPrimAtPath(prim_path)
+    if not open_prim.IsValid():
         return {"status": "error", "error": f"Prim not found: {prim_path}"}
     refusal = layers.write_refusal(stage, output_path)
     if refusal:
         return {"status": "error", "error": refusal}
+
+    # Everything below reads the open stage without Kit's session layer, which a file never takes (#118).
+    source = layers.without_session(stage)
+    prim = source.GetPrimAtPath(prim_path)
+    if not prim or (open_prim.IsDefined() and not prim.IsDefined()):
+        return {
+            "status": "error",
+            "error": f"{prim_path} comes from Kit's session layer, as Kit's own cameras and the viewport's light rig "
+            "do, and no file takes that layer: there is nothing of it to export.",
+        }
 
     # Collect material bindings from source BEFORE flattening
     materials_outside = set()
@@ -107,13 +118,13 @@ async def handle_export_prim(body: dict) -> dict:
                 materials_outside.add(mat_path)
 
     # Flatten source and copy subtree
-    src_layer = stage.Flatten()
+    src_layer = source.Flatten()
 
     # Built in memory and exported, where CreateNew failed with "A layer already exists" while Kit still held a layer
     # for output_path (#81).
     new_stage = Usd.Stage.CreateInMemory()
-    UsdGeom.SetStageUpAxis(new_stage, UsdGeom.GetStageUpAxis(stage))
-    UsdGeom.SetStageMetersPerUnit(new_stage, UsdGeom.GetStageMetersPerUnit(stage))
+    UsdGeom.SetStageUpAxis(new_stage, UsdGeom.GetStageUpAxis(source))
+    UsdGeom.SetStageMetersPerUnit(new_stage, UsdGeom.GetStageMetersPerUnit(source))
 
     dst_layer = new_stage.GetRootLayer()
     prim_name = prim_path.rsplit("/", 1)[-1]
@@ -146,7 +157,7 @@ async def handle_export_prim(body: dict) -> dict:
             "output_path": output_path,
             "target_root": target_path,
             "materials_included": len(materials_outside),
-            "up_axis": UsdGeom.GetStageUpAxis(stage),
+            "up_axis": UsdGeom.GetStageUpAxis(source),
         },
     }
 

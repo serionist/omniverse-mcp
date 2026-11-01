@@ -1,5 +1,6 @@
 """Which USD files the open stage has loaded, so flatten_usd, export_prim_as_file and save_scene never write over one
-of its layers, and read a layer again from its file only when nothing is lost by it (#81, #85).
+of its layers, and read a layer again from its file only when nothing is lost by it (#81, #85); and the open stage
+without Kit's session layer, which the two flatten (#118).
 
 Sdf keeps one layer per file in its registry while anything holds it, and every open of that file gets that layer:
 the open stage's own, with its unsaved edits, and any other Kit still holds. Before #81 the two tools cleared the
@@ -17,7 +18,7 @@ from typing import TypeVar
 from pxr import Sdf, Tf, Usd
 
 from .stage_open import path_of
-from .usd import find_layer, has_unsaved_edits
+from .usd import anonymous_layer, find_layer, has_unsaved_edits
 
 T = TypeVar("T")
 
@@ -157,6 +158,33 @@ def open_to_flatten(stage: Usd.Stage, path: str) -> Usd.Stage | None:
     except Tf.ErrorException:  # pxr raises its errors in Python rather than returning no stage
         return None
     refresh(stage, [layer for layer in opened.GetUsedLayers() if layer in held])
+    return opened
+
+
+def without_session(stage: Usd.Stage) -> Usd.Stage:
+    """The open stage as a file would hold it, for flatten_usd and export_prim_as_file: a stage of its own on the open
+    stage's root layer, with an empty session layer in place of Kit's (#118).
+
+    Kit's session layer holds what Kit keeps for the session and never saves: the viewport's light rig at
+    /OmniKit_Viewport_LightRig, a rig mode's hiding of the stage's own lights, Kit's own cameras, and the bridge's
+    isolation while a capture runs. Stage.Flatten() composes it in, so a flatten in a rig mode wrote a file lit by the
+    rig with the scene's lights switched off. Kit's own File > Save Flattened As leaves it out the same way, unless
+    asked (omni.kit.window.file, file_window.py).
+
+    The root layer and every layer under it are the ones Kit holds, unsaved edits too, and only read: nothing of the
+    open stage changes. The open stage's resolver context, population mask, muted layers and load rules carry over, so
+    the files it resolves, and the payloads it has loaded or not, are the same; Kit's own carries the muted layers
+    only, and loads every payload."""
+    opened = Usd.Stage.OpenMasked(
+        stage.GetRootLayer(),
+        anonymous_layer(),
+        stage.GetPathResolverContext(),
+        stage.GetPopulationMask(),
+        Usd.Stage.LoadNone,
+    )
+    for muted in stage.GetMutedLayers():
+        opened.MuteLayer(muted)
+    opened.SetLoadRules(stage.GetLoadRules())
     return opened
 
 

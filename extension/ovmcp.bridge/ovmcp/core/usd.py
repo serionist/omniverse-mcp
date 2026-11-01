@@ -8,7 +8,7 @@
 - A prim spec's nameChildren is typed without __delitem__.
 - A layer's dirty is typed without a type; it is a bool.
 - Sdf.Layer.Find is typed with a dict of unknowns and as always finding a layer; it gives None when the registry holds
-  none for the path.
+  none for the path. Sdf.Layer.CreateAnonymous is typed with a dict of unknowns too.
 - Sdf.FileFormat.FindByExtension is typed as always finding a format; it gives None for an extension none reads.
 - Xformable.GetOrderedXformOps is typed as a bare list; it gives XformOps.
 - An op type is typed as a Tf.Type by the XformOp constants and GetOpType, and as XformOp.Type by AddXformOp; they
@@ -42,6 +42,7 @@ class _Dirty(Protocol):
 
 class _Registry(Protocol):
     Find: Callable[[str], "Sdf.Layer | None"]
+    CreateAnonymous: Callable[[], "Sdf.Layer"]
 
 
 def floats(v: Vec, n: int = 3) -> list[float]:
@@ -86,6 +87,11 @@ def has_unsaved_edits(layer: Sdf.Layer) -> bool:
 def find_layer(path: str) -> Sdf.Layer | None:
     """The layer Sdf's registry holds for path, or None."""
     return cast("_Registry", Sdf.Layer).Find(path)
+
+
+def anonymous_layer() -> Sdf.Layer:
+    """A new empty layer with no file."""
+    return cast("_Registry", Sdf.Layer).CreateAnonymous()
 
 
 class _Ordered(Protocol):
