@@ -88,14 +88,18 @@ deliberate errors, each naming "ovmcp 122 probe".
 | P4 | Calls to an observer and to a stream subscription that each raise in their first call | Whether the helper catches errors (Design) |
 | P5 | Calls after everything is dropped | That a dropped guard is no longer called |
 
-The command, from this worktree, against main's extension (any `ovmcp.bridge` 0.3.0 or later; it uses `/execute`
-alone), on the session's Isaac Sim 6.2 at 8212:
+The session ran it from this worktree, `uv run python <scratchpad>/122/122-probe.py`, on its Isaac Sim 6.2 headless
+at 8212 (Kit `110.4.0+feature.386251.187cf21b.gl`, `/app/asyncRendering` false, the async engine's order 100, a Y-up
+stage open), with #113's branch's extension, of which it used `/execute` alone. Exit 0; its output is
+`122-probe.out.txt` beside the script, its stderr empty. It saw 8 updates, 7 of them whole.
 
-```
-uv run python C:/Users/serio/AppData/Local/Temp/claude/D--workspaces-omniverse-mcp/ae0c0d9e-28b9-406b-a22f-39e21c083c92/scratchpad/122/122-probe.py
-```
-
-Results: not run yet. They go here, with the plan's choices they settle.
+| # | Result | Settles |
+|---|---|---|
+| P1 | All 7 whole updates ran in one order: `preUpdate+0`, `drawable`, `update-101`, `update-11`, `update-9`, `stream-9`, `update+0`, `stream+0`, `update+1`, `update+14`, `update+16`, `update+29`, `update+31`, `stream+31`, `update+49`, `update+51`, `update+99`, `resume`, `update+101`, `postUpdate+0`. Each stream subscription ran beside the observer of its own order, after it, since the observer was made first (K3's rule for one order): the stream's orders are the update event's. The asyncio loop resumed the probe between 99 and 101, at the async engine's 100. A texture's drawable-changed event came once an update, after the pre-update event and before the update event's first observer | `ORDER` is 0, the stream's place (Q2 A). Kit announces a frame rendered at 30 at the start of the next update, before the recorder's tick at 0 |
+| P2 | Every call, of every tag, on the thread that runs the asyncio loop, which is Python's main thread | The observers run on the main thread, as the stream's did |
+| P3 | An observer that dropped its own guard in its second call was called twice in 8 updates; one that reset its guard, twice | Dropping the guard in its own call ends the calls (Q4 A) |
+| P4 | An observer that raised in its first call was called in all 8 updates; the stream subscription that raised, in all 8 too | Kit goes on calling either after an error: the helper adds no error handling |
+| P5 | No call after every guard and subscription was dropped | A dropped guard is no longer called |
 
 ## Design
 
@@ -115,15 +119,13 @@ def on_update(name: str, callback: Callable[[], None]) -> Any:
 
 - **Order 0** (Q2): where the stream's subscriptions ran (C4), after USD's update and the physics step (-10), before
   the UI (15), Fabric's flush (20), Hydra's render (30), `next_update_async` (50) and the asyncio loop that runs the
-  handlers (100). P1 checks that the stream's 0 is the observers' 0; if it isn't, `ORDER` takes the place P1 measured
-  for the stream's.
+  handlers (100). P1 measured the stream's 0 as the observers' 0.
 - **Main thread:** the update event is the main run loop's (K2), dispatched by the thread that runs it (K3), which
-  also runs the asyncio loop (K5). P2 checks it.
+  also runs the asyncio loop (K5). P2 measured every call there.
 - **No argument:** none of the three reads Kit's event.
 - **Names:** `ovmcp.bridge <name>`, which Kit's profiler shows.
-- **Errors:** as now, a callback's error is Kit's to log. If P4 shows Kit stops calling an observer that raised, where
-  it went on calling a stream subscription, the helper catches and logs the error itself (`carb.log_warn`) so a
-  recording doesn't stop taking frames without a word.
+- **Errors:** as now, a callback's error is Kit's to log, and Kit goes on calling the observer, as it did the stream
+  subscription (P4). The helper wraps nothing.
 - **The docstring** names no deprecated getter: the guard (Q5) reads every file under the extension.
 
 ### The three, by role
@@ -144,7 +146,8 @@ The rebase reads each file again; the rows follow the code by role, not by line.
   during a capture. #57's rule, a capture's first frame comes after the call starts, rests on those alone.
 - **The recorder stays at order 0:** it reads the simulation time after the step and before the render, and queues
   `_take_frame`, which runs in the asyncio loop at 100, after Hydra's render at 30, and is handed the feed's next
-  drawable-changed frame. P1's drawable tag records where Kit announces that frame.
+  drawable-changed frame. Kit announces a frame at the start of the next update, before the tick (P1), so the tick's
+  `feed.waiting` already knows whether the last frame came, as it did with the stream.
 - **`omni.debugdraw`'s lines** are drawn at 0 and reach the render at 30 of the same update, as `test_16_09` checks.
 - **An observer made during a dispatch** is first called on the next update (K3). The handlers make theirs at 100,
   after order 0 has passed, so a recording's first tick comes on the next update, as now. The recorder's tick makes
@@ -168,16 +171,17 @@ too (C7, C8), and its fake keeps the drawable-changed observers it has.
 - **The call inline in each place** (Q1 B): three copies of the order, the event and the reason for both.
 - **Another place in the update** (Q2 B, C): moves what #25, #57 and #69 measured.
 - **A fallback to the stream** (Q3 B): a branch no supported Kit takes.
-- **Explicit `reset()`** (Q4 B): K3 gives collection the same guarantee.
+- **Explicit `reset()`** (Q4 B): K3 gives collection the same guarantee, and P3 measured both alike.
+- **An error handler in the helper:** Kit calls an observer again after an error, as it did a stream's (P4).
 
 ### Decisions for the maintainer
 
 | Q | Question | Options | Recommendation | Answer |
 |---|---|---|---|---|
 | Q1 | One helper, or the call in each place? | **A.** `handlers/_updates.py`'s `on_update(name, callback)` holds the event, the order and the name; the three call it. **B.** The `observe_event` call inline in each, as `camera_feed._subscribe` inlines the drawable-changed one | A: the order and why live in one place with one test, and the next Kit change is one edit. It costs `test_camera_feed.py` a package-style load (C7) | |
-| Q2 | Where in the update? | **A.** Order 0 of the update event, where the stream's subscriptions ran (C4), if P1 agrees. **B.** The post-update event, after Hydra's render is scheduled. **C.** The pre-update event, before USD's update and physics | A: nothing measured under #25, #57 and #69 moves. B would read a frame's simulation time after its render was scheduled and move `omni.debugdraw`'s lines out of the update they were drawn for; C would read the simulation time before this update's step | |
+| Q2 | Where in the update? | **A.** Order 0 of the update event, where the stream's subscriptions ran (C4); P1 measured the stream's 0 as that place. **B.** The post-update event, after Hydra's render is scheduled. **C.** The pre-update event, before USD's update and physics | A, settled by P1: the three run where they ran, so nothing measured under #25, #57 and #69 moves. B would read a frame's simulation time after its render was scheduled and move `omni.debugdraw`'s lines out of the update they were drawn for; C would read the simulation time before this update's step | |
 | Q3 | A fallback for a Kit without the update event? | **A.** None: Kit 107.3.3 has it (K1 to K5). **B.** The stream where `omni.kit.app` lacks `GLOBAL_EVENT_UPDATE`, as `_subscribe` does for drawable-changed | A: B adds a branch no supported Kit takes and only a fake can run. Isaac Sim 5.0 is not on disk (Risks) | |
-| Q4 | How is each released? | **A.** The guard dropped, as now and as Kit's own code does (`async_engine.py` `on_shutdown`); K3 gives collection `reset()`'s guarantee, from inside its own call too. **B.** `reset()` called, then the guard dropped | A, unless P3 shows a guard dropped in its own call still called | |
+| Q4 | How is each released? | **A.** The guard dropped, as now and as Kit's own code does (`async_engine.py` `on_shutdown`); K3 gives collection `reset()`'s guarantee, from inside its own call too. **B.** `reset()` called, then the guard dropped | A, settled by P3: a guard dropped in its own call ended the calls as `reset()` did, and P5 saw none after a drop | |
 | Q5 | A CI guard against the deprecated app streams? | **A.** `tests/test_updates.py` fails when any file under `extension/ovmcp.bridge` names one of the app's stream getters K1 lists, but the log stream's, which `tests/test_logs.py` refuses already. **B.** None | A: CI runs on every PR, the live suites only by hand | |
 | Q6 | How is Kit's log checked live? | **A.** A scenario test, `test_17_08`, in phase 17, which already changes the stage: a recording stopped by a new stage, then a 0.5 s drawing; `get_logs` since its start holds the bridge's own Info line and no "Use Events 2.0" notice naming `ovmcp/bridge`. **B.** By hand: those notices in a live-suite run's Kit log, on main's extension and the branch's, in the PR. **C.** Both | C: A keeps it checked and fails on main's extension; B gives the whole run's numbers, before and after | |
 
@@ -196,7 +200,7 @@ Each step builds and passes `uv run tools/gate.py quick`.
 
 | Step | What | Proven by |
 |---|---|---|
-| 0 | The probe, run by the session on Isaac Sim 6.2 at 8212 with main's extension; its results into this plan, and `ORDER`, Q4 and the helper's error handling settled by them | The probe's output |
+| 0 | Done: the probe, run by the session on Isaac Sim 6.2 at 8212; its results are above, and settle `ORDER` (Q2), Q4 and the helper's error handling | `122-probe.out.txt` |
 | 1 | This plan, the branch's first commit; `review-plan`; the maintainer's answers | |
 | 2 | Wait for #114 and #111 to merge; rebase onto `origin/main`; read `camera_feed.py`, `recording.py` and `debug_draw.py` again and list every update subscription; amend C1 to C3 and the roles if they moved | `rg "update_event_stream\|create_subscription_to_pop" extension` |
 | 3 | `handlers/_updates.py`; `FakeUpdates` in `tests/conftest.py` | `tests/test_updates.py` |
@@ -245,11 +249,11 @@ USD Composer. The observers' thread there rests on K2 and K3.
 
 | Risk | Status |
 |---|---|
-| The stream's order 0 and the observers' order 0 are different places in the update | Open until P1; then `ORDER` takes the stream's place |
-| Kit stops calling an observer whose callback raised, where it went on calling a stream's | Open until P4; then the helper catches and logs |
+| The stream's order 0 and the observers' order 0 are different places in the update | Resolved by P1 on Kit 110: one place. Kit 107 wasn't probed; its orders and `next_update_async` are the same (K4, K5) |
+| Kit stops calling an observer whose callback raised, where it went on calling a stream's | Resolved by P4 on Kit 110: Kit calls both again |
 | Isaac Sim 5.0 isn't on disk: a Kit 107 before 107.3.3 might lack the update event | Accepted: the extension supports Kit 107 and later, and 5.1's Kit 107.3.3 has it, with Kit's own `next_update_async` and Replicator observing it (K5) |
 | #114 or #111 adds or moves an update subscription | Accepted: step 2 reads the code again after both merge, and the guard (Q5) fails on any stream left |
-| The observers' thread in Isaac Sim's GUI or another Kit app | Accepted: the update event is the main run loop's (K2), dispatched by its thread (K3); the live suites run headless |
+| The observers' thread in Isaac Sim's GUI or another Kit app | Accepted: P2 measured the main thread on Isaac Sim 6.2 headless, with async rendering off; elsewhere it rests on the update event being the main run loop's (K2), dispatched by its thread (K3) |
 | A guard kept alive by a stray reference goes on calling | Accepted: each is held in one attribute, as each subscription is now, and the unit tests drop each and count the calls after |
 
 ## Plan review
