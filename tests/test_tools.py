@@ -1154,6 +1154,95 @@ def test_create_robot_says_nothing_of_a_turn_it_didn_t_make(
     assert "Turned upright" not in text
 
 
+SCALE = "xformOp:scale:unitsResolve"
+_SCALED = {
+    "meters_per_unit": {"file": 1.0, "stage": 0.01},
+    "kilograms_per_unit": None,
+    "factor": 100.0,
+    "op": [100.0, 100.0, 100.0],
+    "op_name": SCALE,
+    "converted": 12,
+    "left": [],
+    "left_count": 0,
+    "table": True,
+}
+_CONVERTED = (
+    "12 values (masses, inertia, drives, limits, camera distances) were converted to the stage's units, as Kit's "
+    "metrics assembler converts them with its physics rules"
+)
+
+
+@pytest.mark.parametrize(
+    ("units", "says"),
+    [
+        (
+            _SCALED,
+            (
+                "Scaled to the stage's units: the file's metersPerUnit is 1 and the stage's 0.01, so a factor of 100 "
+                f"went into {SCALE}, which now reads 100; {_CONVERTED}",
+            ),
+        ),
+        # A file whose root held Kit's scale: the op reads 1, not the 0.01 multiplied in, and the answer says both.
+        (
+            {**_SCALED, "meters_per_unit": {"file": 0.01, "stage": 1.0}, "factor": 0.01, "op": [1.0, 1.0, 1.0]},
+            (f"the stage's 1, so a factor of 0.01 was multiplied into {SCALE}, which now reads 1;",),
+        ),
+        (
+            {**_SCALED, "kilograms_per_unit": {"file": 1.0, "stage": 0.001}},
+            (
+                "the file's metersPerUnit is 1 and the stage's 0.01, and its kilogramsPerUnit is 1 and the stage's "
+                "0.001,",
+            ),
+        ),
+        (
+            {
+                **_SCALED,
+                "meters_per_unit": None,
+                "kilograms_per_unit": {"file": 0.001, "stage": 1.0},
+                "factor": None,
+                "op": None,
+                "op_name": None,
+            },
+            (f"Converted to the stage's units: the file's kilogramsPerUnit is 0.001 and the stage's 1; {_CONVERTED}",),
+        ),
+        (
+            {
+                **_SCALED,
+                "left": [f"/World/Bot/Pad{i}/Shape.physxCollision:contactOffset" for i in range(10)],
+                "left_count": 12,
+            },
+            (
+                "12 values stay in the file's units, inside instances, which USD lets no one override, or animated by "
+                "value clips: /World/Bot/Pad0/Shape.physxCollision:contactOffset, ",
+                "/World/Bot/Pad9/Shape.physxCollision:contactOffset, and 2 more",
+            ),
+        ),
+        (
+            {**_SCALED, "converted": 2, "table": False},
+            (
+                "This Kit app has no PhysX schema to read units from, so the robot's physics values stay in the file's "
+                "units",
+            ),
+        ),
+    ],
+    ids=["new-op", "held-op", "both-units", "mass-only", "left", "no-table"],
+)
+def test_create_robot_says_it_brought_the_robot_to_the_stage_s_units(
+    units: dict[str, Any], says: tuple[str, ...], bridge: MockIsaacServer, tmp_path: Path
+):
+    case = Case("create_robot", {"robot_type": "g1"}, "/robot/create", {**ROBOT, "units_scale": units}, {}, says)
+    _check(case, bridge, tmp_path)
+
+
+@pytest.mark.parametrize("answer", [ROBOT, {**ROBOT, "units_scale": None}], ids=["older-extension", "same-units"])
+def test_create_robot_says_nothing_of_units_it_didn_t_change(
+    answer: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path
+):
+    text = _check(Case("create_robot", {"robot_type": "g1"}, "/robot/create", answer, {}, ()), bridge, tmp_path)
+    assert "stage's units" not in text
+    assert "PhysX schema" not in text
+
+
 @pytest.mark.parametrize("args", [{}, {"fps": 10}, {"width": 640, "height": 480, "camera_path": ""}])
 def test_start_recording_on_an_older_extension_warns_of_nothing_without_a_camera_or_a_size(
     args: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path

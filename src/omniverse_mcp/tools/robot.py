@@ -62,6 +62,46 @@ def _turned_line(turn: dict[str, Any]) -> str:
     )
 
 
+def _scaled_lines(units: dict[str, Any]) -> list[str]:
+    """The lines for a robot create_robot brought to the stage's units (#112): the units that differ, the factor added
+    and the op's value after, which differ when the file's root held the op, as #105's turned line names both; what
+    was converted, and what stays in the file's units."""
+    said = [
+        f"{name} is {float(pair['file']):g} and the stage's {float(pair['stage']):g}"
+        for name, pair in (
+            ("metersPerUnit", units.get("meters_per_unit")),
+            ("kilogramsPerUnit", units.get("kilograms_per_unit")),
+        )
+        if pair
+    ]
+    line = "the file's " + ", and its ".join(said)
+    if units.get("op") is not None:
+        factor, op = float(units["factor"]), [float(v) for v in units["op"]]
+        name = units.get("op_name", "xformOp:scale:unitsResolve")
+        added = "went into" if op == [factor] * 3 else "was multiplied into"
+        reads = f"{op[0]:g}" if op[1:] == op[:-1] else "(" + ", ".join(f"{v:g}" for v in op) + ")"
+        line = f"Scaled to the stage's units: {line}, so a factor of {factor:g} {added} {name}, which now reads {reads}"
+    else:
+        line = f"Converted to the stage's units: {line}"
+    lines = [
+        f"{line}; {units.get('converted', 0)} values (masses, inertia, drives, limits, camera distances) were "
+        "converted to the stage's units, as Kit's metrics assembler converts them with its physics rules"
+    ]
+    if units.get("left_count"):
+        left: list[str] = units.get("left") or []
+        more = units["left_count"] - len(left)
+        lines.append(
+            f"{units['left_count']} values stay in the file's units, inside instances, which USD lets no one override, "
+            f"or animated by value clips: {', '.join(left)}" + (f", and {more} more" if more > 0 else "")
+        )
+    if units.get("table") is False:
+        lines.append(
+            "This Kit app has no PhysX schema to read units from, so the robot's physics values stay in the file's "
+            "units"
+        )
+    return lines
+
+
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @tool(mcp, EDITS)
     def create_robot(
@@ -77,9 +117,11 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         Without prim_path, the prim is named after the robot or the file: /World/Franka, or /World/MyBot for MyBot.usd.
         A prim already at prim_path, or a file that can't be opened, is an error. A file whose upAxis isn't the
         stage's is stood upright on it, as Kit stands a dropped file, and the answer says so: Isaac Sim's robots are
-        Z-up, so each is turned on a Y-up stage. A file that authors no upAxis is left as it is. position and rotation
-        stay in the stage's frame. For anything but a
-        robot, use create_prim; get_robot_info then lists the robot's joints.
+        Z-up, so each is turned on a Y-up stage. A file that authors no upAxis is left as it is. A file whose
+        metersPerUnit or kilogramsPerUnit isn't the stage's is brought to the stage's units, as Kit's metrics
+        assembler brings a dropped file with its physics rules: scaled, its physics values converted, and the answer
+        says so; one that authors neither is left as it is. position and rotation stay in the stage's frame. For
+        anything but a robot, use create_prim; get_robot_info then lists the robot's joints.
         """
         resp = bridge_call(client.create_robot, robot_type, prim_path, position, rotation)
         r = resp["result"]
@@ -87,6 +129,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         parts.append(f"USD: {r['usd_path']}")
         if turn := r.get("up_axis_turn"):
             parts.append(_turned_line(turn))
+        if units := r.get("units_scale"):
+            parts.extend(_scaled_lines(units))
         if r.get("joints"):
             parts.append(f"Joints: {len(r['joints'])}")
             for j in r["joints"][:10]:
