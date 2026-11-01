@@ -803,8 +803,9 @@ Needs: 18.2
 > **Lighting modes:** The MCP exposes all Omniverse viewport lighting options:
 > `"off"`, `"camera"`, `"stage"`, and light rig presets (`"Default"`, `"Colored Lights"`, `"Grey Studio"`).
 >
-> **No auto-fix:** The MCP never auto-switches lighting. It detects and warns about black images,
-> but the user/AI must explicitly set the desired mode.
+> **No auto-fix:** The MCP never auto-switches lighting. It warns about black images, and about lighting that
+> lights nothing (mode `off`, or `stage` with no scene lights) though Kit's grid shows, but the user/AI must
+> explicitly set the desired mode.
 
 ### 23.1 Get Lighting State
 - `viewport_light("get")`

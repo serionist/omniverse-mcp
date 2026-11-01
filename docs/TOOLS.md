@@ -595,7 +595,8 @@ each is turned on a Y-up stage. `position` and `rotation` stay in the stage's fr
 `rotation=[0, 90, 0]` on a Y-up stage turns the standing robot about Y. A file whose root holds that op already, as
 one Kit resolved and saved, gets the turn added to it. A file that authors no `upAxis` is left as it is. The answer
 says when it turned one, the turn added and the op's value after. `set_prim_transform` keeps the op where it is.
-With an extension of 0.3.0 or older, nothing is turned, and a library robot lies on its side on a Y-up stage.
+Unlike Kit's metrics assembler, it doesn't scale a file whose `metersPerUnit` isn't the stage's: #112. With an
+extension of 0.3.0 or older, nothing is turned, and a library robot lies on its side on a Y-up stage.
 
 ---
 
