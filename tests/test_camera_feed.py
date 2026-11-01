@@ -1,6 +1,7 @@
 """The camera feed against a fake Kit: the drawable-changed subscription in Kit 110's form and Kit 107's, a frame
 handed to the captures waiting for it and to no other, a capture given up taken back, and a dropped feed's render
-product deleted from the stage open now or the next one (#25).
+product deleted from the stage open now or the next one (#25). The capture feed kept between calls: its camera and
+size set in place, its timer, the stage's closing and Kit's save, and shutdown (#114).
 
 handlers/camera_feed.py and handlers/_utils.py are loaded from their files with Kit's modules faked in sys.modules, as
 tests/test_debug_draw_handler.py loads its handler; the Kit-free core and pxr (usd-core) are the real ones.
@@ -23,17 +24,23 @@ from .conftest import EXTENSION_ROOT
 HANDLERS = EXTENSION_ROOT / "ovmcp" / "bridge" / "handlers"
 OPENED, CLOSING = "OPENED", "CLOSING"
 PRODUCT_PREFIX = "/Render/OmniverseKit/HydraTextures/"
+DRAWABLE_CHANGED = "omni.kit.hydra_texture:drawable_changed"
 PNG = b"\x89PNG\r\n\x1a\n" + b"pixels" + b"\x00\x00\x00\x00IEND\xaeB`\x82"
 
 
 class FakeTexture:
-    """What the feed reads of a hydra texture."""
+    """What the feed reads of a hydra texture, and its camera and size as a kept feed sets them."""
 
     def __init__(self, name: str, log: list[Any] | None = None) -> None:
         self.name = name
         self.updates: list[bool] = []
         self.stream_subscriptions: list[tuple[Any, ...]] = []
         self._log = log if log is not None else []
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name in ("camera_path", "width", "height"):
+            self._log.append((name, value))
+        super().__setattr__(name, value)
 
     def get_render_product_path(self) -> str:
         return PRODUCT_PREFIX + self.name
@@ -114,6 +121,7 @@ class FakeKit:
         self.log: list[Any] = []
         self.registry: Any = FakeRegistry(self)
         self.sensor_error: Exception | None = None
+        self.stage_id = 1
 
     def create_hydra_texture(self, name: str, *args: Any, **kwargs: Any) -> FakeTexture | None:
         self.created.append((name, *args, kwargs))
@@ -142,10 +150,17 @@ class FakeKit:
     def frame(self, result_handle: int) -> None:
         """Kit delivers a frame of the newest texture, in the form this Kit has."""
         if self.events_2:
-            self.observers[-1]["on_event"]({"result_handle": result_handle})
+            drawable = [o for o in self.observers if o["event_name"] == DRAWABLE_CHANGED]
+            drawable[-1]["on_event"]({"result_handle": result_handle})
         else:
             _type, fn, _name = self.textures[-1].stream_subscriptions[-1]
             fn(SimpleNamespace(payload={"result_handle": result_handle}))
+
+    def stage_event(self, event: str) -> None:
+        """Kit sends a stage event, on Events 2.0 in Kit 107 and Kit 110 alike, to whoever observes it."""
+        for observer in list(self.observers):
+            if observer["event_name"] == f"stage event {event}":
+                observer["on_event"](SimpleNamespace(event_name=observer["event_name"]))
 
 
 def _module(name: str, **attrs: Any) -> ModuleType:
@@ -172,18 +187,28 @@ def _fake_kit(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> None:
 
     stream = SimpleNamespace(create_subscription_to_pop=kit.subscribe_update)
     app = SimpleNamespace(next_update_async=next_update_async, get_update_event_stream=lambda: stream)
-    context = SimpleNamespace(get_stage_state=lambda: kit.stage_state, get_stage=lambda: kit.stage)
+    context = SimpleNamespace(
+        get_stage_state=lambda: kit.stage_state,
+        get_stage=lambda: kit.stage,
+        get_stage_id=lambda: kit.stage_id,
+        stage_event_name=lambda event: f"stage event {event}",
+    )
     kit_app = _module("omni.kit.app", get_app=lambda: app)
     texture_module = _module("omni.kit.hydra_texture", create_hydra_texture=kit.create_hydra_texture)
     viewport_capture = _module("omni.kit.widget.viewport.capture", FileCapture=FakeDelegate)
     events: dict[str, object] = {"EVENT_TYPE_DRAWABLE_CHANGED": 11183105052706112355}
     if kit.events_2:
-        events["GLOBAL_EVENT_DRAWABLE_CHANGED"] = "omni.kit.hydra_texture:drawable_changed"
+        events["GLOBAL_EVENT_DRAWABLE_CHANGED"] = DRAWABLE_CHANGED
     hydratexture = _module("omni.hydratexture", **events)
     dispatcher = _module(
         "carb.eventdispatcher", get_eventdispatcher=lambda: SimpleNamespace(observe_event=kit.observe_event)
     )
-    usd = _module("omni.usd", get_context=lambda: context, StageState=SimpleNamespace(OPENED=OPENED, CLOSING=CLOSING))
+    usd = _module(
+        "omni.usd",
+        get_context=lambda: context,
+        StageState=SimpleNamespace(OPENED=OPENED, CLOSING=CLOSING),
+        StageEventType=SimpleNamespace(CLOSING="closing", SAVING="saving"),
+    )
     omni_kit = _module("omni.kit", app=kit_app, hydra_texture=texture_module)
     syntheticdata = _module(
         "omni.syntheticdata",
@@ -238,7 +263,7 @@ def test_the_subscription_takes_the_form_this_kit_has(feeds, kit):
     texture = kit.textures[-1]
     if kit.events_2:
         (observer,) = kit.observers
-        assert observer["event_name"] == "omni.kit.hydra_texture:drawable_changed"
+        assert observer["event_name"] == DRAWABLE_CHANGED
         assert observer["filter"] == texture.get_event_key()  # this texture's frames only
         assert texture.stream_subscriptions == []
     else:
@@ -514,3 +539,252 @@ def test_a_frame_that_never_comes_fails_in_its_time_and_is_taken_back(feeds, uti
     with pytest.raises(capture.NoFrameError):
         asyncio.run(utils.capture_feed_png(feed))
     assert not feed.waiting  # a frame arriving now finds no capture to write into a deleted file
+
+
+# ---- the capture feed kept between calls (#114) ----
+
+
+def _kept_with_frames(feeds: Any, kit: FakeKit, camera: str = "/World/Cam", size: tuple[int, int] = (320, 240)) -> Any:
+    """kept_feed's feed, its prim on the stage and a frame rendered, the log cleared."""
+    feed = feeds.kept_feed(camera, *size)
+    if not kit.stage.GetPrimAtPath(feed.render_product_path):
+        _with_product(kit, feed.render_product_path)
+    kit.frame(feed.frames + 1)
+    kit.log.clear()
+    return feed
+
+
+def _put_back(feeds: Any, feed: Any, healthy: bool = True) -> None:
+    async def put_back() -> None:
+        await feeds.put_back(feed, healthy)
+        feeds._kept._stop_timer()  # the loop ends with the test: its timer would never fire
+
+    asyncio.run(put_back())
+
+
+def test_a_call_at_the_size_of_the_last_reuses_its_feed_and_sets_a_new_camera_on_both(feeds, kit):
+    first = _kept_with_frames(feeds, kit)
+    _put_back(feeds, first)
+
+    again = feeds.kept_feed("/World/Cam", 320, 240)
+    assert again is first
+    assert kit.log == []  # nothing set: Kit's view isn't touched
+
+    other = feeds.kept_feed("/World/Other", 320, 240)
+    assert other is first
+    assert len(kit.created) == 1  # no new texture, so no new RTX view (#114's K15)
+    assert kit.log == [("camera_path", "/World/Other")]
+    # The boxes and segmentation read the feed's camera: they follow the texture's.
+    assert (first.camera_path, first.resolution) == ("/World/Other", (320, 240))
+
+
+def test_a_call_at_another_size_resizes_the_kept_feed_in_place(feeds, kit):
+    feed = _kept_with_frames(feeds, kit)
+    product = feed.render_product_path
+    _put_back(feeds, feed)
+
+    assert feeds.kept_feed("/World/Cam", 640, 480) is feed
+    assert len(kit.created) == 1
+    assert kit.log == [("width", 640), ("height", 480)]
+    assert (feed.resolution, feed.render_product_path) == ((640, 480), product)
+
+
+def test_a_kept_feed_is_released_after_the_idle_seconds_with_no_call(feeds, kit, monkeypatch):
+    monkeypatch.setattr(feeds, "IDLE_SECONDS", 0.01)
+    feed = _kept_with_frames(feeds, kit)
+
+    async def kept_then_idle() -> None:
+        await feeds.put_back(feed, True)
+        assert feeds._kept.feed is feed  # kept while the time runs
+        await asyncio.sleep(0.05)
+        await feeds._kept.idle_release
+
+    asyncio.run(kept_then_idle())
+    assert feeds._kept.feed is None
+    assert kit.log == [("updates", False), "update", "update"]  # release's order
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+
+
+def test_a_call_within_the_idle_seconds_stops_the_timer(feeds, kit, monkeypatch):
+    monkeypatch.setattr(feeds, "IDLE_SECONDS", 0.02)
+    feed = _kept_with_frames(feeds, kit)
+
+    async def taken_again() -> None:
+        await feeds.put_back(feed, True)
+        assert feeds.kept_feed("/World/Cam", 320, 240) is feed
+        await asyncio.sleep(0.05)
+
+    asyncio.run(taken_again())
+    assert feeds._kept.feed is feed
+    assert feeds._kept.idle_release is None  # the timer never fired
+    assert kit.log == []
+
+
+def test_an_idle_release_that_waited_for_a_call_does_nothing(feeds, kit, monkeypatch):
+    monkeypatch.setattr(feeds, "IDLE_SECONDS", 0.01)
+    feed = _kept_with_frames(feeds, kit)
+
+    async def fires_during_a_call() -> None:
+        await feeds.put_back(feed, True)
+        async with feeds._viewport.get():  # a call holds the lock as the timer fires
+            await asyncio.sleep(0.05)
+            assert feeds._kept.idle_release is not None
+            assert feeds.kept_feed("/World/Cam", 320, 240) is feed
+        await feeds._kept.idle_release
+
+    asyncio.run(fires_during_a_call())
+    assert feeds._kept.feed is feed
+    assert kit.log == []
+    assert kit.stage.GetPrimAtPath(feed.render_product_path)
+
+
+def test_a_feed_in_doubt_is_released_at_once(feeds, kit):
+    feed = _kept_with_frames(feeds, kit)
+    _put_back(feeds, feed, healthy=False)
+    assert feeds._kept.feed is None
+    assert kit.log == [("updates", False), "update", "update"]
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+    assert feeds.kept_feed("/World/Cam", 320, 240) is not feed
+
+
+def test_a_calls_segmentation_is_turned_off_as_its_feed_is_kept_and_its_graphs_freed_at_release(feeds, kit):
+    feed = _kept_with_frames(feeds, kit)
+    feeds.enable_segmentation(feed)
+    kit.registry._nodeGraphs = {feed.render_product_path + "/PostRender/SDGPipeline": "the feed's graph"}
+    kit.log.clear()
+
+    _put_back(feeds, feed)
+    # Off between calls: left on, Kit's updates a second while idle fell from 137 to 110 (#114's step 1). The graph
+    # stays.
+    assert kit.log == [("disable", feed.render_product_path, ["InstanceSegmentation"])]
+    assert (feed.segmented, feed.sensor_on) == (True, False)
+    assert kit.registry._nodeGraphs
+
+    kit.log.clear()
+    asyncio.run(feeds.release_kept())
+    # Not turned off twice; the graph freed before the render product goes (#51's E16).
+    assert kit.log == [("updates", False), ("reset", "the feed's graph", "session layer"), "update", "update"]
+    assert kit.registry._nodeGraphs == {}
+
+
+def test_a_feed_whose_segmentation_will_not_turn_off_is_released(feeds, kit):
+    feed = _kept_with_frames(feeds, kit)
+    feeds.enable_segmentation(feed)
+    kit.sensor_error = RuntimeError("the sensor's node is gone")
+    kit.log.clear()
+    _put_back(feeds, feed)
+    assert feeds._kept.feed is None
+    assert ("updates", False) in kit.log
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+
+
+def test_release_kept_with_no_feed_kept_does_nothing(feeds, kit):
+    asyncio.run(feeds.release_kept())
+    assert kit.log == []
+    assert kit.created == []
+
+
+def test_a_closing_stage_drops_the_kept_feed_and_deletes_it_from_the_next_stage(feeds, kit):
+    feed = _kept_with_frames(feeds, kit)
+    _put_back(feeds, feed)
+    kit.stage_state = CLOSING
+    kit.stage_event("closing")
+    assert feeds._kept.feed is None
+    assert kit.log == [("updates", False)]  # dropped at once, nothing edited on a closing stage
+    # The new stage carries the render product over (#25's E13); it goes once that stage is open.
+    kit.stage, kit.stage_id = Usd.Stage.CreateInMemory(), 2
+    _with_product(kit, feed.render_product_path)
+    kit.stage_state = OPENED
+    kit.on_update(None)
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+
+
+def test_a_feed_a_stage_event_let_go_during_its_call_is_left_alone(feeds, kit):
+    feed = _kept_with_frames(feeds, kit)
+    kit.stage_state = CLOSING
+    kit.stage_event("closing")
+    kit.log.clear()
+    _put_back(feeds, feed)
+    assert kit.log == []
+    assert feeds._kept.feed is None
+
+
+def test_a_feed_kept_on_another_stage_is_discarded_and_a_new_one_made(feeds, kit):
+    old = _kept_with_frames(feeds, kit)
+    _put_back(feeds, old)
+    # A new stage whose closing never reached the bridge: Kit carried the render product over (#25's E13).
+    kit.stage, kit.stage_id = Usd.Stage.CreateInMemory(), 2
+    _with_product(kit, old.render_product_path)
+    new = feeds.kept_feed("/World/Cam", 320, 240)
+    assert new is not old
+    assert kit.textures[0].updates == [False]
+    assert not kit.stage.GetPrimAtPath(old.render_product_path)
+    assert feeds._kept.feed is new
+
+
+def test_kits_save_tears_the_kept_feed_down_at_once_before_it_writes(feeds, kit):
+    feed = _segmented(feeds, kit)
+    feeds._kept.keep(feed, kit.stage_id)
+    feeds._observe_stage()
+    kit.stage_event("saving")
+    # release's order with no update between, which a synchronous event can't wait for (#114's step 1: quiet).
+    assert kit.log == [
+        ("disable", feed.render_product_path, ["InstanceSegmentation"]),
+        ("updates", False),
+        ("reset", "this feed's graph", "session layer"),
+    ]
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+    assert feeds._kept.feed is None
+
+
+def test_shutdown_tears_the_kept_feed_down_at_once_and_stops_observing_the_stage(feeds, kit, monkeypatch):
+    monkeypatch.setattr(feeds, "IDLE_SECONDS", 0.01)
+    feed = _segmented(feeds, kit)
+    feeds._kept.keep(feed, kit.stage_id)
+    feeds._observe_stage()
+
+    async def kept_then_shut_down() -> None:
+        await feeds.put_back(feed, True)
+        feeds.enable_segmentation(feed)  # on again, as a call that shutdown meets would have it
+        kit.log.clear()
+        feeds.forget()
+        await asyncio.sleep(0.05)  # the timer was stopped: no release follows
+
+    asyncio.run(kept_then_shut_down())
+    assert kit.log == [
+        ("disable", feed.render_product_path, ["InstanceSegmentation"]),
+        ("updates", False),
+        ("reset", "this feed's graph", "session layer"),
+    ]
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+    assert (feeds._kept.feed, feeds._kept.stage_events, feeds._kept.idle_release) == (None, [], None)
+
+
+def test_the_stages_events_are_observed_once(feeds, kit):
+    for _ in range(3):
+        _put_back(feeds, feeds.kept_feed("/World/Cam", 320, 240))
+    names = [o["event_name"] for o in kit.observers if o["event_name"].startswith("stage event")]
+    assert names == ["stage event closing", "stage event saving"]
+
+
+def test_a_feed_let_go_during_a_call_fails_its_waits_at_once(feeds, kit):
+    feed = _kept_with_frames(feeds, kit)
+    kit.stage_event("saving")  # Kit saves during the call
+    with pytest.raises(capture.NoFrameError, match="was let go during the call"):
+        asyncio.run(feed.wait_frames(20))
+    with pytest.raises(capture.NoFrameError, match="was let go during the call"):
+        feed.schedule(FakeDelegate())
+
+
+def test_a_route_that_writes_the_stage_holds_the_lock_with_no_feed_kept(feeds, kit):
+    feed = _kept_with_frames(feeds, kit)
+    _put_back(feeds, feed)
+
+    async def write() -> tuple[bool, Any]:
+        async with feeds.without_kept_feed():
+            # A capture asked for now waits for the lock, so the write never meets a feed.
+            return feeds._viewport.get().locked(), feeds._kept.feed
+
+    assert asyncio.run(write()) == (True, None)
+    assert kit.log == [("updates", False), "update", "update"]
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
