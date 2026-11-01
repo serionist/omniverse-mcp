@@ -1021,7 +1021,10 @@ class TestScenarios(PhysicsChecks):
         time.sleep(1.2)
         self.c.sim_control("play")
         played = time.monotonic()
-        time.sleep(1.2)
+        # Until 1.2 s of simulation, not of the clock: a Kit slower than real time, as one sharing its GPU with other
+        # apps is, played 0.7 s in 1.2 s, too few frames to measure (#127). Bounded, so a stalled timeline still ends.
+        while self.c.sim_state()["result"]["sim_time"] < 1.2 and time.monotonic() - played < 15.0:
+            time.sleep(0.05)
         self.c.sim_control("pause")
         paused = time.monotonic()
         time.sleep(1.0)
