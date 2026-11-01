@@ -280,9 +280,13 @@ So:
   refuses a name already in the order). A Z-up robot saved into a Y-up file, -90, given to a Z-up stage, +90, gets 0:
   its content was Z-up all along. The answer reports the turn added.
 
-The answer gains `up_axis_turn`: `{"file": "Z", "stage": "Y", "degrees": -90}`, or `null`. The server prints
-`Turned upright: the file is Z-up and the stage Y-up (xformOp:rotateX:unitsResolve = -90, as Kit's metrics assembler
-turns a dropped file)`. An older extension sends no field, and the server prints nothing.
+The answer gains `up_axis_turn`: `{"file": "Z", "stage": "Y", "degrees": -90, "op": -90}`, or `null`, where
+`degrees` is the turn this call added and `op` the value the op holds after it. The server names both, so an agent
+that reads the op back finds what the answer said:
+`Turned upright: the file is Z-up and the stage Y-up, so -90° about X went into xformOp:rotateX:unitsResolve, which
+now reads -90, as Kit's metrics assembler turns a dropped file`. In P3's case, a Y-up file whose op holds -90 on a
+Z-up stage, it reads `... +90° about X, added to xformOp:rotateX:unitsResolve, which now reads 0`. An older extension
+sends no field, and the server prints nothing.
 
 Alternatives (Q4): Kit's `CreateReferenceCommand` or `AddReferenceCommand`, whose callbacks reach the assembler in
 mode Auto, adds a layer to the user's stage (the probe) and does nothing in mode Warn or Disabled. Calling
@@ -341,10 +345,11 @@ The Kit app can't change while Kit runs, so the extension reads it once:
   lacks, or that raises, reads `unknown` and the others still come; and with Q10, `platform.platform()`, Python's
   name for the OS Kit runs on. Kit-free: the app is an argument.
 - **`extension.py`'s `on_startup`** stores `kit_app_facts(omni.kit.app.get_app())` beside the extension version.
-- **`/sim/state` and `/health`** answer `kit_app`, `kit_app_version`, `kit_version` and, with Q10, `kit_os`. `/sim/state`
-  is the route `get_sim_state` calls; `/health` reports them for people, as it does the protocol. The `GET /bridge`
-  handshake stays as it is: the server needs nothing from it before a tool call, and `core/http.py` would have to be
-  handed the facts.
+- **`/sim/state` and `/health`** answer `kit_app_name`, `kit_app_version`, `kit_version` and, with Q10, `kit_os`.
+  `/sim/state` is the route `get_sim_state` calls; `/health` reports them for people, as it does the protocol, and
+  keeps them, with a unit test of its own. The wire field is `kit_app_name`, so `kit_app` means one thing: the
+  answer's line, the name and version together. The `GET /bridge` handshake stays as it is: the server needs nothing
+  from it before a tool call, and `core/http.py` would have to be handed the facts.
 - **The server,** `get_sim_state`, prints them before the two versions:
 
   ```text
@@ -355,22 +360,24 @@ The Kit app can't change while Kit runs, so the extension reads it once:
   server_version = 0.4.0
   ```
 
-  The app's name and version in one line, as the bug form's "Kit app and version" asks. An older extension sends none
-  of them: each line reads `unknown`, through `r.get`, never a `KeyError`.
+  `kit_app` is `kit_app_name` and `kit_app_version` in one line, as the bug form's "Kit app and version" asks. An
+  older extension sends none of them: each line reads `unknown`, through `r.get`, never a `KeyError`.
 
 **#109's texts (PR #110, on `main` before this code),** so a report no longer asks the user for what the answer has:
 
 - **`plugin/skills/report-bug/SKILL.md`,** through `write-skill`. Step 3's `get_sim_state` bullet gathers `kit_app`,
   `kit_version` and `kit_os` with the two versions. Its "The Kit app and its version: ask the user (Help > About in
-  the app)" becomes: ask only when they read `unknown`, an extension older than this release. Its OS bullet takes
-  Kit's from `kit_os` when Kit runs on another machine. The table's first row, from `kit_app` and `kit_version`,
-  shows `Isaac-Sim Python 6.2.0 (Kit 110.4.0+feature.386251.187cf21b.gl)`.
+  the app)" becomes: ask only for one that reads `unknown`, an extension older than this release. Its OS bullet
+  reports Kit's OS from `kit_os`, and this machine's only when it differs: the agent usually can't see
+  `OMNIVERSE_MCP_HOST`, so it can't tell when Kit runs elsewhere. The table's first row, from `kit_app` and
+  `kit_version`, shows `Isaac-Sim Python 6.2.0 (Kit 110.4.0+feature.386251.187cf21b.gl)`.
 - **`src/omniverse_mcp/server.py`'s instructions** and **`docs/AI_GUIDE.md`'s bullet:** "A report holds the Kit app
   and version, the OS and the client; server_version and extension_version from get_sim_state" becomes "A report
-  holds kit_app, kit_version, kit_os, server_version and extension_version from get_sim_state; this machine's OS and
-  the client".
+  holds kit_app, kit_version, kit_os, server_version and extension_version from get_sim_state (ask the user for any
+  that reads unknown); this machine's OS when it differs, and the client". A client without the plugin, such as
+  Cursor with a 0.4.0 server and a 0.3.0 extension, so still asks for what the answer lacks (P8).
 - **`tests/test_bug_reports.py`'s versions test** asserts `kit_app` and `kit_version`, and `kit_os` with Q10, in the
-  instructions and the skill, beside `server_version` and `extension_version`.
+  instructions, the skill and `docs/AI_GUIDE.md`, beside `server_version` and `extension_version`.
 
 ### Older extensions
 
@@ -395,8 +402,8 @@ The Kit app can't change while Kit runs, so the extension reads it once:
 | Q6 | R6: a file of other `metersPerUnit`? | **A.** Out of scope, a new issue. **B.** A line in the answer naming the two. **C.** Scale it too (`xformOp:scale:unitsResolve`), physics' values unscaled | A: no file in Isaac Sim's library differs, and C scales the geometry without its masses and drives |
 | Q7 | R6: someone who stood a robot themselves, with `rotation=[-90, 0, 0]` on a Y-up stage, now gets it turned twice | **A.** CHANGELOG's Fixed entry says so, and to drop that rotation. **B.** Under Breaking changes | A: the schema doesn't change, and the answer's line names the turn |
 | Q8 | R7: what does the material the call binds take from one it replaces? The probe: a body with a material of its own lost all of it, Rubber's friction 0.9 to a restitution-only call and Bouncy's restitution 0.8 to a friction-only one | **A.** Every authored `physics:` and `physxMaterial:` attribute, and `PhysxMaterialAPI`, of the material the values come from: the one bound before, or the physics scene's default material when they come from it, so a scene default's combine mode survives too. Then the values given. **B.** The friction and restitution alone; a replaced material's density and PhysX attributes go, as today | A: the description promises a value left out stays as it is, B keeps that only for the two values the tool names, and a lost density changes the body's mass |
-| Q9 | R7: the material stays `<prim name>_PhysMat`, shared by prims of one name, and now each call writes all its values (P5) | **A.** Keep the name now: a Risks row, a CHANGELOG sentence, and a follow-up issue for B. **B.** Name the material after the prim's whole path, so each prim has its own; the description and `docs/TOOLS.md` change | A now, B as the follow-up: B changes where every material lands, the user's existing ones included, and wants its own change |
-| Q10 | R8: report the OS Kit runs on as well, `kit_os`, from Python's `platform.platform()` in Kit's process (`Windows-11-10.0.26300-SP0`)? | **A.** Yes: the bug form asks for both machines' OS when Kit runs on another one (`OMNIVERSE_MCP_HOST`), and the skill would no longer ask. **B.** No: the app and its version only, as the issue's row asks | A: one more line, and the remote case reports itself too |
+| Q9 | R7: the material stays `<prim name>_PhysMat`, shared by prims of one name, and now each call writes all its values (P5) | **A.** Keep the name now: a Risks row, a CHANGELOG sentence, and a follow-up issue for B. **B.** Name the material after the prim's whole path, so each prim has its own; the description and `docs/TOOLS.md` change | A in this change, B as a follow-up best landed in the same release, since R7 widens the cross-talk. B costs less than it looks (round 2): R7's step 1 reads from whatever `<name>_PhysMat` a prim is bound to, so the next call moves an old binding over to the prim's own material |
+| Q10 | R8: report the OS Kit runs on as well, `kit_os`, from Python's `platform.platform()` in Kit's process (`Windows-11-10.0.26300-SP0`)? | **A.** Yes: the bug form asks for both machines' OS when Kit runs on another one (`OMNIVERSE_MCP_HOST`), and the skill would no longer ask. **B.** No: the app and its version only, as the issue's row asks | A: one more line, and the remote case reports itself too. On Linux it names the kernel and glibc, not the distribution, which is enough for a report (round 2) |
 
 ## Compatibility
 
@@ -404,7 +411,7 @@ The Kit app can't change while Kit runs, so the extension reads it once:
   `get_sim_state`'s `{}` in and `result: string` out, which stay, and `tools/golden.py` leaves descriptions out. The
   wire protocol, as AGENTS.md's door names it, is the paths, the auth header and the token file's place: the routes
   keep their paths and gain answer fields only, `has_scene_lights` in mode `stage`, `up_axis_turn`, and R8's
-  `kit_app`, `kit_app_version`, `kit_version` and `kit_os` on `/sim/state` and `/health`. `PROTOCOL` stays 1: an older
+  `kit_app_name`, `kit_app_version`, `kit_version` and `kit_os` on `/sim/state` and `/health`. `PROTOCOL` stays 1: an older
   server ignores a field it doesn't read.
 - **What users notice:**
   - `rot` lines change for every scaled prim, in `get_prim_properties`, `get_scene_tree`'s file and recordings'
@@ -430,6 +437,7 @@ Each step builds and passes `uv run tools/gate.py quick`; the PR ends with `fini
 |---|---|---|
 | 0 | Done: the three probes, R1 to R8, and this plan settled on them | `105-probe.out.txt`, `105-probe-r7.out.txt` and `105-probe-r8.out.txt` in the session's scratchpad |
 | 1 | This plan, the branch's first commit | `review-plan`, then the maintainer |
+| 1b | Before any code: rebase the branch onto `origin/main`, `d59667a` (#110) or later, so step 9 has #110's files; the tests' "fails at" base moves with it | `git log` shows #110 under the plan's commits |
 | 2 | R1: the server's deltas | `tests/test_tools.py` |
 | 3 | R2: `core/formatter.py` | `tests/test_formatter.py` |
 | 4 | R3: `core/bounds.py` | `tests/test_bounds.py` |
@@ -444,13 +452,13 @@ Each step builds and passes `uv run tools/gate.py quick`; the PR ends with `fini
 
 ## Tests
 
-Each fix has a test that fails at `3b2b0cf`, named first.
+Each fix has a test that fails at the base the code starts from, `origin/main` at `d59667a` or later (step 1b), named first. The `3b2b0cf` below is the plan's base, where each was read.
 
 **Unit (CI):**
 
 | File | What |
 |---|---|
-| `tests/test_tools.py` | R1: A with 0 faces prints `faces: +4 (A has 0 faces)` and no `%`; a vertex drop beside a face rise prints `vertices: -5`, a vertex rise beside a face drop `vertices: +9`, a zero `+0`; the existing case's `faces: -60 (-60.0%)` stays. R6: an answer with `up_axis_turn` prints the turned line, one without it or with `null` doesn't |
+| `tests/test_tools.py` | R1: A with 0 faces prints `faces: +4 (A has 0 faces)` and no `%`; a vertex drop beside a face rise prints `vertices: -5`, a vertex rise beside a face drop `vertices: +9`, a zero `+0`; the existing case's `faces: -60 (-60.0%)` stays. R6: an answer with `up_axis_turn` prints the turned line with the turn added and the op's value, one without it or with `null` doesn't; one whose `op` differs from its `degrees`, P3's `+90` into an op that now reads 0, names both (P7) |
 | `tests/test_formatter.py` | R2: 2.2's cube gives `rot = 0.9239, 0.0000, 0.3827, 0.0000`; U1's cube under a scaled, turned parent gives the composed rotation; an unscaled turned prim reads as before; a prim scaled 0 gives `1.0000, 0.0000, 0.0000, 0.0000` and doesn't raise; a recording's frame (`format_frame_state`) gives the same `rot` |
 | `tests/test_bounds.py` | R3: the probe's 26.2 TestCube, through the probe's camera and `project_in_front`, is None (a box `[597.4, 213.1, 640, 480]` at `3b2b0cf`); the same camera's SettleTest box, as the probe measured within 0.5 px; a triangle wholly beyond a frame's corner, whose rectangle reaches in, is None; a triangle across a corner is boxed by its part on the frame; an outline that touches only an edge is None; points inside the frame are as before. `test_an_outline_partly_off_screen_is_clamped_to_the_viewport` gives a box's four corners, where its two points stood for a box's rectangle; their segment alone, which no box projects to, gets a case of its own |
 | `tests/test_camera_handler.py` | R4: `handle_capture` and `handle_camera_inspect` send `has_scene_lights`, true and false, in mode `stage` with an image that isn't black, and leave it out in mode `camera` |
@@ -460,16 +468,17 @@ Each fix has a test that fails at `3b2b0cf`, named first.
 | `tests/test_material.py` | R7: `physics_values` reads a bound material's authored values and its unauthored ones as 0; an all-purpose binding when there is no physics one; a bound material without `MaterialAPI` as none; the physics scene's default material; PhysX's default with neither. `start_from` copies the `physics:` and `physxMaterial:` attributes and `PhysxMaterialAPI`, added by name as usd-core sees it (U5), from a bound material and from the scene's default one (Q8), and nothing from the material it is given as its own |
 | `tests/test_physics_handler.py` (new) | `handlers/simulation.py` loaded with Kit faked, as `tests/test_force_handler.py` loads it, on a usd-core stage. R7: restitution alone on a bare prim writes PhysX's default friction, static and dynamic, and the restitution given (friction unauthored at `3b2b0cf`); on a prim bound to a material of friction 0.9 and density 1000 with a combine mode, keeps all three; friction alone keeps a bound material's restitution 0.8; a second call keeps the first call's values; both given, as today; the answer is as #108's server reads it |
 | `tests/test_bridge_token.py` | R8: `kit_app_facts` with a fake app gives its three values; a getter that raises, and one the app lacks, read `unknown` and leave the others; with Q10, `kit_os` is `platform.platform()` |
-| `tests/test_physics_handler.py` | R8: `handle_sim_state` answers the stored facts beside what it answers today |
+| `tests/test_physics_handler.py` | R8: `handle_sim_state` answers the stored facts, `kit_app_name` among them, beside what it answers today |
+| `tests/test_misc_handler.py` (new) | `handlers/misc.py` loaded with Kit faked, as `tests/test_force_handler.py` loads `simulation.py`. R8: `handle_health` answers the stored facts beside the protocol and the extension's version, so `/health` isn't covered by live `test_01` alone |
 | `tests/test_tools.py` | R8: the `get_sim_state` Case's `/sim/state` gains the fields, and the answer `kit_app = Isaac-Sim Python 6.2.0`, `kit_version = ...` and `kit_os = ...`, before `extension_version`; a `/sim/state` without them, an older extension's, prints `unknown` for each and raises nothing |
-| `tests/test_bug_reports.py` | R8: the instructions and the skill name `kit_app` and `kit_version`, and `kit_os` with Q10, beside `server_version` and `extension_version` |
+| `tests/test_bug_reports.py` | R8: the instructions, the skill and `docs/AI_GUIDE.md` name `kit_app` and `kit_version`, and `kit_os` with Q10, beside `server_version` and `extension_version`; the instructions and the guide say to ask for one that reads `unknown` |
 | `tests/test_contract.py` | Unchanged |
 
 **Live,** on Isaac Sim 6.2 headless at port 8212, run by the session:
 
 | Test | What |
 |---|---|
-| `test_integration.py` `test_01`, `test_02_sim_state` | R8: `/health` and `/sim/state` answer `kit_app`, `kit_app_version` and `kit_version`, none `unknown`, and `kit_os` with Q10; through the server (`call_tool`), `get_sim_state`'s `kit_app` line |
+| `test_integration.py` `test_01`, `test_02_sim_state` | R8: `/health` and `/sim/state` answer `kit_app_name`, `kit_app_version` and `kit_version`, none `unknown`, and `kit_os` with Q10; through the server (`call_tool`), `get_sim_state`'s `kit_app` line |
 | `test_08c_get_prim_properties_reads_a_scaled_prim_s_rotation` | Through the server (`call_tool`): 2.2's cube's `rot` |
 | `test_12i_a_prim_beside_the_view_gets_no_screen_box` | 26.2's scene and eye, placed with `at()` as `test_12g` does: the side cube has no box and no segmentation pixels; the near cube's box is as the probe measured |
 | `test_12g` | Unchanged: its prim across the camera's plane still runs off the right edge |
@@ -563,8 +572,8 @@ No scenario covers R7 (15.2 gives both values), so no Verify line changes for it
 
 - **`get_sim_state` names the Kit app, its version and Kit's, and the OS Kit runs on:** `kit_app = Isaac-Sim Python
   6.2.0`, `kit_version = 110.4.0+...`, `kit_os = Windows-11-...`. A bug report your assistant drafts takes them from
-  there, where it asked you for Help > About. They come from the Kit extension: run
-  `uvx omniverse-mcp extension install`, then restart Kit; until then they read `unknown` (#105).
+  there. They come from the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit; until then
+  they read `unknown`, and the assistant asks you (#105).
 ```
 
 ## Risks
@@ -635,3 +644,43 @@ plan says; K1, K2 and K5 match the installed code; Kit's assembler re-resolves o
 3. The other robots' up axes: taken. All ten of `ROBOT_ASSETS` author `upAxis = "Z"` and `metersPerUnit = 1`, and
    none has a pivot or an inverse op on its root (U6), so the docs' "each is turned on a Y-up stage" holds.
 4. The base commit in Tests: taken, `3b2b0cf`.
+
+### Round 2
+
+**How:** one fresh reviewer, Claude Opus, read only, 2026-11-01, on `cb9ef59`: R8 and round 1's fixes. **Verdict:**
+approved: no blocker or major, three minors; no further round. **Now:** P7 to P9 fixed and improvements 1 to 5
+taken, in the commit after `cb9ef59`. Q1 to Q10 wait on the maintainer.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P7 | minor | In P3's case the answer names a value the op doesn't hold: a Y-up file with the op at -90, given to a Z-up stage, is answered `= 90` while the op reads 0. An agent checking with `get_prim_properties` might "fix" it with `rotation=[90, 0, 0]` and lay the robot down | fixed: `up_axis_turn` carries the turn added and the op's value after it, and the line names both, "+90° about X, added to xformOp:rotateX:unitsResolve, which now reads 0"; a `test_tools.py` case (Design R6) |
+| P8 | minor | Only the skill kept the fallback: the server's instructions and `docs/AI_GUIDE.md` lose "ask the user". Cursor with server 0.4.0 and extension 0.3.0 would report `kit_app = unknown`, where today the agent asks | fixed: both say "(ask the user for any that reads unknown)", and `tests/test_bug_reports.py` checks it (Design R8) |
+| P9 | minor | CHANGELOG's Added entry, "where it asked you for Help > About", describes a change between two unreleased states: #110's entry is also under Unreleased on `d59667a` | fixed: the clause is gone; the entry says what the fields are and that the assistant asks while they read `unknown` |
+
+**Refuted:**
+
+- `/health` unauthenticated: `core/http.py:180-185`'s refusal runs on every request before routing.
+- `platform.platform()` naming the machine: it never uses the node name (CPython 3.12, `platform.py:1220-1290`).
+- Reading the facts at start-up: nothing changes while Kit runs, and a reload runs `on_startup` again.
+- One getter hiding the others: each has its own try; K6 matches `_app.pyi:77, 85, 105, 127`.
+- An older bridge crashing the server: it is read with `r.get`, as `test_tools.py:801` does today.
+- P4's order: it holds (`xform.py:198, 358, 368`).
+- P3's op: it keeps its place, and the refusal's `RemovePrim` removes it; only the message was wrong (P7).
+- P1's slopes: tan 0.45 and 0.55 bracket 0.5.
+- P2, P5 and P6: fixed as asked. Main's #110 texts read as the plan quotes them. The writing rules: clean.
+
+**Owner calls:**
+
+| # | Question | Recommendation | Answer |
+|---|---|---|---|
+| Q9 | The shared `<prim name>_PhysMat` | The reviewer agrees: A now, B as a follow-up best landed in the same release, and cheaper than it looked, since R7's step 1 reads from whatever `<name>_PhysMat` a prim is bound to and the next call moves it over (taken into Q9) | open |
+| Q10 | `kit_os` | The reviewer agrees with A; on Linux it names the kernel and glibc, not the distribution, which is enough (taken into Q10) | open |
+
+**Improvements:**
+
+1. Keep R8's fields in `/health`, which is for people, with a `handle_health` unit test: taken (`tests/test_misc_handler.py`).
+2. `docs/AI_GUIDE.md` in `test_bug_reports.py`'s versions test: taken.
+3. The wire field `kit_app_name`, so `kit_app` means one thing, the answer's line: taken.
+4. #110's files before step 9: taken, step 1b rebases onto `origin/main` at `d59667a` or later before any code, and
+   the tests' "fails at" base moves with it.
+5. The skill reports Kit's OS from `kit_os`, and this machine's only when it differs: taken.
