@@ -1602,10 +1602,18 @@ class TestScenarios(PhysicsChecks):
     def test_15_02c_a_call_names_its_clones_and_drops_the_old_shared_material(self):
         """#113: a call on a source names the clone that inherits its material, until a call on the clone gives it its
         own; a box bound to an older extension's shared material moves to its own, and the old one goes unless the
-        stage holds an inactive prim or an unloaded payload, under which a prim could bind it."""
+        stage holds a prim under which the walk can't see, where a prim could bind it."""
         root = "/World/IntTestClones"
-        old = "/World/PhysicsMaterials/IntTestOldBox_PhysMat"
+        folder = "/World/PhysicsMaterials"
+        old = f"{folder}/IntTestOldBox_PhysMat"
+        had_folder = self._run_in_kit(
+            f"result = omni.usd.get_context().get_stage().GetPrimAtPath({folder!r}).IsValid()"
+        )
         self.addCleanup(self.c.delete_prim, root)
+        # Material.Define makes the folder for old when there is none: it goes after old, as cleanups run last in,
+        # first out, in the kept branch or after an early failure too (review S3).
+        if not had_folder:
+            self.addCleanup(self.c.delete_prim, folder)
         self.addCleanup(self.c.delete_prim, old)
         stage = self._run_in_kit(CLONE_SCENE, OLD=old)
 
@@ -1620,6 +1628,7 @@ class TestScenarios(PhysicsChecks):
 
         moved = self.c.set_physics_properties(f"{root}/Old/IntTestOldBox", restitution=0.2)
         self.assertEqual(moved["status"], "success", moved)
+        self.assertEqual(moved["result"]["material"], f"{root}/Old/IntTestOldBox/PhysMat", moved)
         dropped = moved["result"]["old_material"]
         if stage["unseen"] is None:
             # The folder goes too when this material was all it held.

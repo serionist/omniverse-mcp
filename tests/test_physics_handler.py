@@ -222,6 +222,23 @@ def test_a_call_on_a_source_names_the_clones_that_inherit_its_material(simulatio
     assert "also_changes" not in _set(simulation, link, friction=0.8)["result"]
 
 
+def test_the_answer_names_five_of_the_clones_and_counts_the_rest(simulation, kit):
+    # Isaac Lab's 4096 environments would send 4096 paths, which the server printed whole (review S2).
+    link = "/World/envs/env_0/Robot/link"
+    kit.add_body(link)
+    for e in range(1, 8):
+        spec = Sdf.CreatePrimInLayer(kit.stage.GetRootLayer(), f"/World/envs/env_{e}")
+        spec.specifier = Sdf.SpecifierDef
+        spec.inheritPathList.Prepend("/World/envs/env_0")
+
+    r = _set(simulation, link, friction=0.9)
+
+    assert r["result"]["also_changes"] == {
+        "count": 7,
+        "prims": [f"/World/envs/env_{e}/Robot/link" for e in range(1, 6)],
+    }
+
+
 def test_an_inactive_prim_is_refused_and_not_even_its_mass_is_written(simulation, kit):
     # It raised "Failed to define UsdPrim" after the Collision API and the mass were written (review E3).
     kit.stage.GetPrimAtPath(BOX).SetActive(False)
