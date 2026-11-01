@@ -453,7 +453,8 @@ Needs: 2.1, 4.5, 10.1
 
 ### 15.3 Set Density
 - `set_physics_properties("/World/RedCube", density=1000.0)`
-- Verify: the answer says `density=1000.0` and `applied MassAPI`; the mass 15.1 set still wins over it
+- Verify: the answer says `density=1000.0` and `applied MassAPI`
+- Note: the mass 15.1 set still wins over the density, under USD's rules; nothing to check
 
 ### 15.4 Physics on Invalid Prim
 - `set_physics_properties("/World/Nonexistent", mass=1.0)` → error

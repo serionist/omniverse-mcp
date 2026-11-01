@@ -917,8 +917,6 @@ Set a prim's mass or density, and its friction or restitution, for PhysX; a valu
 | `friction` | float | `null` | Friction coefficient, not negative (usually 0-1), set as both static and dynamic friction |
 | `restitution` | float | `null` | Bounciness, 0 (no bounce) to 1 (full bounce) |
 
-Automatically applies the required USD physics APIs (`MassAPI`, `PhysicsMaterialAPI`, etc.) if not already present.
-
 - **Mass or density** makes the prim a rigid body (`RigidBodyAPI`) if it isn't one, so a static collider starts to fall
   when the simulation plays.
 - **Friction or restitution** adds the Collision API if missing, and sets them on a physics material,
@@ -981,8 +979,8 @@ different bodies each land.
 **Returns:** the push, the world point pushed at, whether that was the point `given` or the `centre of mass`, and the
 path the push took: `method: physx`, PhysX's own push, or `method: tensor`, its tensor API with
 `/physics/suppressReadback` on. For example,
-`Applied impulse [0.0, 0.0, 10.0] to /World/Cube at [0.0, 0.1, 2.0] (centre of mass, method: physx)`. A point off the centre of mass turns the body as well as moving it. Newtons
-assume a stage in metres and kilograms: PhysX works in the stage's units (`meters_per_unit` in `get_sim_state`). The
+`Applied impulse [0.0, 0.0, 10.0] to /World/Cube at [0.0, 0.1, 2.0] (centre of mass, method: physx)`. A point off
+the centre of mass turns the body as well as moving it. Newtons assume a stage in metres and kilograms: PhysX works in the stage's units (`meters_per_unit` in `get_sim_state`). The
 centre of mass comes from PhysX's unit-tests interface (`get_mass_information`), which NVIDIA may change between Kit
 releases, or with the setting on from the tensor API's view of the body; without it the call is an error, never a
 push at another point. All of this is the Kit extension's: one from 0.2.0 nudges `physics:velocity` instead, and its

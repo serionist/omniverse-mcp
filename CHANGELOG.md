@@ -29,8 +29,8 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 - **`set_physics_properties` and `apply_force` say what they did,** so an agent needn't read the prim again to
   confirm. `set_physics_properties` gives each value it set, such as `mass=5.0` or `friction=0.8 (static and
   dynamic)`, before the APIs it applied, and says so when a call sets nothing. `apply_force` names the path the push
-  took beside the point it pushed at: `method: physx`, PhysX's own push, or `method: tensor` under the Direct GPU API
-  (#104).
+  took beside the point it pushed at: `method: physx`, PhysX's own push, or `method: tensor` with
+  `/physics/suppressReadback` on, as under the Direct GPU API (#104).
 
 ## 0.3.0 (2026-11-01)
 
