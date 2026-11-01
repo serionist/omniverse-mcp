@@ -113,6 +113,21 @@ def factors(matrix: Gf.Matrix4d) -> bool:
     return bool(cast("_Factors", matrix).Factor()[0])
 
 
+class _FactorsWithin(Protocol):
+    Factor: Callable[[float], tuple[bool, Gf.Matrix4d, Gf.Vec3d, Gf.Matrix4d, Gf.Vec3d, Gf.Matrix4d]]
+
+
+# Factor's own tolerance, 1e-10 on the determinant, calls a uniform scale below about 4.6e-4 singular: a millimetre
+# asset under a parent scaled 0.1. Only a scale of 0 makes a matrix with no rotation to read (#105, review F4).
+_SINGULAR = 1e-30
+
+
+def rotation_of(matrix: Gf.Matrix4d) -> Gf.Quatd | None:
+    """matrix's rotation with its scale and shear taken out, or None when it is singular and has none."""
+    factored = cast("_FactorsWithin", matrix).Factor(_SINGULAR)
+    return factored[3].ExtractRotationQuat() if factored[0] else None
+
+
 class ArcNode(Protocol):
     """A composition arc's target: a prim path in a layer stack."""
 

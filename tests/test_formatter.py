@@ -132,6 +132,12 @@ def test_rot_of_an_unscaled_prim_is_its_turn(stage):
     assert _same_turn(_rot(_turned(stage, "/World/Plain", (0, 0, 90), (1, 1, 1))), _xyz((0, 0, 90)))
 
 
+@pytest.mark.parametrize("scale", [0.0004, 1e-6])
+def test_rot_at_a_tiny_scale_is_its_turn(stage, scale):
+    # Factor's own tolerance called a uniform world scale below about 4.6e-4 singular: no rot line (review F4).
+    assert _rot(_turned(stage, "/World/Tiny", (0, 45, 0), (scale, scale, scale))) == [0.9239, 0.0, 0.3827, 0.0]
+
+
 def test_a_prim_scaled_to_0_has_no_rot_line_and_no_error(stage):
     # Its matrix is singular: Gf reads a 64° turn into rotateY 30, so no line is better than that one.
     lines = format_prim_block(_turned(stage, "/World/Flat", (0, 30, 0), (0, 1, 1)), include_properties=False)

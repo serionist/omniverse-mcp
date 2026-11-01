@@ -200,7 +200,9 @@ description and `docs/TOOLS.md` say so.
 
 A prim scaled to 0 on an axis has a singular matrix, with no rotation to read: both `RemoveScaleShear` and
 `Gf.Transform` read rotateY 30 at scale (0, 1, 1) as a 64° turn. Its block leaves the `rot` line out, as `usd.py`'s
-`factors` tells (built so: U1 checked only an unturned prim scaled 0, which reads as no turn either way).
+`rotation_of` tells (built so: U1 checked only an unturned prim scaled 0, which reads as no turn either way). It
+factors with a tolerance of 1e-30 on the determinant, and reads the rotation from the factored matrix: `Factor`'s
+own 1e-10 called a uniform world scale below about 4.6e-4 singular (code review F4).
 
 ### R3: a box is the outline's part on the image (`core/bounds.py`)
 
