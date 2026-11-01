@@ -483,8 +483,23 @@ def test_a_silent_kit_names_the_call_in_flight_without_blaming_kit(tmp_path):
     watch = scenarios.HealthWatch(silent, clock)
     outcome = scenarios.run_session(stub("busy", tmp_path), tmp_path / "t.jsonl", tmp_path, watch, cwd=tmp_path)
     assert outcome.kit_hung
-    assert "while `execute_script` ran" in outcome.stopped
     assert "a script holding Kit's main thread, or a hang inside Kit" in outcome.stopped
+
+
+def test_the_stop_names_the_call_in_flight_and_the_one_that_timed_out():
+    # Step 9's rerun: capture_viewport timed out inside NVIDIA's driver, then get_logs got no answer either.
+    def event(kind, part):
+        return json.dumps({"type": kind, "message": {"content": [part]}})
+
+    outcome = scenarios.Outcome()
+    for line in (
+        event("assistant", {"type": "tool_use", "id": "a", "name": "mcp__omniverse__capture_viewport"}),
+        event("user", {"type": "tool_result", "tool_use_id": "a", "is_error": True, "content": "...: timed out"}),
+        event("assistant", {"type": "tool_use", "id": "b", "name": "mcp__omniverse__get_logs"}),
+    ):
+        scenarios._read_event(line, outcome, Path())
+    message = scenarios.stop_message("Kit stopped answering", outcome)
+    assert message.startswith("Kit stopped answering, while `get_logs` ran, after `capture_viewport` timed out: ")
 
 
 # ----- a run -----

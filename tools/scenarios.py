@@ -706,6 +706,19 @@ class Outcome:
     kit_hung: bool = False
     seconds: float = 0.0
     in_flight: dict[str, str] = field(default_factory=dict)  # the tool calls sent and not yet answered, by id
+    timed_out: list[str] = field(default_factory=list)  # the tool calls whose answer was a timeout
+
+
+def _named(tools: Iterable[str]) -> str:
+    return ", ".join(sorted({f"`{name.removeprefix(f'mcp__{SERVER}__')}`" for name in tools}))
+
+
+def stop_message(hung: str, outcome: Outcome) -> str:
+    """Why the watch stopped a session, with the calls it had in flight and those that timed out: step 9 met both a
+    tester's script holding Kit's main thread and a hang inside NVIDIA's code (#54)."""
+    held = f", while {_named(outcome.in_flight.values())} ran" if outcome.in_flight else ""
+    after = f", after {_named(outcome.timed_out)} timed out" if outcome.timed_out else ""
+    return f"{hung}{held}{after}: a script holding Kit's main thread, or a hang inside Kit"
 
 
 def end_tree(proc: subprocess.Popen[str]) -> None:
@@ -779,9 +792,7 @@ def run_session(
             elif clock() - started > limit:
                 reason = outcome.stopped = f"stopped at the session's limit, {limit:.0f} s"
             elif watch is not None and (hung := watch.check()):
-                calls = sorted({f"`{n.removeprefix(f'mcp__{SERVER}__')}`" for n in outcome.in_flight.values()})
-                held = f", while {', '.join(calls)} ran" if calls else ""
-                reason = outcome.stopped = f"{hung}{held}: a script holding Kit's main thread, or a hang inside Kit"
+                reason = outcome.stopped = stop_message(hung, outcome)
                 outcome.kit_hung = True
             if reason and proc.poll() is None:
                 end_tree(proc)
@@ -817,7 +828,9 @@ def _read_event(line: str, outcome: Outcome, plugin_dir: Path) -> str:
         content = (event.get("message") or {}).get("content")
         for part in content if isinstance(content, list) else []:
             if isinstance(part, dict) and part.get("type") == "tool_result":
-                outcome.in_flight.pop(str(part.get("tool_use_id", "")), None)
+                name = outcome.in_flight.pop(str(part.get("tool_use_id", "")), "")
+                if part.get("is_error") and "timed out" in json.dumps(part.get("content")):
+                    outcome.timed_out.append(name)
     elif kind == "result":
         outcome.cost = float(event.get("total_cost_usd") or 0.0)
         outcome.turns = event.get("num_turns")

@@ -36,6 +36,15 @@ say(
     }
 )
 if mode == "busy":
+    capture = {"type": "tool_use", "id": "t0", "name": "mcp__omniverse__capture_viewport", "input": {}}
+    say({"type": "assistant", "message": {"content": [capture]}})
+    failed = "Error executing tool capture_viewport: Kit app connection failed: timed out"
+    say(
+        {
+            "type": "user",
+            "message": {"content": [{"type": "tool_result", "tool_use_id": "t0", "is_error": True, "content": failed}]},
+        }
+    )
     call = {"type": "tool_use", "id": "t1", "name": "mcp__omniverse__execute_script", "input": {"code": "..."}}
     say({"type": "assistant", "message": {"content": [call]}})
 if mode in ("foreign", "slow", "busy"):

@@ -374,6 +374,7 @@ loading a copy of the branch's bridge from a folder of its own; Claude Code 2.1.
 | `--phases 1`, `20261101-033741` | 2 sessions, 20 s, $0.18: 1.1, 1.2 and 27.1 PASS; neither session loaded a skill |
 | `--phases 15,20`, `20261101-033809` | 5 sessions in the order the plan resolves (setup 2.1, 4.5, 10.1; Phase 15; setup 18.1, 18.2; Phase 20; Phase 27), 224 s, $1.47; skills loaded in 4 of 5 (`scene`, `simulate`, `geometry` twice). 25 PASS, 4 FAIL, 1 WARN; `compare`: 29 new, exit 0 |
 | Every phase, `20261101-034219`, on `f3ad7c8` | Phases 1 to 15 ran: 62 PASS, 4 FAIL, 14 WARN, about 13 minutes and $5.30. In Phase 16 the run stopped, "/health has given no answer for 141 s", and 16.1 to 27.1 were NOT RUN; `compare` exited 1. Not a hang inside Kit: the tester's own `execute_script`, importing the bridge's `handle_draw_debug` and waiting on `loop.time()` across frames for 16.8, held Kit's main thread past the server's call limit; a second such script followed, and Kit answered at once afterwards. Fixed by naming the call in flight in the stop, not #54, and by the tester's rules on code (`test_project/AGENTS.md`). The phases that didn't run are being run again |
+| Phases 16 to 27 again, `20261101-040028`, on `bd5529e`, a fresh Kit | Setup 2.1 and 4.5, then phases 16 to 25: 53 PASS, 3 FAIL, 7 WARN, about 9 minutes and $3.31. Phase 16 got through. In Phase 26 a real hang: `set_camera` answered, `capture_viewport(include_image=True)` timed out, `get_logs` got no answer either, and the watch stopped the run after 141 s of silence, so 26.1, 26.2 and 27.1 were NOT RUN. A native thread dump showed Kit's main thread in NVIDIA's driver (`DrvPresentBuffers` in `nvoglv64.dll`, under `carb.graphics-vulkan` and `carb.scenerenderer-rtx`), #54's kind; Kit was killed. The live proof that the watch ends a real hang. Replayed through `stop_message`, its stop now reads "..., while `get_logs` ran, after `capture_viewport` timed out: a script holding Kit's main thread, or a hang inside Kit" |
 
 **Phase 16 asks for such code itself:** 16.8's second Verify line wants the drawing drawn and captured five times "in
 one `execute_script` (`draw_debug`'s handler, then `mcp.capture_viewport()`)", and 16.9 gives an import of
@@ -405,15 +406,14 @@ row's notes match the calls the tester made and the answers it got:
 | 20.6 | WARN | `faces: +96576 (+0%)` in the delta |
 | 27.1 | PASS | stop, `get_sim_state` (no recording), `new_scene()`, a tree of a new stage's own prims |
 
-**The rows that rest on an image,** from the full run: the transcripts hold the images the testers saw, either
-inline (`include_image=True`) or opened with Read.
+**The rows that rest on an image,** 3.2 and 12.8 from the full run, 22.5 from the rerun: the transcripts hold the
+images the testers saw, either inline (`include_image=True`) or opened with Read.
 
 | Row | Status | What the image shows |
 |---|---|---|
 | 3.2 | WARN | Only the grid: the ground and the cube render black, as the row says, though the boxes put the cube in the middle |
 | 12.8 | FAIL | The same: the cube is in frame by its box, and black. The likely cause is 2.1's `DistantLight` at `rotation=[45,0,0]`: a UsdLux distant light shines along its local -Z, which that turns upward on a Y-up stage, so the tops the camera sees stay dark. A finding for a follow-up issue, with the others |
-
-22.5 waits for the rerun of phases 16 to 27.
+| 22.5 | WARN | The isolated capture is black but for a grid line and one speck, as the row says; the restore capture's segmentation shows the TestCube and the Franka's links again. The second half starts on a new stage with no light, and lighting comes only in Phase 23, so 22.5's "the scene's lights still light it" can't hold in that order: a finding for a follow-up issue |
 
 **Each session's server wrote over the last one's files:** a session's server numbers its files from 1, and all
 wrote to one `mcp_output/`, so the full run's `viewport_0001.png` is Phase 16's, beside a boxes file from Phase 12,
