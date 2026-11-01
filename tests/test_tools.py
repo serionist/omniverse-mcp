@@ -972,6 +972,57 @@ def test_get_sim_state_says_why_a_recording_s_frames_stopped(bridge: MockIsaacSe
     )
 
 
+def _compared(faces_a: int, delta: dict[str, Any]) -> dict[str, Any]:
+    """/scene/compare's answer for an A of faces_a faces, with delta as B minus A."""
+    side = {
+        "label": "/World/A",
+        "mesh_count": 1,
+        "total_faces": faces_a,
+        "total_vertices": 9,
+        "total_triangles": 2,
+        "bounds_center": [0, 0, 0],
+        "bounds_dimensions": [1, 1, 1],
+        "materials": [],
+    }
+    return {"a": side, "b": {**side, "label": "/World/B"}, "delta": delta}
+
+
+@pytest.mark.parametrize(
+    ("faces_a", "delta", "says", "never"),
+    [
+        # 20.6: a Cube, which has no mesh, to a mesh. The extension's percentage from 0 faces is 0 (#105).
+        (
+            0,
+            {"faces": 4, "face_reduction_pct": 0, "vertices": 9, "triangles": 8, "meshes": 1},
+            ("faces: +4 (A has 0 faces)", "vertices: +9  triangles: +8  meshes: +1"),
+            "%",
+        ),
+        # Faces up, vertices down: one sign, the faces', read "+-5" (#105).
+        (
+            1,
+            {"faces": 1, "face_reduction_pct": 100.0, "vertices": -5, "triangles": 0, "meshes": 0},
+            ("faces: +1 (+100.0%)", "vertices: -5  triangles: +0  meshes: +0"),
+            "+-",
+        ),
+        # Faces down, vertices up: the rise read without its "+".
+        (
+            4,
+            {"faces": -2, "face_reduction_pct": -50.0, "vertices": 3, "triangles": -4, "meshes": 0},
+            ("faces: -2 (-50.0%)", "vertices: +3  triangles: -4  meshes: +0"),
+            "+-",
+        ),
+    ],
+    ids=["from-0-faces", "faces-up-vertices-down", "faces-down-vertices-up"],
+)
+def test_compare_prims_gives_each_delta_its_own_sign_and_no_percentage_from_0_faces(
+    faces_a: int, delta: dict[str, Any], says: tuple[str, ...], never: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    args = {"prim_path_a": "/World/A", "prim_path_b": "/World/B"}
+    case = Case("compare_prims", args, "/scene/compare", _compared(faces_a, delta), args, says)
+    text = _check(case, bridge, tmp_path)
+    assert never not in text.split("=== Delta (B - A) ===")[1]
+
+
 @pytest.mark.parametrize("args", [{}, {"fps": 10}, {"width": 640, "height": 480, "camera_path": ""}])
 def test_start_recording_on_an_older_extension_warns_of_nothing_without_a_camera_or_a_size(
     args: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path

@@ -402,7 +402,8 @@ Compare two prims or two variants: mesh counts, bounds, materials.
 | `variant_a` | string | `""` | First variant name (mode 2) |
 | `variant_b` | string | `""` | Second variant name (mode 2) |
 
-**Returns:** Side-by-side stats (faces, vertices, triangles, meshes, bounds, materials) with deltas and percentage change.
+**Returns:** Side-by-side stats (faces, vertices, triangles, meshes, bounds, materials), then B minus A, each with
+its own sign, and the change in faces as a percentage when A has faces; from 0 faces it says `A has 0 faces`.
 
 Mode 2 wins when all four of its parameters are given. It switches the selection to each variant in turn, then back to
 the one before. A variant name is not checked: one not in the set measures the prim with none of the set's variants.

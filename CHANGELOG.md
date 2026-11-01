@@ -23,6 +23,11 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   taken out; it is posted only on your yes to the draft. In Claude Code the plugin's `/omniverse-mcp:report-bug`
   takes it step by step, and looks for the same issue first (#109).
 
+### Fixed
+
+- **`compare_prims` gives no percentage from 0 faces,** where it said `+0%`, and each delta its own sign, where a
+  drop in vertices beside a rise in faces read `+-5` (#105).
+
 ### Changed
 
 - **Tested on Linux and on Isaac Sim 5.1:** both live suites pass on Isaac Sim 6.2 on Linux, and on 5.1 (Kit 107).
