@@ -37,10 +37,15 @@ Needs: none
 
 ### 2.1 Create Primitives
 - Create a ground plane: `create_prim("/World/Ground", "Cube", position=[0,-0.05,0], scale=[10,0.1,10])`
-- Create a cube: `create_prim("/World/RedCube", "Cube", position=[0,2,0], scale=0.3)`
+- Create a cube: `create_prim("/World/RedCube", "Cube", position=[0,2,0], scale=0.3)`, and make it red, as the
+  phases after it look for it by colour: `set_material("/World/RedCube", color=[1,0,0])`
 - Create a sphere: `create_prim("/World/BlueSphere", "Sphere", position=[1,0.5,0], scale=0.2)`
-- Create a light: `create_prim("/World/Light", "DistantLight", rotation=[45,0,0])`
-- Verify: `get_scene_tree` shows all 4 new prims
+- Create a light: `create_prim("/World/Light", "DistantLight", rotation=[-50,30,0])`, then
+  `execute_script("UsdLux.DistantLight(omni.usd.get_context().get_stage().GetPrimAtPath('/World/Light')).CreateIntensityAttr(3000.0)")`.
+  A distant light shines along its own -Z. This rotation turns it down onto the scene from the side 3.2's camera
+  stands on, lighting the faces turned to +X, the side and the top, on a Y-up stage and a Z-up one alike: keep it as
+  it is on either, unswapped. 3000 is Kit's own sun's intensity, where the default 50000 washes the scene out white
+- Verify: `get_scene_tree` shows all 4 new prims, and the cube's material under `/World/Looks`
 
 ### 2.2 Transform Operations (Individual)
 - Move the cube: `set_prim_transform("/World/RedCube", position=[2,2,0])`
@@ -165,14 +170,17 @@ Needs: 2.1, 4.5
 - `sim_control("stop")` → verify state is "stopped"
 
 ### 5.2 Step
-- `sim_control("step")` → verify a single frame was advanced
+- `get_sim_state`, then `sim_control("step")`, then `get_sim_state` again
+- Verify: the step's answer says paused, and `time` moved on by the two app updates a step plays, as `sim_control`'s
+  description says: about 2 / fps (0.033 s at 60)
 
 ### 5.3 Gravity Test
 - Reset cube: `set_prim_transform("/World/RedCube", position=[0,3,0])`
+- Aim at the cube's column, which keeps it in view as it falls: `set_camera(position=[5,3,5], target=[0,1.5,0])`
 - `capture_viewport()`: the cube's center should be 3 along the up axis
-- `sim_control("play")`, wait briefly, `sim_control("pause")` (a stop puts the cube back)
+- `sim_control("play")`, wait ~2 s (get_sim_state's `time`), `sim_control("pause")` (a stop puts the cube back)
 - `get_prim_bounds("/World/RedCube")`: its center along the up axis should be < 3 (fell due to gravity)
-- `capture_viewport()` — verify visually
+- `capture_viewport()`: verify visually that the cube is lower, on the ground
 
 ---
 
@@ -399,8 +407,8 @@ Needs: 2.1
 
 ### 13.5 Clone Multiple Copies with Offset
 - `clone_prim("/World/RedCube", "/World/CloneBatch", count=3, offset=[2,0,0])`
-- Verify: 3 clones created (`/World/CloneBatch_001`, `_002`, `_003`), copy n at the cube's position plus n times
-  [2,0,0], each with the cube's own xform ops
+- Verify: 3 clones created (`/World/CloneBatch_001`, `_002`, `_003`): `_001` on the cube itself, `_002` [2,0,0] from
+  it and `_003` [4,0,0], each with the cube's own xform ops
 
 ### 13.6 Clone - Verify Offset Positions
 - Get bounds of each clone from 13.5
@@ -529,9 +537,11 @@ Needs: 2.1, 4.5
 - Verify: hit=false
 - `sim_control("stop")`
 
-The line count below is `isaacsim.util.debug_draw`'s, through `execute_script`:
-`from isaacsim.util.debug_draw import _debug_draw; result = _debug_draw.acquire_debug_draw_interface().get_num_lines()`.
-Each step waits for its drawings to expire before the next.
+The line count below is `isaacsim.util.debug_draw`'s, read with Kit's clock in one short `execute_script`:
+`from isaacsim.util.debug_draw import _debug_draw; import time; result = [_debug_draw.acquire_debug_draw_interface().get_num_lines(), round(time.monotonic(), 2)]`.
+A drawing lasts its `duration` in seconds of that clock, 5 by default. Read the count before 16.3; each step from 16.6
+on starts once it is back there. To see a drawing go, read again and again, a call at a time: nothing waits inside a
+script.
 
 ### 16.3 Draw Debug Line
 - `draw_debug("line", start=[0,0,0], end=[5,5,0], color=[1,0,0])`
@@ -546,29 +556,31 @@ Each step waits for its drawings to expire before the next.
 - Verify: success
 
 ### 16.6 A Drawing Expires
-- `draw_debug("line", ..., duration=1)`
-- Verify: the line count rises by 1, and is back where it was after the second
+- Read the count, then `draw_debug("line", start=[0,0,0], end=[0,1,0], duration=10)`, then read it again until it
+  falls
+- Verify: up by 1 until the line's 10 s are up, then back where it was: every read less than 10 s after the read
+  before the drawing shows it, and every read more than 10 s after the first read after it doesn't
 
 ### 16.7 Two Drawings
-- A 3 s line, then a 1 s sphere
-- Verify: the count rises by 4; after the sphere's second it is up by 1 (the line, drawn again after the clear), then
-  back where it was
+- Read the count; a 30 s line, then a 10 s sphere; then read it again until it is back where it was
+- Verify: up by 4 at the first read after the sphere; up by 1 once the sphere's 10 s are up (the line, drawn again
+  after the clear); back where it was once the line's 30 s are up, each judged by Kit's clock as in 16.6
 
 ### 16.8 Debug Draw Visual Check
-- Aim the camera away from the red cube, at empty space; `capture_viewport()` holds no red
-- `draw_debug("lines", ...)` a red zigzag across the view, then `capture_viewport()`
-- Verify: the zigzag shows in the capture
-- Drawn and captured at once, 5 times, in one `execute_script` (`draw_debug`'s handler, then
-  `mcp.capture_viewport()`), each from an empty view: every one holds it. A capture renders through a render of its
-  own, made for the call, whose first frame comes after the drawing (#51); through the viewport it missed (#57)
-- Verify: the render products under `/Render/OmniverseKit/HydraTextures` are the same before and after: each capture's
-  went with it
+- Aim the camera away from the red cube, at empty space, and read the render products under
+  `/Render/OmniverseKit/HydraTextures` with a short `execute_script`; `capture_viewport()` holds no red
+- `draw_debug("lines", ..., duration=10)` a red zigzag across the view, then `capture_viewport()`
+- Verify: the zigzag shows in the capture, and the render products, read again, are the ones read before the
+  captures: each capture's own render went with it (#51)
+- Not judged here, so it leaves this row's status alone: a drawing captured at once, 5 times over, through
+  `draw_debug`'s handler and `mcp.capture_viewport()` in one script. That needs an `ovmcp.*` import and five awaited
+  captures, which the tester's rules forbid; pytest's `test_16_08` checks it, live
 
 ### 16.9 The omni.debugdraw Backend
-- `execute_script`: `from ovmcp.bridge.handlers.debug_draw import choose_backend; result = choose_backend(("omni.debugdraw",))`
-- The zigzag of 16.8 for 4 s: the answer names `omni.debugdraw`, a capture holds it, a capture after 4 s doesn't
-- 16.8's drawn-and-captured-at-once check, with `omni.debugdraw`
-- Put the default back: `choose_backend()`, and turn `omni.debugdraw` off if it was off
+- pytest's, not this suite's: `test_16_09` switches the bridge's drawing to `omni.debugdraw` with the bridge's own
+  `choose_backend`, an `ovmcp.*` import, and no tool switches it: Isaac Sim draws with `isaacsim.util.debug_draw`
+  whenever it has it
+- SKIP it, naming `test_16_09`, and call nothing
 
 ---
 
@@ -586,14 +598,18 @@ Needs: none
 - Note: this wipes all prims from Phases 2-16. Phases 18+ create their own.
 
 ### 17.3 A New Stage Forgets the Old One's Drawings
-- `draw_debug("line", ..., duration=30)`, then `new_scene()`, then `draw_debug("sphere", ..., duration=1)`
-- Verify: the line count is the sphere's 3 alone, and back where it started once the sphere expires: the old
-  stage's line never comes back
+- The line count and Kit's clock, from one short `execute_script`:
+  `from isaacsim.util.debug_draw import _debug_draw; import time; result = [_debug_draw.acquire_debug_draw_interface().get_num_lines(), round(time.monotonic(), 2)]`
+- Read it; `draw_debug("line", ..., duration=30)`, then `new_scene()`, then `draw_debug("sphere", ..., duration=10)`;
+  then read it again, a call at a time, until the sphere's 10 s are up, and once more after that
+- Verify: the first read after the sphere is the sphere's 3 alone, and once the sphere's 10 s are up the count is
+  back where it started, at that read and the next: the old stage's line never comes back
+
 ### 17.4 Segmentation on the New Stage
 - `execute_script` with `result = int(omni.syntheticdata.sensors.get_instance_segmentation(get_active_viewport()).size)`
   (import `omni.syntheticdata` and `get_active_viewport` from `omni.kit.viewport.utility`)
 - Verify: 0. `omni.syntheticdata` drops its sensors on every stage open, so the new stage has no segmentation yet
-- `create_prim("/World/SegmentationCube", "Cube", position=[0, 0.5, 0], size=0.5)`
+- `create_prim("/World/SegmentationCube", "Cube", position=[0, 0.5, 0], scale=0.25)`, a cube 0.5 across
 - `inspect_prim("/World/SegmentationCube", angles=["front"], include_segmentation=True)`
 - Verify: the angle has a segmentation file with the cube in its legend, and no `seg: ERROR`: the bridge turned the
   sensor on for the capture's own render and waited for its first data
@@ -625,7 +641,8 @@ Needs: none
 
 Needs: none
 
-> **Setup:** Phase 17.2 wiped the scene. This phase creates its own prims.
+> **Setup:** the half starts on a new stage, with no prims and no light. This phase makes its own prims, and 18.2 the
+> dome that lights every capture of Phases 19 to 22.
 >
 > **Note:** Procedural prims (`UsdGeom.Cube`, `Sphere`, etc.) are implicit surfaces, not `UsdGeom.Mesh`, and return 0 faces/vertices. Only actual `UsdGeom.Mesh` prims (robots, imported models) have countable geometry.
 
@@ -637,6 +654,9 @@ Needs: none
   one with its faces, vertices and triangles
 
 ### 18.2 Mesh Stats on Procedural Prim (Expected Zero)
+- Light the stage: `create_prim("/World/DomeLight", "DomeLight")`, then
+  `execute_script("UsdLux.DomeLight(omni.usd.get_context().get_stage().GetPrimAtPath('/World/DomeLight')).CreateIntensityAttr(1000.0)")`.
+  A dome lights a prim from every side Phase 22 views it from, and its default intensity, 1, is too dim to see by
 - Create a cube: `create_prim("/World/TestCube", "Cube", position=[3,0.5,0])`
 - `get_mesh_stats("/World/TestCube")`
 - Verify: total_faces=0, mesh_count=0 (procedural prims are not UsdGeom.Mesh — this is expected)
@@ -722,9 +742,10 @@ Needs: 18.1, 18.2
 Needs: 18.2
 
 ### 21.1 Update Material Paths
-- Ensure a material exists: `set_material("/World/TestCube", color=[1,0,0], material_path="/World/Looks/TestMat")`
+- Bind a material at a path of its own: `set_material("/World/TestCube", color=[1,0,0], material_path="/World/Looks/TestMat")`
 - `update_material_paths("/World/Looks", "/World/NewLooks", "/World")`
-- Verify: returns updated_bindings count, updated_asset_paths count
+- Verify: the answer gives one count of the paths it changed, bindings and asset paths together, at least 1 (the
+  cube's binding), and names `/World/TestCube` among its prims
 
 ### 21.2 Update Material Paths - No Matches
 - `update_material_paths("/Nonexistent/Looks", "/Other/Looks", "/World")`
@@ -764,9 +785,9 @@ Needs: 18.1, 18.2
 - The zoomed-in capture should show the prim larger in the frame
 
 ### 22.5 Inspect with Isolate
-- `inspect_prim("/World/Franka", angles=["front"], isolate=True)`
-- Verify: response includes `isolate=true`, prim captures successfully
-- Other scene prims should not be visible in the captured image; the scene's lights still light it
+- `inspect_prim("/World/Franka", angles=["left"])`, then the same with `isolate=True`
+- Verify: the first image shows `/World/TestCube` behind the robot; the second's answer says `isolated` on its first
+  line, and its image shows the robot alone, still lit by 18.2's dome: isolate hides every other prim, never a light
 - After capture, other prims should be restored (check with `capture_viewport`)
 
 ---
@@ -784,7 +805,8 @@ Needs: 18.2
 ### 23.1 Get Lighting State
 - `viewport_light("get")`
 - Verify: returns `lighting_mode` (string), `available_modes` (list), `has_scene_lights` (bool), `scene_lights` (list)
-- `available_modes` should include at least `"off"`, `"camera"`, `"stage"`
+- `available_modes` should include at least `"off"`, `"camera"`, `"stage"`; the scene has lights, and the list names
+  18.2's `/World/DomeLight` with its intensity, 1000
 
 ### 23.2 Set Lighting Mode — Default Rig
 - `viewport_light("set", mode="Default")`
@@ -798,7 +820,7 @@ Needs: 18.2
 ### 23.4 Set Lighting Mode — Stage
 - `viewport_light("set", mode="stage")`
 - Verify: `lighting_mode="stage"` in response
-- With no scene lights, this should render dark/black
+- `capture_viewport()`: lit by the stage's own light alone, 18.2's dome, which the rig and the camera light hid
 
 ### 23.5 Legacy set_camera_light Action
 - `viewport_light("set_camera_light", enabled=True)`
@@ -839,15 +861,22 @@ Needs: none
 - Call `get_logs(channel="omni")`
 - Verify: all returned entries have a channel containing "omni"
 
-### 24.5 Get Logs with since_index
-- Call `get_logs(count=5)` → note the last entry's `index`
-- Call `get_logs(since_index=<last_index>)` → should return only entries after that index
-- Verify: all returned entries have index > the noted index
+### 24.5 Get Logs by Count
+- `execute_script("carb.log_warn('log_count_marker')")`, then `get_logs(count=5)`, then `get_logs(count=1)`
+- Verify: 5 entries, then 1, each count the first number of its answer's header; the entries come oldest first, so
+  the marker's line is the last of the 5, or near the end when Kit logged after it
 
 ### 24.6 Get Logs After Error
-- Execute a script that causes an error: `execute_script("raise RuntimeError('log_test_error')")`
-- Call `get_logs(count=10, search="log_test_error")`
-- Verify: the error appears in the log entries
+- A script that writes an error to Kit's log, then raises another:
+  ```python
+  execute_script("""
+  carb.log_error('log_test_error')
+  raise RuntimeError('log_test_raise')
+  """)
+  ```
+- `get_logs(count=10, search="log_test_error")`, then `get_logs(count=10, search="log_test_raise")`
+- Verify: the script's answer carries the `RuntimeError` with its traceback; the first search finds the logged line,
+  at level error; the second finds nothing, since the bridge answers a script's exception rather than logging it
 
 ---
 

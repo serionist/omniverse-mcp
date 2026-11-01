@@ -386,8 +386,16 @@ class TestScenarios(PhysicsChecks):
         self.assertEqual(r2["status"], "success")
         r3 = self.c.create_prim("/World/BlueSphere", "Sphere", position=_along_up(up, 0.5, x=1), scale=[0.2, 0.2, 0.2])
         self.assertEqual(r3["status"], "success")
-        r4 = self.c.create_prim("/World/Light", "DistantLight", rotation=[45, 0, 0])
+        # A distant light shines along its own -Z: this turns it down onto the scene on a Y-up stage and a Z-up one
+        # alike, where [45, 0, 0] shone up on a Y-up one. At the default 50000 the scene washes out white; 3000 is Kit's
+        # own sun's (#103).
+        r4 = self.c.create_prim("/World/Light", "DistantLight", rotation=[-50, 30, 0])
         self.assertEqual(r4["status"], "success")
+        lit = self.c.execute(
+            "UsdLux.DistantLight(omni.usd.get_context().get_stage().GetPrimAtPath('/World/Light'))"
+            ".CreateIntensityAttr(3000.0)"
+        )
+        self.assertEqual(lit["status"], "success", lit)
 
         # Apply materials so objects are visually distinct
         r_red = self.c.set_material("/World/RedCube", color=[1, 0, 0])
@@ -399,7 +407,9 @@ class TestScenarios(PhysicsChecks):
 
         tree = self.c.scene_tree("/World", 2)
         tree_str = json.dumps(tree["result"])
-        for name in ["Ground", "RedCube", "BlueSphere", "Light"]:
+        cube_material = r_red["result"]["material_path"]
+        self.assertTrue(cube_material.startswith("/World/Looks/"), cube_material)
+        for name in ["Ground", "RedCube", "BlueSphere", "Light", cube_material]:
             self.assertIn(name, tree_str)
         print("  Created 4 prims with materials")
         self._pass()
@@ -596,9 +606,16 @@ class TestScenarios(PhysicsChecks):
         self._pass()
 
     def test_05_02_step(self):
-        """Phase 5.2: Step"""
+        """Phase 5.2: Step: two app updates of play, then paused"""
+        before = self.c.sim_state()["result"]
         r = self.c.sim_control("step")
         self.assertEqual(r["status"], "success")
+        self.assertEqual(r["result"]["current_state"], "paused")
+        after = self.c.sim_state()["result"]
+        moved, frame = after["sim_time"] - before["sim_time"], 1.0 / after["fps"]
+        print(f"  The step moved the timeline {moved:.4f} s, {moved / frame:.2f} frames")
+        # About two frames: Isaac Sim 6.2 moves 2/60 s; one either side, for when the play starts or ends.
+        self.assertAlmostEqual(moved, 2 * frame, delta=frame + 1e-6)
         self.c.sim_control("stop")
         self._pass()
 
@@ -1829,7 +1846,8 @@ class TestScenarios(PhysicsChecks):
 
         cube = self.SEGMENTATION_TARGET
         self.addCleanup(self.c.delete_prim, cube)
-        r = self.c.create_prim(cube, "Cube", position=_along_up(self._up_axis(), 0.5), size=0.5)
+        # A Cube is 2 across, so a scale of 0.25 makes it 0.5: the bridge takes no size.
+        r = self.c.create_prim(cube, "Cube", position=_along_up(self._up_axis(), 0.5), scale=0.25)
         self.assertEqual(r["status"], "success", r)
         r = self.c.camera_inspect(cube, angles=["front"], include_segmentation=True)
         self.assertEqual(r["status"], "success", r)
@@ -1986,36 +2004,40 @@ class TestScenarios(PhysicsChecks):
         print(f"  {result['count']} entries with channel matching 'omni'")
         self._pass()
 
-    def test_24_05_get_logs_since_index(self):
-        """Phase 24.5: Get Logs with since_index"""
-        # Get last 5 entries to find a reference index
-        r1 = self.c.get_logs(count=5)
-        self.assertEqual(r1["status"], "success")
-        entries = r1["result"]["entries"]
-        if not entries:
-            self.skipTest("No log entries available")
-
-        last_index = entries[-1]["index"]
-
-        # Now get entries after that index
-        r2 = self.c.get_logs(since_index=last_index)
-        self.assertEqual(r2["status"], "success")
-        for entry in r2["result"]["entries"]:
-            self.assertGreater(entry["index"], last_index, f"Entry index {entry['index']} should be > {last_index}")
-        print(f"  {r2['result']['count']} entries after index {last_index}")
+    def test_24_05_get_logs_by_count(self):
+        """Phase 24.5: Get Logs by Count: the newest entries, oldest first"""
+        marker = f"log_count_marker {time.time_ns()}"
+        r = self.c.execute(f"carb.log_warn('{marker}')")
+        self.assertEqual(r["status"], "success", r)
+        five = self.c.get_logs(count=5)
+        self.assertEqual(five["status"], "success", five)
+        entries = five["result"]["entries"]
+        self.assertEqual((len(entries), five["result"]["count"]), (5, 5))
+        # The newest come last: the marker is the last of the five, or near the end when Kit logged after it.
+        self.assertIn(marker, [e["msg"] for e in entries])
+        one = self.c.get_logs(count=1)
+        self.assertEqual(one["status"], "success", one)
+        self.assertEqual((len(one["result"]["entries"]), one["result"]["count"]), (1, 1))
+        print(f"  5 entries, the marker at {[e['msg'] for e in entries].index(marker) + 1}; then 1")
         self._pass()
 
     def test_24_06_get_logs_after_error(self):
-        """Phase 24.6: Get Logs After Error"""
-        # Generate a known error
-        self.c.execute("raise RuntimeError('log_test_error_sentinel')")
+        """Phase 24.6: Get Logs After Error: a line written to Kit's log is found; a script's exception is in the
+        answer, not the log"""
+        marker = f"{time.time_ns()}"
+        r = self.c.execute(f"carb.log_error('log_test_error {marker}')\nraise RuntimeError('log_test_raise {marker}')")
+        self.assertEqual(r["status"], "error", r)
+        self.assertIn(f"log_test_raise {marker}", r["error"])
+        self.assertIn("RuntimeError", r["traceback"])
 
-        # Check if it appears in logs
-        r = self.c.get_logs(count=20, search="log_test_error_sentinel")
-        self.assertEqual(r["status"], "success")
-        # The error may appear in Omniverse logs or may only be in the script response
-        # Either way, get_logs should not error
-        print(f"  {r['result']['count']} entries matching error sentinel")
+        logged = self.c.get_logs(count=10, search=f"log_test_error {marker}")
+        self.assertEqual(logged["status"], "success", logged)
+        self.assertEqual([e["level"] for e in logged["result"]["entries"]], ["error"])
+        # The bridge answers a script's exception rather than logging it, so the answer is where an agent reads it.
+        raised = self.c.get_logs(count=10, search=f"log_test_raise {marker}")
+        self.assertEqual(raised["status"], "success", raised)
+        self.assertEqual(raised["result"]["entries"], [])
+        print("  The logged error found at level error; the raised one only in the answer")
         self._pass()
 
     # ===== Phase 25: Async Script Execution (MCP Bridge) =====
