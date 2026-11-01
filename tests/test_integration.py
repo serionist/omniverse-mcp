@@ -1820,7 +1820,10 @@ class TestFlattenAndExportKeepTheOpenStage(unittest.TestCase):
                 layer = Sdf.Layer.OpenAsAnonymous(str(out))
                 text = layer.ExportToString()
                 self.assertNotIn("OmniKit_Viewport_LightRig", text, "the light rig was written")
-                self.assertNotIn("OmniverseKit_Persp", text, "Kit's own camera was written")
+                # Kit defines its camera in the session layer; a saved scene may hold an over of it and a rel to it,
+                # which are the scene's and stay, as with Kit's own Save Flattened As.
+                camera = layer.GetPrimAtPath("/OmniverseKit_Persp")
+                self.assertFalse(camera and camera.specifier == Sdf.SpecifierDef, "Kit's own camera was written")
                 self.assertTrue(layer.GetPrimAtPath(light), "the stage's own light is missing")
                 self.assertFalse(layer.GetAttributeAtPath(f"{light}.visibility"), "Kit's hiding of it was written")
         rig = self.client.export_prim("/OmniKit_Viewport_LightRig", str(self.folder / "rig.usda"))
