@@ -75,8 +75,8 @@ serionist/omniverse-mcp`, then `claude plugin install omniverse-mcp@omniverse-mc
 Claude Code next starts.
 
 Then run `/omniverse-mcp:setup`. It installs the bridge of the plugin's release, tells you what to click in Kit, and
-checks the connection. The plugin also brings skills for scenes, geometry, simulation and scripts, which Claude uses
-when a request fits ([the plugin](plugin/README.md)).
+checks the connection. The plugin also brings skills for scenes, geometry, simulation, scripts and bug reports, which
+Claude uses when a request fits ([the plugin](plugin/README.md)).
 
 ### Other MCP clients
 
@@ -265,7 +265,9 @@ More in [SETUP.md](docs/SETUP.md#troubleshooting).
 ## Known issues
 
 None open on Isaac Sim 6.2 and 5.1, the Kit apps tested so far. Report one as an
-[issue](https://github.com/serionist/omniverse-mcp/issues).
+[issue](https://github.com/serionist/omniverse-mcp/issues). When a tool misbehaves, your assistant asks whether to
+report it, then drafts the report with the versions, the call and Kit's log, and files it with the GitHub CLI once you
+agree to the draft, or leaves it for you to post (the plugin's [report-bug](plugin/skills/report-bug/SKILL.md) skill).
 
 ## Security
 

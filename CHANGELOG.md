@@ -15,6 +15,13 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   [SETUP](https://github.com/serionist/omniverse-mcp/blob/main/docs/SETUP.md#from-kits-community-registry) says.
   From this release on, the zips' names and their `ovmcp.bridge/` layout stay as they are, and no release's zips are
   deleted: Kit installs each listed version from them (#101).
+- **Bug reports your assistant drafts:** when a tool gives an error its arguments don't explain, a wrong answer or
+  no answer, the server's instructions have the assistant ask you first which you want: it files a report for this
+  repository with the GitHub CLI (`gh`, installed and signed in), it writes the draft for you to post on the bug
+  form, or no report, and it doesn't ask again. The report holds the Kit app, the OS and the client,
+  `get_sim_state`'s two versions, the exact call and what came back, and Kit's warnings, any token and personal path
+  taken out; it is posted only on your yes to the draft. In Claude Code the plugin's `/omniverse-mcp:report-bug`
+  takes it step by step, and looks for the same issue first (#109).
 
 ### Changed
 

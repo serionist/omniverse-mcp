@@ -233,8 +233,9 @@ def test_the_tester_command_is_the_one_step_2_proved(tmp_path):
         "--setting-sources  --append-system-prompt RULES",
         "--tools Read,Grep,Glob,Skill",
         "--permission-mode dontAsk",
-        "--allowedTools mcp__omniverse Read Grep Glob Skill(omniverse-mcp:geometry) Skill(omniverse-mcp:scene) "
-        "Skill(omniverse-mcp:script) Skill(omniverse-mcp:setup) Skill(omniverse-mcp:simulate) --output-format",
+        "--allowedTools mcp__omniverse Read Grep Glob Skill(omniverse-mcp:geometry) Skill(omniverse-mcp:report-bug) "
+        "Skill(omniverse-mcp:scene) Skill(omniverse-mcp:script) Skill(omniverse-mcp:setup) "
+        "Skill(omniverse-mcp:simulate) --output-format",
         "--output-format stream-json --verbose --no-session-persistence",
         "--max-budget-usd 1.50",
         "--model opus",
