@@ -211,6 +211,22 @@ await omni.kit.app.get_app().next_update_async()
 result = timeline.get_current_time()
 """
 
+# What PhysX holds for each joint of the articulation at PATH, read through its tensor API while the simulation is
+# paused: the drive's stiffness and damping, per radian, and the joint-space inertia, the mass matrix's diagonal.
+_PHYSX_DOFS = """
+import omni.physics.tensors as tensors
+
+view = tensors.create_simulation_view("warp", omni.usd.get_context().get_stage_id())
+articulation = view.create_articulation_view(PATH)
+names = list(articulation.shared_metatype.dof_names)
+stiffness = articulation.get_dof_stiffnesses().numpy()[0]
+damping = articulation.get_dof_dampings().numpy()[0]
+matrix = articulation.get_generalized_mass_matrices().numpy()[0]
+result = {}
+for i, name in enumerate(names):
+    result[name] = {"stiffness": float(stiffness[i]), "damping": float(damping[i]), "inertia": float(matrix[i][i])}
+"""
+
 # Kit's metrics assembler resolving PATH into an anonymous layer of its own, as #112's probe did, so neither the robot's
 # file nor the stage's layer is written: PATH's ops and scale, and the values NAMES lists, before and after, and which
 # of them Kit wrote into its layer. That layer is weaker than the stage's, which holds create_robot's converted values,
@@ -1721,10 +1737,12 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
 
     def test_27c_a_robot_file_of_other_units_behaves_as_in_the_stage_s(self):
         """A metre robot file on a metre stage and on a centimetre stage the test writes and opens: on the centimetre
-        one it is scaled 100 times and its values converted, so each arm sags as far as on the metre one, the force
-        drive's and the acceleration drive's. With the scale alone the force drive would be 10^4 times too weak; with
-        the PhysX schema's table, the acceleration drive 10^4 times too stiff. Kit's assembler, run on it after,
-        changes none of the force arm's values (#112)."""
+        one it is scaled 100 times and its values converted, so the force arm sags as far as on the metre one; with
+        the scale alone its drive would be 10^4 times too weak. The acceleration drive's gains reach PhysX the same on
+        both stages, and its arm's inertia 10^4 times larger, as a centimetre stage reads it; with the PhysX schema's
+        table its gains would be 10^4 times too stiff. Its sags are printed, not compared: with those same inputs,
+        PhysX settles an acceleration drive about 1.5 times further on a centimetre stage (the plan's A5). Kit's
+        assembler, run on it after, writes none of the values create_robot converted (#112)."""
         copy = self._saved_copy("IntTestUnitsBack.usda")
         self.addCleanup(self._reopen, copy)
         self.addCleanup(self.client.sim_control, "stop")
@@ -1735,6 +1753,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         path = "/World/IntTestUnitsBot"
         sags: dict[str, dict[str, float]] = {}
         boxes: dict[str, list[float]] = {}
+        dofs: dict[str, dict[str, dict[str, float]]] = {}
         for name, meters in (("metres", 1.0), ("centimetres", 0.01)):
             stage = folder / f"IntTestUnits_{name}.usda"
             text = _UNITS_STAGE_USDA.replace("MPU", f"{meters:g}").replace("GRAVITY", f"{9.81 / meters:g}")
@@ -1754,16 +1773,25 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
                 self.assertEqual(got, (100.0, [100.0, 100.0, 100.0], True, 0), scaled)
             boxes[name] = self.client.prim_bounds(f"{path}/Force")["result"]["dimensions"]
             sags[name] = self._settled_sags(path)
+            dofs[name] = self._kit(_PHYSX_DOFS.replace("PATH", repr(path)))
             self.assertEqual(self.client.sim_control("stop")["status"], "success")
         self._kit_leaves_the_force_arm(path)
 
         ratios = [round(c / m, 3) for c, m in zip(boxes["centimetres"], boxes["metres"], strict=True)]
         self.assertEqual(ratios, [100.0, 100.0, 100.0], boxes)
+        metre, centimetre = sags["metres"]["ForceHinge"], sags["centimetres"]["ForceHinge"]
+        self.assertGreater(abs(metre), 0.02, f"the force arm didn't sag on the metre stage: {sags}")
+        self.assertAlmostEqual(centimetre, metre, delta=0.02 * abs(metre), msg=f"the force arm: {sags}")
+        metre_dof, centimetre_dof = dofs["metres"]["AccelerationHinge"], dofs["centimetres"]["AccelerationHinge"]
+        for gain in ("stiffness", "damping"):
+            self.assertAlmostEqual(centimetre_dof[gain], metre_dof[gain], delta=1e-4 * metre_dof[gain], msg=dofs)
         for joint in ("ForceHinge", "AccelerationHinge"):
-            metre, centimetre = sags["metres"][joint], sags["centimetres"][joint]
-            self.assertGreater(abs(metre), 0.02, f"{joint} didn't sag on the metre stage: {sags}")
-            self.assertAlmostEqual(centimetre, metre, delta=0.02 * abs(metre), msg=f"{joint}: {sags}")
-        print(f"  sags in radians, metres and centimetres: {sags}")
+            inertia = dofs["centimetres"][joint]["inertia"] / dofs["metres"][joint]["inertia"]
+            self.assertAlmostEqual(inertia, 1e4, delta=10.0, msg=f"{joint}'s joint-space inertia: {dofs}")
+        for name in ("metres", "centimetres"):
+            self.assertGreater(abs(sags[name]["AccelerationHinge"]), 0.02, f"the acceleration arm held rigid: {sags}")
+        ratio = sags["centimetres"]["AccelerationHinge"] / sags["metres"]["AccelerationHinge"]
+        print(f"  sags in radians, metres and centimetres: {sags}; the acceleration arm's, cm over m: {ratio:.3f}")
 
     def _settled_sags(self, path: str) -> dict[str, float]:
         """Each hinge's angle in radians, by its name, once the arms have settled: played to 3 s and to 4 s of

@@ -624,10 +624,13 @@ them:
   forces converted and nothing scaled.
 - **Cameras:** a camera's `focusDistance` and `clippingRange` are converted too, as Kit's camera rules convert them.
 - **Left as they are:** an angular acceleration drive's stiffness and damping, which hold no distance, where the table
-  gives them square metres; values inside instances, which no layer of the stage can override, as Kit leaves them,
-  and values animated by value clips or splines, and the answer names them; a file that authors neither unit, taken
-  in the stage's units, as Kit takes it; a file nested inside the robot's, of units of its own, gets no scale of its
-  own.
+  gives them square metres, which would hold the joint rigid on a centimetre stage. PhysX then holds the same gains
+  and inertia, in stage terms, as for the robot authored in the stage's units, yet it settles such a drive further
+  on a centimetre stage: an arm that sagged 0.169 rad on a metre stage sagged 0.262 on a centimetre one. So an angular
+  acceleration drive isn't shown to behave as in the stage's units; force drives do. Also left: values inside
+  instances, which no layer of the stage can override, as Kit leaves them, and values animated by value clips or
+  splines, and the answer names them; a file that authors neither unit, taken in the stage's units, as Kit takes it;
+  a file nested inside the robot's, of units of its own, gets no scale of its own.
 - **Where they go:** the stage's layer, with the robot. A later change to those values in the robot's file no longer
   shows, and a drive target the file animates wins over `set_joint_targets`, whose value goes into the same layer,
   where the converted samples are stronger.

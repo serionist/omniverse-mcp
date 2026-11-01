@@ -196,8 +196,8 @@ def unit_exponents(name: str, prim: Usd.Prim, table: Table) -> Exponents | None:
 
     An acceleration drive's gains hold no mass and no distance: PhysX scales them by the joint's inertia, so a
     stiffness is degrees per second squared per degree. The PhysX schema's table says so of its linear ones and keeps
-    the force drive's square metres on its angular ones; test_27c's twin on an acceleration drive checks this live,
-    on a metre and a centimetre stage.
+    the force drive's square metres on its angular ones, which would make the drive 10^4 times too stiff on a
+    centimetre stage. test_27c checks live that PhysX holds the same gains on a metre and a centimetre stage.
     """
     if name in _CAMERA_DISTANCES:
         return Exponents(mass=0, distance=1)

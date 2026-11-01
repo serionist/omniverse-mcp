@@ -20,7 +20,9 @@ This plan recommends doing what Kit does with that extension loaded: the scale o
 by the same table (Q1), each by the units of the layer it is authored in. A live probe on Isaac Sim 6.2 compared the
 two: the conversion this plan proposes gives Kit's value for every one of the probe robot's 22 values, and Kit's
 assembler, run on top of it, changes nothing. Where the table contradicts itself, on angular acceleration drives, the
-plan departs from it and a live test checks the departure (K11).
+plan leaves their gains as they are (K11). A second probe found PhysX itself settles such a drive about 1.5 times
+further on a centimetre stage than on a metre one, with every value it reads the same in stage terms (A1 to A5): that
+drive is the one part of a robot this plan doesn't claim behaves as in the stage's units.
 
 ## Goal
 
@@ -31,8 +33,9 @@ When this is done, with this release's Kit extension:
 - Its physics values come in the stage's units: masses from a density, inertia, drives, prismatic limits, offsets and
   the rest, converted by the PhysX schema's own table of units, the one Kit's physics rules register (K5, K6), each by
   the units of the layer it is authored in (P1), where Kit takes one layer's for every value under the prim (K1). A
-  robot of other units behaves as the same robot authored in the stage's units. An angular acceleration drive's
-  gains, which hold no distance, stay as they are (K11).
+  robot of other units behaves as the same robot authored in the stage's units, an angular acceleration drive aside:
+  its gains, which hold no distance, stay as they are (K11), and PhysX settles such a drive differently on a stage of
+  other units, with the same inputs (A5).
 - Its cameras' `focusDistance` and `clippingRange` come in the stage's units, as Kit's camera rules convert them
   (K12).
 - The same for a file whose `kilogramsPerUnit` differs (Q3): its masses and forces converted, nothing scaled.
@@ -134,6 +137,22 @@ a slide with a linear force drive, a 0.04 limit and a sampled target velocity.
 | P4 | A file that authors no `metersPerUnit` | Kit takes it as in the stage's units: `check_layers` reads it as 1 on a metre stage and 0.01 on a centimetre one, not divergent, and `resolve_hierarchy` writes nothing. Not USD's fallback |
 | P5 | Design's conversion (the op in float, the values times the factor in the stage's root layer), then Kit's resolve on top | 13 values converted, the pad's contact offset left as inside an instance. Every one of the 22 values read equals Kit's from P2 (to 1e-4, samples included). Kit's resolve after it adds no op, leaves the op at 100 in float, changes no value, and writes none of the 13 into its layer: only the four it writes at their own value (both masses, the slide's stiffness and damping) |
 
+### The acceleration probe
+
+`test_27c`'s first live run, with the extension at `de975c8`, failed: the force arm's sag matched across the stages to
+7 digits, the acceleration arm's didn't. `112-accel-probe.py`, in the session's scratchpad's `112/`, run by the session
+on the same Isaac Sim 6.2 at port 8212 with the extension at `2bf31b7`, put test_27c's robot and three variants of it
+on the same two stages, and read what PhysX holds through `omni.physics.tensors` once the arms had settled. Exit 0;
+`112-accel-probe.out.txt` beside it.
+
+| # | What it asked | What it showed |
+|---|---|---|
+| A1 | test_27c's robot: the arms' sag in radians, metres and centimetres | The force arm 0.168476 on both. The acceleration arm 0.16905 and 0.26172, 1.55 times. Both settled: the readings at 3 s and 4 s agree to the last digit |
+| A2 | What PhysX holds for the acceleration arm | The same gains on both stages, per radian: stiffness 85.94, damping 17.19 (1.5 and 0.3 per degree). Its mass 1; its inertia (0.0017, 0.0842, 0.0842) and (17, 842, 842), and its joint-space inertia, the mass matrix's diagonal, 0.3342 and 3342: 10^4 times, as a centimetre stage reads a metre value. The gravity torque at its pose, 4.835 and 47,380, is 4.905 and 49,050 times the cosine of its angle: 10^4 times again. No armature, friction or drive model on either |
+| A3 | The acceleration arm's mass from a density over a collider, as the force arm's, none authored | 0.16907 and 0.26174, the same 1.55: an arm without a collider isn't the cause |
+| A4 | The acceleration gains times 100, and times 10^4 (damping times 10 and 100) | Times 100: 0.001423 and 0.002551, 1.79 times. Times 10^4: -3.4e-9 and 3.3e-7, held rigid on both. So the gains hold no distance, and the table's ×10^4 would hold the arm rigid on a centimetre stage |
+| A5 | What PhysX scales the drive by, from each settled angle: the gravity torque over the stiffness and the angle | On the metre stage 0.996 times the joint-space inertia, and 1.20 times with the gains times 100; on the centimetre one 0.630 and 0.669 times. So PhysX's acceleration drive is no plain stiffness times inertia times angle even on a metre stage, and how far it departs depends on the stage's units, with every value it reads the same in stage terms. No value `create_robot` writes changes that |
+
 ## Design
 
 Q1's option A, as recommended.
@@ -163,9 +182,11 @@ assembler isn't the model here: it takes one layer's units for every value under
 the saved robot's metre values by the centimetre file's.
 
 An angular acceleration drive departs from the table (K11): with the table, a metre robot's acceleration drives would
-be 10^4 times too stiff on a centimetre stage, where its force drives are right. `test_27c` checks the departure
-live: if the twin on an acceleration drive sags differently on the centimetre stage, the table was right and the rule
-goes.
+be 10^4 times too stiff on a centimetre stage, where its force drives are right, and A4 shows the arm held rigid. Left
+as they are, the gains reach PhysX the same on both stages, and every other input it reads matches in stage terms
+(A2), yet PhysX settles the drive 1.5 to 1.8 times further on the centimetre stage (A1, A4, A5). That is PhysX's own,
+and no conversion of the robot's values can close it: `test_27c` checks the inputs, not the sag, and the docs say an
+angular acceleration drive isn't shown to behave as in the stage's units.
 
 ### The bridge (`handlers/robot.py`)
 
@@ -287,7 +308,7 @@ Each fails at `f5a27ed`, where it can.
 
 | Test | What |
 |---|---|
-| `test_27c_a_robot_file_of_other_units_behaves_as_in_the_stage_s` | One robot file the test writes, in metres, Z-up: a base fixed to the world at its origin, two arms along X on hinges about Y, held near level against gravity: one on an angular force drive, its mass from a density over its collider; its twin on an angular acceleration drive, its mass and inertia authored. Two stages the test writes and opens, as `test_31` opens its copy, Z-up, each with a physics scene of earth gravity in its units: one in metres, one in centimetres. On each, `create_robot` the file, play to 3 s and to 4 s of simulation, and read both hinges from `get_joint_states`: settled, they agree within 0.2%. On the centimetre stage the answer gives the op at 100 and the force arm's world box is 100 times the metre stage's. Each arm's sag angle, unitless, matches across the stages within 2%, and is more than 0.02 rad. Then Kit's assembler, where it imports, resolved into an anonymous layer on the centimetre stage, adds no op and changes none of the values the call converted (P5); what it makes of the acceleration drive's stiffness, which its table converts, is printed. With the scale alone the force arm's drive would be 10^4 times too weak; with the table's acceleration entry the twin 10^4 times too stiff. The suite's stage comes back from its saved copy after |
+| `test_27c_a_robot_file_of_other_units_behaves_as_in_the_stage_s` | One robot file the test writes, in metres, Z-up: a base fixed to the world at its origin, two arms along X on hinges about Y, held near level against gravity: one on an angular force drive, its mass from a density over its collider; its twin on an angular acceleration drive, its mass and inertia authored. Two stages the test writes and opens, as `test_31` opens its copy, Z-up, each with a physics scene of earth gravity in its units: one in metres, one in centimetres. On each, `create_robot` the file, play to 3 s and to 4 s of simulation, and read both hinges from `get_joint_states`: settled, they agree within 0.2%. On the centimetre stage the answer gives the op at 100 and the force arm's world box is 100 times the metre stage's. The force arm's sag angle, unitless, matches across the stages within 2%, and is more than 0.02 rad. From PhysX's tensor API: the acceleration drive's stiffness and damping are the same on both stages, within 1e-4, and each arm's joint-space inertia 10^4 times on the centimetre one; the acceleration arm sags more than 0.02 rad on both, and its sags are printed, not compared (A5). Then Kit's assembler, where it imports, resolved into an anonymous layer on the centimetre stage, adds no op and writes none of the values the call converted into its layer (P5; review T2); what it makes of the acceleration drive's stiffness, which its table converts, is printed. With the scale alone the force arm's drive would be 10^4 times too weak; with the table's acceleration entry the twin's stiffness 10^4 times too high. The suite's stage comes back from its saved copy after |
 | `test_27`, `test_27b` | Unchanged, files with no `metersPerUnit`: no op (Q2) |
 
 **What neither shows:** USD Composer, whose stages are in centimetres, isn't on this machine: `test_27c` writes a
@@ -301,7 +322,8 @@ distances, where `create_robot` converts them. Mimic joints' gearing (Risks).
   `metersPerUnit` or `kilogramsPerUnit` isn't the stage's is scaled with `xformOp:scale:unitsResolve` and its physics
   values converted by the PhysX schema's table of units, as Kit's assembler does with its physics rules, each by the
   units of the layer it is authored in; its cameras' focus distance and clipping range too, as Kit's camera rules
-  do; an angular acceleration drive's gains stay as they are; a file that authors none is left as it is, as Kit
+  do; an angular acceleration drive's gains stay as they are, and such a drive isn't shown to behave as in the
+  stage's units (A5); a file that authors none is left as it is, as Kit
   leaves it; values inside instances stay, as Kit leaves them, and the answer names them; a file nested inside the
   robot's gets no op of its own; a drive target animated in the file then wins over a later `set_joint_targets`
   (P3); with an extension of 0.3.0 or older, nothing is scaled.
@@ -314,9 +336,10 @@ distances, where `create_robot` converts them. Mimic joints' gearing (Risks).
   - **`create_robot` brings a robot file of other units to the stage's:** a robot in metres on a centimetre stage
     came in 100 times too small. It is now scaled, as Kit scales a dropped file, and its physics values (masses,
     inertia, drives, limits) and its cameras' focus distance and clipping range are converted to the stage's units,
-    so it behaves as the same robot authored in them. The answer says when. **A call that scaled the robot itself
-    now scales it twice: drop that scale.** `create_prim`'s `usd_path` doesn't yet (#119). The fix is in the Kit
-    extension: run `uvx omniverse-mcp extension install`, then restart Kit (#112).
+    so it behaves as the same robot authored in them, but for an angular acceleration drive, which PhysX settles
+    further on a centimetre stage. The answer says when. **A call that scaled the robot itself now scales it twice:
+    drop that scale.** `create_prim`'s `usd_path` doesn't yet (#119). The fix is in the Kit extension: run
+    `uvx omniverse-mcp extension install`, then restart Kit (#112).
   ```
 
 - **`AGENTS.md`:** nothing: `robot.py` is listed, as "robot files".
@@ -328,7 +351,7 @@ distances, where `create_robot` converts them. Mimic joints' gearing (Risks).
 | Kit's assembler, run on the robot later, converts the values a second time | Closed by P5 on Isaac Sim 6.2: after Design's conversion, Kit's resolve added no op and wrote none of the converted values, since they sit in the stage's own layer, of the stage's units. `test_27c` checks it again on a stage Kit opened. Kit's drop path doesn't reach a `create_robot` prim: it resolves only prims a drop or its stage record names (#105's round 1). Accepted: an angular acceleration drive's gains, left in the file's layer, are what Kit's resolve, run by hand, would still convert by its table (K11); `test_27c` prints what it makes of them |
 | `pxr.PhysicsSchemaTools.units` missing or changed in another Kit | Accepted: missing, nothing but the cameras converts and the answer says so; changed so that a call raises, the robot isn't added and the error names the step. Kit 107's is the same (K13) |
 | A file nested inside the robot's, of units of its own | Accepted: its values are converted by its own units (P1), but its geometry gets no op of its own, and a robot file in the stage's units isn't walked at all, so a nested file of other units there stays as it is. Isaac Sim's robots compose a sublayer or `Props/` files beside a root in metres (U3); `docs/TOOLS.md` names it |
-| Angular acceleration gains: the plan departs from the table, which Kit's physics rules follow (K11) | Open until `test_27c` runs: its twin sags as on the metre stage, or the table was right and the rule goes |
+| Angular acceleration gains: the plan departs from the table, which Kit's physics rules follow (K11) | Settled by A4: the table's ×10^4 holds the arm rigid, so the gains stay. Accepted: with the same inputs, PhysX settles an angular acceleration drive 1.5 to 1.8 times further on a centimetre stage (A5), which no value the call writes changes; `docs/TOOLS.md` and CHANGELOG say so |
 | Mimic joints' gearing: the table gives `physxMimicJoint:rot*:gearing` (0, 1, -1) whatever the joints, where the same file's schema entry gives that only from an angular joint to a linear one, (0, -1) the other way and (0, 0) otherwise, so a mimic between two joints of one kind would be geared ×100 on a centimetre stage | Accepted, unverified: no test or library robot of other units has one; converted by the table, as Kit converts it |
 | Converted time samples, written into the edit target, win over a default written there later: `set_joint_targets` writes a default `targetPosition`, which the layer's own samples beat at every time, where before its default beat the file's samples. Kit's drop writes into a weaker sublayer and avoids it | Accepted: needs a drive target animated in a file of other units; `docs/TOOLS.md` names it |
 | Values inside instances stay in the file's units (Q5) | Accepted with Q5's A: named in the answer |
