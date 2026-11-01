@@ -1004,8 +1004,17 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
                 erred, text = call_tool("capture_viewport", {"width": 160, "height": 120}, out)
                 self.assertFalse(erred, text)
                 # Kit 110's grid keeps an unlit image from being all black, so the lighting's warning comes; where a
-                # Kit renders it all black, the black image's warning names the lighting instead (review F6).
-                said = "surfaces render black" in text or ("Image is all-black" in text and mode != "camera")
+                # Kit renders it all black, the black image's warning names the lighting instead (review F6). Only
+                # the texts that name the lighting count: a lit stage's capture can be all black for a renderer not
+                # yet warm, which names neither (review round 2).
+                said = any(
+                    named in text
+                    for named in (
+                        "surfaces render black",
+                        "Lighting mode is 'off'",
+                        "No scene lights and mode is 'stage'",
+                    )
+                )
                 self.assertEqual(said, warns, text)
                 if mode == "off":
                     erred, text = call_tool(

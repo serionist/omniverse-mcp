@@ -84,11 +84,6 @@ class Extension(omni.ext.IExt):
     def on_startup(self, ext_id: str):
         self._server = None
         set_extension_version(version_from_ext_id(ext_id))
-        try:
-            set_kit_app(kit_app_facts(omni.kit.app.get_app()))
-        except Exception as e:
-            # The facts are for a bug report: a Kit app that can't give them costs them, never the bridge's start.
-            carb.log_warn(f"[MCP Bridge] The Kit app's name and versions read unknown: {e}")
         settings = carb.settings.get_settings()
         prefix = f"/exts/{EXTENSION_NAME}"
         self._host = settings.get(f"{prefix}/host") or "127.0.0.1"
@@ -100,6 +95,12 @@ class Extension(omni.ext.IExt):
         from .handlers.logging import start as start_log_reader
 
         start_log_reader(self._token)
+        # After the log reader starts, so get_logs shows the warning when the facts can't be read.
+        try:
+            set_kit_app(kit_app_facts(omni.kit.app.get_app()))
+        except Exception as e:
+            # The facts are for a bug report: a Kit app that can't give them costs them, never the bridge's start.
+            carb.log_warn(f"[MCP Bridge] The Kit app's name and versions read unknown: {e}")
 
         routes = {
             "/health": handle_health,

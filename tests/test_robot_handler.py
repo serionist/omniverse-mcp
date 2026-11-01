@@ -185,6 +185,23 @@ def test_a_file_kit_resolved_and_saved_gets_the_turn_it_still_owes(robot, kit, t
     assert kit.stage.GetPrimAtPath("/World/Bot").GetAttribute("xformOp:rotateX:unitsResolve").Get() == 0.0
 
 
+def test_a_usd_error_writing_the_turn_leaves_no_robot(robot, kit, tmp_path):
+    # A float3 attribute of the turn's name on the file's root, out of its order: USD refuses the op with a
+    # Tf.ErrorException, which answered 500 and left the robot, so a retry was refused as taken (review F3).
+    UsdGeom.SetStageUpAxis(kit.stage, UsdGeom.Tokens.y)
+    bot = _bot_file(tmp_path, up_axis="Z")
+    layer = Sdf.Layer.FindOrOpen(bot)
+    held = Usd.Stage.Open(layer)
+    held.GetPrimAtPath("/Bot").CreateAttribute("xformOp:rotateX:unitsResolve", Sdf.ValueTypeNames.Float3)
+    layer.Save()
+
+    r = _create(robot, robot_type=bot, prim_path="/World/Robots/Bot")
+
+    assert r["status"] == "error", r
+    assert "The robot was not added" in r["error"]
+    assert not kit.stage.GetPrimAtPath("/World/Robots").IsValid()
+
+
 def test_a_refusal_after_the_turn_leaves_no_robot(robot, kit, tmp_path):
     UsdGeom.SetStageUpAxis(kit.stage, UsdGeom.Tokens.y)
     bot = _bot_file(tmp_path, animated=True, up_axis="Z")

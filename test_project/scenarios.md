@@ -835,8 +835,8 @@ Needs: 18.2
 
 ### 23.6 Black Image Detection (No Auto-Fix)
 - Set lighting to off: `viewport_light("set", mode="off")`
-- `capture_viewport()` → a WARNING that lighting mode `off` leaves the scene unlit though the grid shows, naming
-  `viewport_light`
+- `capture_viewport()` → a WARNING naming lighting mode `off` and `viewport_light`: Kit's grid keeps the image from
+  being all black, so the warning is the lighting's; where a Kit renders it all black, the black image's names it
 - The MCP should NOT auto-enable camera light or change the mode
 - Response should include `lighting_mode` field showing current mode
 - Fix it manually: `viewport_light("set", mode="Default")`
