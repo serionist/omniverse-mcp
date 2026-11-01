@@ -37,14 +37,15 @@ Needs: none
 
 ### 2.1 Create Primitives
 - Create a ground plane: `create_prim("/World/Ground", "Cube", position=[0,-0.05,0], scale=[10,0.1,10])`
-- Create a cube: `create_prim("/World/RedCube", "Cube", position=[0,2,0], scale=0.3)`
+- Create a cube: `create_prim("/World/RedCube", "Cube", position=[0,2,0], scale=0.3)`, and make it red, as the
+  phases after it look for it by colour: `set_material("/World/RedCube", color=[1,0,0])`
 - Create a sphere: `create_prim("/World/BlueSphere", "Sphere", position=[1,0.5,0], scale=0.2)`
 - Create a light: `create_prim("/World/Light", "DistantLight", rotation=[-50,30,0])`, then
   `execute_script("UsdLux.DistantLight(omni.usd.get_context().get_stage().GetPrimAtPath('/World/Light')).CreateIntensityAttr(3000.0)")`.
   A distant light shines along its own -Z. This rotation turns it down onto the scene from the side 3.2's camera
   stands on, lighting the faces turned to +X, the side and the top, on a Y-up stage and a Z-up one alike: keep it as
   it is on either, unswapped. 3000 is Kit's own sun's intensity, where the default 50000 washes the scene out white
-- Verify: `get_scene_tree` shows all 4 new prims
+- Verify: `get_scene_tree` shows all 4 new prims, and the cube's material under `/World/Looks`
 
 ### 2.2 Transform Operations (Individual)
 - Move the cube: `set_prim_transform("/World/RedCube", position=[2,2,0])`
@@ -175,10 +176,11 @@ Needs: 2.1, 4.5
 
 ### 5.3 Gravity Test
 - Reset cube: `set_prim_transform("/World/RedCube", position=[0,3,0])`
+- Aim at the cube's column, which keeps it in view as it falls: `set_camera(position=[5,3,5], target=[0,1.5,0])`
 - `capture_viewport()`: the cube's center should be 3 along the up axis
 - `sim_control("play")`, wait briefly, `sim_control("pause")` (a stop puts the cube back)
 - `get_prim_bounds("/World/RedCube")`: its center along the up axis should be < 3 (fell due to gravity)
-- `capture_viewport()` — verify visually
+- `capture_viewport()`: verify visually that the cube is lower, on the ground
 
 ---
 
@@ -865,9 +867,16 @@ Needs: none
   the marker's line is the last of the 5, or near the end when Kit logged after it
 
 ### 24.6 Get Logs After Error
-- Execute a script that causes an error: `execute_script("raise RuntimeError('log_test_error')")`
-- Call `get_logs(count=10, search="log_test_error")`
-- Verify: the error appears in the log entries
+- A script that writes an error to Kit's log, then raises another:
+  ```python
+  execute_script("""
+  carb.log_error('log_test_error')
+  raise RuntimeError('log_test_raise')
+  """)
+  ```
+- `get_logs(count=10, search="log_test_error")`, then `get_logs(count=10, search="log_test_raise")`
+- Verify: the script's answer carries the `RuntimeError` with its traceback; the first search finds the logged line,
+  at level error; the second finds nothing, since the bridge answers a script's exception rather than logging it
 
 ---
 
