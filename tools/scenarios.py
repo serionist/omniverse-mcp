@@ -521,7 +521,14 @@ def tracked_bridge_files(checkout: Path = ROOT) -> list[str]:
 
 
 def _digest(path: Path) -> str | None:
-    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+    """A file's hash as git stores it under .gitattributes' `text=auto eol=lf`: CRLF as LF unless the file holds a NUL,
+    git's sign of a binary. A copy from an older Windows checkout or a zip keeps CRLF, and is the same code."""
+    if not path.is_file():
+        return None
+    data = path.read_bytes()
+    if b"\0" not in data:
+        data = data.replace(b"\r\n", b"\n")
+    return hashlib.sha256(data).hexdigest()
 
 
 def bridge_problems(checkout: Path, kit_folder: Path, tracked: Sequence[str]) -> list[str]:

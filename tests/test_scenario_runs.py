@@ -294,6 +294,17 @@ def test_a_copy_of_the_bridge_passes_with_kits_caches_in_it(tmp_path):
     assert scenarios.bridge_problems(ROOT, tmp_path, tracked) == []
 
 
+def test_a_copy_with_crlf_line_endings_is_the_same_bridge(tmp_path):
+    # A copy from a Windows checkout made before .gitattributes, or from a zip, keeps CRLF: git stores it as LF.
+    tracked = copy_bridge(tmp_path)
+    for rel in tracked:
+        path = tmp_path / rel
+        path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+    assert scenarios.bridge_problems(ROOT, tmp_path, tracked) == []
+    (tmp_path / tracked[0]).write_bytes(b"changed\r\n")
+    assert tracked[0] in scenarios.bridge_problems(ROOT, tmp_path, tracked)[0]
+
+
 def test_a_bridge_that_differs_is_named(tmp_path):
     tracked = copy_bridge(tmp_path)
     (tmp_path / "config" / "extension.toml").write_text("[package]\n", encoding="utf-8")

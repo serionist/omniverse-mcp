@@ -56,3 +56,4 @@ running this skill sees only the summary. Why it works this way: `docs/plans/202
 |---|---|---|
 | Under `--strict-mcp-config` the plugin's own server never started, and the tester SKIPped every scenario | the plan's step 2, 2026-11-01 | The server comes from the run's `mcp.json`; the init check stops a session without it |
 | The tester got the maintainer's auto-memory, the repo's skills and its `CLAUDE.md` files | the plan's step 2, 2026-11-01 | No settings source, `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, and the init check |
+| `check` refused a bridge copy whose code was the same: it came from an older Windows checkout, with CRLF line endings | the plan's step 9, 2026-11-01 | Files are hashed as git stores them, CRLF as LF |
