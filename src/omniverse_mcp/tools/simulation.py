@@ -128,9 +128,11 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         Mass or density goes through MassAPI and makes the prim a rigid body (RigidBodyAPI) if it isn't one, so a
         static collider starts to fall when the simulation plays. Friction or restitution adds the Collision API if
         missing, and sets them on a physics material, /World/PhysicsMaterials/<prim name>_PhysMat, bound to the prim
-        for physics only: prims of the same name share it, so setting one changes the rest. The answer gives each value
-        set and the APIs applied. For the prim's look, use set_material; to make a new prim physical in one call,
-        create_prim with enable_physics.
+        for physics only. That material starts from the body's own: the physics material bound to it before, else the
+        physics scene's default, else PhysX's (friction 0.5, restitution 0), so the one left out, and anything else the
+        replaced material held, stays. Prims of the same name share it, so setting one sets all its values on the
+        rest. The answer gives each value set and the APIs applied. For the prim's look, use set_material; to make a
+        new prim physical in one call, create_prim with enable_physics.
         """
         resp = bridge_call(client.set_physics_properties, prim_path, mass, density, friction, restitution)
         r = resp["result"]

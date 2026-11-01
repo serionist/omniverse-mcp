@@ -934,8 +934,14 @@ Set a prim's mass or density, and its friction or restitution, for PhysX; a valu
 - **Mass or density** makes the prim a rigid body (`RigidBodyAPI`) if it isn't one, so a static collider starts to fall
   when the simulation plays.
 - **Friction or restitution** adds the Collision API if missing, and sets them on a physics material,
-  `/World/PhysicsMaterials/<prim name>_PhysMat`, bound to the prim for physics only: prims of the same name share it,
-  so setting one changes the rest.
+  `/World/PhysicsMaterials/<prim name>_PhysMat`, bound to the prim for physics only. That material starts from the
+  body's own: the physics material bound to it before (a physics binding, else an all-purpose one, with
+  `PhysicsMaterialAPI`), else the one bound to the physics scene, its default, else PhysX's own (friction 0.5,
+  restitution 0). So the friction or restitution left out stays as PhysX applied it, and so does everything else the
+  replaced material held: its density and `PhysxMaterialAPI`'s attributes, such as combine modes, are copied over.
+  Prims of the same name share the material, so setting one sets all its values on the rest; #113 gives each prim
+  its own. With an extension of 0.3.0 or older, a value left out on a new material is USD's 0, and a material bound
+  before is replaced with all it held.
 
 **Returns:** each value set, as the Kit extension set it, then the APIs applied:
 `Physics on /World/RedCube: mass=5.0; applied MassAPI`. Friction says `(static and dynamic)`, as it is set as both;

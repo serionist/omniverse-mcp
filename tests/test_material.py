@@ -1,10 +1,23 @@
 """set_material's OmniPBR material, on usd-core: it names its MDL source, which every Kit app with MDL resolves (#30),
-and every call sets every surface value (#82)."""
+and every call sets every surface value (#82). set_physics_properties' physics material: the values a body has now,
+and what the material it binds takes from the one it replaces (#105)."""
 
 import pytest
-from pxr import Gf, Sdf, Usd, UsdShade
+from pxr import Gf, Sdf, Usd, UsdPhysics, UsdShade
 
-from ovmcp.core.material import MDL_ASSET, MDL_NAME, ensure_material, set_surface
+from ovmcp.core.material import (
+    DYNAMIC,
+    MDL_ASSET,
+    MDL_NAME,
+    PHYSX_DEFAULT,
+    RESTITUTION,
+    STATIC,
+    ensure_material,
+    physics_source,
+    physics_values,
+    set_surface,
+    start_from,
+)
 
 
 def _source(shader: UsdShade.Shader) -> tuple[str, str, str]:
@@ -69,3 +82,128 @@ def test_an_opacity_of_1_makes_a_see_through_material_opaque_again():
     assert values["reflection_roughness_constant"] == pytest.approx(0.5)
     assert values["metallic_constant"] == pytest.approx(0.0)
     assert values["diffuse_color_constant"] == Gf.Vec3f(0, 1, 0)
+
+
+# ---- set_physics_properties' physics material (#105) ----
+
+
+def _physics_material(stage: Usd.Stage, path: str, **values: float) -> Usd.Prim:
+    prim = UsdShade.Material.Define(stage, path).GetPrim()
+    UsdPhysics.MaterialAPI.Apply(prim)
+    for name, value in values.items():
+        prim.CreateAttribute(f"physics:{name}", Sdf.ValueTypeNames.Float).Set(value)
+    return prim
+
+
+def _bind(prim: Usd.Prim, material: Usd.Prim, purpose: str = "physics") -> None:
+    UsdShade.MaterialBindingAPI.Apply(prim).Bind(
+        UsdShade.Material(material), UsdShade.Tokens.weakerThanDescendants, purpose
+    )
+
+
+@pytest.fixture
+def physics_stage() -> Usd.Stage:
+    stage = Usd.Stage.CreateInMemory()
+    UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")
+    UsdShade.Material.Define(stage, "/World/Looks/Paint")  # a look, without MaterialAPI
+    for name in ("Box", "Other"):
+        UsdPhysics.CollisionAPI.Apply(stage.DefinePrim(f"/World/{name}", "Cube"))
+    return stage
+
+
+def test_a_body_bound_to_no_physics_material_has_physx_s_default(physics_stage):
+    box = physics_stage.GetPrimAtPath("/World/Box")
+
+    assert physics_source(box) is None
+    assert physics_values(None) == {STATIC: 0.5, DYNAMIC: 0.5, RESTITUTION: 0.0}
+    assert physics_values(None) is not PHYSX_DEFAULT
+
+
+def test_a_bound_material_s_values_are_read_as_physx_reads_them(physics_stage):
+    # Restitution unauthored: PhysX reads USD's 0, as the probe's restitution-only body showed for its friction.
+    rubber = _physics_material(physics_stage, "/World/Mats/Rubber", staticFriction=0.9, dynamicFriction=0.8)
+    box = physics_stage.GetPrimAtPath("/World/Box")
+    _bind(box, rubber)
+
+    assert physics_source(box) == rubber
+    assert physics_values(rubber) == pytest.approx({STATIC: 0.9, DYNAMIC: 0.8, RESTITUTION: 0.0})
+
+
+def test_an_all_purpose_binding_counts_when_there_is_no_physics_one(physics_stage):
+    rubber = _physics_material(physics_stage, "/World/Mats/Rubber", staticFriction=0.9)
+    box = physics_stage.GetPrimAtPath("/World/Box")
+    _bind(box, rubber, purpose="")
+
+    assert physics_source(box) == rubber
+
+
+def test_a_bound_look_without_material_api_is_no_physics_material(physics_stage):
+    box = physics_stage.GetPrimAtPath("/World/Box")
+    _bind(box, physics_stage.GetPrimAtPath("/World/Looks/Paint"), purpose="")
+
+    assert physics_source(box) is None
+
+
+def test_the_physics_scene_s_default_material_stands_in_for_none(physics_stage):
+    default = _physics_material(physics_stage, "/World/Mats/Default", staticFriction=0.7, restitution=0.2)
+    _bind(physics_stage.GetPrimAtPath("/World/PhysicsScene"), default)
+
+    assert physics_source(physics_stage.GetPrimAtPath("/World/Box")) == default
+
+
+def test_start_from_copies_the_physics_attributes_and_physx_s_api(physics_stage):
+    rubber = _physics_material(physics_stage, "/World/Mats/Rubber", staticFriction=0.9, density=1000.0)
+    # PhysxMaterialAPI added by name, as Kit's PhysxSchema adds it; usd-core can't see it through HasAPI.
+    rubber.AddAppliedSchema("PhysxMaterialAPI")
+    rubber.CreateAttribute("physxMaterial:frictionCombineMode", Sdf.ValueTypeNames.Token).Set("max")
+    rubber.CreateAttribute("inputs:look", Sdf.ValueTypeNames.Float).Set(1.0)  # not a physics attribute
+    own = _physics_material(physics_stage, "/World/PhysicsMaterials/Box_PhysMat")
+
+    start_from(own, rubber)
+
+    schemas = own.GetMetadata("apiSchemas").GetAddedOrExplicitItems()
+    assert "PhysxMaterialAPI" in schemas
+    assert own.GetAttribute("physxMaterial:frictionCombineMode").Get() == "max"
+    assert own.GetAttribute("physics:density").Get() == pytest.approx(1000.0)
+    assert own.GetAttribute("physics:staticFriction").Get() == pytest.approx(0.9)
+    assert not own.GetAttribute("inputs:look")
+
+
+def test_start_from_a_scene_default_copies_it_too(physics_stage):
+    default = _physics_material(physics_stage, "/World/Mats/Default", staticFriction=0.7)
+    default.AddAppliedSchema("PhysxMaterialAPI")
+    default.CreateAttribute("physxMaterial:restitutionCombineMode", Sdf.ValueTypeNames.Token).Set("max")
+    _bind(physics_stage.GetPrimAtPath("/World/PhysicsScene"), default)
+    own = _physics_material(physics_stage, "/World/PhysicsMaterials/Box_PhysMat")
+
+    start_from(own, physics_source(physics_stage.GetPrimAtPath("/World/Box")))
+
+    assert own.GetAttribute("physxMaterial:restitutionCombineMode").Get() == "max"
+
+
+def test_start_from_the_material_itself_or_none_changes_nothing(physics_stage):
+    own = _physics_material(physics_stage, "/World/PhysicsMaterials/Box_PhysMat", restitution=0.3)
+    before = own.GetStage().GetRootLayer().ExportToString()
+
+    start_from(own, own)
+    start_from(own, None)
+
+    assert own.GetStage().GetRootLayer().ExportToString() == before
+
+
+def test_start_from_reads_a_material_a_reference_brings(physics_stage, tmp_path):
+    asset = Usd.Stage.CreateNew(str(tmp_path / "asset.usda"))
+    mat = _physics_material(asset, "/Asset", staticFriction=0.6)
+    mat.AddAppliedSchema("PhysxMaterialAPI")
+    mat.CreateAttribute("physxMaterial:frictionCombineMode", Sdf.ValueTypeNames.Token).Set("min")
+    asset.SetDefaultPrim(mat)
+    asset.GetRootLayer().Save()
+    referenced = physics_stage.DefinePrim("/World/Mats/FromAsset")
+    referenced.GetReferences().AddReference(str(tmp_path / "asset.usda"))
+    own = _physics_material(physics_stage, "/World/PhysicsMaterials/Box_PhysMat")
+
+    start_from(own, referenced)
+
+    assert "PhysxMaterialAPI" in own.GetMetadata("apiSchemas").GetAddedOrExplicitItems()
+    assert own.GetAttribute("physxMaterial:frictionCombineMode").Get() == "min"
+    assert physics_values(referenced)[STATIC] == pytest.approx(0.6)

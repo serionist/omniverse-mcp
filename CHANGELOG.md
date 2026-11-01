@@ -40,6 +40,12 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   Sim's robots are Z-up, and on a Y-up stage they lay on their side. The answer says when it turned one. **A call
   that turned the robot itself, with `rotation=[-90, 0, 0]`, now turns it twice: drop that rotation.** The fix is in
   the Kit extension (#105).
+- **`set_physics_properties` keeps the friction when given only restitution, and the reverse:** the physics material
+  it made held only the value given, so PhysX read USD's 0 for the other, and a body given a bounce slid as on ice.
+  A physics material the prim had before, such as an asset's, was replaced, and every value it held went with it.
+  The material now starts from the body's own, the one bound before, the physics scene's default or PhysX's.
+  Prims of one name still share the material, so a call on one now sets all its values for each of them, until
+  #113 gives each prim its own. The fix is in the Kit extension (#105).
 - **`compare_prims` gives no percentage from 0 faces,** where it said `+0%`, and each delta its own sign, where a
   drop in vertices beside a rise in faces read `+-5` (#105).
 

@@ -24,6 +24,7 @@ from ovmcp.core.force import (
     tensor_centre_of_mass,
     world_point,
 )
+from ovmcp.core.material import DYNAMIC, RESTITUTION, STATIC, physics_source, physics_values, start_from
 
 from ._utils import _get_stage, _next_update
 from .recording import recording_active, recording_note
@@ -138,6 +139,12 @@ async def handle_set_physics_properties(body: dict) -> dict:
             UsdPhysics.CollisionAPI.Apply(prim)
             applied.append("CollisionAPI")
 
+        # What PhysX gives the body now, read before anything is written: the material bound to it, the scene's
+        # default or PhysX's own. A value left out was USD's 0 on a new material, and a material bound before lost all
+        # it held (#105).
+        source = physics_source(prim)
+        now = physics_values(source)
+
         prim_name = prim_path.rstrip("/").split("/")[-1]
         mat_path = f"/World/PhysicsMaterials/{prim_name}_PhysMat"
         mat_prim = stage.GetPrimAtPath(mat_path)
@@ -145,13 +152,12 @@ async def handle_set_physics_properties(body: dict) -> dict:
             UsdShade.Material.Define(stage, mat_path)
             mat_prim = stage.GetPrimAtPath(mat_path)
             UsdPhysics.MaterialAPI.Apply(mat_prim)
+        start_from(mat_prim, source)
         phys_mat = UsdPhysics.MaterialAPI(mat_prim)
 
-        if friction is not None:
-            phys_mat.GetStaticFrictionAttr().Set(float(friction))
-            phys_mat.GetDynamicFrictionAttr().Set(float(friction))
-        if restitution is not None:
-            phys_mat.GetRestitutionAttr().Set(float(restitution))
+        phys_mat.CreateStaticFrictionAttr().Set(float(friction) if friction is not None else now[STATIC])
+        phys_mat.CreateDynamicFrictionAttr().Set(float(friction) if friction is not None else now[DYNAMIC])
+        phys_mat.CreateRestitutionAttr().Set(float(restitution) if restitution is not None else now[RESTITUTION])
 
         binding = UsdShade.MaterialBindingAPI.Apply(prim)
         binding.Bind(
