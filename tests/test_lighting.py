@@ -82,7 +82,7 @@ def _stage() -> Usd.Stage:
     return stage
 
 
-def _rig(stage: Usd.Stage) -> Usd.Prim:
+def kit_rig(stage: Usd.Stage) -> Usd.Prim:
     """A rig mode's rig, as Kit's lighting menu authors it: an over in the session layer, referencing the rig's file
     (its actions.py, _set_lighting_mode)."""
     rig_file = Sdf.Layer.CreateAnonymous("Default.usda")
@@ -106,7 +106,7 @@ def _instance(stage: Usd.Stage, path: str, source: str) -> Usd.Prim:
 
 def test_a_light_rig_is_not_the_stages():
     stage = _stage()
-    _rig(stage)
+    kit_rig(stage)
     # What the get counted before: the rig's lights, reached by a plain walk (#105's live run).
     assert _paths(p for p in stage.Traverse() if is_light(p)) == RIG_LIGHTS
 
@@ -119,7 +119,7 @@ def test_a_light_rig_is_not_the_stages():
 def test_a_rig_kit_has_taken_away_adds_nothing():
     # Modes stage, camera and off clear the over's references and leave the over, which composes to nothing.
     stage = _stage()
-    rig = _rig(stage)
+    rig = kit_rig(stage)
     with Usd.EditContext(stage, stage.GetSessionLayer()):
         rig.GetReferences().SetReferences([])
 
@@ -147,7 +147,7 @@ def _lamps(stage: Usd.Stage) -> None:
     UsdLux.DistantLight.Define(stage, "/_Sun/Source")
     _instance(stage, "/World/Sun", "/_Sun/Source")
     UsdLux.DomeLight.Define(stage, "/World/Sky")
-    _rig(stage)
+    kit_rig(stage)
 
 
 class _CountingRange:

@@ -24,6 +24,7 @@ from ovmcp.core.png import encode_png
 from ovmcp.core.xform import aim, aim_error
 
 from .conftest import EXTENSION_ROOT
+from .test_lighting import RIG_LIGHTS, kit_rig
 
 HANDLER = EXTENSION_ROOT / "ovmcp" / "bridge" / "handlers" / "camera.py"
 CAMERA, BOX = "/World/Cam", "/World/Box"
@@ -246,6 +247,58 @@ def test_an_inspection_in_mode_stage_says_whether_the_stage_has_lights(handler, 
 
     assert r["result"]["captures"][0]["is_black"] is False
     assert r["result"]["has_scene_lights"] is False
+
+
+def _get(handler: Any) -> dict[str, Any]:
+    answer = asyncio.run(handler.handle_viewport_light({"action": "get"}))
+    assert answer["status"] == "success", answer
+    return answer["result"]
+
+
+def _lamp(kit: FakeKit) -> None:
+    """A lamp asset referenced as an instance: a shade and a bulb."""
+    source = kit.stage.CreateClassPrim("/_Lamps/Lamp")
+    UsdGeom.Cube.Define(kit.stage, "/_Lamps/Lamp/Shade")
+    UsdLux.SphereLight.Define(kit.stage, "/_Lamps/Lamp/Bulb").CreateIntensityAttr(30.0)
+    lamp = kit.stage.DefinePrim("/World/Lamp")
+    lamp.GetReferences().AddInternalReference(source.GetPath())
+    lamp.SetInstanceable(True)
+
+
+def test_the_get_lists_the_stages_lights_inside_instances_and_not_the_rigs(handler, kit):
+    # In a rig mode such as Default the get listed the rig's DomeLight and DistantLight as the stage's, and no light
+    # inside an instance (#117).
+    kit_rig(kit.stage)
+    _lamp(kit)
+    UsdLux.DistantLight.Define(kit.stage, "/World/Sun").CreateIntensityAttr(1000.0)
+
+    r = _get(handler)
+
+    assert r["has_scene_lights"] is True
+    assert r["scene_lights"] == [
+        {"path": "/World/Lamp/Bulb", "type": "SphereLight", "intensity": 30.0, "in_instance": True},
+        {"path": "/World/Sun", "type": "DistantLight", "intensity": 1000.0},
+    ]
+
+
+def test_the_get_says_a_stage_lit_by_the_rig_alone_has_no_lights(handler, kit):
+    kit_rig(kit.stage)
+    # The rig's lights are on the stage, as Kit puts them in a rig mode.
+    assert all(kit.stage.GetPrimAtPath(path).IsDefined() for path in RIG_LIGHTS)
+
+    r = _get(handler)
+
+    assert (r["has_scene_lights"], r["scene_lights"]) == (False, [])
+
+
+def test_a_capture_in_mode_stage_with_the_rigs_over_left_says_no_lights(handler, kit, monkeypatch):
+    # Kit leaves the rig's over, its references cleared, when it goes back to mode stage.
+    monkeypatch.setattr(handler, "_get_current_lighting_mode", lambda: "stage")
+    rig = kit_rig(kit.stage)
+    with Usd.EditContext(kit.stage, kit.stage.GetSessionLayer()):
+        rig.GetReferences().SetReferences([])
+
+    assert _capture(handler, width=32, height=24)["result"]["has_scene_lights"] is False
 
 
 @pytest.mark.parametrize("mode", ["camera", "off", "Default"])
