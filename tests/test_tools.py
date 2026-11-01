@@ -416,9 +416,20 @@ CASES = [
         "set_physics_properties",
         {"prim_path": "/World/Cube", "mass": 0, "friction": 0.4},
         "/physics/properties",
-        {"prim_path": "/World/Cube", "applied": ["MassAPI", "PhysicsMaterialAPI"]},
+        # The extension echoes each value it was sent, null for one left out.
+        {
+            "prim_path": "/World/Cube",
+            "applied": ["MassAPI", "PhysicsMaterial"],
+            "mass": 0.0,
+            "density": None,
+            "friction": 0.4,
+            "restitution": None,
+        },
         {"prim_path": "/World/Cube", "mass": 0, "friction": 0.4},
-        ("Physics on /World/Cube: MassAPI, PhysicsMaterialAPI",),
+        (
+            "Physics on /World/Cube: mass=0.0 (unset, so density decides), friction=0.4 (static and dynamic); "
+            "applied MassAPI, PhysicsMaterial",
+        ),
     ),
     Case(
         "apply_force",
@@ -434,7 +445,7 @@ CASES = [
             "method": "physx",
         },
         {"prim_path": "/World/Cube", "force": [0, 0, 10], "impulse": True},
-        ("Applied impulse [0.0, 0.0, 10.0] to /World/Cube at [0.0, 0.1, 2.0] (centre of mass)",),
+        ("Applied impulse [0.0, 0.0, 10.0] to /World/Cube at [0.0, 0.1, 2.0] (centre of mass, method: physx)",),
     ),
     Case(
         "raycast",
@@ -632,11 +643,117 @@ def test_apply_force_at_a_given_point(bridge: MockIsaacServer, tmp_path: Path):
                 "method": "physx",
             },
             {"prim_path": "/World/Cube", "force": [5, 0, 0], "position": [0, 0, 1.5], "impulse": False},
-            ("Applied force [5.0, 0.0, 0.0] to /World/Cube at [0.0, 0.0, 1.5] (given)",),
+            ("Applied force [5.0, 0.0, 0.0] to /World/Cube at [0.0, 0.0, 1.5] (given, method: physx)",),
         ),
         bridge,
         tmp_path,
     )
+
+
+def test_apply_force_names_the_tensor_api_when_the_push_went_through_it(bridge: MockIsaacServer, tmp_path: Path):
+    # With /physics/suppressReadback on (#68), where a second push on the body before the next step replaces this one.
+    text = _check(
+        Case(
+            "apply_force",
+            {"prim_path": "/World/Cube", "force": [10, 0, 0], "impulse": True},
+            "/physics/apply_force",
+            {
+                "prim_path": "/World/Cube",
+                "force": [10.0, 0.0, 0.0],
+                "position": [1.0, 0.5, 0.0],
+                "at": "centre of mass",
+                "impulse": True,
+                "method": "tensor",
+            },
+            {"prim_path": "/World/Cube", "force": [10, 0, 0], "impulse": True},
+            (),
+        ),
+        bridge,
+        tmp_path,
+    )
+    assert text == "Applied impulse [10.0, 0.0, 0.0] to /World/Cube at [1.0, 0.5, 0.0] (centre of mass, method: tensor)"
+
+
+def _physics_answer(**sent: Any) -> dict[str, Any]:
+    """The extension's answer to set_physics_properties: the APIs it applied, and each value echoed, null if unsent."""
+    applied = []
+    if "mass" in sent or "density" in sent:
+        applied.append("MassAPI")
+    if "friction" in sent or "restitution" in sent:
+        applied.append("PhysicsMaterial")
+    values = {k: sent.get(k) for k in ("mass", "density", "friction", "restitution")}
+    return {"prim_path": "/World/RedCube", "applied": applied, **values}
+
+
+@pytest.mark.parametrize(
+    ("args", "says"),
+    [
+        # Scenarios 15.1 to 15.3: each value as the extension set it.
+        ({"mass": 5.0}, "Physics on /World/RedCube: mass=5.0; applied MassAPI"),
+        (
+            {"friction": 0.8, "restitution": 0.3},
+            "Physics on /World/RedCube: friction=0.8 (static and dynamic), restitution=0.3; applied PhysicsMaterial",
+        ),
+        ({"density": 1000.0}, "Physics on /World/RedCube: density=1000.0; applied MassAPI"),
+        ({"density": 0}, "Physics on /World/RedCube: density=0.0 (unset); applied MassAPI"),
+        (
+            {"mass": 2, "density": 500, "friction": 0, "restitution": 1},
+            "Physics on /World/RedCube: mass=2.0, density=500.0, friction=0.0 (static and dynamic), restitution=1.0; "
+            "applied MassAPI, PhysicsMaterial",
+        ),
+    ],
+)
+def test_set_physics_properties_says_each_value_it_set(
+    args: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    text = _check(
+        Case(
+            "set_physics_properties",
+            {"prim_path": "/World/RedCube", **args},
+            "/physics/properties",
+            _physics_answer(**args),
+            {"prim_path": "/World/RedCube", **args},
+            (),
+        ),
+        bridge,
+        tmp_path,
+    )
+    assert text == says
+
+
+def test_set_physics_properties_says_when_it_became_a_rigid_body(bridge: MockIsaacServer, tmp_path: Path):
+    # The extension names RigidBodyAPI and CollisionAPI only when this call added them.
+    applied = ["RigidBodyAPI", "MassAPI", "CollisionAPI", "PhysicsMaterial"]
+    answer = {**_physics_answer(mass=5.0, friction=0.5), "applied": applied}
+    text = _check(
+        Case(
+            "set_physics_properties",
+            {"prim_path": "/World/RedCube", "mass": 5.0, "friction": 0.5},
+            "/physics/properties",
+            answer,
+            {"prim_path": "/World/RedCube", "mass": 5.0, "friction": 0.5},
+            (),
+        ),
+        bridge,
+        tmp_path,
+    )
+    assert text.endswith("; applied RigidBodyAPI, MassAPI, CollisionAPI, PhysicsMaterial")
+
+
+def test_set_physics_properties_with_no_value_says_nothing_was_set(bridge: MockIsaacServer, tmp_path: Path):
+    text = _check(
+        Case(
+            "set_physics_properties",
+            {"prim_path": "/World/RedCube"},
+            "/physics/properties",
+            _physics_answer(),
+            {"prim_path": "/World/RedCube"},
+            (),
+        ),
+        bridge,
+        tmp_path,
+    )
+    assert text == "Nothing set on /World/RedCube: give mass, density, friction or restitution"
 
 
 def test_get_logs_passes_on_the_bridges_note(bridge: MockIsaacServer, tmp_path: Path):

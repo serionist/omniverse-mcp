@@ -444,22 +444,24 @@ Needs: 2.1, 4.5, 10.1
 
 ### 15.1 Set Mass
 - `set_physics_properties("/World/RedCube", mass=5.0)`
-- Verify: "mass=5.0" in applied list
+- Verify: the answer says `mass=5.0` and `applied MassAPI`
 
 ### 15.2 Set Friction and Restitution
 - `set_physics_properties("/World/RedCube", friction=0.8, restitution=0.3)`
-- Verify: friction and restitution in applied list
+- Verify: the answer says `friction=0.8 (static and dynamic)`, `restitution=0.3` and `PhysicsMaterial` among the
+  APIs applied
 
 ### 15.3 Set Density
 - `set_physics_properties("/World/RedCube", density=1000.0)`
-- Verify: "density=1000.0" in applied list
+- Verify: the answer says `density=1000.0` and `applied MassAPI`; the mass 15.1 set still wins over it
 
 ### 15.4 Physics on Invalid Prim
 - `set_physics_properties("/World/Nonexistent", mass=1.0)` → error
 
 ### 15.5 Apply Force (Basic)
 - Play sim, apply force to RedCube: `apply_force("/World/RedCube", force=[100,0,0])`
-- Verify: success, `method: physx`, pushed at the centre of mass
+- Verify: the answer ends `(centre of mass, method: physx)`: PhysX's own push, at the centre of mass. With
+  `/physics/suppressReadback` on, as under the Direct GPU API, it says `method: tensor`
 
 ### 15.6 Impulse and Force by Mass
 - A 5 kg cube of its own, gravity off, away from the scene; play

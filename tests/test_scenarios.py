@@ -1354,6 +1354,8 @@ class TestScenarios(PhysicsChecks):
         r = self.c.set_physics_properties("/World/RedCube", mass=5.0)
         self.assertEqual(r["status"], "success")
         self.assertIn("MassAPI", r["result"]["applied"])
+        # The tool's answer gives each value from this echo, so a value the extension didn't echo would go unsaid (#104).
+        self.assertEqual(r["result"]["mass"], 5.0)
         print(f"  Applied: {r['result']['applied']}")
         self._pass()
 
@@ -1363,6 +1365,7 @@ class TestScenarios(PhysicsChecks):
         self.assertEqual(r["status"], "success")
         applied = r["result"]["applied"]
         self.assertIn("PhysicsMaterial", applied)
+        self.assertEqual((r["result"]["friction"], r["result"]["restitution"]), (0.8, 0.3))
         print(f"  Applied: {applied}")
         self._pass()
 
