@@ -379,18 +379,83 @@ def test_create_prim_on_a_prim_already_there_adds_the_file_as_it_is_and_says_so(
     # The prim may hold other content, which a turn or a scale would move too (Q1).
     _units(kit, "Y", 1.0)
     kit.stage.DefinePrim("/World/Shelf", "Xform")
+    box = _box_file(tmp_path, "Z", 0.01)
 
-    r = _run(scene, "handle_create_prim", prim_path="/World/Shelf", usd_path=_box_file(tmp_path, "Z", 0.01))
+    r = _run(scene, "handle_create_prim", prim_path="/World/Shelf", usd_path=box)
 
     assert r["status"] == "success", r
     assert _ops(kit.stage.GetPrimAtPath("/World/Shelf")) == []
     assert kit.stage.GetRootLayer().GetPrimAtPath("/World/Shelf/Shape") is None
     assert r["result"]["up_axis_turn"] is None
+    # Its values too stay in the file's units, and the answer names the reference to take off (review R2, R4).
     assert r["result"]["not_brought"] == {
         "prim_path": "/World/Shelf",
         "file": {"up_axis": "Z", "meters_per_unit": 0.01},
         "frame": {"up_axis": "Y", "meters_per_unit": 1.0},
+        "values": {"meters_per_unit": {"file": 0.01, "stage": 1.0}, "kilograms_per_unit": None},
+        "reference": box,
     }
+
+
+def test_create_prim_on_a_prim_already_there_reports_masses_left_in_the_file_s_kilograms(scene, kit, tmp_path):
+    # Review R2: a file that authors only kilogramsPerUnit sits right, and keeps its masses in its own units.
+    _units(kit, "Y", 1.0)
+    kit.stage.DefinePrim("/World/Crate", "Xform")
+    layer = Sdf.Layer.CreateNew(str(tmp_path / "grams.usda"))
+    layer.pseudoRoot.SetInfo("kilogramsPerUnit", 0.001)
+    held = Usd.Stage.Open(layer)
+    UsdGeom.Xform.Define(held, "/Crate").GetPrim().CreateAttribute("physics:mass", Sdf.ValueTypeNames.Float).Set(2.0)
+    held.SetDefaultPrim(held.GetPrimAtPath("/Crate"))
+    layer.Save()
+
+    r = _run(scene, "handle_create_prim", prim_path="/World/Crate", usd_path=layer.realPath)
+
+    assert r["result"]["not_brought"]["values"] == {
+        "meters_per_unit": None,
+        "kilograms_per_unit": {"file": 0.001, "stage": 1.0},
+    }
+
+
+def test_create_prim_makes_a_typeless_file_root_an_xform_to_bring_it(scene, kit, tmp_path):
+    # Review R1: the ops landed on a typeless prim, the answer said turned and scaled, and nothing moved.
+    _units(kit, "Y", 1.0)
+    box = Path(_box_file(tmp_path, "Z", 0.01))
+    box.write_text(box.read_text(encoding="utf-8").replace('def Xform "Box"', 'def "Box"'), encoding="utf-8")
+
+    r = _run(scene, "handle_create_prim", prim_path="/World/Box", usd_path=str(box))
+
+    assert r["status"] == "success", r
+    assert r["result"]["type"] == "Xform"
+    assert _ops(kit.stage.GetPrimAtPath("/World/Box")) == [TURN, SCALE]
+    assert _size(kit, "/World/Box/Shape") == [0.005, 0.01, 0.005]
+
+
+def test_create_prim_that_fails_any_other_way_leaves_nothing_and_names_the_step(scene, kit, tmp_path, monkeypatch):
+    # Review R5: only ValueError, USD's errors and a failed step were caught, so any other left the prim and its ops.
+    def broken(*_args: object) -> None:
+        raise RuntimeError("no transform today")
+
+    monkeypatch.setattr(scene, "write_transform", broken)
+    _units(kit, "Y", 1.0)
+
+    r = _run(scene, "handle_create_prim", prim_path="/World/Box", usd_path=_box_file(tmp_path, "Z", 0.01), scale=2)
+
+    assert r["status"] == "error"
+    assert r["error"] == "Placing the prim failed: RuntimeError: no transform today. Nothing was created"
+    assert kit.stage.GetRootLayer().GetPrimAtPath("/World/Box") is None
+
+
+def test_create_prim_with_a_file_usd_can_t_read_makes_nothing(scene, kit, tmp_path):
+    # Review R6: a malformed file raises USD's error where a missing one gives no layer.
+    broken = tmp_path / "Broken.usda"
+    broken.write_text('#usda 1.0\ndef Xform "Box" (\n', encoding="utf-8")
+
+    r = _run(scene, "handle_create_prim", prim_path="/World/Box", usd_path=str(broken))
+
+    assert r["status"] == "error"
+    assert r["error"].startswith(f"Could not open {broken}: ")
+    assert r["error"].endswith(". Nothing was created")
+    assert not kit.stage.GetPrimAtPath("/World/Box").IsValid()
 
 
 def test_create_prim_measures_a_file_added_to_a_brought_prim_against_the_frame_inside_it(scene, kit, tmp_path):

@@ -12,7 +12,7 @@ from typing import NamedTuple, cast
 
 from pxr import Gf, Sdf, Tf, Usd, UsdGeom, UsdPhysics
 
-from .usd import attribute_spec, floats, xform_ops
+from .usd import attribute_spec, floats, is_a, xform_ops
 from .xform import add_local_op
 
 # The op Kit's metrics assembler writes to stand a referenced file of another up axis on the stage: a turn about X,
@@ -410,21 +410,35 @@ def _units_answer(
     }
 
 
-def bring_to_stage(
-    prim: Usd.Prim, layer: Sdf.Layer, frame: Frame, stage_axis: str, stage: Units, table: Table | None, noun: str
-) -> Brought:
-    """Brings prim, which references layer's file, to the stage as Kit's metrics assembler brings a dropped file: the
-    turn from the file's up axis to the frame's, the scale by the file's metersPerUnit over the frame's, and its values
-    converted from the file's units to the stage's, whatever the frame, as Kit converts them. In the edit target's
-    layer, where a refusal's RemovePrim takes them all.
+def _stage_metrics(prim: Usd.Prim) -> tuple[str, float, Units]:
+    """The up axis, metersPerUnit and units of prim's stage."""
+    stage = prim.GetStage()
+    meters = float(UsdGeom.GetStageMetersPerUnit(stage))
+    return str(UsdGeom.GetStageUpAxis(stage)), meters, Units(meters, float(UsdPhysics.GetStageKilogramsPerUnit(stage)))
 
-    noun, "robot" or "file", names what a failed step was working on. table None, a Kit app without the PhysX schema,
-    converts only the cameras' distances, and the answer says so. A frame whose turn stands neither axis up is taken
-    as the stage's.
+
+# The types a file holds its content in that USD gives no transform: made an Xform, that content turns and scales.
+_GROUPS = ("", "Scope")
+
+
+def bring_to_stage(prim: Usd.Prim, layer: Sdf.Layer, table: Table | None, noun: str) -> Brought:
+    """Brings prim, new on its stage and referencing layer's file, to the stage as Kit's metrics assembler brings a
+    dropped file: the turn from the file's up axis to the frame prim lands in, the scale by the file's metersPerUnit
+    over the frame's, and its values converted from the file's units to the stage's, whatever the frame, as Kit
+    converts them. In the edit target's layer, where a refusal's RemovePrim takes them all.
+
+    A prim whose file's root is typeless or a Scope, as 42 of Isaac Sim's 179 bundled .usda files with a default prim
+    have it, has no transform to hold the ops, which would answer a turn that moved nothing: it is made an Xform here
+    first, so its content turns and scales. A root of any other type USD gives no transform, such as a Material, holds
+    nothing a turn or a scale would move, and gets neither. noun, "robot" or "file", names what a failed step was
+    working on. table None, a Kit app without the PhysX schema, converts only the cameras' distances, and the answer
+    says so. A frame whose turn stands neither axis up is taken as the stage's.
     """
+    stage_axis, stage_meters, stage = _stage_metrics(prim)
+    frame = frame_of(prim.GetParent(), stage_axis, stage_meters)
     file_axis, file_units = file_up_axis(layer), layer_units(layer)
     axis = frame.up_axis or stage_axis
-    framed = axis != stage_axis or _ratio(frame.meters, stage.meters) != 1.0
+    framed = axis != stage_axis or _ratio(frame.meters, stage_meters) != 1.0
     degrees = up_axis_turn(file_axis, axis)
     factor = _ratio(file_units.meters, frame.meters)
     turned: dict[str, object] | None = None
@@ -432,6 +446,11 @@ def bring_to_stage(
     done: Converted | None = None
     step = f"Turning the {noun} upright"
     try:
+        if (degrees is not None or factor != 1.0) and not is_a(prim, UsdGeom.Xformable):
+            if prim.GetTypeName() in _GROUPS:
+                prim.SetTypeName("Xform")
+            else:
+                degrees, factor = None, 1.0
         if degrees is not None:
             value = stand_upright(prim, degrees)
             turned = {"file": file_axis, "stage": stage_axis, "degrees": degrees, "op": value, "op_name": UP_AXIS_OP}
@@ -478,25 +497,36 @@ def _root_ops(layer: Sdf.Layer) -> tuple[float, float]:
     )
 
 
-def not_brought(prim: Usd.Prim, layer: Sdf.Layer, stage_axis: str, stage_meters: float) -> dict[str, object] | None:
-    """For a prim that was there before the call and holds layer's file: what the file's content needs and the frame
-    inside the prim doesn't give, else None. The file's content is its upAxis and metersPerUnit as its root's own
-    :unitsResolve ops leave them; the frame counts the prim's own ops, so a prim this call or an earlier one brought,
-    or Kit's drop, isn't reported, and a reference an older extension left as it was is. A file that authors neither
-    is left as it is, so never reported."""
-    file_axis, file_meters = file_up_axis(layer), layer_units(layer).meters
-    if file_axis is None and file_meters is None:
-        return None
+def not_brought(prim: Usd.Prim, layer: Sdf.Layer, added: bool) -> dict[str, object] | None:
+    """For a prim that was there before the call and holds layer's file: what the file needs and doesn't get, else
+    None. Its placing: the file's content, its upAxis and metersPerUnit as its root's own :unitsResolve ops leave
+    them, against the frame inside the prim, which counts the prim's own ops, so a prim this call or an earlier one
+    brought, or Kit's drop, isn't reported, and a reference an older extension left as it was is. Its values, when
+    this call added the reference: only a prim the call makes has them converted, so a file of other units leaves
+    them in its own. A file that authors neither is left as it is, so never reported."""
+    stage_axis, stage_meters, stage = _stage_metrics(prim)
+    file_axis, file_units = file_up_axis(layer), layer_units(layer)
     turn, scale = _root_ops(layer)
     content_axis = None if file_axis is None else _up_under(turn, file_axis)
-    content_meters = None if file_meters is None else file_meters * scale
+    content_meters = None if file_units.meters is None else file_units.meters * scale
     inside = frame_of(prim, stage_axis, stage_meters)
     off_axis = file_axis is not None and content_axis != inside.up_axis
     off_units = content_meters is not None and _ratio(content_meters, inside.meters) != 1.0
-    if not (off_axis or off_units):
+    factors = units_factors(file_units, stage) if added else None
+    if not (off_axis or off_units or factors is not None):
         return None
+    placed = off_axis or off_units
+    values: dict[str, object] | None = None
+    if factors is not None:
+        values = {
+            "meters_per_unit": None if factors.distance == 1.0 else {"file": file_units.meters, "stage": stage.meters},
+            "kilograms_per_unit": None
+            if factors.mass == 1.0
+            else {"file": file_units.kilograms, "stage": stage.kilograms},
+        }
     return {
         "prim_path": str(prim.GetPath()),
-        "file": {"up_axis": content_axis, "meters_per_unit": content_meters},
-        "frame": {"up_axis": inside.up_axis, "meters_per_unit": inside.meters},
+        "file": {"up_axis": content_axis, "meters_per_unit": content_meters} if placed else None,
+        "frame": {"up_axis": inside.up_axis, "meters_per_unit": inside.meters} if placed else None,
+        "values": values,
     }

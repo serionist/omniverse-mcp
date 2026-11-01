@@ -569,11 +569,9 @@ def _placed(stage: Usd.Stage, path: str, layer: Sdf.Layer) -> Usd.Prim:
 
 
 def _bring(
-    stage: Usd.Stage, prim: Usd.Prim, layer: Sdf.Layer, table: Table | None = _small_table, noun: str = "file"
+    _stage: Usd.Stage, prim: Usd.Prim, layer: Sdf.Layer, table: Table | None = _small_table, noun: str = "file"
 ) -> Brought:
-    axis, meters = str(UsdGeom.GetStageUpAxis(stage)), float(UsdGeom.GetStageMetersPerUnit(stage))
-    frame = frame_of(prim.GetParent(), axis, meters)
-    return bring_to_stage(prim, layer, frame, axis, Units(meters, 1.0), table, noun)
+    return bring_to_stage(prim, layer, table, noun)
 
 
 def _size(prim: Usd.Prim) -> list[float]:
@@ -810,10 +808,11 @@ def test_a_prim_brought_for_another_file_reports_the_file_added_to_it():
     added = _box("Y", 1.0)
     shelf.GetReferences().AddReference(added.identifier)
 
-    assert not_brought(shelf, added, "Y", 1.0) == {
+    assert not_brought(shelf, added, added=True) == {
         "prim_path": "/World/Outer",
         "file": {"up_axis": "Y", "meters_per_unit": 1.0},
         "frame": {"up_axis": "Z", "meters_per_unit": 0.01},
+        "values": None,
     }
 
 
@@ -822,7 +821,7 @@ def test_a_prim_brought_for_its_own_file_is_not_reported():
     layer = _box("Z", 0.01)
     shelf = _brought_outer(stage, layer)
 
-    assert not_brought(shelf, layer, "Y", 1.0) is None
+    assert not_brought(shelf, layer, added=False) is None
 
 
 def test_a_file_kit_saved_is_reported_until_it_is_brought():
@@ -841,13 +840,14 @@ def test_a_file_kit_saved_is_reported_until_it_is_brought():
     held.SetDefaultPrim(root.GetPrim())
     prim = _placed(stage, "/World/Saved", saved)
 
-    assert not_brought(prim, saved, "Z", 1.0) == {
+    assert not_brought(prim, saved, added=False) == {
         "prim_path": "/World/Saved",
         "file": {"up_axis": "Z", "meters_per_unit": 1.0},
         "frame": {"up_axis": None, "meters_per_unit": 100.0},
+        "values": None,
     }
     _bring(stage, prim, saved)
-    assert not_brought(prim, saved, "Z", 1.0) is None
+    assert not_brought(prim, saved, added=False) is None
     size = _size(stage.GetPrimAtPath("/World/Saved/Shape"))
     assert size == [0.5, 0.5, 1.0]
 
@@ -859,9 +859,77 @@ def test_a_reference_an_older_extension_left_is_reported_and_a_file_that_says_no
     plain = _box()
     other = _placed(stage, "/World/Plain", plain)
 
-    assert not_brought(prim, layer, "Y", 1.0) == {
+    assert not_brought(prim, layer, added=False) == {
         "prim_path": "/World/Old",
         "file": {"up_axis": "Z", "meters_per_unit": 1.0},
         "frame": {"up_axis": "Y", "meters_per_unit": 1.0},
+        "values": None,
     }
-    assert not_brought(other, plain, "Y", 1.0) is None
+    assert not_brought(other, plain, added=True) is None
+
+
+def test_a_reference_added_to_a_prim_already_there_reports_the_values_it_leaves_in_the_file_s_units():
+    # Review R2: a metre file under a robot scaled to metres on a centimetre stage sits right, but its contact offset
+    # stays 0.02 where the stage reads 2; a file of other kilogramsPerUnit keeps its masses in its own.
+    stage = _scene("Y", 0.01)
+    _brought_outer(stage, _box("Y", 1.0))
+    link = stage.DefinePrim("/World/Outer/Link", "Xform")
+    metres = _box("Y", 1.0)
+    link.GetReferences().AddReference(metres.identifier)
+    grams = Sdf.Layer.CreateAnonymous("grams.usda")
+    grams.pseudoRoot.SetInfo("kilogramsPerUnit", 0.001)
+    plain = stage.DefinePrim("/World/Plain", "Xform")
+
+    assert not_brought(link, metres, added=True) == {
+        "prim_path": "/World/Outer/Link",
+        "file": None,
+        "frame": None,
+        "values": {"meters_per_unit": {"file": 1.0, "stage": 0.01}, "kilograms_per_unit": None},
+    }
+    # Held from before, its values were converted when it was brought, or by no one this call can tell.
+    assert not_brought(link, metres, added=False) is None
+    assert not_brought(plain, grams, added=True) == {
+        "prim_path": "/World/Plain",
+        "file": None,
+        "frame": None,
+        "values": {"meters_per_unit": None, "kilograms_per_unit": {"file": 0.001, "stage": 1.0}},
+    }
+
+
+def _rooted(type_name: str) -> Sdf.Layer:
+    """A Z-up centimetre file whose default prim is of type_name, "" for typeless, holding _box's box."""
+    text = _box("Z", 0.01).ExportToString()
+    layer = Sdf.Layer.CreateAnonymous("rooted.usda")
+    layer.ImportFromString(text.replace('def Xform "Box"', " ".join(filter(None, ["def", type_name, '"Box"']))))
+    return layer
+
+
+@pytest.mark.parametrize("type_name", ["", "Scope"], ids=["typeless", "scope"])
+def test_a_file_whose_root_has_no_transform_is_made_an_xform_and_brought(type_name: str):
+    # Review R1: the ops landed on a prim that isn't Xformable, the answer said turned and scaled, and nothing moved.
+    stage = _scene("Y", 1.0)
+    layer = _rooted(type_name)
+    prim = _placed(stage, "/World/Box", layer)
+
+    brought = _bring(stage, prim, layer)
+
+    assert prim.GetTypeName() == "Xform"
+    assert _names(prim) == [UP_AXIS_OP, UNITS_OP]
+    assert brought.up_axis_turn is not None
+    assert _size(stage.GetPrimAtPath("/World/Box/Shape")) == [0.005, 0.01, 0.005]
+
+
+def test_a_file_whose_root_is_a_material_gets_no_turn_or_scale():
+    # A Material holds nothing a turn or a scale would move, and stays a Material.
+    stage = _scene("Y", 1.0)
+    layer = _rooted("Material")
+    prim = _placed(stage, "/World/Look", layer)
+
+    brought = _bring(stage, prim, layer)
+
+    assert prim.GetTypeName() == "Material"
+    assert _names(prim) == []
+    assert brought.up_axis_turn is None
+    scaled = brought.units_scale
+    assert scaled is not None
+    assert (scaled["op"], scaled["converted"]) == (None, 1)

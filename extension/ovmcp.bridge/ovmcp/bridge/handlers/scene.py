@@ -18,7 +18,7 @@ from ovmcp.core.bounds import world_bbox
 from ovmcp.core.deletion import why_kept
 from ovmcp.core.formatter import format_prim_block, format_scene_dump, format_scene_tree
 from ovmcp.core.material import ensure_material, set_surface
-from ovmcp.core.metrics import Brought, StepError, Units, bring_to_stage, frame_of, not_brought
+from ovmcp.core.metrics import Brought, StepError, bring_to_stage, not_brought
 from ovmcp.core.usd import prim_spec
 from ovmcp.core.xform import Parts, check_transform, check_writable, layer_name, position_of, write_transform
 
@@ -308,24 +308,26 @@ async def handle_create_prim(body: dict) -> dict:
     if not prim.IsValid():
         return {"status": "error", "error": f"Failed to create prim at {prim_path}"}
 
-    stage_axis, stage_meters = str(UsdGeom.GetStageUpAxis(stage)), float(UsdGeom.GetStageMetersPerUnit(stage))
     brought, missed = Brought(None, None, None), None
+    step = "Bringing the file to the stage"
     try:
         if layer is not None and made is not None:
             # A file of another up axis or other units comes in as Kit brings a dropped one, measured against the
             # frame it lands in, as create_robot brings a robot (#119).
-            units = Units(stage_meters, float(UsdPhysics.GetStageKilogramsPerUnit(stage)))
-            frame = frame_of(prim.GetParent(), stage_axis, stage_meters)
-            brought = bring_to_stage(prim, layer, frame, stage_axis, units, _physics_exponents(), "file")
+            brought = bring_to_stage(prim, layer, _physics_exponents(), "file")
         elif layer is not None:
             # A prim that was there may hold other content, which a turn or a scale would move too: the reference
-            # goes on as the file is, and the answer says what the file lacks there.
-            missed = not_brought(prim, layer, stage_axis, stage_meters)
+            # goes on as the file is, and the answer says what the file lacks there and how to take it off.
+            missed = not_brought(prim, layer, added is not None)
+            if missed is not None:
+                missed["reference"] = usd_path
+        step = "Placing the prim"
         if parts != Parts():
             write_transform(prim, parts)
-    except (ValueError, Tf.ErrorException, StepError) as e:
-        # Found only once the prim exists, such as an animated op in a referenced file: what this call made goes,
-        # the ops and the converted values with it, all under its path in the edit layer.
+    except Exception as e:
+        # Found only once the prim exists, such as an animated op in a referenced file, or any other failure, such as
+        # the PhysX schema's table changed in a later Kit: what this call made goes, the ops and the converted values
+        # with it, all under its path in the edit layer.
         if made is not None:
             stage.RemovePrim(made)
         elif added is not None:
@@ -338,7 +340,9 @@ async def handle_create_prim(body: dict) -> dict:
             if added is not None
             else ""
         )
-        return {"status": "error", "error": f"{e}{after}"}
+        known = isinstance(e, (ValueError, Tf.ErrorException, StepError))
+        failed = str(e) if known else f"{step} failed: {type(e).__name__}: {e}"
+        return {"status": "error", "error": f"{failed}{after}"}
 
     if body.get("enable_physics", False):
         UsdPhysics.RigidBodyAPI.Apply(prim)

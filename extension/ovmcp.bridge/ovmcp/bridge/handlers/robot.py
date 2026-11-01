@@ -6,9 +6,9 @@ Handles robot creation, info, joint states, and joint target setting.
 
 import os
 
-from pxr import Sdf, Tf, Usd, UsdGeom, UsdPhysics
+from pxr import Sdf, Tf, Usd, UsdPhysics
 
-from ovmcp.core.metrics import StepError, Units, bring_to_stage, frame_of
+from ovmcp.core.metrics import StepError, bring_to_stage
 from ovmcp.core.robot import articulation_root, is_usd_file, robot_prim_path
 from ovmcp.core.usd_files import LIBRARY_PREFIX, usd_file_url
 from ovmcp.core.xform import check_transform, write_transform
@@ -98,23 +98,19 @@ async def handle_create_robot(body: dict) -> dict:
     if layer is None:
         return {"status": "error", "error": f"Could not open {full_usd_path}"}
 
-    # A file of another up axis lies on its side here, and one of other units comes in at its own scale: Isaac Sim's
-    # robots are Z-up, and Kit stands one dropped on a Y-up stage and scales one of other units with ops this call
-    # writes as Kit does, and converts its drives and inertia as Kit's physics rules do (#105, #112).
-    stage_axis = str(UsdGeom.GetStageUpAxis(stage))
-    stage_units = Units(float(UsdGeom.GetStageMetersPerUnit(stage)), float(UsdPhysics.GetStageKilogramsPerUnit(stage)))
-
     made = _first_missing(stage, prim_path)
     prim = stage.DefinePrim(prim_path)
     prim.GetReferences().AddReference(full_usd_path)
     if not prim.IsValid():
         return {"status": "error", "error": f"Failed to create robot at {prim_path}"}
 
-    step = "Bringing the robot to the stage's units"
+    step = "Bringing the robot to the stage"
     try:
-        # Measured against the frame it lands in, so a robot inside an asset already brought isn't turned twice (#119).
-        frame = frame_of(prim.GetParent(), stage_axis, float(UsdGeom.GetStageMetersPerUnit(stage)))
-        brought = bring_to_stage(prim, layer, frame, stage_axis, stage_units, _physics_exponents(), "robot")
+        # A file of another up axis lies on its side here, and one of other units comes in at its own scale: Isaac
+        # Sim's robots are Z-up, and Kit stands one dropped on a Y-up stage and scales one of other units with ops
+        # this call writes as Kit does, measured against the frame it lands in, and converts its drives and inertia
+        # as Kit's physics rules do (#105, #112, #119).
+        brought = bring_to_stage(prim, layer, _physics_exponents(), "robot")
         step = "Placing the robot"
         write_transform(prim, parts)
     except (ValueError, Tf.ErrorException) as e:
@@ -122,13 +118,11 @@ async def handle_create_robot(body: dict) -> dict:
         # refused as taken. The converted values go with it: they sit under the prim's path in the same layer.
         stage.RemovePrim(made)
         return {"status": "error", "error": f"{e}. The robot was not added"}
-    except StepError as e:
+    except Exception as e:
         # Any other, such as the PhysX schema's table changed in a later Kit: the same cleanup, the step named.
         stage.RemovePrim(made)
-        return {"status": "error", "error": f"{e}. The robot was not added"}
-    except Exception as e:
-        stage.RemovePrim(made)
-        return {"status": "error", "error": f"{step} failed: {type(e).__name__}: {e}. The robot was not added"}
+        failed = str(e) if isinstance(e, StepError) else f"{step} failed: {type(e).__name__}: {e}"
+        return {"status": "error", "error": f"{failed}. The robot was not added"}
 
     joint_info = []
     for desc_prim in Usd.PrimRange(prim, Usd.TraverseInstanceProxies()):
