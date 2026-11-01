@@ -39,9 +39,9 @@ jobs:
             exit 1
           fi
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
-      # The tag is vX.Y.Z, pyproject.toml, extension.toml, plugin.json, server.json and every omniverse-mcp== pin under
-      # plugin/ say X.Y.Z, and CHANGELOG.md has a dated section for it, the release's notes. Before the approval, so
-      # nothing is published without them.
+      # The tag is vX.Y.Z, pyproject.toml, extension.toml, plugin.json, server.json, every omniverse-mcp== pin under
+      # plugin/ and the extension README's say X.Y.Z, and CHANGELOG.md has a dated section for it, the release's notes.
+      # Before the approval, so nothing is published without them.
       - name: Check the repo against the tag
         run: uv run --no-project tools/release.py check "$GITHUB_REF_NAME"
       - name: Build

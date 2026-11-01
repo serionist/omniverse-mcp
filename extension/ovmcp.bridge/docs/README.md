@@ -8,6 +8,12 @@ this Kit app through the `omniverse-mcp` MCP server.
 It runs an HTTP server inside the Kit app, on port 8211 by default, that takes JSON requests from the MCP server and
 carries them out with Kit's and USD's APIs: reading and editing the stage, captures, physics, robots, recordings.
 
+## The MCP server
+
+This extension is the Kit half. The other half, the MCP server your AI client starts, comes from PyPI and must be this
+release: `uvx omniverse-mcp==0.3.0` in your client's MCP config. The
+[project's README](https://github.com/serionist/omniverse-mcp#install) says how, for each client.
+
 ## Installation
 
 The `omniverse-mcp` package carries this extension. `uvx omniverse-mcp extension install` copies the extension of its

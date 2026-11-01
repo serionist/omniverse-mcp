@@ -53,7 +53,12 @@ def test_a_release_needs_its_dated_section(changelog, expected):
 
 def _repo(tmp_path: Path, version: str) -> Path:
     """The files tag_problems reads, copied from the repo, with a changelog section for version."""
-    for rel in ("pyproject.toml", "extension/ovmcp.bridge/config/extension.toml", gate.SERVER_JSON):
+    for rel in (
+        "pyproject.toml",
+        "extension/ovmcp.bridge/config/extension.toml",
+        gate.SERVER_JSON,
+        gate.EXTENSION_README,
+    ):
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(gate.ROOT / rel, tmp_path / rel)
     shutil.copytree(gate.ROOT / gate.PLUGIN_DIR, tmp_path / gate.PLUGIN_DIR)
@@ -76,6 +81,7 @@ def test_a_tag_out_of_step_names_each_place(tmp_path):
         gate.PLUGIN_MCP,
         gate.SERVER_JSON,
         f"{gate.SERVER_JSON} (package 1)",
+        f"{gate.EXTENSION_README} (pin 1)",
     ):
         assert any(p.startswith(where) for p in problems), (where, problems)
 

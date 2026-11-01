@@ -20,8 +20,10 @@ plan's S9, S10 and D7 say why it works this way.
    - `CHANGELOG.md`: `## Unreleased` becomes `## X.Y.Z (YYYY-MM-DD)`, with a new empty `## Unreleased` above it. The
      section is the release's notes;
    - the version, X.Y.Z, in `pyproject.toml`, `extension/ovmcp.bridge/config/extension.toml`,
-     `plugin/.claude-plugin/plugin.json`, `server.json` (twice: the server's and its package's), and every
-     `omniverse-mcp==` and `ovmcp.bridge-` under `plugin/`. The gate's `plugin` check names each one that differs;
+     `plugin/.claude-plugin/plugin.json`, `server.json` (twice: the server's and its package's), every
+     `omniverse-mcp==` and `ovmcp.bridge-` under `plugin/`, and the `omniverse-mcp==` in
+     `extension/ovmcp.bridge/docs/README.md`, which Kit's Extensions window shows. The gate's `plugin` check names each
+     one that differs;
    - `uv lock`, which records the project's own version;
    - `uv run --no-project tools/release.py check vX.Y.Z` passes; CI's `Package (Linux)` runs the same check on the PR;
    - the README says nothing that is true only before this release: PyPI keeps the description it is given.
