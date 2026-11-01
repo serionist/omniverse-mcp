@@ -15,7 +15,7 @@ from mcp import Client
 from mcp.server.mcpserver.exceptions import ToolError
 
 from omniverse_mcp import kit_extension
-from omniverse_mcp.client import BridgeClient
+from omniverse_mcp.client import BridgeClient, KitSilentError
 from omniverse_mcp.server import create_server
 from omniverse_mcp.tools.simulation import _unit
 
@@ -1722,6 +1722,48 @@ def test_get_robot_info_fails_when_kit_goes_before_the_joint_states(bridge: Mock
     text = "\n".join(getattr(c, "text", "") for c in result.content)
     assert result.is_error
     assert "Kit app connection failed: Connection closed by the ovmcp.bridge extension" in text
+
+
+class _Silent(BridgeClient):
+    """A Kit whose scene tree call meets the client's error for a Kit that stopped answering, or its plain timeout."""
+
+    error: OSError = KitSilentError("Kit at 127.0.0.1:8211 stopped answering: a call got no answer in 120 s")
+
+    def scene_tree(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise self.error
+
+
+def _scene_tree_through(client: BridgeClient, bridge: MockIsaacServer, tmp_path: Path) -> tuple[bool, str]:
+    try:
+
+        async def call():
+            async with Client(create_server("127.0.0.1", bridge.port, str(tmp_path), client=client)) as c:
+                return await c.call_tool("get_scene_tree", {})
+
+        result = asyncio.run(call())
+    finally:
+        client.close()
+    return bool(result.is_error), "\n".join(getattr(c, "text", "") for c in result.content)
+
+
+def test_a_kit_that_stopped_answering_is_named_with_what_it_may_be_doing(bridge: MockIsaacServer, tmp_path: Path):
+    # Kit 110 can hang for good in NVIDIA's renderer (#114): the agent learns what happened and when to restart Kit.
+    erred, text = _scene_tree_through(_Silent(port=bridge.port, token="invented-test-token"), bridge, tmp_path)
+    assert erred
+    assert "Kit at 127.0.0.1:8211 stopped answering: a call got no answer in 120 s. It may be busy" in text
+    assert "most likely in NVIDIA's RTX renderer" in text
+    assert "#114" in text
+    assert "If it stays silent for minutes, restart the Kit app." in text
+    assert "connection failed" not in text
+
+
+def test_a_plain_timeout_is_still_a_connection_failure(bridge: MockIsaacServer, tmp_path: Path):
+    client = _Silent(port=bridge.port, token="invented-test-token")
+    client.error = TimeoutError("timed out")
+    erred, text = _scene_tree_through(client, bridge, tmp_path)
+    assert erred
+    assert "Kit app connection failed: timed out" in text
+    assert "restart" not in text
 
 
 @pytest.mark.parametrize(

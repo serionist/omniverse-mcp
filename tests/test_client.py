@@ -8,11 +8,14 @@ Run: python -m pytest tests/test_client.py -v
 import json
 import socket
 import threading
+import time
 import unittest
+from collections.abc import Iterator
 
 import pytest
 
-from omniverse_mcp.client import BridgeClient, BridgeError
+import omniverse_mcp.client as client_module
+from omniverse_mcp.client import BridgeClient, BridgeError, KitSilentError
 
 from .mock_bridge import MockIsaacServer
 
@@ -881,10 +884,14 @@ def _reply(path: str) -> bytes:
 
 
 def _read_request(conn: socket.socket) -> str:
-    """The path of the next request on the connection, its body read and dropped."""
+    """The path of the next request on the connection, its body read and dropped; a ConnectionError once the client
+    closes it."""
     buf = b""
     while b"\r\n\r\n" not in buf:
-        buf += conn.recv(4096)
+        chunk = conn.recv(4096)
+        if not chunk:
+            raise ConnectionError("the client closed the connection")
+        buf += chunk
     head, _, rest = buf.partition(b"\r\n\r\n")
     lines = head.decode().split("\r\n")
     length = next((int(line.split(":", 1)[1]) for line in lines if line.lower().startswith("content-length:")), 0)
@@ -971,6 +978,119 @@ def test_the_extension_version_follows_each_handshake():
     finally:
         client.close()
         bridge.stop()
+
+
+class _SilentBridge(threading.Thread):
+    """A bridge whose port takes every connection, as a hung Kit's still does, and answers each request only while
+    `answering` is set; otherwise it reads the request and says nothing. The paths it read, in order."""
+
+    def __init__(self) -> None:
+        super().__init__(daemon=True)
+        self.listener = socket.create_server(("127.0.0.1", 0))
+        self.port = self.listener.getsockname()[1]
+        self.answering = False
+        self.paths: list[str] = []
+        self.connections = 0
+        self._stopped = threading.Event()
+
+    def run(self) -> None:
+        self.listener.settimeout(0.05)
+        while not self._stopped.is_set():
+            try:
+                conn, _ = self.listener.accept()
+            except TimeoutError:
+                continue
+            self.connections += 1
+            threading.Thread(target=self._serve, args=(conn,), daemon=True).start()
+
+    def _serve(self, conn: socket.socket) -> None:
+        with conn:
+            try:
+                while not self._stopped.is_set():
+                    path = _read_request(conn)  # raises once the client gives up and closes the connection
+                    self.paths.append(path)
+                    while not self.answering and not self._stopped.is_set():
+                        self._stopped.wait(0.02)
+                    conn.sendall(_reply(path))
+            except OSError:
+                return
+
+    def stop(self) -> None:
+        self._stopped.set()
+        self.join(5)
+        self.listener.close()
+
+
+@pytest.fixture
+def silent(monkeypatch: pytest.MonkeyPatch) -> Iterator[_SilentBridge]:
+    monkeypatch.setattr(client_module, "HEALTH_SECONDS", 0.3)
+    bridge = _SilentBridge()
+    bridge.start()
+    yield bridge
+    bridge.stop()
+
+
+def test_a_call_kit_never_answers_is_named_once_health_is_silent_too(silent: _SilentBridge):
+    client = BridgeClient(port=silent.port, token="invented-test-token", timeout=0.3)
+    try:
+        with pytest.raises(KitSilentError, match=r"stopped answering: a call got no answer in 0\.3 s") as first:
+            client.health()
+        assert f"127.0.0.1:{silent.port}" in str(first.value)
+        assert "/health none in 0.3 s" in str(first.value)
+        # The handshake went unanswered, then /health on a connection of its own.
+        assert silent.paths == ["/bridge", "/health"]
+
+        # Each later call asks /health first, and fails as fast while it stays silent: the call never goes.
+        started = time.monotonic()
+        with pytest.raises(KitSilentError, match="still silent"):
+            client.scene_tree()
+        assert time.monotonic() - started < 2
+        assert silent.paths == ["/bridge", "/health", "/health"]
+
+        # Kit answers again: the mark clears and the call goes, on a new connection with its handshake.
+        silent.answering = True
+        assert client.scene_tree()["status"] == "success"
+        assert silent.paths[3:] == ["/health", "/bridge", "/scene/tree"]
+        assert client.health()["status"] == "success"  # no /health asked first any more
+        assert silent.paths[6:] == ["/health"]
+    finally:
+        client.close()
+
+
+def test_a_call_that_times_out_while_health_answers_keeps_its_timeout(silent: _SilentBridge, monkeypatch):
+    client = BridgeClient(port=silent.port, token="invented-test-token", timeout=0.3)
+    probes: list[bool] = []
+
+    def answers(_client: BridgeClient) -> bool:
+        probes.append(True)
+        return True  # a slow call, not a stuck Kit
+
+    monkeypatch.setattr(BridgeClient, "_answers", answers)
+    try:
+        with pytest.raises(TimeoutError) as timed_out:
+            client.health()
+        assert not isinstance(timed_out.value, KitSilentError)
+        silent.answering = True
+        assert client.health()["status"] == "success"
+        assert probes == [True]  # the later call asked no /health first
+    finally:
+        client.close()
+
+
+def test_a_connect_that_times_out_is_a_host_that_is_down(monkeypatch):
+    # Not a stuck Kit: nothing connected, so no /health is asked and the error stays as it is.
+    tried: list[object] = []
+
+    def times_out(address: object, timeout: float | None = None) -> socket.socket:
+        tried.append(address)
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(socket, "create_connection", times_out)  # the module the client calls it through
+    client = BridgeClient(port=8212, token="invented-test-token", timeout=0.3)
+    with pytest.raises(TimeoutError) as timed_out:
+        client.health()
+    assert not isinstance(timed_out.value, KitSilentError)
+    assert tried == [("127.0.0.1", 8212)]
 
 
 if __name__ == "__main__":
