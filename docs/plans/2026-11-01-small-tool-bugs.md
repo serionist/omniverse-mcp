@@ -254,8 +254,9 @@ its live twin, `test_24_06`, which #103 left as it was, comes to check what the 
 
 ### R6: a robot stands on a stage of the other up axis (Q4 to Q7)
 
-A Kit-free function in `core/robot.py`, `up_axis_turn(layer, stage_up_axis)`, returns the degrees about X that stand
-the file's root prim on the stage, or None:
+Kit-free in `core/robot.py` (built so): `file_up_axis(layer)` reads the file's authored `upAxis`, and
+`up_axis_turn(file_axis, stage_axis)` returns the degrees about X that stand the file's root prim on the stage, or
+None; `stand_upright(prim, degrees)` writes the op and gives its value after:
 
 | The file's `upAxis` (authored) | The stage's | Degrees about X | Why |
 |---|---|---|---|
@@ -334,8 +335,9 @@ that name, as the description says. Writing all three values makes that sharing 
 writes values nobody named into a material another prim of the same name uses (Risks). Q9 asks whether to keep the
 name now and give each prim its own in a follow-up: #113.
 
-All of it is Kit-free in `core/material.py`, beside `set_material`'s material: `physics_values(prim)` (the three, and
-the material they come from), `start_from(material, source)` (Q8's copy) and the PhysX defaults. The answer stays as
+All of it is Kit-free in `core/material.py`, beside `set_material`'s material (built so): `physics_source(prim)` (the
+material the values come from, or None for PhysX's), `physics_values(source)` (the three), `start_from(material,
+source)` (Q8's copy) and the PhysX defaults. The answer stays as
 #108 made it: the values given, and the APIs applied.
 
 ### R8: `get_sim_state` names the Kit app (Q10)
