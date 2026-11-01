@@ -45,7 +45,8 @@ while physics plays. Never edit blind: look, change, look again.
 
 ## Light and black captures
 
-Kit 105.1 and later have no default light, so a scene without lights captures black, and the capture says so.
+Kit 105.1 and later have no default light, so a scene without lights renders black, Kit's grid alone showing, and
+the capture warns.
 `viewport_light("get")` shows the lighting mode and whether the stage has lights; `viewport_light(action="set",
 mode="Default")` is the quickest fix, `mode="camera"` a light that follows the camera. When neither suits, add a light
 to the stage with `create_prim` (`DistantLight`, `DomeLight`). Nothing relights the scene on its own.

@@ -125,7 +125,7 @@ What this repo's history already paid for:
 | A handler awaited inside the connection task: "Cannot enter into task", which broke Kit's property widgets and viewport | `ceb6dd9` | Handlers run as their own task (`ensure_future`) |
 | An `isaacsim/__init__.py` of ours shadowed NVIDIA's namespace package | `c6454e6` | A namespace of our own, `ovmcp` |
 | Instance segmentation was empty until a frame had rendered | `d688f31` | Sensor turned on for each capture's own feed, read each update for up to 5 s, an error when none comes |
-| Kit 105.1+ has no default light, so captures came back black | README | `is_black` check, `viewport_light` |
+| Kit 105.1+ has no default light, so captures came back black | README | `is_black` check, a warning for lighting that lights nothing (#105), `viewport_light` |
 | The log buffer's dict changed during a filtered query: `KeyError` | `8d684d6` | Copy before filtering |
 | USD called off the main thread crashes Kit | `misc.py` | Never `run_in_executor` for USD work |
 | A Python `omni.log` consumer of ours deadlocked Kit: a cooking worker logged while the main thread held the GIL | #5 | No Python log hook in the bridge, enforced by `tests/test_logs.py`'s guard; `get_logs` reads Kit's log file |

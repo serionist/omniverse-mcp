@@ -718,7 +718,7 @@ installs this release's extension.
 
 *Cube corners (8):* `top_front_right`, `top_front_left`, `top_back_right`, `top_back_left`, `bottom_front_right`, `bottom_front_left`, `bottom_back_right`, `bottom_back_left`
 
-Each angle is saved as a separate PNG file. When `include_segmentation` is true, each angle also saves a segmentation image + legend; an angle without one says why (`seg: ERROR`), such as no data within 5 s of the sensor being enabled. Default captures all 14 angles for full coverage.
+Each angle is saved as a separate PNG file. An all-black angle gets `capture_viewport`'s warning, once a call; so does lighting that lights nothing, mode `off` or `stage` with no scene lights, though the images show Kit's grid. When `include_segmentation` is true, each angle also saves a segmentation image + legend; an angle without one says why (`seg: ERROR`), such as no data within 5 s of the sensor being enabled. Default captures all 14 angles for full coverage.
 
 A call takes about 90 s at most, under the server's 120 s timeout: 80 s for the angles, then up to 10 s to restore `isolate`. An angle that fails says why on its line; once the camera renders no frame (30 s with none) or the 80 s run out, the angles left say `Not captured`, so the angles already captured come back. Each angle waits 20 frames of the call's render after the camera moves before it is taken, so it holds the camera's new place and what was done before the call.
 
@@ -763,7 +763,7 @@ world_dimensions = [1.0, 1.0, 1.0]
 
 > **Note:** Instance segmentation and the bounding boxes require `omni.syntheticdata` (included in Isaac Sim). Without it only the viewport image comes. When it gives no segmentation data, the image and bounding boxes are still returned, and `Segmentation: ERROR` says why. Each capture turns the sensor on for its own render and waits up to 5 s for its first data; when none comes, later captures of that camera at that size on that stage wait 1 s, until one gets data.
 
-> **Black image detection:** If the captured image is all-black, the response includes a `WARNING` with the lighting mode and whether scene lights exist. Use the `viewport_light` tool to check the lighting mode and change it if needed, then recapture. No automatic light changes are made.
+> **Black image detection:** If the captured image is all-black, the response includes a `WARNING` with the lighting mode and whether scene lights exist. Kit's grid shows in any lighting, so a scene the lighting leaves unlit is rarely all black: lighting mode `off`, or `stage` with no scene lights, gets a `WARNING` of its own that the scene's surfaces render black, though the grid shows. Use the `viewport_light` tool to check the lighting mode and change it if needed, then recapture. No automatic light changes are made. With an extension of 0.3.0 or older, only `off` gets that warning: the extension says whether the stage has lights only with a black image.
 
 > **An extension of 0.2.2 or older** captures the viewport at its own size and scales the boxes to the size asked for, so the two disagree. The `Viewport:` line gives the image's own size, read from its header, and a `WARNING` line says the boxes are for another size, with the command that installs this release's extension; `inspect_prim` says the same of its images.
 
@@ -788,7 +788,7 @@ Query or set the viewport's lighting mode. Non-destructive: it changes how the v
 - **set** - Switches the lighting mode. Light rigs need the viewport's lighting menu (`omni.kit.viewport.menubar.lighting`); without it, `"camera"` and `"stage"` still work, and anything else returns an error rather than a false success
 - **set_camera_light** - Legacy alias for `set` with `"camera"` or `"stage"`
 
-**When to use:** When `capture_viewport` reports a black image, use `viewport_light("get")` to diagnose, then `viewport_light(action="set", mode="Default")` (a light rig) or `mode="camera"` (a light that follows the camera) and recapture.
+**When to use:** When `capture_viewport` or `inspect_prim` reports a black image, or lighting that lights nothing, use `viewport_light("get")` to diagnose, then `viewport_light(action="set", mode="Default")` (a light rig) or `mode="camera"` (a light that follows the camera) and recapture.
 
 ---
 

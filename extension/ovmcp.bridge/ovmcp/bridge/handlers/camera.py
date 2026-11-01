@@ -151,6 +151,13 @@ def _has_scene_lights() -> bool:
     return any(is_light(prim) for prim in _get_stage().Traverse())
 
 
+def _scene_lights_for(lighting_mode: str, is_black: bool) -> dict[str, bool]:
+    """has_scene_lights, for the answers whose warning reads it: a black image's, and lighting mode stage's, where a
+    stage without lights renders its prims black while Kit's grid still shows (#105). It walks the whole stage on
+    Kit's main thread, so the other modes don't pay for it on every capture."""
+    return {"has_scene_lights": _has_scene_lights()} if is_black or lighting_mode == "stage" else {}
+
+
 def _get_camera_light_enabled() -> bool:
     """Check if the viewport camera light is enabled."""
     try:
@@ -727,6 +734,7 @@ async def handle_camera_inspect(body: dict) -> dict:
             # Whatever the restore did: the feed's render product and graphs must not outlive the call.
             await release(feed)
 
+    lighting_mode = _get_current_lighting_mode()
     return {
         "status": "success",
         "result": {
@@ -739,7 +747,8 @@ async def handle_camera_inspect(body: dict) -> dict:
             "width": width,
             "height": height,
             "camera_path": camera_path,
-            "lighting_mode": _get_current_lighting_mode(),
+            "lighting_mode": lighting_mode,
+            **_scene_lights_for(lighting_mode, any(c.get("is_black") for c in captures)),
             "captures": captures,
         },
     }
@@ -777,6 +786,7 @@ async def handle_capture(body: dict) -> dict:
 
         # 1. The image
         png_bytes, is_black = await _capture_frame(feed, call.budget)
+        lighting_mode = _get_current_lighting_mode()
         b64_image = base64.b64encode(png_bytes).decode("utf-8")
         # The image's own size: what the boxes are in, and what the server prints.
         image_width, image_height = png_size(png_bytes) or (width, height)
@@ -788,10 +798,9 @@ async def handle_capture(body: dict) -> dict:
             "camera_path": camera_path,
             "format": "png",
             "is_black": is_black,
-            "lighting_mode": _get_current_lighting_mode(),
+            "lighting_mode": lighting_mode,
+            **_scene_lights_for(lighting_mode, is_black),
         }
-        if is_black:
-            result["has_scene_lights"] = _has_scene_lights()
 
         # 2. Screen-space bounding boxes of the visible prims, from the camera and size captured
         try:
