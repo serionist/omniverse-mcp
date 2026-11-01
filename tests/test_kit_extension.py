@@ -73,6 +73,8 @@ def test_the_listing_s_files_are_in_the_extension():
     assert package["repository"] == "https://github.com/serionist/omniverse-mcp"
     assert package["keywords"]
     assert "exchange" not in package
+    # Kit 107 or later, as the README says; Kit reads a target as "this version or later".
+    assert package["target"] == {"kit": ["107.0"]}
 
 
 def test_an_install_replaces_the_one_before_whole(data: Path, capsys: pytest.CaptureFixture[str]):

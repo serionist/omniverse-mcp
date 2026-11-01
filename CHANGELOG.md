@@ -13,6 +13,8 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   note, the connection errors and the warnings of `capture_viewport`, `inspect_prim` and `start_recording` still give
   the `extension install` command, and add that an extension from the community registry is updated in Kit's
   Extensions window instead, since the command's folder never reaches it (#101).
+- **The Kit extension declares Kit 107 or later** (`[package.target] kit`), as the README has said since 0.2.0: Kit
+  106 and older no longer load it from a folder, nor offer it in the Extensions window (#101).
 
 ## 0.3.0 (2026-11-01)
 
