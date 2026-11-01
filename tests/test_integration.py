@@ -1132,8 +1132,9 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         print(f"  {camera}: box {box}, pixels {pixels}")
 
     def _assert_nothing_left(self, before: dict, since: int) -> None:
-        """Nothing of a capture's left once it answered: the stage's /Render, the root layer, omni.syntheticdata's
-        graphs and the viewport as before, and, 2 s on, no error from a graph left behind in Kit's log (#51's E16)."""
+        """Nothing of a capture's left once its feed is released, by the test or by the capture's own failure: the
+        stage's /Render, the root layer, omni.syntheticdata's graphs and the viewport as before, and, 2 s on, no error
+        from a graph left behind in Kit's log (#51's E16, #114)."""
         after = self._traces()
         self.assertEqual(after, before)
         self.assertFalse(after["root_names_a_feed"])

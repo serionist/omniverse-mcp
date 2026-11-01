@@ -344,9 +344,11 @@ result = {"created": text.count("createViewport - handle"), "assigned": len(re.f
 # How long the bridge keeps a capture's feed with no other capture.
 KEPT_SECONDS = "from ovmcp.bridge.handlers import camera_feed\nresult = camera_feed.IDLE_SECONDS\n"
 # In one execute_script (#114), at W x H: camera B captured straight after camera A, through the kept feed, against a
-# fresh feed's capture of B; then the prim PRIM moved to MOVED through set_transform and captured at once through the
-# kept feed, against a fresh feed's; each fresh feed after release_kept. A is "" for the viewport's camera. The result:
-# each pair's mean and 99th percentile difference out of 255, and the move's own, before against after, which shows.
+# fresh feed's capture of B; then the blue prim PRIM moved to MOVED through set_transform and captured at once through
+# the kept feed, against a fresh feed's; each fresh feed after release_kept. A is "" for the viewport's camera. The
+# result: each pair's mean and 99th percentile difference out of 255, and the switch's and the move's own; the pixels
+# of the prim's old place (blue before, not after), and of them those where the kept capture differs from the fresh
+# one by more than 8, a ghost; the pixels of its new place, and of them those the kept capture shows it in.
 KEPT_AGAINST_FRESH = """
 import base64, io
 import numpy as np
@@ -367,8 +369,12 @@ def apart(a, b):
     return {"mean": float(d.mean()), "p99": float(np.percentile(d, 99))}
 
 
+def blue(im):
+    return (im[..., 2] > im[..., 0] + 40) & (im[..., 2] > im[..., 1] + 40)
+
+
 await camera_feed.release_kept()
-await rgb(A)
+first_a = await rgb(A)
 switched = await rgb(B)
 await camera_feed.release_kept()
 fresh_b = await rgb(B)
@@ -381,11 +387,27 @@ after = await rgb(A)
 await camera_feed.release_kept()
 fresh_after = await rgb(A)
 await camera_feed.release_kept()
-result = {"switch": apart(switched, fresh_b), "move": apart(after, fresh_after), "shows": apart(before, fresh_after)}
+old_place = blue(before) & ~blue(fresh_after)
+new_place = blue(fresh_after) & ~blue(before)
+off = np.abs(after - fresh_after).max(axis=2) > 8
+result = {
+    "switch": apart(switched, fresh_b),
+    "switch_itself": apart(first_a, fresh_b),
+    "move": apart(after, fresh_after),
+    "move_itself": apart(before, fresh_after),
+    "old_place": int(old_place.sum()),
+    "ghost": int((off & old_place).sum()),
+    "new_place": int(new_place.sum()),
+    "shown_there": int((blue(after) & new_place).sum()),
+}
 """
-# A kept feed's capture against a fresh feed's of the same view, aimed and settled 20 frames after it rendered
-# another (#114's K7): two fresh feeds differ by a mean of 0.06 out of 255 and a 99th percentile of 2.
-KEPT_MEAN, KEPT_P99 = 0.2, 4.0
+# A kept feed's capture against a fresh feed's, straight after its camera changed or a prim moved: edge and face noise
+# that fades over the next frames, a mean of 0.16 to 0.61 out of 255 and a 99th percentile of 4 to 10, where two fresh
+# feeds differ by 0.09 and 2 (#114's K19). Well under the change itself, so a stale frame still fails it.
+KEPT_MEAN, KEPT_P99 = 1.0, 12.0
+# The most of the change itself (the move's mean of 1.9 to 2.1, the switch's far more) a kept capture may differ by; the
+# probe's kept capture after the move differed by 0.11 of it, and test_26_04's worst run, 0.49, is about a quarter.
+KEPT_SHARE = 1 / 3
 
 
 def _png_size(path: str) -> tuple[int, int] | None:
@@ -2820,7 +2842,8 @@ class TestScenarios(PhysicsChecks):
 
     def test_26_04_a_kept_feed_captures_what_a_fresh_one_does(self):
         """Phase 26.4: A capture through the kept feed, of another camera or of a prim moved just before it in the same
-        script, shows what a fresh feed's does, within the noise of a kept feed (#114's K7)"""
+        script, shows what a fresh feed's does: no ghost of the prim's old place, the prim at its new one, and the rest
+        within a kept feed's noise, well under the change itself (#114's K19)"""
         up, cube, camera = self._kept_scene()
         r = self.c.camera_set(_along_up(up, 2.5, x=-6), _along_up(up, 1.5))
         self.assertEqual(r["status"], "success", r)
@@ -2836,11 +2859,23 @@ class TestScenarios(PhysicsChecks):
             client.close()
         self.assertEqual(r["status"], "success", r)
         done = r["result"]["return_value"]
-        print(f"  camera switched {done['switch']}, prim moved {done['move']}, the move itself {done['shows']}")
-        self.assertGreater(done["shows"]["mean"], 0.5, "the move doesn't show: the cube is out of the view")
+        print(f"  camera switched {done['switch']} (the switch {done['switch_itself']})")
+        print(f"  prim moved {done['move']} (the move {done['move_itself']})")
+        print(
+            f"  old place {done['old_place']} px, {done['ghost']} a ghost; new {done['new_place']}, {done['shown_there']}"
+        )
+        self.assertGreater(done["old_place"], 0, "the move doesn't show: the cube is out of the view")
+        self.assertGreater(done["new_place"], 0, "the move doesn't show: the cube is out of the view")
+        self.assertEqual(done["ghost"], 0, "the kept capture shows the cube where it was")
+        # Its edges may differ from the fresh capture's by more than the blue test allows: most of its new place, not all.
+        self.assertGreaterEqual(done["shown_there"], 0.8 * done["new_place"], "the kept capture lacks the moved cube")
         for name in ("switch", "move"):
             self.assertLessEqual(done[name]["mean"], KEPT_MEAN, name)
             self.assertLessEqual(done[name]["p99"], KEPT_P99, name)
+            itself = done[f"{name}_itself"]["mean"]
+            self.assertLessEqual(
+                done[name]["mean"], KEPT_SHARE * itself, f"{name}: as far from the fresh one as the change"
+            )
         self._pass()
 
     def test_26_05_saves_after_a_capture_write_no_capture_feed(self):
