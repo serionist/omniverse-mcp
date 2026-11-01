@@ -1,9 +1,9 @@
 ---
 title: Scale a robot file of other units to the stage, and convert its physics values
 issue: "#112"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-11-01
 ---
 
 # Scale a robot file of other units to the stage, and convert its physics values
@@ -232,13 +232,13 @@ authors neither is left as it is."
 
 | Q | Question | Options | Recommendation | Answer |
 |---|---|---|---|---|
-| Q1 | How does `create_robot` take a file of other `metersPerUnit`? | **A.** The scale op and every physics value converted, by the PhysX schema's own table, in the core. **B.** Kit's assembler, where it loads. **C.** The file's scale; the answer names the units and the factor. **D.** The scale alone, the answer warning that physics values stay in the file's units | A: the robot is the right size and behaves as the same robot in the stage's units, in every Kit app with the PhysX schema, tested on usd-core. Its values are Kit's (P5), without depending on the physics rules being on. B gives Kit's values in Isaac Sim 6.2 too, but in its base and headless apps only through a deprecated extension (K7), and D wherever the rules are off; C and D leave a robot that is wrong in size or in physics | waits on the maintainer |
-| Q2 | A file that authors no `metersPerUnit`? | **A.** Take it as in the stage's units and leave it as it is: what Kit's assembler does (P4), and what #105's Q5 does for `upAxis`. **B.** Take USD's fallback, 0.01, which Kit doesn't (P4) | A: Kit's own reading, and a hand-written file, such as `test_27`'s and `test_27b`'s, is in metres far more often than in centimetres: B would shrink it to 1/100 on Isaac Sim's stages. The answer says nothing then, as today | waits on the maintainer |
-| Q3 | A file of other `kilogramsPerUnit`? | **A.** In the same pass: masses, densities, inertia and forces converted by file over stage, nothing scaled; an unauthored one left as it is, as Q2. **B.** `metersPerUnit` only, as the issue names | A: the same table and the same pass, and Kit's assembler compares both (K1). None of Isaac Sim's library robots authors `kilogramsPerUnit` (U3), so it never changes them | waits on the maintainer |
-| Q4 | Where do the converted values go? | **A.** The edit target's layer, as #105's turn: saved with the stage, and a later change to those values in the robot's file no longer shows. **B.** An anonymous layer as Kit's drop (K3): never saved, so a saved and reopened stage loses them unless Kit's assembler, recording the prim in `customLayerData`, resolves it again | A: what the call did stays done, with or without Kit's assembler; B ties the robot to Kit's UI extension | waits on the maintainer |
-| Q5 | Values inside an instance, such as a collider's contact offset in an instanceable robot's meshes, which no layer of the stage can override? | **A.** Leave them, as Kit's assembler does (P2: the pad's contact offset stays the file's), and name them in the answer. **B.** Turn those instances into ordinary prims (`SetInstanceable(False)`) so every value converts. **C.** Refuse the robot | A: Kit leaves them too, and Isaac Sim's instanceable robots keep their bodies, joints and drives outside the instances. B changes the robot's structure for a contact offset | waits on the maintainer |
-| Q6 | `create_prim`'s `usd_path` references a file as `create_robot` does, with neither #105's turn nor this scale | **A.** Out of scope: a new issue for both. **B.** In this change | A: `create_prim` adds any file, and a turn or a scale there needs its own answer line and docs | waits on the maintainer |
-| Q7 | Someone who scaled a robot of other units themselves, with `set_prim_transform(scale=...)`, now gets it scaled twice | **A.** CHANGELOG's Fixed entry says so, in bold, as #105's Q7. **B.** Under Breaking changes | A: the schema doesn't change, and the answer's line names the scale | waits on the maintainer |
+| Q1 | How does `create_robot` take a file of other `metersPerUnit`? | **A.** The scale op and every physics value converted, by the PhysX schema's own table, in the core. **B.** Kit's assembler, where it loads. **C.** The file's scale; the answer names the units and the factor. **D.** The scale alone, the answer warning that physics values stay in the file's units | A: the robot is the right size and behaves as the same robot in the stage's units, in every Kit app with the PhysX schema, tested on usd-core. Its values are Kit's (P5), without depending on the physics rules being on. B gives Kit's values in Isaac Sim 6.2 too, but in its base and headless apps only through a deprecated extension (K7), and D wherever the rules are off; C and D leave a robot that is wrong in size or in physics | A, as recommended (serionist, 2026-11-01) |
+| Q2 | A file that authors no `metersPerUnit`? | **A.** Take it as in the stage's units and leave it as it is: what Kit's assembler does (P4), and what #105's Q5 does for `upAxis`. **B.** Take USD's fallback, 0.01, which Kit doesn't (P4) | A: Kit's own reading, and a hand-written file, such as `test_27`'s and `test_27b`'s, is in metres far more often than in centimetres: B would shrink it to 1/100 on Isaac Sim's stages. The answer says nothing then, as today | A, as recommended (serionist, 2026-11-01) |
+| Q3 | A file of other `kilogramsPerUnit`? | **A.** In the same pass: masses, densities, inertia and forces converted by file over stage, nothing scaled; an unauthored one left as it is, as Q2. **B.** `metersPerUnit` only, as the issue names | A: the same table and the same pass, and Kit's assembler compares both (K1). None of Isaac Sim's library robots authors `kilogramsPerUnit` (U3), so it never changes them | A, as recommended (serionist, 2026-11-01) |
+| Q4 | Where do the converted values go? | **A.** The edit target's layer, as #105's turn: saved with the stage, and a later change to those values in the robot's file no longer shows. **B.** An anonymous layer as Kit's drop (K3): never saved, so a saved and reopened stage loses them unless Kit's assembler, recording the prim in `customLayerData`, resolves it again | A: what the call did stays done, with or without Kit's assembler; B ties the robot to Kit's UI extension | A, as recommended (serionist, 2026-11-01) |
+| Q5 | Values inside an instance, such as a collider's contact offset in an instanceable robot's meshes, which no layer of the stage can override? | **A.** Leave them, as Kit's assembler does (P2: the pad's contact offset stays the file's), and name them in the answer. **B.** Turn those instances into ordinary prims (`SetInstanceable(False)`) so every value converts. **C.** Refuse the robot | A: Kit leaves them too, and Isaac Sim's instanceable robots keep their bodies, joints and drives outside the instances. B changes the robot's structure for a contact offset | A, as recommended (serionist, 2026-11-01) |
+| Q6 | `create_prim`'s `usd_path` references a file as `create_robot` does, with neither #105's turn nor this scale | **A.** Out of scope: a new issue for both. **B.** In this change | A: `create_prim` adds any file, and a turn or a scale there needs its own answer line and docs | A: #119, "create_prim's usd_path ignores the file's upAxis and metersPerUnit, as create_robot did" (serionist, 2026-11-01) |
+| Q7 | Someone who scaled a robot of other units themselves, with `set_prim_transform(scale=...)`, now gets it scaled twice | **A.** CHANGELOG's Fixed entry says so, in bold, as #105's Q7. **B.** Under Breaking changes | A: the schema doesn't change, and the answer's line names the scale | A, as recommended (serionist, 2026-11-01) |
 
 ## Compatibility
 
@@ -339,7 +339,7 @@ distances, where `create_robot` converts them. Mimic joints' gearing (Risks).
 **How:** one fresh reviewer, Claude Opus, read only, 2026-11-01, on `5eb5cb9`, with four usd-core scripts of its own
 (`review-nested.py`, `review-drives.py`, `review-samples.py`, `review-types.py`, in the session's scratchpad's
 `112/`). **Verdict:** approved: no blocker or major, four minors; no further round. **Now:** P1 to P4 fixed and
-improvements 1 to 7 taken, in the commit after `5eb5cb9`. Q1 to Q7 wait on the maintainer.
+improvements 1 to 7 taken, in the commit after `5eb5cb9`. The maintainer answered Q1 to Q7 after it: all A.
 
 Checked and holding: K1, K2, K5, K6, K7 and K10 match the installed sources; P1 to P5 read the probe's output right;
 the writing rules hold.
@@ -371,7 +371,7 @@ the writing rules hold.
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 to Q7 | Decisions for the maintainer | The reviewer agrees with each: Q1 A, with P1's per-layer rule and P2's live check (B rests on a deprecated extension, K7); Q2 A; Q3 A; Q4 A, with P3 named; Q5 A; Q6 A, the follow-up issue filed; Q7 A | waits on the maintainer |
+| Q1 to Q7 | Decisions for the maintainer | The reviewer agrees with each: Q1 A, with P1's per-layer rule and P2's live check (B rests on a deprecated extension, K7); Q2 A; Q3 A; Q4 A, with P3 named; Q5 A; Q6 A, the follow-up issue filed; Q7 A | All A, as recommended; Q6's issue is #119 (serionist, 2026-11-01) |
 
 **Improvements:**
 
