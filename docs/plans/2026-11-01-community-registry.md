@@ -1,9 +1,9 @@
 ---
 title: List ovmcp.bridge in Kit's community extension registry
 issue: "#101"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-11-01
 ---
 
 # List ovmcp.bridge in Kit's community extension registry
@@ -88,9 +88,6 @@ Read from the files of an Isaac Sim 5.1 install (Kit 107.3) and a 6.2 pip instal
 
 ## Design
 
-A sentence, bullet or row that ends in (I1) to (I5) belongs to one of round 1's improvements, which wait for the
-maintainer (Plan review): taking improvement 1, 2, 3 or 5 deletes its marked text, and declining 4 deletes its.
-
 ### The archives (Q1)
 
 `tools/release.py archives <dir> [vX.Y.Z]` builds what a release attaches, from `HEAD`, and checks it; the version is
@@ -107,18 +104,17 @@ the tag's, or pyproject.toml's when no tag is given:
    - no `ovmcp.bridge/config/extension.toml`, or a `package.version` other than X.Y.Z;
    - no `repository`, or no `[package.target] kit` (Q2);
    - a file the toml names (`readme`, `icon`, `preview_image`) missing from the zip;
-   - a `__pycache__` folder or a `.pyc` file;
-   - the three files not byte for byte equal (I2).
+   - a `__pycache__` folder or a `.pyc` file.
 
 `release.yml`'s verify job runs `uv run --no-project tools/release.py archives release "$GITHUB_REF_NAME"` in place of
 its `git archive` step, and the github-release job attaches `release/*.zip` as today, now three files. `ci.yml`'s
 package job runs `tools/release.py archives release` on every pull request, so a change that moves the folder, drops
 the icon or breaks the layout fails before a tag. The same command, run locally on a commit, makes the same bytes, which
-E4 installs (Tests). The package job also keeps `release/` as the `extension` artifact for 14 days (I3).
+E4 installs (Tests).
 
 | Alternative | Why not |
 |---|---|
-| Attach nothing new: the crawler falls back to the source zipball (R4) | Kit would fetch the whole repo, 1.3 MB against 124 KB (R13), and nothing is checked before a release. The crawler would have to find `extension/ovmcp.bridge`, a folder name no entry has yet (R6) (I5) |
+| Attach nothing new: the crawler falls back to the source zipball (R4) | Kit would fetch the whole repo, 1.3 MB against 124 KB (R13), and nothing is checked before a release. |
 | One platform's name only | Works (R9), but the documented pair costs only a copy, and the index keeps one entry per id |
 | Kit's `repo package` | A build toolchain for a Python-only folder that `git archive` already zips in the right layout |
 | `git archive` and `cp` in the two workflows | The names and the checks in two YAML files; `release.py` keeps them in one place, under unit tests |
@@ -222,31 +218,30 @@ to the release.
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 | The release's files: (a) add the two crawler names beside `ovmcp.bridge-X.Y.Z.zip`, three identical zips; (b) replace `ovmcp.bridge-X.Y.Z.zip` with the two; (c) add nothing and let the crawler take the source zipball | (a): the documented name stays for people and scripts that fetch it (SETUP's "A Kit machine without uv"), the crawler gets its own; (c) serves the whole repo, 10 times the size. (c) relies on a folder the crawler hasn't been seen to find (I5) | Open |
-| Q2 | The Kit floor: (a) `[package.target] kit = ["107.0"]`; (b) no target, as meshy and 324 others; (c) `writeTarget.kit = true` | (a), once step 1's runs hold: the listing then matches the README's Kit 107 or later. (b) offers the release to Kit 106 apps it was never tested on; (c) writes the crawler's 106.4.0 (R10) | Open |
-| Q3 | The listing's fields: `repository`, `keywords`, `icon`, `preview_image` as designed; `changelog` or not; `exchange` or not; the icon as a 256 px PNG of the plugin's icon, or the logo's SVG | The four fields; no `changelog` (a copy of the repo's would drift, and the README links it); never `exchange`, which claims a verification NVIDIA hasn't made (K5); the PNG, the size Kit recommends | Open |
-| Q4 | The topic: (a) after the first release with the archives; (b) now; (c) as (a), but first attach the crawler-named archive, with the 107.0 target, to the releases v0.2.0 to v0.3.0, so the crawler lists them from those assets with the floor and offers Kit 106 none (round 1's improvement 6) | (a). Either way the crawler lists 0.2.0 to 0.3.0 from their source zipballs, without the floor (R4, R11, round 1). (b) would do it now, before the docs that explain the listing. Not (c): published releases stay as they are, and the old versions' listing without a floor is harmless, since Kit 106 isn't supported | Open |
-| Q5 | Testing before a release: (a) the local-registry experiment once, its scripts in this plan, and CI building and checking the archives on every PR; (b) keep the registry builder in `tools/release.py` for every release; (c) a public test repo of the maintainer's | (a): Kit's side is proven once (E1 to E4) and the archive's layout is what can regress, which CI checks; (b) is code kept for a format the crawler, not Kit, defines; (c) leaves a test entry in the public registry for good and waits a day each try | Open |
-| Q6 | The server's texts: (a) docs only; (b) the eight texts (C3) also name the registry's fix, through one helper | (b): a registry user who follows today's text installs a copy their Kit never loads, and reads the same note or warning again. The clause costs a line, and a plugin or uvx user skips it | Open |
-| Q7 | A one-way door: AGENTS.md's line 114, `- the Kit extension id `ovmcp.bridge` and its settings;`, becomes `- the Kit extension id `ovmcp.bridge` and its settings; its release archives' names and layout, never deleted;` (110 characters; the file stays at 150 lines). The door starts with the first release that carries the archives, not at the list's "from `0.2.0`"; that release's CHANGELOG line says so | Yes: the crawler builds the names (R5) and Kit downloads every listed version from its release (K2); a rename stops the listing, a deleted asset breaks its installs | Open |
-| Q8 | The plugin's setup: keep `extension install`, or offer the registry? | Keep it: pinned to the plugin's release and there at once, where the registry lags a day and needs a registry added on 6.2. It names a registry copy as another copy to turn off | Open |
+| Q1 | The release's files: (a) add the two crawler names beside `ovmcp.bridge-X.Y.Z.zip`, three identical zips; (b) replace `ovmcp.bridge-X.Y.Z.zip` with the two; (c) add nothing and let the crawler take the source zipball | (a): the documented name stays for people and scripts that fetch it (SETUP's "A Kit machine without uv"), the crawler gets its own; (c) serves the whole repo, 10 times the size. | (a), as recommended (2026-11-01) |
+| Q2 | The Kit floor: (a) `[package.target] kit = ["107.0"]`; (b) no target, as meshy and 324 others; (c) `writeTarget.kit = true` | (a), once step 1's runs hold: the listing then matches the README's Kit 107 or later. (b) offers the release to Kit 106 apps it was never tested on; (c) writes the crawler's 106.4.0 (R10) | (a), once the experiment holds (2026-11-01) |
+| Q3 | The listing's fields: `repository`, `keywords`, `icon`, `preview_image` as designed; `changelog` or not; `exchange` or not; the icon as a 256 px PNG of the plugin's icon, or the logo's SVG | The four fields; no `changelog` (a copy of the repo's would drift, and the README links it); never `exchange`, which claims a verification NVIDIA hasn't made (K5); the PNG, the size Kit recommends | As recommended (2026-11-01) |
+| Q4 | The topic: (a) after the first release with the archives; (b) now; (c) as (a), but first attach the crawler-named archive, with the 107.0 target, to the releases v0.2.0 to v0.3.0, so the crawler lists them from those assets with the floor and offers Kit 106 none (round 1's improvement 6) | (a). Either way the crawler lists 0.2.0 to 0.3.0 from their source zipballs, without the floor (R4, R11, round 1). (b) would do it now, before the docs that explain the listing. Not (c): published releases stay as they are, and the old versions' listing without a floor is harmless, since Kit 106 isn't supported | (a), not (c) (2026-11-01) |
+| Q5 | Testing before a release: (a) the local-registry experiment once, its scripts in this plan, and CI building and checking the archives on every PR; (b) keep the registry builder in `tools/release.py` for every release; (c) a public test repo of the maintainer's | (a): Kit's side is proven once (E1, E3, E4) and the archive's layout is what can regress, which CI checks; (b) is code kept for a format the crawler, not Kit, defines; (c) leaves a test entry in the public registry for good and waits a day each try | (a) (2026-11-01) |
+| Q6 | The server's texts: (a) docs only; (b) the eight texts (C3) also name the registry's fix, through one helper | (b): a registry user who follows today's text installs a copy their Kit never loads, and reads the same note or warning again. The clause costs a line, and a plugin or uvx user skips it | (b) (2026-11-01) |
+| Q7 | A one-way door: AGENTS.md's line 114, `- the Kit extension id `ovmcp.bridge` and its settings;`, becomes `- the Kit extension id `ovmcp.bridge` and its settings; its release archives' names and layout, never deleted;` (110 characters; the file stays at 150 lines). The door starts with the first release that carries the archives, not at the list's "from `0.2.0`"; that release's CHANGELOG line says so | Yes: the crawler builds the names (R5) and Kit downloads every listed version from its release (K2); a rename stops the listing, a deleted asset breaks its installs | Yes, with the exact line (2026-11-01) |
+| Q8 | The plugin's setup: keep `extension install`, or offer the registry? | Keep it: pinned to the plugin's release and there at once, where the registry lags a day and needs a registry added on 6.2. It names a registry copy as another copy to turn off | As recommended (2026-11-01) |
 
 ## Steps
 
-1. **The experiment, E1 to E3,** before any code. The main session first shows the maintainer the Kit start command
+1. **The experiment, E1 and E3,** before any code. The main session first shows the maintainer the Kit start command
    it will run (Tests: its usual headless start, minus the folder copy, plus the flags), and runs nothing until the
-   maintainer approves it. Then it runs the appendix's scripts on its own headless Kit at port 8212, on Isaac Sim 6.2,
-   and E2 on 5.1 (I1). Each result is written here under its number; they answer whether Q2's target holds.
+   maintainer approves it. Then it runs the appendix's scripts on its own headless Kit at port 8212, on Isaac Sim 6.2.
+   Each result is written here under its number; they answer whether Q2's target holds.
 2. **`extension.toml` and `data/`** (Q2, Q3): the fields, the target, the two images. Test: the live suites from the
    folder install on 6.2 (the target doesn't hide it from Kit 110), and `get_sim_state` answering without a `note`,
-   which the live suites never read (I4). The same on 5.1 (I1). `tests/test_kit_extension.py`'s install copies
-   `data/`.
+   which the live suites never read. `tests/test_kit_extension.py`'s install copies `data/`.
 3. **`tools/release.py archives`** and `archive_problems`. Tests in `tests/test_release.py`: a good archive passes; a
    toml at the root, a second top folder, another version, no `repository` or target, a named icon or preview
-   missing, a `.pyc` and a wrong name are each named; three unequal files are named (I2); `archives` builds the three
-   from a throwaway git repository in `tmp_path`; the repo's own extension passes.
-4. **The workflows:** `release.yml`'s verify job and `ci.yml`'s package job call `archives`. The package job keeps the
-   `extension` artifact (I3). Test: the PR's own `Package (Linux)` run builds and checks them.
+   missing, a `.pyc` and a wrong name are each named; `archives` builds the three from a throwaway git repository in
+   `tmp_path`; the repo's own extension passes.
+4. **The workflows:** `release.yml`'s verify job and `ci.yml`'s package job call `archives`. Test: the PR's own
+   `Package (Linux)` run builds and checks them.
 5. **The server's texts** (Q6): `install_advice()` in `kit_extension.py`, used by the eight texts (C3). Tests, the
    existing ones that read these texts, now with the clause: `tests/test_tools.py` 796 (the recording warning),
    `tests/test_tools_camera.py` 266 and 307 (the size warnings), `tests/test_client.py` 695 (the handshake),
@@ -282,7 +277,7 @@ the bridge enabled at start with its path and that path's real path, every versi
 
 The zips: before step 3, `git archive --format=zip --prefix=ovmcp.bridge/ -o <zip> HEAD:extension/ovmcp.bridge`,
 today's `release.yml` command; from step 3, `uv run --no-project tools/release.py archives <dir>`, which makes the
-same bytes for the same commit. Before step 2 the tree has no target, so E1 to E3 pass `--target-kit`. Three
+same bytes for the same commit. Before step 2 the tree has no target, so E1 and E3 pass `--target-kit`. Three
 registries are built already in the planning session's scratch folder, from `git archive`'s zip of `67a5069`:
 `registry-107` (`ovmcp.bridge-0.3.0+107.0`), `registry-999` (`ovmcp.bridge-0.3.0+999.0`) and `registry-none`
 (`ovmcp.bridge-0.3.0`, the zip byte for byte).
@@ -314,15 +309,15 @@ The main session's usual headless start, shown to the maintainer first (step 1),
 | # | Run | Passes when |
 |---|---|---|
 | E1 | 6.2, `registry-107` | Kit's log shows `downloading: '.../3/archives/serionist-omniverse-mcp-linux-x86_64-v0.3.0.zip'`, `creating a link: <extinstall>/... -> <extcache>/...` and `[ext: ovmcp.bridge-0.3.0] startup`; the probe's real path is under `extcache`; `get_sim_state` with `OMNIVERSE_MCP_PORT=8212` answers `extension_version = 0.3.0` and no `note` (K3) |
-| E2 | 5.1, `registry-107` | As E1, on Kit 107.3 (I1) |
 | E3 | 6.2, `registry-999` | The probe lists `0.3.0+999.0` and the solver refuses it; the bridge doesn't start. `registry-none` then loads as E1 (the old releases' case) |
 | E4 | after step 3, the maintainer: 6.2 with its window, the same flags without `--enable`, and a registry built with `--archive` from `release.py archives`' zip, unchanged | The listing under THIRD PARTY, "Community - Unverified", with the icon, the preview and the readme; Install shows K5's warning; the bridge turns on; the clicks the docs name |
 
-E1 to E3's case on Kit 107.3 also follows without E2: the same `index_v1` code and `registryVersion` "3" (K1), K7's
-greater-or-equal rule, 5.1's apps listing `kit/community` already (K4), and the 107.3 targets in the index (R10). The
-one 5.1 session at finish-work (step 10) then shows the target doesn't hide the folder install.
+The case on Kit 107.3 follows without a run of its own (round 1's improvement 1): the same `index_v1` code and
+`registryVersion` "3" (K1), K7's greater-or-equal rule, 5.1's apps listing `kit/community` already (K4), and the 107.3
+targets in the index (R10). The one 5.1 session at finish-work (step 10) then shows the target doesn't hide the folder
+install.
 
-If `--enable` doesn't fetch from a registry headless, the probe still shows what Kit sees, and E1 to E3 run with the
+If `--enable` doesn't fetch from a registry headless, the probe still shows what Kit sees, and E1 and E3 run with the
 window's **Install** instead, by the maintainer, with the same flags.
 
 **Undoing it.** The headless runs leave only the two scratch folders: delete `<scratchpad>/101/extcache` and
@@ -354,7 +349,7 @@ archives (step 11); R1 to R13 stand in for it until then.
 | Risk | Status |
 |---|---|
 | The crawler is documented only by its names and could change | Accepted: R1 to R13 are today's behaviour; the release-day check (step 11) catches a change on the next release |
-| The crawler finds `extension/ovmcp.bridge` in the old tags' zipballs and lists 0.2.0 to 0.3.0 without a target; 0.2.0's bridge hangs Kit (#5) | Accepted: they are real releases, the window offers the newest by default, and nothing of ours can unlist them (Q4 (c) would give them the floor). If the crawler doesn't find the folder, nothing is listed for them (I5) |
+| The crawler finds `extension/ovmcp.bridge` in the old tags' zipballs and lists 0.2.0 to 0.3.0 without a target; 0.2.0's bridge hangs Kit (#5) | Accepted: they are real releases, the window offers the newest by default, and nothing of ours can unlist them (Q4 (c) would give them the floor). |
 | Kit 106 offered 0.3.0 from its zipball | Accepted: the README has said Kit 107 or later since 0.2.0 |
 | A registry copy and an `extension install` copy in one Kit | SETUP's one-source rule, the setup skill (Q8), the texts (Q6); Autoload picks one version (K6) |
 | The day's lag: unpinned `uvx` moves at PyPI's pace, the registry's listing the next day | Accepted: SETUP says to pin the server to the version Kit shows; Q6's text names the fix |
@@ -378,6 +373,8 @@ archives (step 11); R1 to R13 stand in for it until then.
 - **Now:** P1 to P6 are fixed in this plan, and the scripts in the appendix and the scratch folder are the same. The
   reviewer's verdict is approved; the owner calls, Q1 to Q8 and improvements 1 to 6, wait for the maintainer, so
   `status` stays `draft` until the maintainer approves.
+- **Approved:** serionist, 2026-11-01: Q1 to Q8 as recommended, Q2 once the experiment holds; improvements 1 to 5
+  taken and applied above, 6 left.
 
 | # | Sev | Finding | Status |
 |---|---|---|---|
@@ -403,17 +400,16 @@ archives (step 11); R1 to R13 stand in for it until then.
 - Also checked and held: step 10 is finish-work; the `%2B` path; the writing rules; the new door is raised under
   Compatibility and in Q7.
 
-**Improvements.** Each is marked in the plan: taking 1, 2, 3 or 5 deletes the text that ends in its (I<n>), and
-declining 4 deletes its.
+**Improvements.** Each was marked in the plan; the taken ones are applied, their marks gone.
 
 | # | Improvement | Recommendation | Answer |
 |---|---|---|---|
-| 1 | Cut E2 as a run of its own: 5.1 would run three times (E2, step 2, step 10), and its case follows from K1, K7, K4 and R10 (Tests) | Take: no separate driver swap for E2; one 5.1 session at finish-work (step 10), the folder install with the target, which needs the dev server's NVIDIA driver swapped to 580 and back. Deletes (I1) | Pending the maintainer |
-| 2 | Drop the "three files byte for byte equal" check: one function makes all three, so it can't fail | Take: deletes (I2) | Pending the maintainer |
-| 3 | Drop `ci.yml`'s `extension` artifact, now that E4 builds the zip locally (P4) | Take: deletes (I3) | Pending the maintainer |
-| 4 | Step 2's live check also reads `get_sim_state` without a `note`, from the folder install: the live suites never read `extension_version` | Take: keeps (I4); declining deletes it | Pending the maintainer |
-| 5 | Remove the hedges that the crawler may not find the folder (Q1, the Design's alternatives, Risks): the old releases will be listed | Take: deletes (I5) | Pending the maintainer |
-| 6 | Before the topic, attach the crawler-named archive with the 107.0 target to v0.2.0 to v0.3.0, so the crawler lists them from assets with the floor and offers Kit 106 none | Leave: published releases stay as they are, and the old versions' listing without a floor is harmless, since Kit 106 isn't supported. Put to the maintainer as Q4 (c) | Pending the maintainer |
+| 1 | Cut E2 as a run of its own: 5.1 would run three times (E2, step 2, step 10), and its case follows from K1, K7, K4 and R10 (Tests) | Take: no separate driver swap for E2; one 5.1 session at finish-work (step 10), the folder install with the target, which needs the dev server's NVIDIA driver swapped to 580 and back. Deletes (I1) | Taken (2026-11-01) |
+| 2 | Drop the "three files byte for byte equal" check: one function makes all three, so it can't fail | Take: deletes (I2) | Taken (2026-11-01) |
+| 3 | Drop `ci.yml`'s `extension` artifact, now that E4 builds the zip locally (P4) | Take: deletes (I3) | Taken (2026-11-01) |
+| 4 | Step 2's live check also reads `get_sim_state` without a `note`, from the folder install: the live suites never read `extension_version` | Take: keeps (I4); declining deletes it | Taken (2026-11-01) |
+| 5 | Remove the hedges that the crawler may not find the folder (Q1, the Design's alternatives, Risks): the old releases will be listed | Take: deletes (I5) | Taken (2026-11-01) |
+| 6 | Before the topic, attach the crawler-named archive with the 107.0 target to v0.2.0 to v0.3.0, so the crawler lists them from assets with the floor and offers Kit 106 none | Leave: published releases stay as they are, and the old versions' listing without a floor is harmless, since Kit 106 isn't supported. Put to the maintainer as Q4 (c) | Left: published releases stay as they are, and the old versions' listing without a floor is harmless, since Kit 106 isn't supported (Q4 (c) declined, 2026-11-01) |
 
 ## Appendix: the experiment's scripts
 
