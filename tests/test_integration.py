@@ -24,7 +24,15 @@ from pxr import Sdf
 from omniverse_mcp.client import BridgeClient
 from ovmcp.core import capture
 
-from .conftest import CAMERA_AIM, RESTORE_LIMIT, SET_LIMIT, VIEWPORT_SEGMENTATION_ON, call_tool, live_bridge
+from .conftest import (
+    CAMERA_AIM,
+    RELEASE_KEPT_FEED,
+    RESTORE_LIMIT,
+    SET_LIMIT,
+    VIEWPORT_SEGMENTATION_ON,
+    call_tool,
+    live_bridge,
+)
 
 pytestmark = pytest.mark.sim
 
@@ -1139,18 +1147,21 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         return entries[-1]["index"] if entries else -1
 
     def test_12d_a_capture_leaves_nothing(self):
-        """A capture, and one that fails after its segmentation is turned on, leave the stage, its root layer,
-        omni.syntheticdata and the viewport as they found them."""
+        """A capture, once the feed kept after it is released, and one that fails after its segmentation is turned on,
+        which releases its feed itself, leave the stage, its root layer, omni.syntheticdata and the viewport as they
+        found them (#51, #114)."""
         camera = "/World/IntTestCam"
         self.addCleanup(self.client.delete_prim, camera)
         center = self.client.prim_bounds("/World/IntTestCube")["result"]["center"]
         self._kit(_AIMED_CAMERA.replace("TARGET", repr(center)).replace("PATH", repr(camera)))
         self.assertEqual(self.client.capture_viewport(320, 240, camera_path=camera)["status"], "success")
+        self._kit(RELEASE_KEPT_FEED)
         before, since = self._traces(), self._log_index()
 
         result = self.client.capture_viewport(320, 240, camera_path=camera)
         self.assertEqual(result["status"], "success", result)
         self.assertIsNotNone(result["result"]["segmentation_base64"], result["result"].get("segmentation_error"))
+        self._kit(RELEASE_KEPT_FEED)
         self._assert_nothing_left(before, since)
 
         self._wrap(_FILE_CAPTURE, "FileCapture", _FINISHED_CAPTURE.format(result=[]))
@@ -1158,11 +1169,14 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         failed = self.client.capture_viewport(320, 240, camera_path=camera)
         self.assertEqual(failed["status"], "error", failed)
         self.assertIn("wait_for_result gave []", failed["error"])
+        # No release asked for: Kit captured nothing, which escapes the capture, so its feed isn't kept.
         self._assert_nothing_left(before, since)
         print(f"  {len(before['render'])} paths under /Render before and after, a capture and a failed one")
 
     def test_12e_an_oversized_capture_is_refused(self):
         """A side above 4096 is refused before anything is made."""
+        # No feed kept from an earlier capture, whose idle release between the two reads would change the stage (#114).
+        self._kit(RELEASE_KEPT_FEED)
         before = self._traces()
         for result in (
             self.client.capture_viewport(capture.MAX_SIDE + 1, 240),
@@ -1416,11 +1430,12 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
 
     def test_13b_inspect_is_the_size_asked_for(self):
         """Each angle and its segmentation at the size asked for, where 0.2.2 gave the viewport's (#51), and nothing of
-        the call's feed left after it."""
+        the call's feed left after it once the feed kept after it is released (#114)."""
         # Warm: the first segmentation on a stage may make omni.syntheticdata's shared graphs, which stay.
         self.client.camera_inspect(
             "/World/IntTestCube", angles=["front"], width=320, height=240, include_segmentation=True
         )
+        self._kit(RELEASE_KEPT_FEED)
         before, since = self._traces(), self._log_index()
         result = self.client.camera_inspect(
             "/World/IntTestCube", angles=["front", "top"], width=320, height=240, include_segmentation=True
@@ -1432,6 +1447,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
             self.assertEqual(_png_size(cap["image_base64"]), (320, 240))
             self.assertIn("segmentation_base64", cap, cap.get("segmentation_error"))
             self.assertEqual(_png_size(cap["segmentation_base64"]), (320, 240))
+        self._kit(RELEASE_KEPT_FEED)
         self._assert_nothing_left(before, since)
         print("  2 angles at 320x240, with segmentation")
 
@@ -1624,6 +1640,9 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         feed rendering nothing too (its texture's updates off), inspect_prim stops after its first angle, naming the
         angles it did not capture; both hung before (#35)."""
         frame_seconds = 3 if self._shorten("FRAME_SECONDS", 3) else capture.FRAME_SECONDS
+        # A feed kept from an earlier capture at the same size would be reused, and its texture wasn't made through
+        # the wrapper below (#114).
+        self._kit(RELEASE_KEPT_FEED)
         try:
             self.assertEqual(
                 self._kit(_UPDATES_OFF), "no frame", "updates_enabled = False did not stop this Kit app's frames"
