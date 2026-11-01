@@ -6,6 +6,7 @@ import json
 import shutil
 import sys
 import time
+from dataclasses import asdict
 from pathlib import Path
 
 import gate
@@ -239,6 +240,7 @@ def test_the_tester_command_is_the_one_step_2_proved(tmp_path):
         "--model opus",
     ):
         assert part in joined
+    assert cmd[cmd.index("--tools") + 1] == "Read,Grep,Glob,Skill"
     assert "Write" not in cmd and "Edit" not in cmd  # the tester writes nothing (I1)
     assert scenarios.tester_env()["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
 
@@ -361,6 +363,40 @@ def test_check_refuses_a_saved_stage_and_a_held_lock(kit, tmp_path):
     assert len(problems) == 1
 
 
+def test_allow_port_8211_passes_the_port_rule(state, tmp_path):
+    # With the override, check goes on to the next rule: here, no token file for 8211.
+    problems, _ = scenarios.check(8211, tmp_path, allow_gui_port=True, connect=lambda port: pytest.fail("connected"))
+    assert "no bridge token" in problems[0]
+
+
+def test_any_bridge_passes_a_bridge_that_differs(kit, tmp_path):
+    other = tmp_path / "other-bridge"
+    other.mkdir()
+    facts = {"folder": str(other), "app": "Isaac-Sim", "version": "6.2.0", "kit": "110.0"}
+    kit.set_response("/execute", {"status": "success", "result": {"return_value": facts}})
+    problems, _ = scenarios.check(kit.port, tmp_path / "runs")
+    assert "differs from this checkout's" in problems[0]
+    assert scenarios.check(kit.port, tmp_path / "runs", any_bridge=True)[0] == []
+
+
+def test_a_kit_that_answers_with_a_refusal_says_so(kit, tmp_path):
+    # Not "no answer": starting Kit wouldn't mend a refused token or a failed script (round 1, IA5).
+    kit.set_response("/health", {"status": "error", "error": "the token was refused"})
+    problems, _ = scenarios.check(kit.port, tmp_path / "runs")
+    assert problems == [f"the Kit app at 127.0.0.1:{kit.port} refused: the token was refused"]
+
+
+def test_settle_stops_the_timeline_and_a_recording_left_running(kit):
+    scenarios.settle(kit.port)
+    paths = [path for _, path, _ in kit.requests]
+    assert ("POST", "/sim/control", {"action": "stop"}) in kit.requests
+    assert "/sim/state" in paths
+    assert "/recording/stop" not in paths
+    kit.set_response("/sim/state", {"status": "success", "result": {"recording_active": True}})
+    scenarios.settle(kit.port)
+    assert "/recording/stop" in [path for _, path, _ in kit.requests]
+
+
 def test_check_says_when_no_kit_answers(state, tmp_path):
     (state / "bridge-1.token").write_text("fake-token", encoding="utf-8")
     problems, _ = scenarios.check(1, tmp_path)
@@ -455,9 +491,11 @@ def test_a_session_reads_its_model_skills_cost_and_rows(tmp_path):
     outcome = scenarios.run_session(stub("ok", tmp_path), transcript, tmp_path, cwd=tmp_path)
     assert (outcome.exit, outcome.stopped, outcome.model) == (0, "", "claude-test-1")
     assert outcome.skills == ["omniverse-mcp:scene"]
-    assert outcome.cost == 0.25
+    assert (outcome.cost, outcome.cost_known) == (0.25, True)
+    assert outcome.tokens == {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 100}
+    assert outcome.started and outcome.ended
     assert scenarios.rows_from(outcome.text, ["1.1"])["1.1"].status == "PASS"
-    assert len(transcript.read_text(encoding="utf-8").splitlines()) == 4
+    assert len(transcript.read_text(encoding="utf-8").splitlines()) == 5
 
 
 def test_a_foreign_server_stops_the_tester_at_once(tmp_path):
@@ -472,7 +510,7 @@ def test_a_session_stops_at_its_limit(tmp_path):
     assert "limit" in outcome.stopped
 
 
-def test_a_silent_kit_names_the_call_in_flight_without_blaming_kit(tmp_path):
+def test_a_silent_kit_stops_the_session_and_says_what_may_hold_it(tmp_path):
     # Step 9's full run: a tester's own script held Kit's main thread, and Kit answered again after it.
     clock = Clock()
 
@@ -502,11 +540,61 @@ def test_the_stop_names_the_call_in_flight_and_the_one_that_timed_out():
     assert message.startswith("Kit stopped answering, while `get_logs` ran, after `capture_viewport` timed out: ")
 
 
+def stream(*events):
+    """Stream lines for _read_event: (kind, part) pairs, an init event first unless one is given."""
+    return [json.dumps({"type": kind, "message": {"content": [part]}}) for kind, part in events]
+
+
+def test_only_a_plugin_skill_that_loaded_counts(tmp_path):
+    # A bundled skill dontAsk refused, and a load still waiting for its result, aren't loads (round 1, F3).
+    outcome = scenarios.Outcome()
+    for line in [
+        json.dumps(B2_INIT).replace("PLUGIN", tmp_path.as_posix()),
+        *stream(
+            ("assistant", {"type": "tool_use", "id": "a", "name": "Skill", "input": {"skill": "keybindings-help"}}),
+            ("user", {"type": "tool_result", "tool_use_id": "a", "is_error": True, "content": "denied"}),
+            ("assistant", {"type": "tool_use", "id": "b", "name": "Skill", "input": {"skill": "omniverse-mcp:scene"}}),
+            ("user", {"type": "tool_result", "tool_use_id": "b", "content": "Launching skill: omniverse-mcp:scene"}),
+            ("assistant", {"type": "tool_use", "id": "c", "name": "Skill", "input": {"skill": "omniverse-mcp:script"}}),
+        ),
+    ]:
+        scenarios._read_event(line, outcome, tmp_path)
+    assert outcome.skills == ["omniverse-mcp:scene"]
+
+
+def test_a_session_that_acts_before_its_init_event_is_stopped(tmp_path):
+    outcome = scenarios.Outcome()
+    (line,) = stream(("assistant", {"type": "tool_use", "id": "a", "name": "mcp__omniverse__new_scene"}))
+    scenarios._read_event(line, outcome, tmp_path)
+    assert outcome.init_failed
+    assert "before its init event" in outcome.stopped
+
+
+def test_an_error_in_the_session_still_ends_the_tester(tmp_path, monkeypatch):
+    # An interrupt or an error mustn't leave a tester driving Kit with execute_script pre-approved (round 1, F5).
+    ended = []
+    real_end_tree = scenarios.end_tree
+
+    def end_tree(proc):
+        ended.append(proc.pid)
+        real_end_tree(proc)
+
+    def broken(*_args):
+        raise RuntimeError("a failed write")
+
+    monkeypatch.setattr(scenarios, "end_tree", end_tree)
+    monkeypatch.setattr(scenarios, "_read_event", broken)
+    with pytest.raises(RuntimeError, match="a failed write"):
+        scenarios.run_session(stub("slow", tmp_path), tmp_path / "t.jsonl", tmp_path, cwd=tmp_path)
+    assert len(ended) == 1
+
+
 # ----- a run -----
 
 
 def outcome(text="", cost=0.1, **kw):
-    return scenarios.Outcome(exit=0, text=text, cost=cost, model="claude-test-1", **kw)
+    fields = {"exit": 0, "text": text, "cost": cost, "cost_known": True, "model": "claude-test-1"} | kw
+    return scenarios.Outcome(**fields)
 
 
 def table(*rows):
@@ -560,6 +648,34 @@ def test_a_kit_that_cant_be_settled_stops_the_run(suite, tmp_path):
         suite, scenarios.plan(suite, {1}), tmp_path, 8212, lambda *a: pytest.fail("launched"), settle
     )
     assert all("Kit didn't answer between sessions" in r.stopped for r in records)
+
+
+def test_a_stopped_session_counts_its_whole_allowance_and_its_cost_as_unknown(suite, tmp_path):
+    # A tester the script stops sends no result event: its spend still counts, so --budget stays a cap (round 1, F2).
+    budgets = []
+
+    def launch(session, text, left):
+        budgets.append(left)
+        return outcome(cost=0.0, cost_known=False, stopped="stopped at the session's limit, 900 s")
+
+    records, _ = scenarios.run_sessions(suite, scenarios.plan(suite, {1, 2}), tmp_path, 8212, launch, lambda: None, 1.0)
+    assert budgets == [1.0]
+    assert "budget" in records[1].stopped
+    record = {"sessions": [asdict(r) for r in records]}
+    assert "cost unknown for phase-01" in scenarios.results_md(record)
+
+
+def test_a_failed_init_check_stops_the_run(suite, tmp_path):
+    # The same flags give every session the same init event (round 1, IA2).
+    launched = []
+
+    def launch(session, text, left):
+        launched.append(session.label)
+        return outcome(stopped="the session's init event: MCP servers ['x']", init_failed=True)
+
+    records, _ = scenarios.run_sessions(suite, scenarios.plan(suite, {1, 2}), tmp_path, 8212, launch, lambda: None)
+    assert launched == ["phase-01"]
+    assert records[1].stopped.startswith("not run: the session's init event")
 
 
 def test_results_md_lists_rows_in_order_and_the_issues():
@@ -667,3 +783,82 @@ def test_the_dry_run_prints_every_session_and_the_command(capsys):
 def test_main_checkout_is_the_first_worktree():
     first = gate.git("worktree", "list", "--porcelain", cwd=ROOT).stdout.splitlines()[0].removeprefix("worktree ")
     assert scenarios.main_checkout() == Path(first)
+
+
+# ----- the run command -----
+
+
+def test_claude_must_be_on_path_and_not_a_cmd_shim_on_windows():
+    with pytest.raises(SystemExit, match="isn't on PATH"):
+        scenarios.claude_executable(which=lambda _: None)
+    with pytest.raises(SystemExit, match=r"cmd\.exe shim"):
+        scenarios.claude_executable(which=lambda _: "C:/npm/claude.cmd", windows=True)
+    assert scenarios.claude_executable(which=lambda _: "C:/bin/claude.exe", windows=True) == "C:/bin/claude.exe"
+    assert scenarios.claude_executable(which=lambda _: "/npm/claude.cmd", windows=False) == "/npm/claude.cmd"
+
+
+@pytest.fixture
+def run_command(tmp_path, monkeypatch):
+    """cmd_run with Kit and the tester stood in for: check passes, settle and each session are recorded."""
+    runs = tmp_path / "runs"
+    seen = {"settled": [], "sessions": []}
+    monkeypatch.setattr(scenarios, "claude_executable", lambda: sys.executable)
+    monkeypatch.setattr(scenarios, "check", lambda *a, **k: ([], scenarios.Kit(app="Isaac-Sim")))
+    monkeypatch.setattr(scenarios, "runs_root", lambda: runs)
+    monkeypatch.setattr(scenarios, "settle", seen["settled"].append)
+
+    def run_session(cmd, transcript, plugin_dir, watch, cwd, env):
+        seen["sessions"].append({"watch": watch, "cwd": cwd})
+        rows = table("1.1 | t | PASS | n", "1.2 | t | PASS | n", "27.1 | t | PASS | n")
+        return outcome(rows, skills=["omniverse-mcp:scene"], started="s", ended="e", tokens={"output_tokens": 5})
+
+    monkeypatch.setattr(scenarios, "run_session", run_session)
+    return runs, seen
+
+
+def test_a_run_writes_its_record_and_gives_its_lock_back(run_command):
+    runs, seen = run_command
+    assert scenarios.main(["run", "--phases", "1"]) == 0
+    (run_dir,) = [p for p in runs.iterdir() if p.is_dir()]
+    record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    for key in ("commit", "tree", "clean", "branch", "port", "kit", "models", "sessions", "rows", "cost"):
+        assert key in record
+    assert record["models"] == ["claude-test-1"]
+    assert [s["label"] for s in record["sessions"]] == ["phase-01", "phase-27"]
+    assert {"skills", "started", "ended", "tokens", "cost_known"} <= set(record["sessions"][0])
+    assert [r["status"] for r in record["rows"]] == ["PASS", "PASS", "PASS"]
+    assert (run_dir / "results.md").is_file()
+    assert not scenarios.lock_path(runs, 8212).exists()
+    assert seen["settled"] == [8212, 8212]
+    # A watch of each session's own (round 1, F4), in the session's own folder (IA3).
+    assert seen["sessions"][0]["watch"] is not seen["sessions"][1]["watch"]
+    assert [s["cwd"] for s in seen["sessions"]] == [
+        run_dir / "mcp_output" / "phase-01",
+        run_dir / "mcp_output" / "phase-27",
+    ]
+
+
+def test_a_run_cut_short_gives_its_lock_back_and_writes_what_ran(run_command, monkeypatch):
+    runs, _ = run_command
+
+    def interrupted(*_args, **_kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(scenarios, "run_session", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        scenarios.main(["run", "--phases", "1"])
+    (run_dir,) = [p for p in runs.iterdir() if p.is_dir()]
+    assert not scenarios.lock_path(runs, 8212).exists()
+    assert [s["label"] for s in json.loads((run_dir / "run.json").read_text(encoding="utf-8"))["sessions"]] == [
+        "phase-01"
+    ]
+
+
+def test_a_held_lock_refuses_a_second_run(run_command, capsys):
+    runs, seen = run_command
+    runs.mkdir(parents=True)
+    scenarios.lock_path(runs, 8212).write_text("run 20261101-000000\n", encoding="utf-8")
+    assert scenarios.main(["run", "--phases", "1"]) == 1
+    assert "another run took port 8212" in capsys.readouterr().out
+    assert seen["sessions"] == []
+    assert scenarios.lock_path(runs, 8212).read_text(encoding="utf-8") == "run 20261101-000000\n"

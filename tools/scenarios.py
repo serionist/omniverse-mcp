@@ -602,7 +602,10 @@ def check(
         if not any_bridge:
             problems += bridge_problems(checkout, Path(kit.bridge_folder), tracked_bridge_files(checkout))
         kit.prim_count = answer(client.sim_state()).get("prim_count")
-    except (OSError, BridgeError) as e:
+    except BridgeError as e:
+        # It answered: a refused token, another protocol or a failed script, which starting Kit wouldn't mend.
+        return [f"the Kit app at {LOOPBACK}:{port} refused: {e}"], kit
+    except OSError as e:
         return [f"no answer from a Kit app at {LOOPBACK}:{port}: {e}. {START_HINT}"], kit
     finally:
         client.close()
@@ -701,14 +704,21 @@ class Outcome:
     exit: int | None = None
     text: str = ""  # the tester's last message
     cost: float = 0.0
+    cost_known: bool = False  # a stopped tester sends no result event, so its cost is unknown
     turns: int | None = None
+    tokens: dict[str, int] = field(default_factory=dict)  # the result event's usage
     model: str = ""
-    skills: list[str] = field(default_factory=list)
+    skills: list[str] = field(default_factory=list)  # the plugin's skills a call loaded, not the refused ones
     stopped: str = ""  # why the script ended the session, if it did
     kit_hung: bool = False
+    init_failed: bool = False  # the session's first event showed what a tester must not have, or never came
+    started: str = ""
+    ended: str = ""
     seconds: float = 0.0
     in_flight: dict[str, str] = field(default_factory=dict)  # the tool calls sent and not yet answered, by id
     timed_out: list[str] = field(default_factory=list)  # the tool calls whose answer was a timeout
+    init_seen: bool = False
+    skill_calls: dict[str, str] = field(default_factory=dict)  # the Skill calls awaiting their result, by id
 
 
 def _named(tools: Iterable[str]) -> str:
@@ -746,8 +756,9 @@ def run_session(
     clock: Callable[[], float] = time.monotonic,
 ) -> Outcome:
     """Run one tester, keep its stream in the transcript, and read what it did: its model, skill loads, cost and last
-    message. Stop it at once on a bad init event, after `limit` seconds, or when the watch says Kit hangs."""
-    outcome = Outcome()
+    message. Stop it at once on a bad init event, after `limit` seconds, or when the watch says Kit hangs; whatever
+    ends this function, an interrupt or an error included, ends the tester and its server too."""
+    outcome = Outcome(started=datetime.now().isoformat(timespec="seconds"))
     started = clock()
     proc = subprocess.Popen(  # noqa: S603 - an argument list the script builds itself; nothing goes through a shell
         list(cmd),
@@ -772,35 +783,49 @@ def run_session(
     threading.Thread(target=pump, daemon=True).start()
     last_text = ""
     exited_at: float | None = None
-    with transcript.open("w", encoding="utf-8") as out:
-        while True:
+    finished = False
+    try:
+        with transcript.open("w", encoding="utf-8") as out:
+            while True:
+                try:
+                    line = lines.get(timeout=1.0)
+                except queue.Empty:
+                    line = ""
+                    # A child the tester started may hold its output open after it exits: don't wait on it for long.
+                    if proc.poll() is not None:
+                        exited_at = exited_at if exited_at is not None else clock()
+                        if clock() - exited_at > 10:
+                            break
+                if line is None:
+                    break
+                if line:
+                    out.write(line)
+                    last_text = _read_event(line, outcome, plugin_dir) or last_text
+                reason = ""
+                if outcome.stopped:
+                    reason = outcome.stopped
+                elif clock() - started > limit:
+                    reason = outcome.stopped = f"stopped at the session's limit, {limit:.0f} s"
+                elif watch is not None and (hung := watch.check()):
+                    reason = outcome.stopped = stop_message(hung, outcome)
+                    outcome.kit_hung = True
+                if reason and proc.poll() is None:
+                    end_tree(proc)
+        finished = True
+    finally:
+        # A tester left running would go on driving Kit with execute_script pre-approved, unwatched: on Linux and
+        # macOS its own session keeps a terminal's Ctrl+C from reaching it. After its stream ends it is on its way out.
+        if finished:
             try:
-                line = lines.get(timeout=1.0)
-            except queue.Empty:
-                line = ""
-                # A child the tester started may hold its output open after it exits: don't wait on it for long.
-                if proc.poll() is not None:
-                    exited_at = exited_at if exited_at is not None else clock()
-                    if clock() - exited_at > 10:
-                        break
-            if line is None:
-                break
-            if line:
-                out.write(line)
-                last_text = _read_event(line, outcome, plugin_dir) or last_text
-            reason = ""
-            if outcome.stopped:
-                reason = outcome.stopped
-            elif clock() - started > limit:
-                reason = outcome.stopped = f"stopped at the session's limit, {limit:.0f} s"
-            elif watch is not None and (hung := watch.check()):
-                reason = outcome.stopped = stop_message(hung, outcome)
-                outcome.kit_hung = True
-            if reason and proc.poll() is None:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
                 end_tree(proc)
+        elif proc.poll() is None:
+            end_tree(proc)
     outcome.exit = proc.wait()
     outcome.text = outcome.text or last_text
     outcome.seconds = clock() - started
+    outcome.ended = datetime.now().isoformat(timespec="seconds")
     return outcome
 
 
@@ -812,17 +837,24 @@ def _read_event(line: str, outcome: Outcome, plugin_dir: Path) -> str:
         return ""
     kind = event.get("type")
     if kind == "system" and event.get("subtype") == "init":
+        outcome.init_seen = True
         outcome.model = str(event.get("model", ""))
         problems = init_problems(event, plugin_dir)
         if problems:
             outcome.stopped = "the session's init event: " + "; ".join(problems)
+            outcome.init_failed = True
     elif kind == "assistant":
+        if not outcome.init_seen and not outcome.stopped:
+            # Without the init event nothing says which servers and tools the tester has: fail closed.
+            outcome.stopped = "the session acted before its init event, so its servers and tools are unchecked"
+            outcome.init_failed = True
         texts = []
         for part in (event.get("message") or {}).get("content") or []:
             if part.get("type") == "tool_use":
-                outcome.in_flight[str(part.get("id", ""))] = str(part.get("name", ""))
+                call = str(part.get("id", ""))
+                outcome.in_flight[call] = str(part.get("name", ""))
                 if part.get("name") == "Skill":
-                    outcome.skills.append(str((part.get("input") or {}).get("skill", "")))
+                    outcome.skill_calls[call] = str((part.get("input") or {}).get("skill", ""))
             elif part.get("type") == "text":
                 texts.append(str(part.get("text", "")))
         return "\n".join(texts)
@@ -830,12 +862,21 @@ def _read_event(line: str, outcome: Outcome, plugin_dir: Path) -> str:
         content = (event.get("message") or {}).get("content")
         for part in content if isinstance(content, list) else []:
             if isinstance(part, dict) and part.get("type") == "tool_result":
-                name = outcome.in_flight.pop(str(part.get("tool_use_id", "")), "")
-                if part.get("is_error") and "timed out" in json.dumps(part.get("content")):
-                    outcome.timed_out.append(name)
+                call = str(part.get("tool_use_id", ""))
+                name = outcome.in_flight.pop(call, "")
+                skill = outcome.skill_calls.pop(call, "")
+                if part.get("is_error"):
+                    if "timed out" in json.dumps(part.get("content")):
+                        outcome.timed_out.append(name)
+                elif skill.startswith(f"{PLUGIN_NAME}:"):
+                    # Only a load that went through counts: dontAsk refuses Claude Code's own skills (step 2, S7).
+                    outcome.skills.append(skill)
     elif kind == "result":
         outcome.cost = float(event.get("total_cost_usd") or 0.0)
+        outcome.cost_known = True
         outcome.turns = event.get("num_turns")
+        usage = event.get("usage") or {}
+        outcome.tokens = {k: int(v) for k, v in usage.items() if k.endswith("_tokens") and isinstance(v, int)}
         outcome.text = str(event.get("result") or "")
     return ""
 
@@ -850,9 +891,13 @@ class SessionRecord:
     phase: int
     ids: list[str]
     new_stage: bool
+    started: str = ""
+    ended: str = ""
     exit: int | None = None
     cost: float = 0.0
+    cost_known: bool = True
     turns: int | None = None
+    tokens: dict[str, int] = field(default_factory=dict)
     model: str = ""
     seconds: float = 0.0
     skills: list[str] = field(default_factory=list)
@@ -870,12 +915,16 @@ def run_sessions(
     launch: Launch,
     settle: Callable[[], None],
     budget: float | None = None,
+    records: list[SessionRecord] | None = None,
+    rows: list[Row] | None = None,
 ) -> tuple[list[SessionRecord], list[Row]]:
-    """Run the sessions in order, each told its needed scenarios' status so far; stop starting them once Kit hangs or
-    the budget is spent. Each session's last message becomes its phase file, and its table its rows."""
+    """Run the sessions in order, each told its needed scenarios' status so far; stop starting them once Kit hangs, a
+    session's init check fails (it would in every session), or the budget is spent. Each session's last message
+    becomes its phase file, and its table its rows. `records` and `rows` fill as it goes, so a run cut short still
+    has them."""
     statuses: dict[str, str] = {}
-    records: list[SessionRecord] = []
-    rows: list[Row] = []
+    records = [] if records is None else records
+    rows = [] if rows is None else rows
     spent = 0.0
     halt = ""
     for session in sessions:
@@ -894,11 +943,13 @@ def run_sessions(
             found: dict[str, Row] = {}
         else:
             outcome = launch(session, prompt(suite, session, statuses, run_dir, port), left)
-            spent += outcome.cost
-            record.exit, record.cost, record.turns = outcome.exit, outcome.cost, outcome.turns
-            record.model, record.seconds, record.skills = outcome.model, outcome.seconds, outcome.skills
-            record.stopped = outcome.stopped
-            if outcome.kit_hung:
+            # A stopped tester sends no result event: count what it was allowed to spend, so --budget stays a cap.
+            spent += outcome.cost if outcome.cost_known else (left or 0.0)
+            record.started, record.ended, record.seconds = outcome.started, outcome.ended, outcome.seconds
+            record.exit, record.cost, record.cost_known = outcome.exit, outcome.cost, outcome.cost_known
+            record.turns, record.tokens, record.model = outcome.turns, outcome.tokens, outcome.model
+            record.skills, record.stopped = outcome.skills, outcome.stopped
+            if outcome.kit_hung or outcome.init_failed:
                 halt = outcome.stopped
             heading = f"# {session.label}: {', '.join(session.ids)}"
             (run_dir / f"{session.label}.md").write_text(f"{heading}\n\n{outcome.text}\n", encoding="utf-8")
@@ -930,7 +981,7 @@ def results_md(record: Mapping[str, Any]) -> str:
         ("Stage at the start", f"{kit.get('stage', '?')}, {kit.get('prim_count', '?')} prims"),
         ("Tester", f"{record.get('client', '')}, model {', '.join(record.get('models') or []) or '?'}"),
         ("Phases asked", record.get("phases", "")),
-        ("Took", f"{record.get('seconds', 0) / 60:.0f} min, ${record.get('cost', 0):.2f}"),
+        ("Took", f"{record.get('seconds', 0) / 60:.0f} min, ${record.get('cost', 0):.2f}{_unknown_cost(record)}"),
     ]
     out = [f"# Scenario run {record.get('name', '')}", "", "| Field | Value |", "|---|---|"]
     out += [f"| {k} | {_cell(str(v))} |" for k, v in info]
@@ -946,6 +997,12 @@ def results_md(record: Mapping[str, Any]) -> str:
     out += ["", "## Issues", ""]
     out += [f"- **{r['status']} {r['id']}** {r['test']}: {r['notes']}" for r in issues] or ["None."]
     return "\n".join(out) + "\n"
+
+
+def _unknown_cost(record: Mapping[str, Any]) -> str:
+    ran = [s for s in record.get("sessions") or [] if not str(s.get("stopped", "")).startswith("not run")]
+    unknown = [s["label"] for s in ran if not s.get("cost_known", True)]
+    return f"; cost unknown for {', '.join(unknown)}, stopped before a result event" if unknown else ""
 
 
 def _cell(text: str) -> str:
@@ -1091,14 +1148,25 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 1 if problems else 0
 
 
-def claude_executable() -> str:
-    claude = shutil.which("claude")
+def claude_executable(which: Callable[[str], str | None] = shutil.which, windows: bool = os.name == "nt") -> str:
+    claude = which("claude")
     if not claude:
         raise SystemExit("Claude Code (`claude`) isn't on PATH: the tester is a headless Claude Code session")
-    if os.name == "nt" and Path(claude).suffix.lower() in (".cmd", ".bat"):
+    if windows and Path(claude).suffix.lower() in (".cmd", ".bat"):
         # cmd.exe would read the prompts' | and < as its own; the native install is an .exe.
         raise SystemExit(f"{claude} is a cmd.exe shim: install Claude Code's native build, claude.exe")
     return claude
+
+
+def settle(port: int, connect: Callable[[int], BridgeClient] = connect) -> None:
+    """Stop the timeline and any recording a stopped session left running, before the next session starts."""
+    client = connect(port)
+    try:
+        answer(client.sim_control("stop"))
+        if answer(client.sim_state()).get("recording_active"):
+            answer(client.recording_stop())
+    finally:
+        client.close()
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -1123,7 +1191,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         cmd = tester_command(
             "claude", "<prompt>", Path("<config>"), "<test_project/AGENTS.md>", args.budget, args.model
         )
-        print("=== each session runs, with CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 and in test_project/:")
+        print("=== each session runs with CLAUDE_CODE_DISABLE_AUTO_MEMORY=1, in its own folder, mcp_output/<session>/:")
         print(subprocess.list2cmdline(cmd))
         return 0
     claude = claude_executable()
@@ -1136,15 +1204,6 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 1
     name = datetime.now().strftime("%Y%m%d-%H%M%S")
     run_dir = runs / name
-    (run_dir / "kit").mkdir(parents=True)
-    (run_dir / "mcp_output").mkdir()
-    lock = lock_path(runs, args.port)
-    try:
-        with lock.open("x", encoding="utf-8") as f:
-            f.write(f"run {name}, started {datetime.now().isoformat(timespec='seconds')}\n")
-    except FileExistsError:
-        print(f"refused: {lock} appeared: another run took port {args.port}")
-        return 1
     version = gate.run([claude, "--version"]).stdout.strip()
     record: dict[str, Any] = {
         "name": name,
@@ -1156,48 +1215,52 @@ def cmd_run(args: argparse.Namespace) -> int:
         "phases": args.phases or "all",
         "budget": args.budget,
     }
-    began = time.monotonic()
-    watch = HealthWatch(health_probe(args.port))
-
-    def settle() -> None:
-        """Stop the timeline and any recording a stopped session left running."""
-        client = connect(args.port)
-        try:
-            answer(client.sim_control("stop"))
-            if answer(client.sim_state()).get("recording_active"):
-                answer(client.recording_stop())
-        finally:
-            client.close()
+    (run_dir / "kit").mkdir(parents=True)
+    records: list[SessionRecord] = []
+    rows: list[Row] = []
 
     def launch(session: Session, text: str, left: float | None) -> Outcome:
         config = Path(tempfile.mkdtemp(prefix="ovmcp-scenarios-"))
+        output = session_output(run_dir, session)
+        output.mkdir(parents=True, exist_ok=True)
         try:
-            write_config(config, args.port, session_output(run_dir, session))
+            write_config(config, args.port, output)
             cmd = tester_command(claude, text, config, rules, left, args.model)
             print(f"{session.label}: {', '.join(session.ids)}", flush=True)
-            outcome = run_session(
-                cmd, run_dir / f"transcript-{session.label}.jsonl", config / "plugin", watch, env=tester_env()
-            )
+            # A watch of its own: a silence that ended with the last session isn't this one's.
+            watch = HealthWatch(health_probe(args.port))
+            transcript = run_dir / f"transcript-{session.label}.jsonl"
+            # The session's own folder as its working folder, away from test_project/ and earlier runs' verdicts.
+            outcome = run_session(cmd, transcript, config / "plugin", watch, cwd=output, env=tester_env())
         finally:
             shutil.rmtree(config, ignore_errors=True)
         skills = ", ".join(outcome.skills) or "none"
         print(f"  ${outcome.cost:.2f}, {outcome.seconds:.0f} s, skills {skills} {outcome.stopped}".rstrip(), flush=True)
         return outcome
 
+    lock = lock_path(runs, args.port)
     try:
-        records, rows = run_sessions(suite, sessions, run_dir, args.port, launch, settle, args.budget)
+        with lock.open("x", encoding="utf-8") as f:
+            f.write(f"run {name}, started {datetime.now().isoformat(timespec='seconds')}\n")
+    except FileExistsError:
+        print(f"refused: {lock} appeared: another run took port {args.port}")
+        return 1
+    began = time.monotonic()
+    try:
+        run_sessions(suite, sessions, run_dir, args.port, launch, lambda: settle(args.port), args.budget, records, rows)
     finally:
+        # Also on an interrupt or an error: the lock goes, and the sessions that ran are written down.
         lock.unlink(missing_ok=True)
-    record.update(
-        finished=datetime.now().isoformat(timespec="seconds"),
-        seconds=time.monotonic() - began,
-        cost=sum(r.cost for r in records),
-        models=sorted({r.model for r in records if r.model}),
-        sessions=[asdict(r) for r in records],
-        rows=[asdict(r) for r in rows],
-    )
-    (run_dir / "run.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-    (run_dir / "results.md").write_text(results_md(record), encoding="utf-8")
+        record.update(
+            finished=datetime.now().isoformat(timespec="seconds"),
+            seconds=time.monotonic() - began,
+            cost=sum(r.cost for r in records),
+            models=sorted({r.model for r in records if r.model}),
+            sessions=[asdict(r) for r in records],
+            rows=[asdict(r) for r in rows],
+        )
+        (run_dir / "run.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+        (run_dir / "results.md").write_text(results_md(record), encoding="utf-8")
     print(f"Results: {run_dir / 'results.md'}; compare with `uv run tools/scenarios.py compare`")
     return 0
 

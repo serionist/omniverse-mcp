@@ -50,12 +50,20 @@ if mode == "busy":
 if mode in ("foreign", "slow", "busy"):
     time.sleep(60)
     sys.exit(0)
-say(
-    {
-        "type": "assistant",
-        "message": {"content": [{"type": "tool_use", "name": "Skill", "input": {"skill": "omniverse-mcp:scene"}}]},
-    }
-)
+load = {"type": "tool_use", "id": "s1", "name": "Skill", "input": {"skill": "omniverse-mcp:scene"}}
+say({"type": "assistant", "message": {"content": [load]}})
+loaded = {"type": "tool_result", "tool_use_id": "s1", "content": "Launching skill: omniverse-mcp:scene"}
+say({"type": "user", "message": {"content": [loaded]}})
 rows = "| ID | Test | Status | Notes |\n|---|---|---|---|\n| 1.1 | Health Check | PASS | state=stopped |"
 say({"type": "assistant", "message": {"content": [{"type": "text", "text": f"Done.\n\n{rows}"}]}})
-say({"type": "result", "subtype": "success", "total_cost_usd": 0.25, "num_turns": 3, "result": f"Done.\n\n{rows}"})
+usage = {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 100, "service_tier": "standard"}
+say(
+    {
+        "type": "result",
+        "subtype": "success",
+        "total_cost_usd": 0.25,
+        "num_turns": 3,
+        "usage": usage,
+        "result": f"Done.\n\n{rows}",
+    }
+)
