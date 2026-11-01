@@ -33,7 +33,8 @@ been silent for 140 s.
   time, at most one `await mcp.<handler>(...)` in a script, whether repeated in a loop or written out line after line,
   and no import of the bridge's own modules (`ovmcp.*`). Reading what is already there, such as a recording's frames
   or a prim's attributes, may loop.
-- **A scenario's own code runs as written,** as phase 25's does, unless it imports `ovmcp.*` or waits for time.
+- **A scenario's own code runs as written,** as phase 25's does, unless it imports `ovmcp.*` or waits for time. A
+  script a scenario only describes in words is code of your own, under the rule above.
 - **To let time pass,** as a scenario's "wait ~2 seconds" asks, call `get_sim_state` until its `time` has moved on that
   far while the simulation plays. To see a drawing or a count change, repeat a short call. To read physics step by
   step, `sim_control("step")` and a short read, as many times as the scenario counts.

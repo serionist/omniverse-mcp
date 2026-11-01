@@ -151,6 +151,7 @@ claude -p "<prompt>"
   --allowedTools mcp__omniverse Read Grep Glob
                  "Skill(omniverse-mcp:<name>)", one for each of the plugin's five skills
   --output-format stream-json --verbose
+  --no-session-persistence
   --max-budget-usd <what remains of --budget>
   [--model <model>]
 ```
@@ -159,13 +160,14 @@ claude -p "<prompt>"
 |---|---|
 | `<config>` | A folder the script writes afresh for each session in the system's temp folder, outside the runs folder, and deletes after: nothing a session leaves reaches the next session's plugin, hooks or servers |
 | `<config>/plugin` (Q5) | A copy of `plugin/` without its `.mcp.json`: the skills found by their descriptions, as `docs/releasing.md` step 2 already checks the plugin. The strict flag drops a plugin's own server (S1) |
-| `--strict-mcp-config`, `<config>/mcp.json` | The run's one server, `omniverse`: `uv run --no-sync --project <checkout> omniverse-mcp` with `OMNIVERSE_MCP_HOST=127.0.0.1`, `OMNIVERSE_MCP_PORT=<port>`, `OMNIVERSE_MCP_TOKEN=""` (the port's token file then), `OMNIVERSE_MCP_OUTPUT_DIR=<run>/mcp_output` and an empty `PYTHONPATH` (F8); no Context7 (Q12). Its tools are `mcp__omniverse__<tool>`, where a plugin user sees `mcp__plugin_omniverse-mcp_omniverse__<tool>`: the server's instructions and descriptions are the same |
+| `--strict-mcp-config`, `<config>/mcp.json` | The run's one server, `omniverse`: `uv run --no-sync --project <checkout> omniverse-mcp` with `OMNIVERSE_MCP_HOST=127.0.0.1`, `OMNIVERSE_MCP_PORT=<port>`, `OMNIVERSE_MCP_TOKEN=""` (the port's token file then), `OMNIVERSE_MCP_OUTPUT_DIR=<run>/mcp_output/<session>` and an empty `PYTHONPATH` (F8); no Context7 (Q12). Its tools are `mcp__omniverse__<tool>`, where a plugin user sees `mcp__plugin_omniverse-mcp_omniverse__<tool>`: the server's instructions and descriptions are the same |
 | `--setting-sources ""` (I2, S13) | No settings at all, so no user plugins (an installed omniverse-mcp at another version among them), no hooks or allows from any settings file, no `CLAUDE.md` or `AGENTS.md`, and no skills from the user's or the repo's folders: I2's "project, without local" went one further when step 2 showed the project source brings the repo's developer skills and `CLAUDE.md` files (S5, S6) |
 | `--append-system-prompt` | The tester's rules, the text of `test_project/AGENTS.md`, which then reach the tester whatever settings load (S13) |
 | `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` | The maintainer's auto-memory stays out: without it, the tester got its `MEMORY.md` (S4) |
 | `--tools`, `--permission-mode dontAsk`, `--allowedTools` | No shell, no web, no file writes (I1). Every omniverse tool, reading, and loading one of the plugin's five skills by name run without asking (`Skill(omniverse-mcp:<name>)`, in the form step 2 confirms); anything else is refused, never asked: another skill the session can see (Claude Code's own, one in the git-ignored `test_project/.claude/skills/`, a user's) could pre-approve its own tools, while the plugin's name only read-only ones (F10) |
 | Rows (I1) | The tester writes no file. The prompt asks for its rows as a table at the end of its last message, and the script writes `phase-NN.md` from it; captures land in `mcp_output/`, and saves and exports are Kit's own writes |
-| `--output-format stream-json --verbose` | The transcript, `transcript-NN.jsonl`: every call the tester made and each answer |
+| `--output-format stream-json --verbose` | The transcript, `transcript-<session>.jsonl`: every call the tester made and each answer |
+| `--no-session-persistence` | No session saved to disk: each session's working folder would otherwise become a project of its own in `~/.claude/projects` (review round 2) |
 
 - **Isolation, checked.** The stream's first event (`system`, `init`) lists the session's tools, its MCP servers with
   their status, its plugins and its memory paths (S8). `run` stops the tester at once if a server other than
@@ -470,7 +472,7 @@ while the rows of phases 3 and 12 cite that name. Each session now writes to `mc
 | A run wipes a stage someone cares about | Resolved: port, stage and bridge rules; the override needs the maintainer's word |
 | `execute_script` is pre-approved in the tester and runs Python in Kit with the user's rights, so "no shell" doesn't fence the machine. The tester writes its own code for 6.3, 15.6 to 15.8, 15.14, 15.15 and 17.4, so the code isn't only the repo's | Accepted (Q12): Context7 is dropped, so the code comes from the scenarios, the skills and the model, and runs on the test Kit, as the live suites' code does |
 | The repo's developer rules, skills or the maintainer's memory load into the tester | Resolved: with no settings source and auto-memory off, no instruction file, repo skill or memory reaches it (S4, S13); the `init` check refuses a memory path |
-| The tester marks PASS without looking, or calls more than the scenario asks | Accepted, watched: one phase per session, transcripts kept, ten rows spot-checked in step 9 and the report naming the calls behind each FAIL |
+| The tester marks PASS without looking, or calls more than the scenario asks | Accepted, watched: one phase per session, transcripts kept, 14 rows spot-checked in step 9 and the report naming the calls behind each FAIL |
 | Time and cost unknown | Accepted: `run.json` records both, the skill states them after step 9, `--budget` caps a run |
 | Kit stops answering mid-run: a hang inside Kit (#54), or a tester's script holding its main thread (step 9) | Resolved: the `/health` watch ends the run 140 s after the first unanswered probe and names the call in flight; the tester's rules forbid scripts of its own that wait on Kit, await more than one handler or import the bridge's modules |
 | A tester judges the same answer differently from run to run (step 9: FAIL, then WARN) | Accepted, a limit of an AI tester: `compare` lists such a change under other changes, not fixes, and the skill reads the answers in the transcripts before calling a change a fix or a regression |

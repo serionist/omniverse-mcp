@@ -34,8 +34,9 @@ running this skill sees only the summary. Why it works this way: `docs/plans/202
    ends, then the run's folder.
 4. **Compare:** `uv run tools/scenarios.py compare` sets the newest run against the earlier ones; before a release,
    `--against <the last release's tag>` sets it against the run made on that release's tree, from a clean tree on
-   its PR's final head. While no release has a run, compare with the newest run and say so. It exits 1 on a
-   regression or a scenario not run.
+   its PR's final head, or `--against <its folder>`, which that release's PR names, when the tag's tree differs.
+   While no release has a run, plain `compare`, which sets it against the earlier runs, and say so. A release PR
+   names its run's folder. It exits 1 on a regression or a scenario not run.
 5. **Report** to the maintainer: compare's counts and skill loads; each regression, FAIL and WARN with its note and
    capture; for each FAIL, what the session's transcript (`transcript-<session>.jsonl` in the run's folder) shows the
    tester called. A status that moved while the tool's answer in the transcripts stayed the same is two testers'

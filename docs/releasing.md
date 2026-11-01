@@ -32,8 +32,10 @@ plan's S9, S10 and D7 say why it works this way.
    - the live suites (`AGENTS.md`, Build and test) against that Kit app;
    - the AI scenario suite, every phase (`run-scenarios`), from a clean tree on the PR's final head, against the same
      Kit app (port 8212 by default; `--port 8211 --allow-port-8211` for the maintainer's own), compared with the last
-     release's run (`uv run tools/scenarios.py compare --against v<last>`), or, while no release has a run, with the
-     newest run, which the PR says: each regression read in both runs' transcripts, then fixed or explained in the PR;
+     release's run (`uv run tools/scenarios.py compare --against v<last>`, or `--against <its folder>`, named in that
+     release's PR, when the tag's tree differs), or, while no release has a run, plain `compare`, which sets it
+     against the earlier runs, as the PR says. Each regression is read in both runs' transcripts, then fixed or
+     explained in the PR, which names the run's folder;
    - the plugin, a copy of `plugin/` whose `.mcp.json` runs `uvx --from <the wheel> omniverse-mcp`, loaded with
      `claude --plugin-dir`: `/omniverse-mcp:setup` reports the extension equal to the server.
 3. **Merge it, then tag its merge commit at once:** `git tag vX.Y.Z <merge commit>` and `git push origin vX.Y.Z`.
