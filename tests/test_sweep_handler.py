@@ -19,10 +19,10 @@ from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
-from pxr import Sdf, Usd, UsdGeom
+from pxr import Sdf, Tf, Usd, UsdGeom
 
-from ovmcp.core import capture, sweep
-from ovmcp.core.jobs import CANCELLED, COMPLETED, FAILED, Job, JobBoard
+from ovmcp.core import capture, exposure, sweep
+from ovmcp.core.jobs import CANCELLED, COMPLETED, FAILED, WORKING, Job, JobBoard
 from ovmcp.core.serial import LazyLock
 from ovmcp.core.usd import select
 
@@ -105,7 +105,8 @@ def layers(stage: Usd.Stage) -> dict[str, str]:
 
 
 class FakeFeed:
-    """The lent camera feed as a sweep uses it."""
+    """The lent camera feed as a sweep uses it, with #177's exposure shield as CameraFeed has it: authored in the
+    session layer for the camera it renders through, lifted when it renders through another or is dropped."""
 
     def __init__(self, kit: "FakeKit", camera_path: str, width: int, height: int) -> None:
         self.kit = kit
@@ -114,14 +115,32 @@ class FakeFeed:
         self.frames = 0
         self.dropped = False
         self.aimed: list[str] = []
+        self.shield = exposure.shield(kit.get_stage(), camera_path)
+
+    def _lift(self) -> None:
+        shield, self.shield = self.shield, None
+        if shield is not None and self.kit.stage is not None and self.kit.stage.GetSessionLayer() == shield.layer:
+            shield.lift()
 
     def aim(self, camera_path: str, width: int, height: int) -> None:
         assert (width, height) == (self.width, self.height)
-        self.camera_path = camera_path
+        if camera_path != self.camera_path:
+            self._lift()
+            self.shield = exposure.shield(self.kit.get_stage(), camera_path)
+            self.camera_path = camera_path
         self.aimed.append(camera_path)
+
+    def drop(self) -> None:
+        self.dropped = True
+        self._lift()
 
     async def first_frame(self, seconds: float) -> None:
         assert seconds == capture.FRAME_SECONDS
+        await self.kit.next_update()
+        if self.kit.first_frame_gate is not None:
+            await self.kit.first_frame_gate
+        if self.kit.first_frame_fails:
+            raise capture.NoFrameError(f"The camera {self.camera_path} rendered no frame in 30 s")
         self.frames += 1
 
     async def wait_frames(self, count: int, budget: capture.Budget | None = None) -> None:
@@ -158,6 +177,11 @@ class FakeKit:
         # Called at each capture with its number, before it gives its image.
         self.on_capture: Callable[[int], Awaitable[None]] | None = None
         self.frames_move = True
+        self.first_frame_fails = False
+        self.first_frame_gate: asyncio.Future[None] | None = None
+        # Called at each refresh, and as hand_back runs, which then awaits an update.
+        self.on_refresh: Callable[[], None] | None = None
+        self.on_hand_back: Callable[[], None] | None = None
 
     def get_stage(self) -> Usd.Stage:
         if self.stage is None:
@@ -180,13 +204,18 @@ class FakeKit:
 
     async def hand_back(self, feed: FakeFeed, stage_id: object, healthy: bool) -> None:
         self.handed_back.append((feed, stage_id, healthy))
+        if self.on_hand_back is not None:
+            self.on_hand_back()
+            await self.next_update()
 
     def let_go_now(self, feed: FakeFeed) -> None:
-        feed.dropped = True
+        feed.drop()
         self.torn_down.append(feed)
 
     async def refresh(self, _stage: Usd.Stage, paths: list[Sdf.Path]) -> None:
         self.refreshed.append(sorted(str(p) for p in paths))
+        if self.on_refresh is not None:
+            self.on_refresh()
         await self.next_update()
 
     async def capture(self, feed: FakeFeed, budget: capture.Budget | None = None) -> tuple[bytes, bool]:
@@ -233,6 +262,16 @@ def kit(tmp_path: Path) -> FakeKit:
 @pytest.fixture
 def env(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     board = JobBoard(watch=lambda _job: None)
+
+    def stop_for_stage(job: Job, stage_id: object) -> bool:
+        # handlers/jobs.py's, on the fake Kit's stage: the watch's reasons, at once.
+        reason = "the stage changed" if kit.stage_id != stage_id else None
+        reason = reason or ("the stage began to close" if kit.stage_state != OPENED else None)
+        if reason is None or job.state != WORKING:
+            return False
+        board.cancel(job.id, reason)
+        return True
+
     context = SimpleNamespace(
         get_stage=lambda: kit.stage,
         get_stage_id=lambda: kit.stage_id,
@@ -271,7 +310,9 @@ def env(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
             lend=kit.lend,
             let_go_now=kit.let_go_now,
         ),
-        "handlers_under_test.jobs": _module("handlers_under_test.jobs", start_job=board.start),
+        "handlers_under_test.jobs": _module(
+            "handlers_under_test.jobs", start_job=board.start, stop_for_stage=stop_for_stage
+        ),
         "handlers_under_test.variants": _module("handlers_under_test.variants", refresh=kit.refresh),
     }
     for name, module in fakes.items():
@@ -472,12 +513,13 @@ def test_a_camera_path_shot_renders_its_camera_unwritten_checked_after_its_switc
     # Its own horizontal aperture, the vertical as Kit renders it: matched to the image.
     assert (entries[0]["horizontal_aperture"], entries[0]["vertical_aperture"]) == pytest.approx((20.955, 11.7871875))
     assert entries[0]["clipping_range"] == pytest.approx([0.05, 200])
-    # The closed state took the camera away: shot 2 fails with why, and the sweep goes on.
-    assert entries[1]["error"].startswith(f"No prim at {cam}")
+    # The closed state took the camera away: shot 2 fails with why, and the sweep goes on. The feed's exposure shield
+    # holds an empty over there until it renders through another camera (#177), so the camera reads typeless.
+    assert entries[1]["error"] == f"{cam} is a typeless prim, not a Camera: camera_path must name a camera"
     assert "file" not in entries[1]
     assert job.result is not None
     assert job.result["failed"] == [2]
-    assert "shot 2 of 3 failed: No prim at" in job.lines.kept()["stdout"]
+    assert f"shot 2 of 3 failed: {cam} is a typeless prim" in job.lines.kept()["stdout"]
     # Read back, shot 1 takes the view its camera rendered without the camera (round 2, P15).
     back = sweep.read_shots(_manifest(tmp_path), 1280, 720)
     assert (back[0].camera_path, back[0].position, back[0].pitch) == ("", (1.0, 2.0, 0.65), -90.0)
@@ -665,6 +707,154 @@ def test_the_viewport_lock_is_taken_per_shot_so_a_capture_runs_between_shots(env
     _run(env, _body(tmp_path, FOUR[:3]))
 
     assert kit.order == ["shot 1", "capture_viewport", "shot 2", "shot 3"]
+
+
+# ----- round 1 of the code review -----
+
+
+def test_a_feed_whose_first_frame_never_came_is_released_not_kept(env, kit, tmp_path):
+    stage = kit.get_stage()
+    before = layers(stage)
+    kit.first_frame_fails = True
+
+    _, job = _run(env, _body(tmp_path, FOUR))
+
+    assert (job.state, job.error) == (FAILED, "The camera /OmniverseKit_Sweep rendered no frame in 30 s")
+    assert [healthy for _, _, healthy in kit.handed_back] == [False]
+    assert layers(stage) == before
+
+
+def test_a_cancel_while_the_first_frame_comes_leaves_the_feed_healthy(env, kit, tmp_path):
+    async def main() -> Job:
+        kit.first_frame_gate = asyncio.get_running_loop().create_future()
+        started = await env.handler.handle_sweep_start(_body(tmp_path, FOUR))
+        job = env.board.get(started["result"]["id"])
+        for _ in range(20):
+            await asyncio.sleep(0)
+        assert kit.feeds, "the feed is lent and waits for its first frame"
+        env.board.cancel(job.id, "cancel_job was called")
+        await _until_ended(job)
+        return job
+
+    job = asyncio.run(main())
+
+    assert job.state == CANCELLED
+    assert [healthy for _, _, healthy in kit.handed_back] == [True]
+
+
+def _new_stage(kit: FakeKit) -> Usd.Stage:
+    """A stage opened in place of the sweep's, with an A and a B of its own a shot could switch."""
+    area = Path(kit.get_stage().GetPrimAtPath(A).GetPrimStack()[-1].layer.realPath)
+    new = Usd.Stage.CreateInMemory()
+    for path in (A, B):
+        new.DefinePrim(path).GetReferences().AddReference(str(area))
+    return new
+
+
+def test_a_stage_opened_at_a_shot_s_start_gets_none_of_its_writes(env, kit, tmp_path):
+    new = _new_stage(kit)
+    new_before = layers(new)
+
+    async def swap(number: int) -> None:
+        # Opened between shot 1 and shot 2, before the watch's next update: nothing cancelled the sweep yet.
+        if number == 1:
+            kit.stage, kit.stage_id = new, 2
+
+    kit.on_capture = swap
+    _, job = _run(env, _body(tmp_path, FOUR))
+
+    assert (job.state, job.message) == (CANCELLED, "the stage changed")
+    assert layers(new) == new_before
+    assert len(kit.seen) == 1
+    assert _manifest(tmp_path)["ended"] == "cancelled: the stage changed"
+
+
+def test_a_stage_opened_while_a_shot_waits_for_its_switch_gets_none_of_its_writes(env, kit, tmp_path):
+    new = _new_stage(kit)
+    new_before = layers(new)
+    new_timeline = FakeTimeline("paused", 9.0)
+
+    def swap() -> None:
+        kit.stage, kit.stage_id, kit.timeline = new, 2, new_timeline
+
+    kit.on_refresh = swap
+    _, job = _run(env, _body(tmp_path, [_pose(selections={A: {"state": "open"}}, time=2)]))
+
+    assert (job.state, job.message) == (CANCELLED, "the stage changed")
+    assert layers(new) == new_before
+    assert new_timeline.calls == []
+    assert kit.seen == []
+
+
+def test_a_second_cancel_while_the_feed_is_handed_back_still_leaves_the_manifest_and_the_last_line(env, kit, tmp_path):
+    stage = kit.get_stage()
+    before = layers(stage)
+
+    async def cancel(number: int) -> None:
+        if number == 2:
+            env.board.cancel("j1", "cancel_job was called")
+            await asyncio.sleep(0)
+
+    kit.on_capture = cancel
+    kit.on_hand_back = lambda: env.board.cancel("j1", "cancel_job was called")
+    _, job = _run(env, _body(tmp_path, FOUR))
+
+    assert job.state == CANCELLED
+    assert layers(stage) == before
+    assert _manifest(tmp_path)["ended"] == "cancelled: cancel_job was called"
+    folder = tmp_path / "sweeps" / "site_a"
+    assert job.lines.last == f"1 of 4 shots in {folder}/ (manifest.json); cancelled: cancel_job was called"
+
+
+def test_every_selection_comes_back_in_one_change(env, kit, tmp_path):
+    stage = kit.get_stage()
+    changed: list[int] = []
+    listeners: list[Any] = []
+
+    async def listen(number: int) -> None:
+        if number == 30:
+            listeners.append(Tf.Notice.Register(Usd.Notice.ObjectsChanged, lambda *_: changed.append(1), stage))
+
+    kit.on_capture = listen
+    shots = [
+        _pose(selections={A: {"state": ("open", "closed")[i % 2]}, B: {"lod": ("low", "high")[i % 2]}})
+        for i in range(30)
+    ]
+    _run(env, _body(tmp_path, shots))
+
+    # The feed's shield lifted, the selections, the camera deleted: one change each, where a block per snapshot
+    # made one per shot's switch (code review, F2).
+    assert len(changed) <= 4, len(changed)
+
+
+def test_a_scene_camera_rendered_before_a_shot_switches_its_parent_leaves_no_over(env, kit, tmp_path):
+    # The feed's shield makes /World/A in the session layer for the camera; the next shot's selection holds it open as
+    # the shield lifts, and A's snapshot, which found it there, keeps it: the end removes the empty over (#177).
+    stage = kit.get_stage()
+    lens = UsdGeom.Camera.Define(stage, f"{A}/Lens")
+    lens.GetFocalLengthAttr().Set(10.0)
+    before = layers(stage)
+    shots = [{"camera_path": f"{A}/Lens"}, _pose(selections={A: {"state": "open"}})]
+
+    _, job = _run(env, _body(tmp_path, shots))
+
+    assert job.state == COMPLETED
+    assert [s["camera"] for s in kit.seen] == [f"{A}/Lens", sweep.CAMERA_PATH]
+    assert layers(stage) == before
+
+
+def test_an_empty_over_left_at_the_sweep_s_camera_blocks_nothing_and_stays(env, kit, tmp_path):
+    # As RTX left one in the root layer before #177, and one in the session layer with something in it.
+    stage = kit.get_stage()
+    Sdf.CreatePrimInLayer(stage.GetRootLayer(), Sdf.Path(sweep.CAMERA_PATH))
+    held = Sdf.CreatePrimInLayer(stage.GetSessionLayer(), Sdf.Path(sweep.CAMERA_PATH))
+    Sdf.AttributeSpec(held, "exposure:time", Sdf.ValueTypeNames.Float).default = 0.5
+    before = layers(stage)
+
+    _, job = _run(env, _body(tmp_path, FOUR[:1]))
+
+    assert job.state == COMPLETED, job.error
+    assert layers(stage) == before
 
 
 # ----- the start -----

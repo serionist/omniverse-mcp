@@ -391,6 +391,29 @@ def test_a_watching_job_stops_when_the_stage_begins_to_close(handlers, kit):
     assert asyncio.run(main()).message == "the stage began to close"
 
 
+def test_stop_for_stage_cancels_a_job_at_once_when_its_stage_went(handlers, kit):
+    # Before the watch's next update, for a sweep about to write to the stage (#157's code review, F4).
+    jobs = handlers.jobs
+
+    async def sweep(_job: Job) -> dict[str, Any]:
+        await asyncio.get_running_loop().create_future()
+        return {}
+
+    async def main() -> tuple[bool, bool, Job]:
+        job = jobs.start_job("sweep", "", sweep, watch_stage=True)
+        await _turns()
+        same = jobs.stop_for_stage(job, 1)
+        kit.stage_id = 2
+        went = jobs.stop_for_stage(job, 1)
+        await _turns()
+        return same, went, job
+
+    same, went, job = asyncio.run(main())
+
+    assert (same, went) == (False, True)
+    assert (job.state, job.message) == (CANCELLED, "the stage changed")
+
+
 def test_a_script_job_runs_on_through_a_stage_change(handlers, kit):
     # A bake may open stages itself: a script job doesn't watch.
     jobs = handlers.jobs

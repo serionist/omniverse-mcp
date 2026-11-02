@@ -62,6 +62,17 @@ def start_job(
     return _board.start(kind, label, factory, watch_stage=watch_stage, teardown=teardown)
 
 
+def stop_for_stage(job: Job, stage_id: int) -> bool:
+    """Cancels `job`, which watches the stage it started on, with the watch's reason when that stage changed or began
+    to close, at once rather than on the next update; whether it did. For a job about to write to the stage, which a
+    stage opened between two of its steps would get otherwise. The cancel lands at the job's next await."""
+    reason = _why_stop(stage_id)
+    if reason is None or job.state != WORKING:
+        return False
+    _board.cancel(job.id, reason)
+    return True
+
+
 def job_brief() -> dict | None:
     """The running job in a few words, for /sim/state; None when none runs."""
     return _board.brief()

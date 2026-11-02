@@ -28,14 +28,14 @@ from pxr import Gf, Sdf, Usd, UsdGeom
 from ovmcp.core import capture, output, protocol, sweep
 from ovmcp.core.jobs import Job, JobError
 from ovmcp.core.recording import camera_error
-from ovmcp.core.usd import floats, prim_spec, remove_child_spec
+from ovmcp.core.usd import anonymous_layer, floats, prim_spec, remove_child_spec
 from ovmcp.core.variants import Snapshot
 from ovmcp.core.xform import aim
 
 from ._utils import CAMERA_SETTLE_FRAMES, _get_active_camera_path, _get_stage, _next_update, _settle_frames
 from .camera import _capture_frame, _get_current_lighting_mode
 from .camera_feed import _viewport, hand_back, lend, let_go_now
-from .jobs import start_job
+from .jobs import start_job, stop_for_stage
 from .variants import refresh
 
 # What a shot's own steps may raise, from Kit or USD (pxr's errors are RuntimeErrors) or the disk: that shot fails, and
@@ -102,6 +102,10 @@ class _Sweep:
         self.timeline: sweep.TimelineStart | None = None
         self.camera_made = False
         self.up_axis = "Z"
+        # A spec the session layer held at the camera's path before, copied, so the end puts it back; and every prim
+        # spec it held, so the end removes the empty overs made since.
+        self.camera_before: Sdf.Layer | None = None
+        self.session_specs: set[Sdf.Path] | None = None
         self.clipping = sweep.CLIPPING_METRES
         self.feed = None
         # A capture that raised leaves the feed in doubt: released at the end, not kept (#141).
@@ -158,6 +162,7 @@ class _Sweep:
         self.up_axis = str(UsdGeom.GetStageUpAxis(stage))
         meters_per_unit = UsdGeom.GetStageMetersPerUnit(stage)
         self.clipping = sweep.clipping_range(meters_per_unit)
+        self.session_specs = sweep.prim_specs(session)
         self._make_camera(stage)
         self.header.update(
             {
@@ -175,16 +180,29 @@ class _Sweep:
         # At once, so a second sweep given this name is refused while this one runs.
         self._write_manifest("working")
         self.feed = await lend(sweep.CAMERA_PATH, self.width, self.height)
-        # The bound a viewport frame gets, sized for a renderer's cold start (#27); at once for a kept feed.
-        await self.feed.first_frame(capture.FRAME_SECONDS)
+        try:
+            # The bound a viewport frame gets, sized for a renderer's cold start (#27); at once for a kept feed.
+            await self.feed.first_frame(capture.FRAME_SECONDS)
+        except Exception:
+            # A feed that gave no first frame is released at the end, not kept, as a recording's start lets it go
+            # (code review, F3). A cancel isn't an Exception, and leaves it healthy.
+            self.doubted = True
+            raise
 
     def _make_camera(self, stage: Usd.Stage) -> None:
         """The sweep's camera, in the session layer as Kit's own are, so no file changes, with Isaac Sim's clipping
         range, where USD's default cuts the floor in front of a camera 0.65 m above it (round 1, P2)."""
-        with Usd.EditContext(stage, Usd.EditTarget(stage.GetSessionLayer())):
+        session = stage.GetSessionLayer()
+        path = Sdf.Path(sweep.CAMERA_PATH)
+        if prim_spec(session, path) is not None:
+            # An over left there, an earlier sweep's or another's: the camera is defined over it, and it comes back.
+            self.camera_before = anonymous_layer()
+            Sdf.CopySpec(session, path, self.camera_before, path)
+        with Usd.EditContext(stage, Usd.EditTarget(session)):
             camera = UsdGeom.Camera.Define(stage, sweep.CAMERA_PATH)
+            # Before anything else can fail, so the end deletes the camera whatever does.
+            self.camera_made = True
             camera.GetClippingRangeAttr().Set(Gf.Vec2f(*self.clipping))
-        self.camera_made = True
 
     # ----- the shots -----
 
@@ -219,6 +237,7 @@ class _Sweep:
         its camera aimed, its frame taken and written. What fails is the shot's, recorded with why."""
         taken = sweep.Taken(index, shot)
         budget = capture.Budget(sweep.SHOT_SECONDS)
+        await self._on_its_stage()
         stage = _get_stage()
         session = stage.GetSessionLayer()
         timeline = omni.timeline.get_timeline_interface()
@@ -226,13 +245,15 @@ class _Sweep:
         out = sweep.changes(self.start, self.written, shot)
         if out:
             try:
-                self.snapshots += sweep.switch(stage, out, session)
+                self.snapshots += sweep.switch(stage, out, session, shot)
             except ValueError as e:
                 taken.error = f"its selections were refused: {e}"
                 return taken
             self.written = sweep.written_after(self.written, out)
             await refresh(stage, [Sdf.Path(prim) for prim in out])
             await self._wait_for_loading(taken, budget)
+            # Its awaits let other requests run, an open_scene among them.
+            await self._on_its_stage()
 
         if shot.time is not None:
             sweep.TimelineStart.seek(timeline, shot.time)
@@ -269,6 +290,14 @@ class _Sweep:
         taken.timeline_time = timeline.get_current_time()
         taken.frame = taken.timeline_time * stage.GetTimeCodesPerSecond()
         return taken
+
+    async def _on_its_stage(self) -> None:
+        """Ends the sweep as a stage change does when the stage it started on changed or began to close, before a shot
+        writes anything: the watch cancels it only on the next update, and a stage opened at a shot's start would get
+        the shot's writes, which the end, finding another stage, never undoes (code review, F4)."""
+        if self.job is not None and stop_for_stage(self.job, self.stage_id):
+            # The cancel lands here, before any write.
+            await asyncio.sleep(0)
 
     async def _wait_for_loading(self, taken: sweep.Taken, budget: capture.Budget) -> None:
         """Until the stage has loaded what the switch brought in, LOADING_SECONDS at most: a variant whose payloads,
@@ -347,22 +376,30 @@ class _Sweep:
         return context.get_stage_id() == self.stage_id and context.get_stage_state() == omni.usd.StageState.OPENED
 
     def _put_stage_back(self) -> None:
-        snapshots, self.snapshots = self.snapshots, []
-        for snapshot in reversed(snapshots):
-            self._step("putting a selection back", snapshot.restore)
-        start, self.timeline = self.timeline, None
-        if start is not None:
-            self._step("putting the timeline back", lambda: start.restore(omni.timeline.get_timeline_interface()))
         feed = self.feed
         if feed is not None and not feed.dropped:
-            # Off the camera about to go, onto the one a capture takes by default: a deleted camera renders white.
+            # First, onto the camera a capture takes by default: off the sweep's camera, which goes below and would
+            # render white, and off a scene camera, so the feed lifts the exposure shield it wrote there (#177) before
+            # the selections come back.
             self._step(
                 "pointing the feed at the viewport's camera",
                 lambda: feed.aim(_get_active_camera_path(), self.width, self.height),
             )
+        snapshots, self.snapshots = self.snapshots, []
+        # One change block: 400 snapshots restored one block each took 2.5 s of Kit's main thread, 0.1 s in one (code
+        # review, F2).
+        with Sdf.ChangeBlock():
+            for snapshot in reversed(snapshots):
+                self._step("putting a selection back", snapshot.restore)
+        start, self.timeline = self.timeline, None
+        if start is not None:
+            self._step("putting the timeline back", lambda: start.restore(omni.timeline.get_timeline_interface()))
         if self.camera_made:
             self.camera_made = False
             self._step("deleting its camera", self._delete_camera)
+        specs, self.session_specs = self.session_specs, None
+        if specs is not None:
+            self._step("removing the empty overs it left", lambda: sweep.prune(_get_stage().GetSessionLayer(), specs))
 
     def _delete_camera(self) -> None:
         session = _get_stage().GetSessionLayer()
@@ -370,6 +407,8 @@ class _Sweep:
         parent = prim_spec(session, path.GetParentPath())
         if parent is not None and prim_spec(session, path) is not None:
             remove_child_spec(parent, path.name)
+        if self.camera_before is not None:
+            Sdf.CopySpec(self.camera_before, path, session, path)
 
     def _finish(self, ended: str) -> None:
         """The manifest of the shots done and the summary line, once."""
@@ -424,7 +463,9 @@ async def handle_sweep_start(body: dict) -> dict:
     reasons = sweep.refusals(stage, shots, stage.GetSessionLayer())
     if reasons:
         return _error("\n".join(reasons))
-    if stage.GetPrimAtPath(sweep.CAMERA_PATH).IsValid():
+    # A defined camera only: an empty over left there, such as RTX's exposure attributes (#177), blocks nothing.
+    left = stage.GetPrimAtPath(sweep.CAMERA_PATH)
+    if left.IsValid() and left.IsDefined():
         return _error(
             f"{sweep.CAMERA_PATH} is on the stage already, the camera of an earlier sweep that couldn't delete it: "
             "delete it with delete_prim, then start the sweep again"

@@ -17,7 +17,7 @@ from typing import Any, Protocol, cast
 from pxr import Gf, Sdf, Usd
 
 from . import variants
-from .usd import floats, prim_spec, select
+from .usd import floats, prim_spec, remove_child_spec, select, selections, unselect
 
 # The most shots one sweep takes: the case's check is about 400, and a list of 2,000 is about a megabyte of JSON.
 MAX_SHOTS = 2000
@@ -48,7 +48,7 @@ SHOT_SECONDS = 30.0
 
 # A shot's fields as a list gives them; a manifest's entries hold these too, and those after them, which a manifest
 # read back as shots passes over.
-_FIELDS = frozenset(
+FIELDS = frozenset(
     {
         "name",
         "position",
@@ -211,10 +211,10 @@ def _shot(raw: object, width: int, height: int, from_manifest: bool) -> Shot:
     if not isinstance(raw, dict):
         raise ValueError(f"a shot is an object of its fields, got {raw!r}")
     entry = cast("dict[str, object]", raw)
-    known = _FIELDS | _MANIFEST_FIELDS if from_manifest else _FIELDS
+    known = FIELDS | _MANIFEST_FIELDS if from_manifest else FIELDS
     unknown = sorted(str(k) for k in entry if k not in known)
     if unknown:
-        raise ValueError(f"unknown fields {', '.join(unknown)}; a shot's fields: {', '.join(sorted(_FIELDS))}")
+        raise ValueError(f"unknown fields {', '.join(unknown)}; a shot's fields: {', '.join(sorted(FIELDS))}")
     name = entry.get("name", "")
     if not isinstance(name, str) or len(name) > _LONGEST_NAME:
         raise ValueError(f"name must be text of up to {_LONGEST_NAME} characters, got {name!r}")
@@ -280,12 +280,25 @@ def _time(value: object) -> float | None:
     return None if value is None else _number(value, "time")
 
 
+def _same_size(manifest: Mapping[str, object], width: int, height: int) -> None:
+    """ValueError when a manifest's shots were taken at another size than width x height: its lenses fit its size, and a
+    rerun at another isn't the same picture (code review, G1)."""
+    taken = (manifest.get("width"), manifest.get("height"))
+    if None not in taken and taken != (width, height):
+        raise ValueError(
+            f"The manifest's shots were taken at {taken[0]}x{taken[1]}: give width={taken[0]}, height={taken[1]}, "
+            "since a sweep taken again is taken at its first size"
+        )
+
+
 def read_shots(value: object, width: int, height: int) -> list[Shot]:
     """The shots of a list of them, or of a sweep's manifest (a dict with its "shots"), at width x height, every one
     checked first. ValueError naming each shot at fault, by its number from 1, the first few of them."""
     mapping = cast("dict[str, object]", value) if isinstance(value, dict) else {}
     from_manifest = "shots" in mapping
     items = mapping.get("shots") if from_manifest else cast("object", value)
+    if from_manifest:
+        _same_size(mapping, width, height)
     kind = "a manifest without a list of shots" if from_manifest else type(items).__name__
     entries = cast("list[object]", items) if isinstance(items, list) else None
     if entries is None:
@@ -393,54 +406,116 @@ def written_after(written: Held, done: Changes) -> Held:
 def refusals(stage: Usd.Stage, shots: Iterable[Shot], layer: Sdf.Layer) -> list[str]:
     """Why each selection a shot asks for would be refused in layer, where its prim and set exist now (round 1, P8): a
     misspelled variant fails at the start, not at its shot. A prim or set that only a switch brings in is checked at its
-    shot."""
+    shot. Each selection once, however many shots ask for it."""
     reasons: dict[str, None] = {}
-    for shot in shots:
-        for prim_path, sets in shot.selections.items():
-            prim = stage.GetPrimAtPath(prim_path)
-            if not prim.IsValid():
-                continue
-            for name, variant in sets.items():
-                if not prim.GetVariantSets().HasVariantSet(name):
-                    continue
-                why = variants.variant_refusal(prim, name, variant, layer)
-                if why:
-                    reasons[why] = None
+    asked = {
+        (prim, name, variant)
+        for shot in shots
+        for prim, sets in shot.selections.items()
+        for name, variant in sets.items()
+    }
+    for prim_path, name, variant in sorted(asked):
+        prim = stage.GetPrimAtPath(prim_path)
+        if not prim.IsValid() or not prim.GetVariantSets().HasVariantSet(name):
+            continue
+        why = variants.variant_refusal(prim, name, variant, layer)
+        if why:
+            reasons[why] = None
     return list(reasons)
 
 
-def switch(stage: Usd.Stage, out: Changes, layer: Sdf.Layer) -> list[variants.Snapshot]:
-    """Writes `out` into layer and returns the snapshots that put it back: names and clears through #155's switch, a
-    block, which switch would take for a clear, through the block helper (round 2, P11). ValueError, with nothing
-    written, when any one is refused."""
-    plain = {
-        Sdf.Path(prim): {name: value or "" for name, value in sets.items() if value != ""} for prim, sets in out.items()
-    }
-    plain = {prim: sets for prim, sets in plain.items() if sets}
-    blocks = {Sdf.Path(prim): [name for name, value in sets.items() if value == ""] for prim, sets in out.items()}
-    blocks = {prim: names for prim, names in blocks.items() if names}
-    reasons: list[str] = []
-    for path, names in blocks.items():
-        prim = stage.GetPrimAtPath(path)
-        if not prim.IsValid():
-            reasons.append(f"Prim not found: {path}")
-            continue
-        reasons += [why for name in names if (why := variants.variant_refusal(prim, name, "", layer))]
-    if reasons:
-        raise ValueError("\n".join(reasons))
-    snapshots = [variants.switch(stage, plain, layer)] if plain else []
-    if blocks:
-        snapshot = variants.Snapshot(layer)
-        for path, names in blocks.items():
-            snapshot.keep(path, names)
-        with Sdf.ChangeBlock():
-            for path, names in blocks.items():
+def _write(layer: Sdf.Layer, out: Mapping[str, Mapping[str, str | None]]) -> variants.Snapshot:
+    """Writes each selection of out into layer, Sdf alone in one change block, and returns the snapshot that puts it
+    back: a name, a block ("", through the block helper, where #155's switch would clear; round 2, P11) or a clear
+    (None)."""
+    snapshot = variants.Snapshot(layer)
+    for prim, sets in out.items():
+        snapshot.keep(Sdf.Path(prim), sets)
+    with Sdf.ChangeBlock():
+        for prim, sets in out.items():
+            path = Sdf.Path(prim)
+            for name, value in sets.items():
                 spec = prim_spec(layer, path)
-                for name in names:
-                    select(spec if spec is not None else Sdf.CreatePrimInLayer(layer, path), name, "")
-        snapshot.wrote = True
-        snapshots.append(snapshot)
+                if value is not None:
+                    select(spec if spec is not None else Sdf.CreatePrimInLayer(layer, path), name, value)
+                elif spec is not None and name in selections(spec):
+                    unselect(spec, name)
+    snapshot.wrote = True
+    return snapshot
+
+
+def switch(stage: Usd.Stage, out: Changes, layer: Sdf.Layer, shot: Shot) -> list[variants.Snapshot]:
+    """Writes `out`, the selections to write before `shot`, into layer, and returns the snapshots that put it back.
+
+    A set the shot doesn't name goes back to its starting value unchecked: it held before the sweep, and a check
+    against the stage now can refuse it, a door's colour while the door's area is still open, say (code review, F1).
+    The shot's own are written outermost first, each level checked once the level above is written, so one shot can
+    open an area and choose its door's colour. ValueError when one is refused, with every write of the shot taken back.
+    """
+    reverts: Changes = {}
+    own: dict[str, dict[str, str]] = {}
+    for prim, sets in out.items():
+        named_here = shot.selections.get(prim, {})
+        for name, value in sets.items():
+            if name in named_here:
+                own.setdefault(prim, {})[name] = named_here[name]
+            else:
+                reverts.setdefault(prim, {})[name] = value
+    snapshots: list[variants.Snapshot] = []
+    try:
+        if reverts:
+            snapshots.append(_write(layer, reverts))
+        for depth in sorted({Sdf.Path(prim).pathElementCount for prim in own}):
+            level = {prim: sets for prim, sets in own.items() if Sdf.Path(prim).pathElementCount == depth}
+            reasons: list[str] = []
+            for prim_path, sets in level.items():
+                prim = stage.GetPrimAtPath(prim_path)
+                if not prim.IsValid():
+                    reasons.append(f"Prim not found: {prim_path}")
+                    continue
+                reasons += [
+                    why
+                    for name, variant in sets.items()
+                    if (why := variants.variant_refusal(prim, name, variant, layer))
+                ]
+            if reasons:
+                raise ValueError("\n".join(reasons))
+            snapshots.append(_write(layer, level))
+    except ValueError:
+        with Sdf.ChangeBlock():
+            for snapshot in reversed(snapshots):
+                snapshot.restore()
+        raise
     return snapshots
+
+
+def prim_specs(layer: Sdf.Layer) -> set[Sdf.Path]:
+    """The path of every prim spec in layer, nested ones included."""
+    found: set[Sdf.Path] = set()
+
+    def walk(spec: Sdf.PrimSpec) -> None:
+        found.add(spec.path)
+        for child in spec.nameChildren:
+            walk(child)
+
+    for root in layer.rootPrims:
+        walk(root)
+    return found
+
+
+def prune(layer: Sdf.Layer, kept: set[Sdf.Path]) -> list[Sdf.Path]:
+    """Removes each prim spec of layer that holds nothing and isn't one of kept, the layer's specs at the sweep's start,
+    deepest first, in one change block; the paths removed. Two takers-back can each leave an over the other made: a
+    selection's snapshot keeps an over the exposure shield made (#177), and the shield one a selection holds open."""
+    removed: list[Sdf.Path] = []
+    with Sdf.ChangeBlock():
+        for path in sorted(prim_specs(layer) - kept, key=lambda p: p.pathElementCount, reverse=True):
+            spec = prim_spec(layer, path)
+            parent = prim_spec(layer, path.GetParentPath())
+            if spec is not None and parent is not None and spec.IsInert():
+                remove_child_spec(parent, spec.name)
+                removed.append(path)
+    return removed
 
 
 # ----- the timeline -----

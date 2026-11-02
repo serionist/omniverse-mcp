@@ -223,6 +223,22 @@ def test_a_camera_path_shot_that_never_rendered_reads_back_as_its_camera():
     assert read_shots(_manifest(taken), W, H) == [shot]
 
 
+def test_a_manifest_taken_at_another_size_is_refused_naming_its_own(stage: Usd.Stage):
+    # Its lenses fit its own size, and at another the same shot is another picture (code review, G1).
+    manifest = sweep.manifest({"width": 640, "height": 480}, [Taken(1, Shot(position=(0, 0, 1), yaw=0, pitch=0))])
+
+    with pytest.raises(ValueError, match="The manifest's shots were taken at 640x480: give width=640, height=480"):
+        read_shots(manifest, W, H)
+    assert len(read_shots(manifest, 640, 480)) == 1
+
+
+def test_the_server_s_shot_takes_the_fields_and_count_kit_reads():
+    from omniverse_mcp.tools import sweep as tool
+
+    assert set(tool.Shot.model_fields) == sweep.FIELDS
+    assert tool.MAX_SHOTS == sweep.MAX_SHOTS
+
+
 def test_a_manifest_entry_s_unknown_field_is_still_refused():
     manifest = _manifest(Taken(1, _one(position=[0, 0, 1], yaw=0), file="0001.png"))
     shots = manifest["shots"]
@@ -342,14 +358,21 @@ def _area(stage: Usd.Stage, name: str = "state") -> str:
     return stage.GetPrimAtPath(AREA).GetVariantSet(name).GetVariantSelection()
 
 
+def _shot_of(selections: dict[str, dict[str, str]] | None = None) -> Shot:
+    return Shot(position=(0, 0, 1), yaw=0, pitch=0, selections=selections or {})
+
+
 def test_a_switch_writes_names_clears_and_blocks_and_its_snapshots_put_the_session_layer_back(stage: Usd.Stage):
     session = stage.GetSessionLayer()
-    select(Sdf.CreatePrimInLayer(session, AREA), "lod", "high")
+    select(Sdf.CreatePrimInLayer(session, Sdf.Path(AREA)), "lod", "high")
     before, root = session.ExportToString(), stage.GetRootLayer().ExportToString()
 
-    snapshots = sweep.switch(stage, {AREA: {"state": "open", "lod": None}}, session)
+    # The shot's own open, and lod's revert to a clear.
+    snapshots = sweep.switch(
+        stage, {AREA: {"state": "open", "lod": None}}, session, _shot_of({AREA: {"state": "open"}})
+    )
     assert (_area(stage), _area(stage, "lod")) == ("open", "")
-    snapshots += sweep.switch(stage, {AREA: {"state": ""}}, session)
+    snapshots += sweep.switch(stage, {AREA: {"state": ""}}, session, _shot_of())
     # A block shows no variant, where a clear would give the file's closed back (round 2, P11).
     assert _area(stage) == ""
     assert variants.selections_of(session, AREA) == {"state": ""}
@@ -360,16 +383,130 @@ def test_a_switch_writes_names_clears_and_blocks_and_its_snapshots_put_the_sessi
     assert stage.GetRootLayer().ExportToString() == root
 
 
-def test_a_refused_switch_writes_nothing(stage: Usd.Stage):
+def test_a_refused_switch_takes_back_every_write_of_its_shot(stage: Usd.Stage):
     session = stage.GetSessionLayer()
+    select(Sdf.CreatePrimInLayer(session, Sdf.Path(AREA)), "lod", "high")
     before = session.ExportToString()
 
     with pytest.raises(ValueError, match="has no variant 'ajar'"):
-        sweep.switch(stage, {AREA: {"state": "ajar", "lod": "low"}}, session)
+        sweep.switch(stage, {AREA: {"state": "ajar"}}, session, _shot_of({AREA: {"state": "ajar"}}))
+    # lod's revert is written first, then the shot's own is refused: the revert is taken back too.
     with pytest.raises(ValueError, match="Prim not found: /World/Nowhere"):
-        sweep.switch(stage, {AREA: {"lod": "low"}, "/World/Nowhere": {"state": ""}}, session)
+        sweep.switch(
+            stage,
+            {AREA: {"lod": None}, "/World/Nowhere": {"x": "y"}},
+            session,
+            _shot_of({"/World/Nowhere": {"x": "y"}}),
+        )
 
     assert session.ExportToString() == before
+
+
+# Sets inside sets (code review, F1): an area whose open state brings in a door with a colour set of its own.
+NESTED_USDA = """#usda 1.0
+def Xform "World" {
+    def Xform "A" (
+        variants = { string state = "closed" }
+        prepend variantSets = ["state"]
+    ) {
+        variantSet "state" = {
+            "closed" { }
+            "open" {
+                def Xform "Door" (
+                    variants = { string color = "red" }
+                    prepend variantSets = ["color"]
+                ) {
+                    variantSet "color" = { "red" { } "blue" { } }
+                }
+            }
+        }
+    }
+}
+"""
+NA, DOOR = "/World/A", "/World/A/Door"
+
+
+@pytest.fixture
+def nested() -> Usd.Stage:
+    layer = Sdf.Layer.CreateAnonymous(".usda")
+    layer.ImportFromString(NESTED_USDA)
+    return Usd.Stage.Open(layer)
+
+
+def _sweep_of(stage: Usd.Stage, shots: list[Shot]) -> list[tuple[str, str]]:
+    """The shots' switches in turn, as a sweep writes them: what each shot showed, A's state and the door's colour, or
+    why it was refused; then every snapshot restored."""
+    session = stage.GetSessionLayer()
+    start = sweep.held(session, sweep.named(shots))
+    written = dict(start)
+    snapshots: list[variants.Snapshot] = []
+    shown: list[tuple[str, str]] = []
+    for shot in shots:
+        out = changes(start, written, shot)
+        try:
+            snapshots += sweep.switch(stage, out, session, shot)
+        except ValueError as e:
+            shown.append(("refused", str(e)))
+            continue
+        written = sweep.written_after(written, out)
+        door = stage.GetPrimAtPath(DOOR)
+        colour = door.GetVariantSet("color").GetVariantSelection() if door.IsDefined() else "-"
+        shown.append((stage.GetPrimAtPath(NA).GetVariantSet("state").GetVariantSelection(), colour))
+    with Sdf.ChangeBlock():
+        for snapshot in reversed(snapshots):
+            snapshot.restore()
+    return shown
+
+
+def test_one_shot_opens_an_area_and_chooses_its_door_s_colour_from_the_start(nested: Usd.Stage):
+    session = nested.GetSessionLayer().ExportToString()
+
+    shown = _sweep_of(nested, [_shot_of({NA: {"state": "open"}, DOOR: {"color": "blue"}})])
+
+    assert shown == [("open", "blue")]
+    assert nested.GetSessionLayer().ExportToString() == session
+
+
+def test_a_door_s_colour_goes_back_after_a_shot_that_closed_its_area(nested: Usd.Stage):
+    session = nested.GetSessionLayer().ExportToString()
+    shots = [
+        _shot_of({NA: {"state": "open"}}),
+        _shot_of({NA: {"state": "open"}, DOOR: {"color": "blue"}}),
+        _shot_of({NA: {"state": "closed"}, DOOR: {"color": "blue"}}),
+        _shot_of(),
+        _shot_of(),
+    ]
+
+    shown = _sweep_of(nested, shots)
+
+    assert shown == [("open", "red"), ("open", "blue"), ("closed", "-"), ("closed", "-"), ("closed", "-")]
+    assert nested.GetSessionLayer().ExportToString() == session
+
+
+def test_an_inner_selection_refused_takes_back_the_outer_one_written_before_it(nested: Usd.Stage):
+    session = nested.GetSessionLayer()
+    before = session.ExportToString()
+    shot = _shot_of({NA: {"state": "open"}, DOOR: {"color": "green"}})
+
+    with pytest.raises(ValueError, match="has no variant 'green'"):
+        sweep.switch(nested, changes(sweep.held(session, sweep.named([shot])), {}, shot), session, shot)
+
+    assert session.ExportToString() == before
+    assert nested.GetPrimAtPath(NA).GetVariantSet("state").GetVariantSelection() == "closed"
+
+
+def test_prune_removes_the_empty_overs_made_since_and_keeps_the_rest():
+    layer = Sdf.Layer.CreateAnonymous(".usda")
+    Sdf.CreatePrimInLayer(layer, Sdf.Path("/Kept/Empty"))
+    kept = sweep.prim_specs(layer)
+    for path in ("/Kept/Empty/New", "/Made/Empty/Deeper", "/Holds"):
+        Sdf.CreatePrimInLayer(layer, Sdf.Path(path))
+    select(Sdf.CreatePrimInLayer(layer, Sdf.Path("/Holds")), "state", "open")
+
+    removed = sweep.prune(layer, kept)
+
+    assert sorted(str(p) for p in removed) == ["/Kept/Empty/New", "/Made", "/Made/Empty", "/Made/Empty/Deeper"]
+    assert sorted(str(p) for p in sweep.prim_specs(layer)) == ["/Holds", "/Kept", "/Kept/Empty"]
 
 
 def test_refusals_at_the_start_name_a_misspelled_variant_where_its_set_exists(stage: Usd.Stage):
@@ -383,6 +520,21 @@ def test_refusals_at_the_start_name_a_misspelled_variant_where_its_set_exists(st
     (why,) = sweep.refusals(stage, shots, stage.GetSessionLayer())
 
     assert why.startswith(f"{AREA}'s variant set 'state' has no variant 'ajar'")
+
+
+def test_refusals_check_each_selection_once_however_many_shots_ask_for_it(stage: Usd.Stage, monkeypatch):
+    checked: list[tuple[str, str]] = []
+    refusal = variants.variant_refusal
+
+    def counted(prim: Usd.Prim, name: str, variant: str, layer: Sdf.Layer) -> str | None:
+        checked.append((name, variant))
+        return refusal(prim, name, variant, layer)
+
+    monkeypatch.setattr(variants, "variant_refusal", counted)
+    shots = _shots(*[{"position": [0, 0, 1], "yaw": 0, "selections": {AREA: {"state": "open"}}}] * 400)
+
+    assert sweep.refusals(stage, shots, stage.GetSessionLayer()) == []
+    assert checked == [("state", "open")]
 
 
 # ----- the timeline -----
