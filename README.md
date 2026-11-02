@@ -271,10 +271,15 @@ More in [SETUP.md](docs/SETUP.md#troubleshooting).
 
 ## Known issues
 
-None open on Isaac Sim 6.2 and 5.1, the Kit apps tested so far. Report one as an
-[issue](https://github.com/serionist/omniverse-mcp/issues). When a tool misbehaves, your assistant asks whether to
-report it, then drafts the report with the versions, the call and Kit's log, and files it with the GitHub CLI once you
-agree to the draft, or leaves it for you to post (the plugin's [report-bug](plugin/skills/report-bug/SKILL.md) skill).
+- **Isaac Sim 6.2 (Kit 110.4) can stop answering after a long session of stage changes,** its main thread busy inside
+  Fabric's population code (`usdrt.population.plugin`), with none of the bridge's code running: seen in a test order
+  that opens many stages, plays physics with colliders and captures with segmentation, never in a short session.
+  Restart Kit; nothing of the bridge's can prevent it ([#162](https://github.com/serionist/omniverse-mcp/issues/162)).
+
+Report another as an [issue](https://github.com/serionist/omniverse-mcp/issues). When a tool misbehaves, your
+assistant asks whether to report it, then drafts the report with the versions, the call and Kit's log, and files it
+with the GitHub CLI once you agree to the draft, or leaves it for you to post (the plugin's
+[report-bug](plugin/skills/report-bug/SKILL.md) skill).
 
 ## Security
 
