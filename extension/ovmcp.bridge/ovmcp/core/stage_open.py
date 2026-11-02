@@ -1,4 +1,5 @@
-"""open_scene: a USD file opened as the stage, the checks before it, and the answer after (#79).
+"""open_scene: a USD file opened as the stage, the checks before it, and the answer after (#79); and new_scene's up
+axis and units (#159).
 
 Kit closes the open stage before it reads the file, so a file that fails to open leaves no stage at all (#79's E7).
 Everything that can refuse runs first, while the open stage is still there. Kit-free, as capture.py is: the handler
@@ -9,9 +10,10 @@ The limits are read when a call runs, never bound as defaults, so a test can sho
 """
 
 import asyncio
+import math
 import re
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Protocol, TypeVar
 from urllib.parse import unquote
 
@@ -123,6 +125,31 @@ def describe(stage: Usd.Stage) -> dict[str, Any]:
         # A .usdz can't be saved back, though Kit calls its stage writable (#79's E8).
         "package": bool(stage.GetRootLayer().GetFileFormat().IsPackage()),
     }
+
+
+def frame_of(body: Mapping[str, Any]) -> tuple[str, float | None]:
+    """new_scene's up axis and metres per unit from its request; ValueError for a value it can't make, read before
+    the open stage goes. A key left out keeps what a server older than #159 got, which sends neither: Y-up, and None
+    for the units Kit's new stage comes with, so its answer's "(Y-up)" stays true."""
+    up_axis = body.get("up_axis", "Y")
+    if up_axis not in ("Z", "Y"):
+        raise ValueError(f"up_axis must be Z or Y, not {up_axis!r}")
+    if "meters_per_unit" not in body:
+        return up_axis, None
+    meters = body["meters_per_unit"]
+    # A bool is an int to Python, and JSON's true isn't a unit.
+    if isinstance(meters, bool) or not isinstance(meters, int | float) or not math.isfinite(meters) or meters <= 0:
+        raise ValueError(
+            f"meters_per_unit must be a number above 0, such as 1.0 for metres or 0.01 for centimetres, not {meters!r}"
+        )
+    return up_axis, float(meters)
+
+
+def set_frame(stage: Usd.Stage, up_axis: str, meters_per_unit: float | None) -> None:
+    """Writes a new stage's up axis and, unless None, its metres per unit, as frame_of read them."""
+    UsdGeom.SetStageUpAxis(stage, up_axis)
+    if meters_per_unit is not None:
+        UsdGeom.SetStageMetersPerUnit(stage, meters_per_unit)
 
 
 def _busy(url: str) -> str:

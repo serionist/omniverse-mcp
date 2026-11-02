@@ -13,7 +13,7 @@ import omni.kit.app
 import omni.usd
 from pxr import Sdf, Tf, Usd, UsdGeom, UsdPhysics, UsdShade
 
-from ovmcp.core import layers
+from ovmcp.core import layers, stage_open
 from ovmcp.core.attribute import set_attribute, shown
 from ovmcp.core.bounds import world_bbox
 from ovmcp.core.deletion import why_kept
@@ -641,7 +641,13 @@ async def _save_scene(file_path: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-async def handle_new_scene(_body: dict) -> dict:
+async def handle_new_scene(body: dict) -> dict:
+    """A new stage in the frame asked for (#159), checked before Kit discards the open one."""
+    try:
+        up_axis, meters_per_unit = stage_open.frame_of(body)
+    except ValueError as e:
+        return {"status": "error", "error": f"{e}: no new stage was made, and the open stage stays"}
+
     await _next_update()
     ctx = omni.usd.get_context()
     result, error = await ctx.new_stage_async()
@@ -654,9 +660,18 @@ async def handle_new_scene(_body: dict) -> dict:
     stage = _get_stage()
     world = stage.DefinePrim("/World", "Xform")
     stage.SetDefaultPrim(world)
-    UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.y)
+    stage_open.set_frame(stage, up_axis, meters_per_unit)
+    read = stage_open.describe(stage)
 
-    return {"status": "success", "result": {"message": "New scene created", "default_prim": "/World"}}
+    return {
+        "status": "success",
+        "result": {
+            "message": "New scene created",
+            "default_prim": "/World",
+            "up_axis": read["up_axis"],
+            "meters_per_unit": read["meters_per_unit"],
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
