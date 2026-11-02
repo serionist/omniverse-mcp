@@ -1,9 +1,9 @@
 ---
 title: List a prim's applied schemas and its relationships' targets in its prim block
 issue: "#149"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-11-02
 ---
 
 # List a prim's applied schemas and its relationships' targets in its prim block
