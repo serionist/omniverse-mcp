@@ -117,6 +117,12 @@ def test_a_target_shot_and_a_camera_path_shot_are_read():
         ({"position": [0, 0, 1], "yaw": 0, "pitch": -91}, "pitch must be from -90 (straight down) to 90"),
         ({"position": [0, 0, 1], "yaw": 0, "focal_length": 0}, "focal_length must be above 0"),
         ({"position": [0, 0, 1], "yaw": 0, "clipping_range": [5, 1]}, "clipping_range's near must be under its far"),
+        ({"position": [0, 0, 1], "yaw": 0, "clipping_range": 5}, "clipping_range must be [near, far]"),
+        ({"position": [0, 0, 1], "yaw": 0, "selections": {"/World/A B": {"a": "b"}}}, "must be a prim path"),
+        (
+            {"position": [0, 0, 1], "yaw": 0, "selections": {"/World": {}}},
+            "selections of /World must be {set: variant}",
+        ),
         ({"position": [0, 0, 1], "yaw": 0, "time": "3"}, "time must be a number"),
         ({"position": [0, 0, 1], "yaw": 0, "selections": {"World": {"a": "b"}}}, "must be an absolute prim path"),
         ({"position": [0, 0, 1], "yaw": 0, "selections": {"/World": {"door": ""}}}, "both names"),
@@ -481,6 +487,17 @@ def test_a_stopped_timeline_moved_by_hand_gets_its_time_back_without_a_stop():
 
     assert "stop" not in timeline.calls
     assert (timeline.state, timeline.time) == ("stopped", 0.0)
+
+
+@pytest.mark.parametrize(("start_state", "now"), [("paused", "playing"), ("stopped", "paused")])
+def test_a_timeline_someone_played_or_paused_mid_sweep_gets_its_start_s_state_back(start_state, now):
+    timeline = FakeTimeline(start_state, 1.0 if start_state == "paused" else 0.0)
+    start = TimelineStart.read(timeline)
+    timeline.state, timeline.time = now, 5.0
+
+    start.restore(timeline)
+
+    assert (timeline.state, timeline.time) == (start_state, start.time)
 
 
 @pytest.mark.parametrize(("status", "loading"), [(("", 0, 0), False), (("Loading", 2, 7), True)])
