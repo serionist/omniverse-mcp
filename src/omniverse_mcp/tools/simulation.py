@@ -24,6 +24,17 @@ def _rounded(values: list[float]) -> list[float]:
     return [round(v, 4) for v in values]
 
 
+def _collision_dropped(extension: str | None, material: bool) -> str:
+    """The warning for a collision an extension without #150 dropped: it answers success, having read no such key."""
+    text = (
+        f"WARNING: collision not set: the Kit extension is {extension or 'unknown'}, this server's is "
+        f"{carried_version()}, and it doesn't know collision. Install this server's, {install_advice()}."
+    )
+    if material:
+        text += " Its friction or restitution did apply the Collision API, so the prim collides."
+    return text
+
+
 def _physics_values(r: dict[str, Any]) -> list[str]:
     """Each value set_physics_properties wrote, as the extension echoes it, so the model can confirm the call without
     reading the prim again; one left out comes back null and stays as it was."""
@@ -38,6 +49,11 @@ def _physics_values(r: dict[str, Any]) -> list[str]:
         values.append(f"friction={float(r['friction'])} (static and dynamic)")
     if r.get("restitution") is not None:
         values.append(f"restitution={float(r['restitution'])}")
+    if r.get("collision") is not None:
+        if r["collision"]:
+            values.append("collision=on")
+        else:
+            values.append("collision=off (it had no collider)" if r.get("collider") is False else "collision=off")
     return values
 
 
@@ -153,30 +169,46 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         restitution: Annotated[
             float | None, Field(ge=0, le=1, description="Bounciness: 0 no bounce, 1 full bounce")
         ] = None,
+        collision: Annotated[
+            bool | None,
+            Field(
+                description="true makes the prim a collider (the Collision API), with no rigid body, such as a floor; "
+                "false turns its collision off and keeps the API"
+            ),
+        ] = None,
     ) -> str:
-        """Set a prim's mass or density, and its friction or restitution, for PhysX; a value left out stays as it is.
+        """Set a prim's mass or density, friction or restitution, or make it a collider or turn its collision off, for
+        PhysX; a value left out stays as it is.
 
-        Mass or density goes through MassAPI and makes the prim a rigid body (RigidBodyAPI) if it isn't one, so a
-        static collider starts to fall when the simulation plays. Friction or restitution adds the Collision API if
-        missing, and sets them on the prim's own physics material, a child named PhysMat (/World/Cube/PhysMat for
-        /World/Cube), bound to the prim for physics only; delete_prim removes it with the prim. That material starts
-        from the body's own: the physics material bound to it before, else the physics scene's default, else PhysX's
-        (friction 0.5, restitution 0), so the one left out, and anything else the replaced material held, stays. A copy
-        made with clone_prim takes its own with it. A clone that inherits from its source, as Isaac Sim's cloner makes
-        them, follows the source's material until a call on the clone, and the answer names the prims a call changes
-        so. An instance or an inactive prim can hold no material of its own, so friction or restitution on one is
-        refused. A prim on an older extension's shared /World/PhysicsMaterials/<prim name>_PhysMat moves to its own,
-        and the call that moves the last prim off it deletes it. A call with friction or restitution reads the whole
-        stage, about 1 s per 100,000 prims. The answer gives each value set, the material and the APIs applied, and
-        whether the older shared material was deleted or kept, and why. For the prim's look, use set_material; to make
-        a new prim physical in one call, create_prim with enable_physics.
+        collision=true makes a static collider, such as a floor something should land on, with no rigid body and no
+        physics material: only a Cube, Sphere, Capsule, Cylinder, Cone, Mesh or Plane collides, so an Xform is refused,
+        its error naming the shapes under it. A Mesh that moves with a rigid body, its own or an ancestor's, not
+        kinematic, gets a convexHull approximation unless one is set, as PhysX can't simulate a triangle mesh there.
+        collision=false turns physics:collisionEnabled off and keeps the API. Mass or density goes through MassAPI and
+        makes the prim a rigid body (RigidBodyAPI) if it isn't one, so a static collider starts to fall when the
+        simulation plays. Friction or restitution adds the Collision API if missing, and sets them on the prim's own
+        physics material, a child named PhysMat (/World/Cube/PhysMat for /World/Cube), bound to the prim for physics
+        only; delete_prim removes it with the prim. That material starts from the body's own: the physics material
+        bound to it before, else the physics scene's default, else PhysX's (friction 0.5, restitution 0), so the one
+        left out, and anything else the replaced material held, stays. A copy made with clone_prim takes its own with
+        it. A clone that inherits from its source, as Isaac Sim's cloner makes them, follows the source's material
+        until a call on the clone, and the answer names the prims a call changes so. An instance or an inactive prim
+        can hold no material of its own, so friction or restitution on one is refused, as collision is on an inactive
+        prim or one inside an instance. A prim on an older extension's shared /World/PhysicsMaterials/<prim
+        name>_PhysMat moves to its own, and the call that moves the last prim off it deletes it. A call with friction
+        or restitution reads the whole stage, about 1 s per 100,000 prims. The answer gives each value set, collision
+        on or off, the material and the APIs applied, the rigid body a collider moves with, and whether the older
+        shared material was deleted or kept, and why. For the prim's look, use set_material; to make a new prim
+        physical in one call, create_prim with enable_physics.
         """
-        resp = bridge_call(client.set_physics_properties, prim_path, mass, density, friction, restitution)
+        resp = bridge_call(client.set_physics_properties, prim_path, mass, density, friction, restitution, collision)
         r = resp["result"]
         values = _physics_values(r)
-        if not values:
-            return f"Nothing set on {r['prim_path']}: give mass, density, friction or restitution"
-        text = f"Physics on {r['prim_path']}: {', '.join(values)}"
+        # An extension without #150 drops collision unread and answers success.
+        dropped = collision is not None and "collision" not in r
+        if not values and not dropped:
+            return f"Nothing set on {r['prim_path']}: give mass, density, friction, restitution or collision"
+        text = f"Physics on {r['prim_path']}: {', '.join(values) or 'nothing set'}"
         # An extension of 0.3.0 or older sends no material, nor the two clauses after the APIs.
         if r.get("material"):
             text += f"; material {r['material']}"
@@ -186,8 +218,15 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             text += f"; applied {', '.join(r['applied'])}"
         if r.get("also_changes"):
             text += f"; {_also_changes(r['also_changes'])}"
+        if r.get("approximation"):
+            text += f"; approximation {r['approximation']}"
+        if r.get("body"):
+            text += f"; part of the rigid body {r['body']}"
         if r.get("old_material"):
             text += f"; {_old_material(r['old_material'])}"
+        if dropped:
+            material = friction is not None or restitution is not None
+            text += "\n" + _collision_dropped(client.extension_version, material)
         return text
 
     @tool(mcp, EDITS)

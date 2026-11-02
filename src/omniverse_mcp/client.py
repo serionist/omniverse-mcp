@@ -539,6 +539,7 @@ class BridgeClient:
         density: float | None = None,
         friction: float | None = None,
         restitution: float | None = None,
+        collision: bool | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"prim_path": prim_path}
         if mass is not None:
@@ -549,6 +550,8 @@ class BridgeClient:
             body["friction"] = friction
         if restitution is not None:
             body["restitution"] = restitution
+        if collision is not None:
+            body["collision"] = collision
         return self.request("/physics/properties", body)
 
     def apply_force(
