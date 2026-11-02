@@ -2409,6 +2409,53 @@ class TestScenarios(PhysicsChecks):
         print(f"  {stop['result']['frame_count']} frames, then: {stop['result']['note']}; the line gone")
         self._pass()
 
+    def _deprecation_notices(self, since: int) -> list[str]:
+        """Kit's "Use Events 2.0" notices since the entry `since` whose call stack names the bridge's code: Kit logs
+        one, with the stack, at each call of an app event stream it deprecated (#122). An entry's continuation lines
+        join its message, so the stack is searched too."""
+        entries = self.c.get_logs(count=2000, since_index=since, search="Use Events 2.0")["result"]["entries"]
+        return [e["msg"][:300] for e in entries if re.search(r"ovmcp[/\\]bridge", e["msg"])]
+
+    def test_17_08_the_bridge_logs_no_deprecated_update_stream(self):
+        """Phase 17.8: A recording, a drawing, a kept capture feed and a stage opened under them log none of Kit's
+        deprecation notices: each runs on Kit's update event through Events 2.0 (#122). As in 17.7, the stage saved
+        first is the one opened, so the phases after find its content."""
+        self._stop_recording_after()
+        folder = Path(tempfile.mkdtemp(prefix="ovmcp-events-"))
+        self.addCleanup(shutil.rmtree, folder, True)
+        scene = folder / "Phase17_8.usda"
+        self.assertEqual(self.c.save_scene(str(scene))["status"], "success")
+        entries = self.c.get_logs(count=1)["result"]["entries"]
+        since = entries[-1]["index"] if entries else -1
+        start = self._lines_go_after_the_test()
+        # A capture keeps its feed (#114): the stage's closing drops it, and its render product waits for the next.
+        captured = self.c.capture_viewport(320, 240)
+        self.assertEqual(captured["status"], "success", captured)
+        r = self.c.recording_start(self._recordings("recordings_events_2"), fps=10, width=320, height=240)
+        self.assertEqual(r["status"], "success", r)
+        drawn = self.c.draw_debug("line", start=[0, 0, 0], end=[1, 0, 0], duration=0.5)
+        self.assertEqual(drawn["status"], "success", drawn)
+        # The recording's and the drawing's observers are made by now, before an open adds Kit's own entries.
+        self.assertEqual(self._deprecation_notices(since), [], "a recording or a drawing logged Kit's deprecation")
+        time.sleep(0.3)
+        opened = self._open_scene(str(scene))
+        self.assertEqual(opened["status"], "success", opened)
+        time.sleep(0.5)
+        stop = self.c.recording_stop()
+        self.assertEqual(stop["status"], "success", stop)
+        self._wait_for_line_count(start, timeout=5.0)
+        time.sleep(0.5)  # the render products' watch deletes them once the opened stage is open
+        marker = f"scenario 17.8 {time.time_ns()}"
+        self.assertEqual(self.c.execute(f'import carb\ncarb.log_info("{marker}")')["status"], "success")
+        # Kit's notices are Info: a log file that leaves Info out would pass this test with the notices still made.
+        logged = self.c.get_logs(count=10, since_index=since, search=marker)["result"]["entries"]
+        self.assertEqual([e["level"] for e in logged], ["info"], "Kit's log file holds no Info entry")
+        self.assertEqual(self._deprecation_notices(since), [], "the bridge logged Kit's deprecation")
+        print(
+            f"  A capture, a recording, a drawing and an opened stage: {stop['result']['frame_count']} frames, no notice"
+        )
+        self._pass()
+
     # ===== Phase 24: Logging =====
 
     def test_24_01_get_logs_default(self):
