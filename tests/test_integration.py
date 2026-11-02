@@ -3003,6 +3003,7 @@ class TestVariantSwitchesKeepTheFiles(unittest.TestCase):
         self.addCleanup(shutil.rmtree, folder, True)
         area = folder / "IntTestArea.usda"
         area.write_text(_VARIANT_AREA_USDA, encoding="utf-8", newline="\n")
+        self.area_file = area.name
         world_before = self._layers()["session"] is not None
         self.addCleanup(self.client.delete_prim, self.LIGHT)
         self.addCleanup(self.client.delete_prim, self.AREA)
@@ -3025,10 +3026,19 @@ class TestVariantSwitchesKeepTheFiles(unittest.TestCase):
         block = self.client.prim_properties(self.AREA, fmt="text")["result"]["text"]
         return next(line for line in block.splitlines() if line.startswith("variant_sets = "))
 
-    def _capture(self) -> str:
-        result = self.client.capture_viewport(320, 240)
-        self.assertEqual(result["status"], "success", result.get("error"))
-        return result["result"]["image_base64"]
+    def _width(self, child: str) -> int:
+        """How many pixels wide the area's child prim is in a 320x240 capture's segmentation: what was rendered, which
+        a stale frame gets wrong, where get_prim_bounds reads USD."""
+        capture = self.client.capture_viewport(320, 240)
+        self.assertEqual(capture["status"], "success", capture.get("error"))
+        result = capture["result"]
+        self.assertIsNotNone(result["segmentation_base64"], result.get("segmentation_error"))
+        prim = f"{self.AREA}/{child}"
+        legend = result["segmentation_legend"]
+        self.assertIn(prim, legend, f"{prim} isn't in the capture, which shows {sorted(legend)}")
+        pixels = self._run(_COLOUR_EXTENT, SEGMENTATION=result["segmentation_base64"], COLOUR=legend[prim])
+        self.assertIsNotNone(pixels, f"{prim}'s colour isn't in the capture's segmentation")
+        return pixels[2] - pixels[0]
 
     def test_a_switch_by_default_leaves_the_root_layer_and_a_clear_brings_the_files_selection_back(self):
         found = self.client.viewport_light("get")["result"]["lighting_mode"]
@@ -3036,13 +3046,13 @@ class TestVariantSwitchesKeepTheFiles(unittest.TestCase):
         self.assertEqual(self.client.viewport_light("set", mode="camera")["status"], "success")
         self.assertEqual(self.client.camera_look_at(self.AREA, distance=8.0)["status"], "success")
         before = self._layers()
-        closed = self._capture()
+        closed = self._width("Wall")
         self.assertAlmostEqual(self._size(), 1.0, places=3)
 
         started = time.perf_counter()
         switched = self._switch("open")
         took = time.perf_counter() - started
-        opened = self._capture()
+        opened = self._width("Door")
 
         self.assertEqual((switched["layer"], switched["files_select"]), ("session", "closed"), switched)
         self.assertEqual(switched["new_selection"], "open")
@@ -3051,13 +3061,18 @@ class TestVariantSwitchesKeepTheFiles(unittest.TestCase):
         self.assertEqual(after["active"], [None, None], "the refresh left an active opinion")
         self.assertAlmostEqual(self._size(), 3.0, places=3)
         self.assertEqual(self._variant_sets(), "variant_sets = state: open [closed, open] (session)")
-        self.assertNotEqual(opened, closed, "the capture after the switch shows the old state")
+        # The open state's cube is 3 times the closed one's, a little more on screen, its front nearer the camera.
+        self.assertTrue(2.0 < opened / closed < 5.0, f"{opened} pixels wide open, {closed} closed")
 
         cleared = self._switch("")
         self.assertEqual(cleared["new_selection"], "closed")
         self.assertAlmostEqual(self._size(), 1.0, places=3)
         self.assertEqual(self._layers()["root"], before["root"])
-        print(f"  Fabric Scene Delegate {'on' if before['fabric'] else 'off'}; the switch took {took:.2f} s")
+        self.assertEqual(self._variant_sets(), f"variant_sets = state: closed [closed, open] ({self.area_file})")
+        print(
+            f"  Fabric Scene Delegate {'on' if before['fabric'] else 'off'}; the switch took {took:.2f} s; the area "
+            f"{closed} pixels wide closed, {opened} open"
+        )
 
     def test_edit_target_writes_the_selection_into_the_root_layer_once_the_session_holds_none(self):
         self._switch("open")
