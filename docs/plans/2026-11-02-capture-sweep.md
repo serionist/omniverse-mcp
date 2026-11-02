@@ -225,14 +225,21 @@ are as planned.
   the shot, where each later shot would wait its 30 s holding the viewport lock. A capture that failed while frames
   still came is recorded, and the sweep goes on, as planned.
 - **The end's order:** the feed pointed at the viewport's camera first, so a feed kept after the sweep doesn't
-  render its deleted camera and lifts #177's exposure shield from the camera it rendered last; the selections, in one
-  change block (code review, F2), the timeline and the camera; then the manifest and the summary line; then the feed
-  handed back, last, so a second `cancel_job` during `hand_back`'s await can't cost the manifest (F5's test).
-- **The session layer's empty overs:** a selection's snapshot and #177's shield each take back only what they found
-  missing, and each can leave an empty over the other made: a scene camera rendered before a shot switches its parent
-  left `/World/A` (rebase onto #177). The end removes each empty prim spec the session layer didn't hold at the start
-  (`sweep.prune`). A session spec at `/OmniverseKit_Sweep` before the sweep is copied and put back after its camera
-  is deleted.
+  render its deleted camera; the selections, in one change block (code review, F2), the timeline and the camera; then
+  the manifest and the summary line; then the feed handed back, last, so a second `cancel_job` during `hand_back`'s
+  await can't cost the manifest (F5's test). A session spec at `/OmniverseKit_Sweep` before the sweep is copied and
+  put back after its camera is deleted.
+- **RTX's exposure writes (#177):** Kit 110's RTX writes two exposure schemas and three attributes onto a camera it
+  renders through that lacks them, at the edit target: the sweep's own camera, an over in the root layer once the
+  camera is deleted, and a `camera_path` shot's. The sweep renders through every camera by `lend` or the feed's `aim`,
+  where `CameraFeed` notes each camera's state first (`exposure.MARKS`), and that is put back when the feed's render
+  product is deleted: when the kept feed is released, or at once when `hand_back` releases it. Until then the root
+  layer holds RTX's writes, as after a capture, so the live test reads the layers after `release_kept`, and the
+  start refuses only a defined camera at `/OmniverseKit_Sweep`. #177 first authored the schemas in the session layer
+  instead; that hung Kit in two live runs of three, and its session overs and a selection's snapshot could each leave
+  an empty over the other made, for which the end pruned the session layer. With nothing written in the session layer
+  while a feed renders, that prune went: 3,000 random sweeps of nested, blocked and named selections, refusals
+  included, left the session layer exact with their snapshots alone.
 - **Nested sets (code review, F1):** a set the shot doesn't name goes back to its starting value unchecked, since it
   held before the sweep; the shot's own selections are written outermost first, each level checked once the one above
   is written, and a refusal takes back every write of the shot. The plan's switch checked every change against the
@@ -241,7 +248,8 @@ are as planned.
   switch's waits, and ends the sweep as the watch would, through `stop_for_stage`, a helper of `handlers/jobs.py`: the
   watch cancels only on the next update, and a stage opened at a shot's start got the shot's writes.
 - **Refused at the start, beside the plan's:** a stage with a defined prim at `/OmniverseKit_Sweep`, an empty over
-  there blocking nothing (L3, the live run's root-layer leftover before #177); a Kit app without
+  there blocking nothing (L3: RTX's, which stays in the root layer until the kept feed's render product goes); a Kit
+  app without
   `omni.kit.hydra_texture` or `omni.kit.widget.viewport.capture`, as `start_recording` refuses it; and a manifest
   given as `shots_file` that was taken at another size than the one asked, naming its own (G1). The manifest is
   written as the job starts (`working`). A feed whose first frame never came is released at the end, not kept (F3).
@@ -258,13 +266,14 @@ are as planned.
   `shots_file` is read as `utf-8-sig`. While it runs the job's message is `shot 37 of 400`, cleared once it
   completes.
 - **A `camera_path` shot whose camera a switch removed** reads `typeless prim, not a Camera` rather than `No prim`
-  while the feed's exposure shield holds an empty over there (#177), until the feed renders through another camera.
+  when RTX wrote onto it before (#177): its over at the edit target stays until the feed's render product goes.
 - **Step 5** is `TestCaptureSweep` (a Y-up and a Z-up stage of its own, six shots, the layers, the timeline, the
   manifest, twins from the manifest within 2 of 255, open and closed apart by more than 0.2% of the pixels changed by
   16 of 255, a 50-shot cancel) and `TestCaptureSweepAgents` (one worker in Isaac Sim's simple warehouse, from
   `isaacsim.replicator.agent.core`'s sample configs; skipped without the extension or its `api` module, as on Isaac
   Sim 5.1, and the extension turned off again when the test turned it on) in `tests/test_integration.py`. Its first
-  run (Isaac Sim 6.2, Z-up) found RTX's exposure schemas in the root layer, fixed by #177. Kit 107 isn't covered.
+  run (Isaac Sim 6.2, Z-up) found RTX's exposure schemas in the root layer after a sweep, which #177 puts back with
+  the feed's render product; its layer comparison reads both sides after `release_kept`. Kit 107 isn't covered.
 
 ## Plan review
 
