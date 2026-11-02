@@ -1497,6 +1497,15 @@
       },
       "input": {
         "properties": {
+          "layer": {
+            "default": "auto",
+            "enum": [
+              "auto",
+              "session",
+              "edit_target"
+            ],
+            "type": "string"
+          },
           "name": {
             "type": "string"
           },
@@ -1653,6 +1662,14 @@
       },
       "input": {
         "properties": {
+          "layer": {
+            "default": "session",
+            "enum": [
+              "session",
+              "edit_target"
+            ],
+            "type": "string"
+          },
           "prim_path": {
             "type": "string"
           },

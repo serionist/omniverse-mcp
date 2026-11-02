@@ -52,8 +52,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         include_properties: Annotated[
             bool,
             Field(
-                description="Each prim's rotation, world box, applied API schemas, attribute values and "
-                "relationship targets, written by Kit to mcp_output/scene_dump.txt"
+                description="Each prim's rotation, world box, applied API schemas, variant sets, attribute values "
+                "and relationship targets, written by Kit to mcp_output/scene_dump.txt"
             ),
         ] = False,
         filter_types: Annotated[
@@ -67,7 +67,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             list[str] | None,
             Field(
                 description='Only properties whose names hold one of these, e.g. ["joint"], written to the file; it '
-                "takes the properties with it"
+                "takes the properties with it. [\"variant_sets\"] lists every prim's variant sets: a scene's switches"
             ),
         ] = None,
     ) -> str:
@@ -105,25 +105,28 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @tool(mcp, READS)
     def get_prim_properties(prim_path: PrimPath) -> str:
         """Get one prim as a prim block: its type, world position and rotation, world bounding box, physics flags, its
-        applied API schemas, every attribute's value, and each relationship with its targets.
+        applied API schemas, its variant sets, every attribute's value, and each relationship with its targets.
 
         Use it to read one prim; get_prim_bounds when only its size and place matter, get_scene_tree to find paths, and
         with include_properties for many prims at once, written to a file. The rotation, rot, is a quaternion w, x, y,
         z with any scale taken out; a prim scaled to 0 has none. api_schemas lists the applied API schemas the Kit app
         knows, a type's built-in ones included, [] for none: PhysicsCollisionAPI for a collider, MaterialBindingAPI for
-        a bound material. A relationship gives its targets, such as material:binding = /World/Looks/Red; one with none
-        is left out, as an unset attribute is.
+        a bound material. variant_sets lists each variant set with its selection (none when there is none), its
+        options, and the layer holding the selection: session (Kit's session layer, which set_variant_selection writes
+        by default), root, or a file's name; [] for no set, such as state: open [closed, open] (session). A
+        relationship gives its targets, such as material:binding = /World/Looks/Red; one with none is left out, as an
+        unset attribute is.
         """
         resp = bridge_call(client.prim_properties, prim_path, fmt="text")
         text = resp["result"]["text"]
         answer = h.text_response(text, f"prim_{prim_path.replace('/', '_')}")
-        if "\napi_schemas = " in text:
+        if "\nvariant_sets = " in text:
             return answer
-        # An extension from before #149 gives no schemas and prints every relationship as <unreadable>, and the plugin
-        # updates the server ahead of the extension.
+        # An extension from before #149 gives no schemas and prints every relationship as <unreadable>, one from before
+        # #155 no variant sets, and the plugin updates the server ahead of the extension.
         return (
-            f"{answer}\nWARNING: This Kit extension, older than the server, lists no applied API schemas and no "
-            f"relationship's targets. Install this server's, {install_advice()}."
+            f"{answer}\nWARNING: This Kit extension, older than the server, lists no applied API schemas, no variant "
+            f"sets and no relationship's targets. Install this server's, {install_advice()}."
         )
 
     @tool(mcp, READS)
@@ -321,6 +324,14 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
                 "vector, colour or array, e.g. [1, 0, 0]"
             ),
         ],
+        layer: Annotated[
+            Literal["auto", "session", "edit_target"],
+            Field(
+                description="auto: where edits go, but Kit's own cameras and a light rig's lights in Kit's session "
+                "layer; session: Kit's session layer, which no save writes, for a check that must leave every file as "
+                "it is; edit_target: where edits go"
+            ),
+        ] = "auto",
     ) -> str:
         """Set one attribute of a prim, such as a light's intensity or colour, a camera's focal length, a shape's size
         or radius, or a display colour.
@@ -331,13 +342,16 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         within the type's range; a token outside its allowed ones is written, with a note naming them. A change that
         alters a shape's box updates its authored extent, so get_prim_bounds follows. Refused, with nothing written: a
         relationship, an xform op, visibility, an animated attribute, one a stronger layer holds, a size change whose
-        extent another layer or an animation holds, a prim inside an instance or a prototype, an inactive prim. It
-        writes where edits go, but Kit's own cameras and a viewport light rig's lights in Kit's session layer, which
-        save_scene doesn't keep. A physics value set while the simulation plays may reach PhysX only once it stops. A
-        DistantLight comes at an intensity of 50,000, UsdLux's sunlight; a few thousand suits a viewport capture. The
-        answer gives the value before and after, and the layer written.
+        extent another layer or an animation holds, a prim inside an instance or a prototype, an inactive prim. By
+        default (layer="auto") it writes where edits go, but Kit's own cameras and a viewport light rig's lights in
+        Kit's session layer, which save_scene doesn't keep. layer="session" writes there for a check that must leave
+        every file as it is; no tool takes such a value back, and a later write beneath it, at the edit target, is
+        refused until the stage is opened again or execute_script removes it from the session layer. A physics value
+        set while the simulation plays may reach PhysX only once it stops. A DistantLight comes at an intensity of
+        50,000, UsdLux's sunlight; a few thousand suits a viewport capture. The answer gives the value before and
+        after, and the layer written.
         """
-        r = bridge_call(client.set_attribute, prim_path, name, value)["result"]
+        r = bridge_call(client.set_attribute, prim_path, name, value, layer)["result"]
         lines = [
             f"[{r['prim_path']}]",
             f"{r['name']} = {r['after']} ({r['type']}; was {r['before']})",
@@ -367,11 +381,20 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         but another file the open stage has loaded (a sublayer, a referenced or payload file) is an error, since
         writing it would replace a file the open scene is made of: name another path. The stage's own file, by any
         name, is a save. Only the root layer is written: sublayers and referenced files stay as they are, still
-        referenced. For one self-contained file, use flatten_usd; for one prim's subtree, export_prim_as_file.
+        referenced, and Kit's session layer stays out, so the answer names the variant selections it holds, which
+        set_variant_selection writes there by default. For one self-contained file, use flatten_usd; for one prim's
+        subtree, export_prim_as_file.
         """
         resp = bridge_call(client.save_scene, file_path)
         r = resp["result"]
-        return f"Scene saved ({r['action']}) -> {r['file_path']}"
+        lines = [f"Scene saved ({r['action']}) -> {r['file_path']}"]
+        left_out = r.get("session_selections")
+        if left_out:
+            lines.append(
+                f"Not in the file: the variant selections in Kit's session layer, {', '.join(left_out)}; to keep one, "
+                'clear it with set_variant_selection(variant_name="") and select it again with layer="edit_target"'
+            )
+        return "\n".join(lines)
 
     @tool(mcp, DESTROYS)
     def open_scene(

@@ -1,11 +1,12 @@
 """Advanced USD tools (mesh stats, flatten, export, variants, compare, material paths)."""
 
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from mcp.server.mcpserver import MCPServer
 from pydantic import Field
 
 from omniverse_mcp.client import BridgeClient
+from omniverse_mcp.kit_extension import install_advice
 
 from ._annotations import DESTROYS, EDITS, READS, tool
 from ._bridge import bridge_call
@@ -122,22 +123,58 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     def set_variant_selection(
         prim_path: Annotated[str, Field(description="The prim with the variant set")],
         variant_set: Annotated[str, Field(description='The variant set\'s name, e.g. "model"')],
-        variant_name: Annotated[str, Field(description='The variant to select, e.g. "shell"')],
+        variant_name: Annotated[
+            str,
+            Field(
+                description='The variant to select, e.g. "shell"; "" clears the layer\'s selection, so the one '
+                "beneath shows again"
+            ),
+        ],
+        layer: Annotated[
+            Literal["session", "edit_target"],
+            Field(
+                description="session: Kit's session layer, which no save writes, so every file stays as it is; "
+                "edit_target: where edits go, the stage's file, which save_scene keeps"
+            ),
+        ] = "session",
     ) -> str:
-        """Select a variant in a prim's variant set, and wait until the viewport shows it.
+        """Select a variant in a prim's variant set, or clear a layer's selection, and wait until the viewport shows it.
 
-        Switch variants with this rather than execute_script: with Fabric Scene Delegate on, it deactivates and
-        reactivates the prim around the switch, some 40 app updates, so the viewport drops the old geometry; otherwise
-        it waits 5. The set and the variant must exist (create_variant_structure makes them): an error lists the ones
-        there. The selection is written to the stage; compare_prims measures two variants and puts the selection back.
+        By default the selection goes to Kit's session layer: it shows at once over what the files select, and
+        save_scene leaves it out of the file, so a check leaves every file as it found it; it lasts until it is
+        cleared or the stage is opened again. To keep one in the stage's file, use layer="edit_target", which is
+        refused while the session layer holds a selection for the set, since that would hide it: clear that first
+        with variant_name="". get_prim_properties' variant_sets line lists a prim's sets, their options and the layer
+        holding each selection. A selection on an instance prim gives it a prototype of its own; a prim inside an
+        instance is refused, naming the instance. An unknown set or variant is refused, listing those there
+        (create_variant_structure makes them). Switch variants with this rather than execute_script: with Fabric
+        Scene Delegate on, it deactivates and reactivates the prim in the session layer around the switch, some 40 app
+        updates, so the viewport drops the old geometry; otherwise it waits 5. compare_prims measures two variants and
+        leaves the selection as it was.
         """
-        resp = bridge_call(client.set_variant_selection, prim_path, variant_set, variant_name)
-        r = resp["result"]
-        return (
-            f"Variant switched: {r['prim_path']} {r['variant_set']}={r['new_selection']} "
-            f"(was: {r['old_selection']})\n"
-            f"Available: {r['available_variants']}"
-        )
+        r = bridge_call(client.set_variant_selection, prim_path, variant_set, variant_name, layer)["result"]
+        if "layer" not in r:
+            # An extension from before #155 takes no layer and writes at the edit target, and the plugin updates the
+            # server ahead of the extension.
+            return (
+                f"Variant switched: {r['prim_path']} {r['variant_set']}={r['new_selection']} "
+                f"(was: {r['old_selection']})\nAvailable: {r['available_variants']}\n"
+                "WARNING: This Kit extension, older than the server, wrote the selection at the edit target, into the "
+                f"stage's file, and takes no layer. Install this server's, {install_advice()}."
+            )
+        session = r["layer"] == "session"
+        where = "in the session layer" if session else f"at the edit target, {r['written_to']}"
+        files = f"{'the files' if session else 'the files beneath'} select {r['files_select'] or 'none'}"
+        shows = f"{r['prim_path']} {r['variant_set']}={r['new_selection'] or 'none'}"
+        if variant_name:
+            kept = "save_scene leaves it out of the file" if session else "save_scene writes it into the file"
+            first = f"Variant switched {where}: {shows} ({files}; {kept})"
+        else:
+            first = f"Variant selection cleared {where}: {shows} ({files})"
+        lines = [first, f"Was: {r['old_selection'] or 'none'}. Available: {', '.join(r['available_variants'])}"]
+        if r.get("note"):
+            lines.append(f"Note: {r['note']}")
+        return "\n".join(lines)
 
     @tool(mcp, EDITS)
     def create_variant_structure(
@@ -178,9 +215,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         1. Two prims: prim_path_a and prim_path_b.
         2. Two variants: prim_path, variant_set, variant_a and variant_b; this mode wins when all four are given.
 
-        Variant mode switches the selection to each variant in turn, then back to the one before. A variant name is not
-        checked: one not in the set measures the prim with none of the set's variants. For one prim's counts, use
-        get_mesh_stats.
+        Variant mode switches to each variant in turn in Kit's session layer, then puts that layer back exactly as it
+        was, so no file and no selection changes. An unknown variant set or variant is refused, listing those there,
+        and so is a prim inside an instance, naming the instance. For one prim's counts, use get_mesh_stats.
         """
         resp = bridge_call(client.compare_prims, prim_path_a, prim_path_b, prim_path, variant_set, variant_a, variant_b)
         r = resp["result"]

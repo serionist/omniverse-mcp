@@ -638,10 +638,13 @@ class TestBridgeClient(unittest.TestCase):
     def test_set_attribute_sends_the_name_and_the_value_as_given(self):
         r = self.client.set_attribute("/World/Sun", "inputs:intensity", 3000)
         self.assertEqual(r["result"]["after"], "3000")
-        self.assertEqual(
-            self.mock.requests[-1],
-            ("POST", "/scene/attribute", {"prim_path": "/World/Sun", "name": "inputs:intensity", "value": 3000}),
-        )
+        sent = {"prim_path": "/World/Sun", "name": "inputs:intensity", "value": 3000, "layer": "auto"}
+        self.assertEqual(self.mock.requests[-1], ("POST", "/scene/attribute", sent))
+
+    def test_set_attribute_sends_the_layer_asked_for(self):
+        self.client.set_attribute("/World/Sun", "inputs:intensity", 3000, layer="session")
+        _, _, body = self.mock.requests[-1]
+        self.assertEqual(body["layer"], "session")
 
     def test_save_scene(self):
         r = self.client.save_scene("/tmp/scene.usd")
@@ -786,6 +789,14 @@ class TestBridgeClient(unittest.TestCase):
         self.assertEqual(r["status"], "success")
         self.assertEqual(r["result"]["new_selection"], "shell")
         self.assertEqual(r["result"]["old_selection"], "focused")
+        # The session layer unless asked: an extension that takes no layer ignores it and writes the edit target.
+        _, _, body = self.mock.requests[-1]
+        self.assertEqual(body["layer"], "session")
+
+    def test_set_variant_selection_sends_the_layer_and_an_empty_variant(self):
+        self.client.set_variant_selection("/World/Server", "model", "", layer="edit_target")
+        _, _, body = self.mock.requests[-1]
+        self.assertEqual((body["variant_name"], body["layer"]), ("", "edit_target"))
 
     def test_create_variant_structure(self):
         r = self.client.create_variant_structure("/World/Server", "model", ["focused", "shell"])
