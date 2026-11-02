@@ -103,6 +103,11 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   NVIDIA's renderer, and to restart it if it stays silent for minutes; each later call fails in 5 s while Kit stays
   silent, where each waited 120 s. The render's fix is in the Kit extension: run `uvx omniverse-mcp extension
   install`, then restart Kit; the message is the server's (#114, #54).
+- **Kit's log holds no more of the bridge's own deprecation notices:** each recording, each drawing and each stage
+  closed after a capture logged Kit's "`get_update_event_stream` is deprecated. Use Events 2.0." with a call stack,
+  which `get_logs` then returned, and a Kit that drops that stream would have stopped recordings, drawings and the
+  captures' cleanup at once. The bridge now observes Kit's update event, as Kit's own code does, in Kit 107 and Kit
+  110. The fix is in the Kit extension (#122).
 
 ### Changed
 

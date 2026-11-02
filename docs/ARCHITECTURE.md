@@ -296,6 +296,14 @@ The format is implemented in `ovmcp/core/formatter.py` with functions for:
    texture's drawable-changed event. On Kit 110 Kit calls it on the main thread in every timeline state (#25's
    E16); on Kit 107, whose event stream is another, nobody has measured. So it does no USD work and logs nothing, as
    #5 asks of a callback Kit may call from another thread: it only hands the frame to the captures waiting for it
+7. What runs on every app update, a recording's tick, the drawings' watch and the watch over a dropped feed's render
+   product, observes Kit's update event (`omni.kit.app.GLOBAL_EVENT_UPDATE`) through Events 2.0, by
+   `handlers/_updates.py`'s `on_update`, as Kit's own `next_update_async` does in Kit 107 and Kit 110. Its order is 0,
+   where the app's update stream ran its subscriptions: after USD's update and the physics step (-10), before Hydra's
+   render (30), `next_update_async` (50) and the asyncio loop that runs the handlers (100), as Kit's `KitUpdateOrder.h`
+   orders them. On Isaac Sim 6.2 headless every call came on the main thread, a texture's drawable-changed event before
+   it in the same update, and Kit called an observer again after it raised (#122). The app's event streams log a
+   deprecation, with a call stack, at each call; `tests/test_updates.py` fails on any in the extension
 
 This means all handler code runs on the main thread - there are no threading issues with USD access, but long-running handlers will block the simulation for the duration of their execution.
 
@@ -343,7 +351,7 @@ its size never change (#25):
    Replicator makes its render products but with no annotator, so Replicator's orchestrator, its capture settings and
    the timeline are left alone. It waits for the feed's first frame (`capture.FRAME_SECONDS`), then, under Path
    Tracing, for the frames a capture waits for its samples (`capture.settle_frames`, none under RT 2.0), then
-   subscribes to the app's update stream.
+   observes the app's update event (Threading Model, point 7).
 2. **Each update,** `FrameClock` moves the recording's own clock and decides whether to take a frame. The clock adds
    the simulation time the update advanced when the timeline's time moved forward, and the wall time since the update
    before otherwise (`time.monotonic`): stopped, paused, or a timeline that plays and doesn't move. It reads the time,
@@ -360,7 +368,7 @@ its size never change (#25):
 4. **Frames stop** when the stage starts to close, another stage opens, or the camera goes: the feed would go on
    rendering something else (white for a deleted camera, the new stage's default camera after a new stage). Frames in
    flight end at once as empty files, and `stop_recording` and `get_sim_state` say why.
-5. **Stop** drops the subscription, awaits the frames in flight, drops the feed, deletes its render product, and writes
+5. **Stop** drops the update observer, awaits the frames in flight, drops the feed, deletes its render product, and writes
    `metadata.json`, each step on its own so one that fails leaves the rest done. Kit writes a texture's render product
    into the root and session layers, whatever the edit target, and lists it in `/Render/OmniverseGlobalRenderSettings`'s
    `products`; both stay after the texture goes, so `camera_feed.discard` deletes them from every layer of the stage
@@ -386,12 +394,12 @@ without it, turned on at the first call by `enable_extension` (`handlers/_utils.
 
 1. The handler draws a shape's segments at once and adds them to the book (`core/debug_draw.py`), with the stage's
    id and the moment they expire, by `time.monotonic()`.
-2. While the book holds a drawing, one subscription to the update event stream runs on the main thread: it drops
-   drawings that expired or belong to another stage, then clears and draws the rest again, since
+2. While the book holds a drawing, one observer of the app's update event runs on the main thread (Threading Model,
+   point 7): it drops drawings that expired or belong to another stage, then clears and draws the rest again, since
    `isaacsim.util.debug_draw`'s clear takes every line. `omni.debugdraw` forgets a line after a frame, so with it the
    book's lines are drawn on every update.
-3. A clear waits for an update with the stage `OPENED`, never while it opens or closes, and the subscription goes
-   once nothing is left.
+3. A clear waits for an update with the stage `OPENED`, never while it opens or closes, and the observer goes once
+   nothing is left.
 
 ## Opening a Stage
 
@@ -483,7 +491,8 @@ inside NVIDIA's renderer; a feed made for each call made a new view each call, a
   `execute_script`.
 - **The stage:** Kit's `CLOSING` stage event, observed on Events 2.0 (`stage_event_name` with `carb.eventdispatcher`,
   in Kit 107's `omni.usd` too), drops the feed and deletes its render product from the next open stage
-  (`discard`); `omni.syntheticdata` resets its own graphs as the stage closes. A call also checks the stage is the one
+  (`discard`, whose watch observes the app's update event until a stage is open: Threading Model, point 7);
+  `omni.syntheticdata` resets its own graphs as the stage closes. A call also checks the stage is the one
   the feed was made on.
 - **Saves:** Kit keeps a feed's render product in the root layer. `save_scene`, `flatten_usd` and
   `export_prim_as_file` take the viewport lock, release the kept feed in `release`'s order and hold the lock through
@@ -565,7 +574,7 @@ stage waits 1 s, until a read gets data, so `capture_viewport` doesn't pay 5 s o
   Capture](#viewport-capture)), so the viewport's own sensor, which copied its instance ids to the host every frame, is
   left off (#76)
 - **on_shutdown**: Stops any active recording, cancelling its frames and dropping its camera feed, and drops the debug
-  drawing subscription and its book (deleting and clearing nothing: the stage may be tearing down; a recording's
+  drawing observer and its book (deleting and clearing nothing: the stage may be tearing down; a recording's
   render product stays on a stage that outlives the extension); tears the kept capture feed down with no update
   between its steps, deleting its render product while a stage is open ([Viewport Capture](#viewport-capture)); clears
   caches, closes the HTTP server

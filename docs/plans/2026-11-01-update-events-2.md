@@ -174,6 +174,30 @@ too (C7, C8), and its fake keeps the drawable-changed observers it has.
 - **Explicit `reset()`** (Q4 B): K3 gives collection the same guarantee, and P3 measured both alike.
 - **An error handler in the helper:** Kit calls an observer again after an error, as it did a stream's (P4).
 
+### What the build changed
+
+Built on `6b7d051`, after #111 (PR #125) and #114 (PR #131) merged, as above, with these, none a change of design:
+
+- **The scope after the rebase:** the guard's scan (step 2) found the same three streams, at
+  `handlers/camera_feed.py:225`, `handlers/recording.py:174` and `handlers/debug_draw.py:184`. #114 added no update
+  subscription: its stage events (`CLOSING`, `SAVING`) were already Events 2.0, and its idle release is an asyncio
+  timer (`call_later`). #111's recorder kept its one subscription, made after the settle frames.
+- **Not foreseen: the render product watch is now common.** #114's kept capture feed is discarded when the stage
+  closes (`_on_closing`), while the stage isn't open, so every new or opened stage after a capture made the watch,
+  and its notice, where C1 had it only for a stage change under a recording or a release. `test_camera_feed.py`'s
+  closing-stage test now checks the watch is an update observer, and `test_17_08` captures before it opens a stage.
+- **`recording.py`** no longer imports `omni.kit.app`, which only the stream used.
+- **`_updates.py` imports `carb.eventdispatcher` and `omni.kit.app` inside `on_update`,** as `camera_feed.py` imports
+  `carb.eventdispatcher` where it observes: `tests/test_scene_handler.py` and `tests/test_robot_handler.py` load
+  `scene.py`, which imports the real `camera_feed.py`, with a fake `carb` that has no `eventdispatcher`.
+- **`test_17_08`'s check that Info reaches the file** is a marker the test logs through `execute_script`, read back as
+  `info`, as `test_24_02` does, rather than the bridge's "Deleted the camera feed's render product" line, whose time
+  depends on when the opened stage is open. It reads the notices twice: once after the recording and the drawing
+  start, before the open adds Kit's own entries to the log's 2,000, and once at the end.
+- **The tests' fakes:** `FakeUpdates` and `load_updates` in `tests/conftest.py`. `test_camera_feed.py`'s `on_update`
+  stays what Kit does at the start of an update, a test's frame, before the update event's observers, as P1 has a
+  frame announced before them; the render product watch fires through `FakeUpdates`.
+
 ### Decisions for the maintainer
 
 | Q | Question | Options | Recommendation | Answer |
