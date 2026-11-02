@@ -684,13 +684,12 @@ async def handle_face_count_tree(body: dict) -> dict:
     total_faces = 0
     total_meshes = 0
 
-    def _depth_of(path_str: str) -> int:
-        """Number of path components relative to root."""
-        return path_str.count("/") - root_path.rstrip("/").count("/")
+    # Levels below the root by path elements, where counting slashes put the pseudo-root / at 1 (#145).
+    root_elements = root.GetPath().pathElementCount
 
     for p in Usd.PrimRange(root, Usd.TraverseInstanceProxies()):
         path_str = str(p.GetPath())
-        depth = _depth_of(path_str)
+        depth = p.GetPath().pathElementCount - root_elements
         if depth > max_depth:
             continue
 

@@ -5,6 +5,12 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Fixed
+
+- **`get_mesh_stats` on `/` at `max_depth` 0 lists `/`:** its face count tree counted `/` itself as one level down,
+  so it listed no prim there; from `max_depth` 1 on it listed what it should. The fix is in the Kit extension: run
+  `uvx omniverse-mcp extension install`, then restart Kit (#145).
+
 ## 0.4.1 (2026-11-02)
 
 A fix for Isaac Sim 6.2's renderer hang on recordings: a recording now records through the render captures keep, so a

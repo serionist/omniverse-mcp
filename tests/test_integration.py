@@ -1877,7 +1877,14 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertIn(f"[{root}]\ntype = Xform\nsubtree_faces = 2", tree)
         self.assertIn(f"[{root}/Quads]\ntype = Mesh\nfaces = 2\nvertices = 6\ntriangles = 4", tree)
         self.assertNotIn("# total:", tree)
-        print(f"  {root}: the totals, then its tree of {tree.count('[/')} prims")
+
+        # The pseudo-root at max_depth 0 lists itself alone, where it listed nothing (#145).
+        erred, whole = call_tool("get_mesh_stats", {"prim_path": "/", "max_depth": 0}, self._output_folder())
+
+        self.assertFalse(erred, whole)
+        listed = [line for line in whole.split("\n\n", 1)[1].splitlines() if line.startswith("[")]
+        self.assertEqual(listed, ["[/]"], whole)
+        print(f"  {root}: the totals, then its tree of {tree.count('[/')} prims; / alone at depth 0")
 
     # ===== Logs =====
 
