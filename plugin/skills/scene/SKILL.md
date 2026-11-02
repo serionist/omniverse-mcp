@@ -39,7 +39,9 @@ while physics plays. Never edit blind: look, change, look again.
    on the up axis (an object rests on a surface when its bottom equals the surface's top), `set_prim_transform`, then
    capture to check.
 5. **Change,** with `create_prim`, `set_prim_transform`, `clone_prim`, `set_material`, `set_visibility` or
-   `set_prim_attribute`, which sets one attribute no other tool does, such as a light's intensity.
+   `set_prim_attribute`, which sets one attribute no other tool does, such as a light's intensity; for a check that
+   must leave the user's files as they are, `layer="session"` writes it in Kit's session layer, which no save keeps
+   and no tool takes back until the stage is opened again.
    `clone_prim` refuses a target path that holds a prim, and `create_prim` one that holds a prim of another type:
    choose a free path, or delete the prim there first when the user wants it gone.
 6. **Check every change** with another capture or `get_prim_bounds`. A tool that fails: `get_logs(min_level="warn")`
