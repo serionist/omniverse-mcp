@@ -208,7 +208,8 @@ RED_PIXELS = (
     "result = int(((red - green > 80) & (red - blue > 80)).sum())\n"
 )
 # How long each drawing of DRAWN_THEN_CAPTURED lasts: a capture that ends after it may have missed it for that alone.
-DRAWN_SECONDS = 1.0
+# 1 s was too short on a GPU other Kit apps share, where a 320x240 capture took a second (#172).
+DRAWN_SECONDS = 3.0
 # In one execute_script, `times` times: draw_debug's handler draws the zigzag with the backend in use, then
 # capture_viewport captures at once, with no HTTP round trip between them to hide a stale frame (#57). Each draw starts
 # from an empty view: the last drawing gone from the book, then 10 frames rendered, so none of its lines is in a frame
@@ -539,7 +540,7 @@ class TestScenarios(PhysicsChecks):
     def _drawn_then_captured(self, zigzag: list[list[float]], times: int = 5) -> list[tuple[int, float]]:
         """DRAWN_THEN_CAPTURED's captures, each its red pixels and seconds; the view must not be black without the
         drawing (test_02_01 lights the stage), and each capture must end inside its drawing's DRAWN_SECONDS. Its own
-        client: the five drawings come close to the scenario client's 10 s."""
+        client: the five drawings outlast the scenario client's 10 s."""
         code = DRAWN_THEN_CAPTURED.format(times=times, zigzag=zigzag, duration=DRAWN_SECONDS)
         host, port = live_bridge()
         client = BridgeClient(host=host, port=port, timeout=60.0)
