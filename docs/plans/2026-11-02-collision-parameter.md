@@ -69,30 +69,48 @@ collision off; left out, as it is". The client sends it only when given, as the 
 
 ### The handler
 
-Before anything is written, with `collision` given:
+The rules that need no Kit (which prims may take a collider, the approximation, the echo) live in a new
+`ovmcp/core/collision.py`, tested on usd-core; the handler calls them. Before anything is written, with `collision`
+given:
 
-- **Refused** where a collider can't be made or wouldn't collide: an inactive prim, an instance proxy (a prim inside
-  an instance), in the words `material_refusal` already uses (C3); and a prim that isn't a `UsdGeom.Gprim` (U4), whose
-  error names up to five gprims under it and their count, so the next call can take them one by one (Q4). The other
-  values given with it aren't written either, as C3 does for friction.
+- **Refused** where a collider can't be made or wouldn't collide, in words of its own (not `material_refusal`'s, which
+  speak of physics materials and would refuse an instanceable gprim, against Q5):
+  - an inactive prim: activate it first;
+  - an instance proxy (a prim inside an instance): its colliders belong in the referenced asset, or the instance
+    needs `instanceable` turned off; the error names the instance;
+  - a prim whose type PhysX makes no shape for: only `Cube`, `Sphere`, `Capsule`, `Cylinder`, `Cone`, `Mesh` and
+    `Plane` collide (U4; usd-core also counts curves and `TetMesh` as gprims). An Xform's error names up to five such
+    prims under it and their count, so the next calls can take them; when they lie inside an instance, it says so
+    instead, since those calls would be refused too (Q4).
+
+  The other values given with it aren't written either, as C3 does for friction.
+- **The order:** mass and density first, then friction and restitution, then `collision`, so a body or a Collision
+  API the same call makes counts: a Mesh given `mass` and `collision=True` together gets its approximation, and a
+  `collision=False` with a friction ends with the API, from friction, and collision off.
 - **`true`:** apply the Collision API when missing (named in `applied`), and set `physics:collisionEnabled` to true
   when it is authored false; when the prim is a `UsdGeom.Mesh` that moves with a rigid body (its own `RigidBodyAPI` or
-  an ancestor's) and has no `physics:approximation` authored, author `convexHull` through `MeshCollisionAPI` (Q3).
+  an ancestor's), the body isn't kinematic (PhysX keeps triangle meshes on a kinematic body), and no
+  `physics:approximation` is authored, author `convexHull` through `MeshCollisionAPI` (Q3).
 - **`false`:** set `physics:collisionEnabled` to false on a prim with the Collision API; a prim without one is left as
-  it is, and the answer says it has no collider (Q2).
-- **The echo:** `collision` in the result as `true`, `false` or absent; `"approximation": "convexHull"` when the call
-  authored it; and `"body"`, the rigid body's path, when the prim is one or lies under one (Q6).
+  it is (Q2).
+- **The echo:** `collision`, the composed `physics:collisionEnabled` read back after the write, so a stronger layer's
+  opinion shows as it stands; `"collider": false` when `false` met a prim with no Collision API, so "had none" isn't
+  read as an older extension; `"approximation": "convexHull"` when the call authored it; and `"body"`, the rigid
+  body's path, when the prim is one or lies under one (Q6).
 
-Mass, density, friction and restitution keep their paths: `collision=True` with a friction gives one Collision API,
-named once.
+Friction with `collision=True` gives one Collision API, named once.
 
 ### The tool's answer
 
-- `collision=on`, `collision=off` or `collision=off (it had no collider)` beside the other values; `applied
-  CollisionAPI` and `approximation convexHull` as the handler says.
+- `collision=on`, `collision=off` or `collision=off (it had no collider)` (from `"collider": false`) beside the other
+  values; `applied CollisionAPI` and `approximation convexHull` as the handler says.
 - "Nothing set" names `collision` among the values to give.
-- **An older extension:** `collision` sent and absent from the echo means the extension dropped it: the answer says
-  "collision not set: the Kit extension is X, this server's is Y", with `install_advice()`, as `get_sim_state` does.
+- **An older extension:** `collision` sent and absent from the echo means the extension dropped it: the answer gains
+  `WARNING: collision not set: the Kit extension is X, this server's is Y`, with `install_advice()`, as the camera and
+  recording tools write their warnings; when a friction or restitution was sent too, it adds that the old extension
+  did apply the Collision API for it.
+- **The description's lead line** names a collider: "Set a prim's mass or density, friction or restitution, or make it
+  a collider or turn its collision off, for PhysX", so an agent that wants a collider finds it.
 
 ### Alternatives
 
@@ -110,11 +128,11 @@ named once.
 | Q1 | The parameter's name and type | `collision: bool \| None = None`, left out meaning unchanged, as the other four; the USD attribute's own word, and short |
 | Q2 | What `false` does | Turn `physics:collisionEnabled` off and keep the API: the schema's own switch, undone by `true`; a prim without the API is left as it is and the answer says so |
 | Q3 | A Mesh | A static Mesh keeps PhysX's `none`, an exact triangle mesh; a Mesh that moves with a rigid body, its own or an ancestor's, and has no approximation authored gets `convexHull`, which PhysX can simulate; an approximation already authored is kept |
-| Q4 | A prim that isn't a gprim, such as an Xform root over meshes | Refuse, naming up to five gprims under it and their count; a collider for every mesh under it waits for an issue of its own |
-| Q5 | An inactive prim, a prim inside an instance | Refuse before anything is written, in `material_refusal`'s words, as friction is; an instanceable gprim itself is editable and takes it |
+| Q4 | A prim PhysX makes no shape for, such as an Xform root over meshes | Refuse, naming up to five prims under it that collide and their count, or saying they lie inside an instance; a collider for every mesh under it waits for an issue of its own |
+| Q5 | An inactive prim, a prim inside an instance | Refuse before anything is written, in words of their own (activate it; the instance's colliders belong in its asset); an instanceable gprim itself is editable and takes it |
 | Q6 | A gprim under a rigid body, or the rigid body itself | Both take it: under a body it becomes one of the body's shapes, on the body a dynamic collider (U3); the answer names the body |
 | Q7 | Whether `collision=True` alone binds a physics material | No: friction or restitution does that; the collider uses the scene's default until then |
-| Q8 | The answer | `collision=on`, `collision=off`, `collision=off (it had no collider)`, with `applied CollisionAPI`, `approximation convexHull` and `part of the rigid body <path>` when they apply |
+| Q8 | The answer | `collision=on`, `collision=off`, `collision=off (it had no collider)` (an echo key of its own), with `applied CollisionAPI`, `approximation convexHull` and `part of the rigid body <path>` when they apply |
 
 ## Compatibility
 
@@ -131,25 +149,29 @@ settings, routes and protocol are unchanged.
 | # | Step | Proved by |
 |---|---|---|
 | 1 | This plan, reviewed and approved | the Plan review section |
-| 2 | The handler: refusals, `true`, `false`, the approximation, the echo | `tests/test_physics_handler.py` on a usd-core stage: a static Cube gets the API and no rigid body or material; `false` authors `physics:collisionEnabled` false and keeps the API; `false` on a prim without one writes nothing; a dynamic Mesh gets `convexHull`, a static one no approximation, a Mesh with one authored keeps it; a gprim under a rigid body names the body; an inactive prim, an instance proxy and an Xform are refused with nothing written, the Xform's error naming its gprims; `collision=True` with a friction names the API once |
-| 3 | The client and the tool: the parameter, the answer, "Nothing set", the older extension | `tests/test_tools.py`: each answer against the mock bridge, the body sent, an echo without `collision` naming the older extension; `tests/test_client.py`: the body has `collision` only when given |
-| 4 | The contract | `uv run tools/golden.py`; `tests/test_contract.py` |
+| 2 | `ovmcp/core/collision.py` and the handler: refusals, the order, `true`, `false`, the approximation, the echo | `tests/test_collision.py` (the core, on usd-core) and `tests/test_physics_handler.py`: a static Cube gets the API and no rigid body or material; `false` authors `physics:collisionEnabled` false and keeps the API; `false` on a prim without one writes nothing and echoes `"collider": false`; a dynamic Mesh gets `convexHull`, a kinematic or static one none, a Mesh with one authored keeps it; a Mesh given `mass` and `collision=True` in one call gets `convexHull`; `collision=False` with a friction ends with the API and collision off; a gprim under a rigid body names the body; an inactive prim, an instance proxy, a `BasisCurves` and an Xform are refused with nothing written, the Xform's error naming its colliding prims, or the instance when they lie inside one; `collision=True` with a friction names the API once |
+| 3 | The client and the tool: the parameter, the answer, the description's lead line, "Nothing set", the older extension; the contract with it | `tests/test_tools.py`: each answer against the mock bridge, the body sent, an echo without `collision` giving the `WARNING` line and, with a friction, the API it did apply; `tests/test_client.py`: the body has `collision` only when given; `uv run tools/golden.py` in this step, so the fixture never lags the tool |
+| 4 | The contract checked | `tests/test_contract.py` |
 | 5 | Docs | `docs/TOOLS.md`, the `simulate` skill, `outcomes.md`'s O4 path, `CHANGELOG.md` |
-| 6 | Live | `tests/test_scenarios.py`: a new `test_15_02c`, a box falling onto a floor made a collider by `collision=True` rests on it, and off again it falls through; the live suites whole on a Z-up and a Y-up stage; `uv run tools/scenarios.py run --phases none --outcomes O4` |
+| 6 | Live | `tests/test_scenarios.py`: a new `test_15_02d` (`test_15_02c` is taken), a box falling onto a floor made a collider by `collision=True` rests on it, and off again it falls through; the live suites whole on a Z-up and a Y-up stage; `uv run tools/scenarios.py run --phases none --outcomes O4` |
 | 7 | `finish-work`: the gate in full, `review-code` | the review record |
 
 ## Tests
 
 - **Unit (CI):** step 2's handler tests and step 3's tool and client tests; `test_contract.py` on the new fixture.
-- **Live, by hand:** on a headless Isaac Sim 6.2 at 8212 with this branch's bridge: `test_15_02c`, then both suites on
+- **Live, by hand:** on a headless Isaac Sim 6.2 at 8212 with this branch's bridge: `test_15_02d`, then both suites on
   a Z-up and a Y-up stage; then O4 in an outcome run, whose calls show whether the agent takes `collision`.
 - **What neither shows:** PhysX's behaviour on a dynamic Mesh left at `none` elsewhere (Q3 authors `convexHull`, so
   this change never leaves one); Kit apps other than Isaac Sim 6.2.
 
 ## Docs
 
-- `docs/TOOLS.md`: the parameter's row and a bullet; the task table's line "set mass or friction" names a collider.
-- `plugin/skills/simulate/SKILL.md` step 2: a static collider, such as a floor, with `collision=True`.
+- `docs/TOOLS.md`: the parameter's row and a bullet; the task table's line "set mass or friction" names a collider;
+  raycast's "Colliders only" bullet names `collision=True`.
+- `README.md`'s Physics row ("Mass, friction and bounce; push an object; cast a ray") names a collider.
+- `plugin/skills/simulate/SKILL.md`: step 2, a static collider, such as a floor, with `collision=True`; its
+  description's lead names colliders, so an agent with a collider to make loads it.
+- `AGENTS.md`'s `ovmcp/core` list and `docs/ARCHITECTURE.md`, where they list the core's modules: `collision.py`.
 - `test_project/outcomes.md`: O4's tool path in the header names `collision=True`.
 - `CHANGELOG.md`, Added: the parameter, and that the fix to O4's path is in the Kit extension too.
 
@@ -160,8 +182,52 @@ settings, routes and protocol are unchanged.
 | An agent passes a floor's Xform root, as Isaac Sim's own ground plane and many assets have one, and is refused | Accepted: the error names the gprims under it, so the next calls take them (Q4) |
 | `convexHull` changes how a dynamic Mesh collides compared with PhysX's own fallback | Accepted: the fallback is a convex hull too, with a warning; authoring it says so in USD, and an approximation already authored is kept |
 | A collider made with `collision=True` and no material uses the scene's default friction | Accepted: as any collider without a material; a friction in the same call binds one |
-| A Gprim inside an instance can't take the API | Refused before anything is written, as friction is |
+| A Gprim inside an instance can't take the API | Refused before anything is written, naming the instance |
+| A Mesh made a collider, then given a mass in a later call, keeps no approximation, and PhysX falls back to a convex hull with a warning | Accepted: the same call orders them (mass first); a later mass call is mass's own path, which this change leaves as it is |
+| A stronger layer's `physics:collisionEnabled` hides the write | The echo reads the composed value back, so the answer shows it as it stands |
 
 ## Plan review
 
-Not reviewed yet.
+### Round 1
+
+**How:** one fresh reviewer on Claude Opus 5.5, every lens, 2026-11-02, at `8103572` (drafted by a fork of the main
+session, reviewed by an agent that had seen neither). **Verdict:** needs-fixes, minors only, so no second round.
+**Now:** every finding fixed; the owner calls wait for the maintainer, and with them the agreement the one-way door
+needs.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P1 | minor | The approximation looked for a rigid body before the same call's `mass` made one: a Mesh given `mass` and `collision=True` together got no `convexHull`, and the answer named no body | fixed: the order is mass and density, then friction and restitution, then `collision`; step 2 tests the Mesh case; a later mass call is a Risks row |
+| P2 | minor | The echo had no way to say "had no collider": leaving `collision` out would read as an older extension | fixed: `"collider": false` |
+| P3 | minor | `material_refusal`'s words speak of physics materials, send the agent to the parent, and would refuse an instanceable gprim, against Q5 | fixed: refusals of their own |
+| P4 | minor | An instanced Xform root's error named gprims the next call would refuse, or none | fixed: the error says they lie inside an instance |
+| P5 | minor | `collision=False` with a friction: friction applies the API after `false`, so the answer said "no collider" and the prim collided | fixed: `collision` runs last, so the prim ends with the API and collision off |
+| P6 | minor | `test_15_02c` is taken | fixed: `test_15_02d` |
+| P7 | minor | `README.md`'s Physics row wasn't in Docs | fixed |
+
+**Refuted:** the older extension's detection fails (the 0.4.1 handler builds its result from fixed keys and never
+echoes `collision`, so the tool's check fires); a weaker layer's `collisionEnabled` false hides the write (the edit
+target's opinion is stronger; a stronger layer is a Risks row, and the echo now reads the composed value back);
+`collision=True` with a friction applies the API twice (both paths check first); a protocol bump is needed (an
+optional key, as #105 and #113 added, leaves `PROTOCOL` alone); the handler blocks Kit's loop (it stays async, no
+executor).
+
+**Owner calls:** Q1 to Q8, in Design, Decisions for the maintainer; the reviewer agrees with each, as amended by P1,
+P2, P3 and P4. **The one-way door** needs the maintainer's agreement on #150 (`AGENTS.md`, One-way doors), beside
+`approved_by`.
+
+| # | Question | Recommendation | Answer |
+|---|---|---|---|
+| Q1 to Q8 | Design's table | As recommended there | |
+
+**Improvements:**
+
+| # | Improvement | Answer |
+|---|---|---|
+| I1 | Name a collider in the description's lead line, the `simulate` skill's description and TOOLS.md's raycast bullet, so an agent finds the parameter | taken |
+| I2 | Accept only the shapes PhysX collides (curves and `TetMesh` are gprims too) | taken |
+| I3 | No `convexHull` on a kinematic body, where PhysX keeps triangle meshes | taken |
+| I4 | Echo the composed `physics:collisionEnabled` read back | taken |
+| I5 | The older-extension note as a `WARNING:` line, and saying friction's API was applied | taken |
+| I6 | The Kit-free rules in `ovmcp/core/collision.py`, listed in `AGENTS.md` and ARCHITECTURE | taken |
+| I7 | `golden.py` in step 3, with the parameter | taken |
