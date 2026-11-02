@@ -24,7 +24,7 @@ import carb
 import omni.kit.app
 import omni.usd
 
-from ovmcp.core import capture
+from ovmcp.core import capture, exposure
 from ovmcp.core.recording import delete_render_product
 from ovmcp.core.serial import LazyLock
 
@@ -46,6 +46,27 @@ _LET_GO_SECONDS = 0.05
 # release_kept, and the routes that write the stage to a file. Not re-entrant (ovmcp.core.serial): what runs holding
 # it calls release, never these.
 _viewport = LazyLock()
+
+
+def _shield(camera_path: str) -> exposure.Shield | None:
+    """RTX's exposure schemas for the camera a feed is about to render through, in Kit's session layer, so RTX writes
+    none of them into the user's file (#177); None when the camera has them or there is no open stage."""
+    stage = omni.usd.get_context().get_stage()
+    if stage is None or omni.usd.get_context().get_stage_state() != omni.usd.StageState.OPENED:
+        return None
+    return exposure.shield(stage, camera_path)
+
+
+def _lift(shield: exposure.Shield | None) -> None:
+    """Takes a feed's shield back once it renders through another camera or none, on the stage it was written to: a
+    stage closed or replaced meanwhile took its session layer with it."""
+    if shield is None:
+        return
+    stage = omni.usd.get_context().get_stage()
+    if stage is None or omni.usd.get_context().get_stage_state() != omni.usd.StageState.OPENED:
+        return
+    if stage.GetSessionLayer() == shield.layer:
+        shield.lift()
 
 
 def _subscribe(texture: Any, on_frame: Callable[[int], None]) -> Any:
@@ -91,10 +112,14 @@ class CameraFeed:
         self.segmented = False
         self.sensor_on = False
         self._pending: list[Any] = []
+        # Before the first render through the camera, which is when RTX writes its schemas.
+        self._shield = _shield(camera_path)
         # As Replicator makes its render products: rendered with the update, so a frame shows the update before the
         # one it was asked on, not three before as the viewport's does (#25's E17).
         self._texture: Any = create_hydra_texture(self.name, width, height, "", camera_path, "rtx", is_async=False)
         if self._texture is None:
+            _lift(self._shield)
+            self._shield = None
             raise RuntimeError(f"Kit gave no texture to render {camera_path} with: is the RTX renderer loaded?")
         self.render_product_path: str = self._texture.get_render_product_path()
         self._subscription: Any = _subscribe(self._texture, self._on_frame)
@@ -149,7 +174,16 @@ class CameraFeed:
         product (#114's K5, K15); each is set only when it changed. Both sides in one go, as K5 measured."""
         texture = self._texture
         if camera_path != self.camera_path:
-            texture.camera_path = camera_path
+            # One shield at a time, each put back exactly: the old one goes before the new one is written, with no
+            # await between them and the new camera, so no frame renders either camera bare.
+            _lift(self._shield)
+            self._shield = _shield(camera_path)
+            try:
+                texture.camera_path = camera_path
+            except BaseException:
+                _lift(self._shield)
+                self._shield = _shield(self.camera_path)
+                raise
             self.camera_path = camera_path
         if (width, height) != (self.width, self.height):
             texture.width = width
@@ -207,6 +241,8 @@ class CameraFeed:
         texture, self._texture = self._texture, None
         if texture is not None:
             texture.set_updates_enabled(False)
+        _lift(self._shield)
+        self._shield = None
 
     def remove_render_product(self, stage: Any) -> bool:
         """Deletes the render product from every layer of `stage`, with Kit's entry for it in its render settings

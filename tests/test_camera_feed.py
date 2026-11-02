@@ -17,9 +17,10 @@ from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
-from pxr import Usd
+from pxr import Usd, UsdGeom
 
 from ovmcp.core import capture
+from ovmcp.core.exposure import SCHEMAS
 
 from .conftest import HANDLERS, FakeUpdates, load_updates
 
@@ -335,6 +336,94 @@ def test_a_dropped_feed_stops_rendering_and_hands_out_nothing_more(feeds, kit):
     if kit.events_2:
         kit.frame(1)  # an event already on its way when the subscription went
     assert waiting.handed == []
+
+
+def _cameras(kit: FakeKit, *paths: str) -> None:
+    for path in paths:
+        UsdGeom.Camera.Define(kit.stage, path)
+
+
+def _shielded(kit: FakeKit, path: str) -> bool:
+    spec = kit.stage.GetSessionLayer().GetPrimAtPath(path)
+    return (
+        spec is not None
+        and spec.HasInfo("apiSchemas")
+        and set(SCHEMAS) <= set(spec.GetInfo("apiSchemas").prependedItems)
+    )
+
+
+def test_a_feed_shields_its_camera_in_the_session_layer_and_lifts_it_when_dropped(feeds, kit):
+    # RTX wrote its exposure schemas into the root layer of a scene camera a capture rendered through (#177).
+    _cameras(kit, "/World/ShotCam")
+    root, session = kit.stage.GetRootLayer().ExportToString(), kit.stage.GetSessionLayer().ExportToString()
+
+    feed = feeds.CameraFeed("/World/ShotCam", 320, 240)
+
+    assert _shielded(kit, "/World/ShotCam")
+    assert kit.stage.GetRootLayer().ExportToString() == root
+    feed.drop()
+    assert kit.stage.GetSessionLayer().ExportToString() == session
+
+
+def test_a_feed_aimed_elsewhere_shields_the_new_camera_and_lifts_the_old(feeds, kit):
+    _cameras(kit, "/World/A", "/World/B")
+    session = kit.stage.GetSessionLayer().ExportToString()
+    feed = feeds.CameraFeed("/World/A", 320, 240)
+
+    feed.aim("/World/B", 320, 240)
+
+    assert kit.textures[-1].camera_path == "/World/B"
+    assert not _shielded(kit, "/World/A")
+    assert _shielded(kit, "/World/B")
+    feed.drop()
+    assert kit.stage.GetSessionLayer().ExportToString() == session
+
+
+def test_a_camera_kit_refuses_keeps_the_old_shield_and_leaves_none_on_the_new(feeds, kit):
+    _cameras(kit, "/World/A", "/World/B")
+    feed = feeds.CameraFeed("/World/A", 320, 240)
+    kit.textures[-1].refuses_camera = True
+
+    with pytest.raises(RuntimeError, match="refused the camera"):
+        feed.aim("/World/B", 320, 240)
+
+    assert _shielded(kit, "/World/A")
+    assert not _shielded(kit, "/World/B")
+
+
+def test_a_feed_made_while_the_stage_isn_t_open_writes_nothing(feeds, kit):
+    _cameras(kit, "/World/ShotCam")
+    session = kit.stage.GetSessionLayer().ExportToString()
+    kit.stage_state = CLOSING
+
+    feed = feeds.CameraFeed("/World/ShotCam", 320, 240)
+    feed.drop()
+
+    assert kit.stage.GetSessionLayer().ExportToString() == session
+
+
+def test_a_shield_on_a_stage_since_replaced_is_left_to_go_with_it(feeds, kit):
+    _cameras(kit, "/World/ShotCam")
+    feed = feeds.CameraFeed("/World/ShotCam", 320, 240)
+    old = kit.stage
+    kit.stage = Usd.Stage.CreateInMemory()
+
+    feed.drop()  # writes nothing into the new stage's session layer
+
+    assert kit.stage.GetSessionLayer().GetPrimAtPath("/World/ShotCam") is None
+    assert _shielded(kit, "/World/ShotCam") is False
+    assert old.GetSessionLayer().GetPrimAtPath("/World/ShotCam") is not None
+
+
+def test_a_kit_that_gives_no_texture_leaves_no_shield(feeds, kit):
+    _cameras(kit, "/World/ShotCam")
+    session = kit.stage.GetSessionLayer().ExportToString()
+    kit.give_none = True
+
+    with pytest.raises(RuntimeError):
+        feeds.CameraFeed("/World/ShotCam", 320, 240)
+
+    assert kit.stage.GetSessionLayer().ExportToString() == session
 
 
 def _with_product(kit: FakeKit, path: str) -> None:

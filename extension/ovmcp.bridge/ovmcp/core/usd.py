@@ -23,7 +23,7 @@
 
 from collections.abc import Callable, MutableMapping, Sequence, Sized
 from operator import attrgetter
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 from pxr import Gf, Sdf, Tf, Usd, UsdGeom
 
@@ -82,6 +82,15 @@ def attribute_spec(layer: Sdf.Layer, path: Sdf.Path) -> Sdf.AttributeSpec | None
 
 def relationship_spec(layer: Sdf.Layer, path: Sdf.Path) -> Sdf.RelationshipSpec | None:
     return layer.GetRelationshipAtPath(path)
+
+
+def is_explicit(op: Sdf.TokenListOp) -> bool:
+    return bool(cast("Any", op).isExplicit)
+
+
+def list_op_items(op: Sdf.TokenListOp) -> list[str]:
+    """The items a list op names once applied, in order: a composed one's whole list."""
+    return [str(item) for item in cast("Any", op).ApplyOperations([])]
 
 
 def remove_child_spec(parent: Sdf.PrimSpec, name: str) -> None:
