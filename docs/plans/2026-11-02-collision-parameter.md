@@ -1,9 +1,9 @@
 ---
 title: Add set_physics_properties' collision parameter to the tool contract, to give or take away a collider by name
 issue: "#150"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-11-02
 ---
 
 # Add set_physics_properties' collision parameter to the tool contract, to give or take away a collider by name
@@ -218,7 +218,7 @@ P2, P3 and P4. **The one-way door** needs the maintainer's agreement on #150 (`A
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 to Q8 | Design's table | As recommended there | |
+| Q1 to Q8 | Design's table | As recommended there | As recommended, and the tool contract's new parameter agreed (serionist, 2026-11-02) |
 
 **Improvements:**
 
