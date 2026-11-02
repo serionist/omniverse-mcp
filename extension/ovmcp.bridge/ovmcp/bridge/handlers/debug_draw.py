@@ -2,8 +2,9 @@
 Debug drawing: /debug/draw.
 
 Draws with isaacsim.util.debug_draw (Isaac Sim 5.x, 6.x), or omni.debugdraw in other Kit apps that ship it, turning
-the extension on at the first call. The book in ovmcp/core/debug_draw.py holds what still shows; one update
-subscription, on Kit's main thread, lets each drawing go after its duration and draws again what is left.
+the extension on at the first call. The book in ovmcp/core/debug_draw.py holds what still shows; one observer of
+Kit's update event (_updates.py), on Kit's main thread, lets each drawing go after its duration and draws again what
+is left.
 """
 
 import time
@@ -15,6 +16,7 @@ import omni.usd
 
 from ovmcp.core.debug_draw import LINE_WIDTH_PX, RGBA, DebugBook, Segment, argb, duration_seconds, rgba, segments
 
+from ._updates import on_update
 from ._utils import enable_extension
 
 # The extensions drawn with, in the order they are tried.
@@ -101,7 +103,7 @@ _MAKERS = {backend.name: backend for backend in (_IsaacSimDraw, _OmniDebugDraw)}
 
 
 class _Drawings:
-    """The bridge's drawings: the book, the backend drawing them, and the update subscription while it is needed."""
+    """The bridge's drawings: the book, the backend drawing them, and the update observer's guard while it is needed."""
 
     def __init__(self) -> None:
         self.book = DebugBook()
@@ -181,13 +183,12 @@ async def handle_draw_debug(body: dict) -> dict:
     _drawings.book.add(shape.segments, colour, context.get_stage_id(), time.monotonic(), duration)
     backend.added(_drawings.book, shape.segments, colour)
     if _drawings.sub is None:
-        stream = omni.kit.app.get_app().get_update_event_stream()
-        _drawings.sub = stream.create_subscription_to_pop(_on_update, name="ovmcp.bridge debug draw")
+        _drawings.sub = on_update("debug draw", _on_update)
 
     return {"status": "success", "result": {"drawn": shape.drawn, "backend": backend.name, "duration": duration}}
 
 
-def _on_update(_event: Any) -> None:
+def _on_update() -> None:
     """Each update, on Kit's main thread, while a drawing shows or a clear is owed: drops the drawings whose time is
     up and those of another stage, then clears and draws the rest again once the stage is open; drops itself when
     nothing is left. `duration` is real seconds from the call, whether the simulation plays or not."""

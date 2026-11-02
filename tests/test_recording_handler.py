@@ -21,7 +21,7 @@ from pxr import Usd, UsdGeom
 from ovmcp.core import capture
 from ovmcp.core.recording import MAX_IN_FLIGHT
 
-from .conftest import EXTENSION_ROOT
+from .conftest import EXTENSION_ROOT, FakeUpdates, load_updates
 
 HANDLER = EXTENSION_ROOT / "ovmcp" / "bridge" / "handlers" / "recording.py"
 OPENED, CLOSING = "OPENED", "CLOSING"
@@ -83,7 +83,7 @@ class FakeKit:
         self.discard_raises = False
         self.forgotten = 0
         self.captures: list[asyncio.Future[bytes]] = []
-        self.subscriptions: list[Any] = []
+        self.updates = FakeUpdates()
         self.first_frame_fails = False
         self.first_frame_gate: asyncio.Future[None] | None = None
 
@@ -108,15 +108,14 @@ class FakeKit:
         self.captures.append(future)
         return await future
 
-    def subscribe(self, fn: Any, name: str = "") -> SimpleNamespace:
-        self.subscriptions.append(fn)
+    def observe_event(self, **kwargs: Any) -> Any:
         self.events.append("subscribed")
-        return SimpleNamespace(name=name)
+        return self.updates.observe_event(**kwargs)
 
     def update(self) -> None:
-        """One Kit update: the newest subscription's callback, as Kit calls it; then the clock moves on, and the
+        """One Kit update: the observers of its update event, as Kit calls them (#122); then the clock moves on, and the
         simulation while it plays."""
-        self.subscriptions[-1](None)
+        self.updates.update()
         self.now += self.wall_step
         if self.playing:
             self.sim_time += self.sim_step
@@ -139,13 +138,14 @@ def recording(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
     context = SimpleNamespace(
         get_stage_id=lambda: kit.stage_id, get_stage_state=lambda: kit.stage_state, get_stage=lambda: kit.stage
     )
-    stream = SimpleNamespace(create_subscription_to_pop=kit.subscribe)
-    kit_app = _module("omni.kit.app", get_app=lambda: SimpleNamespace(get_update_event_stream=lambda: stream))
+    kit_app = _module("omni.kit.app", **FakeUpdates.APP)
+    dispatcher = _module("carb.eventdispatcher", get_eventdispatcher=lambda: kit)
     usd = _module("omni.usd", get_context=lambda: context, StageState=SimpleNamespace(OPENED=OPENED, CLOSING=CLOSING))
     omni_timeline = _module("omni.timeline", get_timeline_interface=lambda: timeline)
     omni_kit = _module("omni.kit", app=kit_app)
     fakes = {
-        "carb": _module("carb", log_warn=lambda _m: None, log_info=lambda _m: None),
+        "carb": _module("carb", log_warn=lambda _m: None, log_info=lambda _m: None, eventdispatcher=dispatcher),
+        "carb.eventdispatcher": dispatcher,
         "omni": _module("omni", kit=omni_kit, usd=usd, timeline=omni_timeline),
         "omni.kit": omni_kit,
         "omni.kit.app": kit_app,
@@ -171,6 +171,7 @@ def recording(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
     }
     for name, module in fakes.items():
         monkeypatch.setitem(sys.modules, name, module)
+    monkeypatch.setitem(sys.modules, "handlers_under_test._updates", load_updates())
     spec = importlib.util.spec_from_file_location("handlers_under_test.recording", HANDLER)
     assert spec is not None
     assert spec.loader is not None
@@ -454,13 +455,16 @@ def test_frames_keep_the_numbers_of_their_ticks_whatever_order_they_end_in(recor
 
 def test_stop_awaits_the_frames_in_flight_then_cleans_up_and_writes_the_metadata(recording, kit, tmp_path):
     async def scenario() -> dict[str, Any]:
-        await _start(recording, tmp_path, camera_path="/World/RecCam")
+        r = await _start(recording, tmp_path, camera_path="/World/RecCam")
+        # One observer of Kit's update event while the recording runs (#122).
+        assert kit.updates.names == [f"ovmcp.bridge recording {r['result']['session_id']}"]
         kit.update()
         kit.update()
         await _settle()
         stop = asyncio.ensure_future(recording.handle_recording_stop({}))
         await _settle()
         assert not stop.done()  # its frame is still being taken
+        assert kit.updates.observers == []  # its updates end first
         kit.captures[0].set_result(PNG)
         return await stop
 
@@ -541,6 +545,8 @@ def test_a_forced_start_ends_the_running_recording_first(recording, kit, tmp_pat
     first, second = kit.feeds
     assert kit.discarded == [first]
     assert not second.dropped
+    assert kit.updates.names == [f"ovmcp.bridge recording {r['result']['session_id']}"]  # the new one's alone
+    assert kit.updates.made == 2
 
 
 def test_a_forced_start_with_a_bad_camera_keeps_the_running_recording(recording, kit, tmp_path):
@@ -615,6 +621,7 @@ def test_shutdown_ends_the_frames_and_the_feed_but_deletes_nothing(recording, ki
     assert kit.forgotten == 1
     assert kit.captures[0].cancelled()
     assert not recording.recording_active()
+    assert kit.updates.observers == []
 
 
 def test_a_frame_comes_back_from_the_last_recording(recording, kit, tmp_path):
