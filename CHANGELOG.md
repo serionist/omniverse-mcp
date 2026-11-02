@@ -5,6 +5,24 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Fixed
+
+- **A recording sets up no new view at the kept capture render's size:** Kit 110 (Isaac Sim 6.2) can hang for
+  good while it sets up a new camera view, and each `start_recording` set one up, where captures share one kept
+  render since 0.4.0: release 0.4.0's test run hung so on a recording. A recording at the size of the render
+  `capture_viewport` and `inspect_prim` keep now records through it, its camera set, and `stop_recording` keeps
+  it again for the next capture or recording. Captures and recordings both default to 640x480, so a session that
+  gives no sizes sets up one view for both. A recording at another size still renders through one of its own.
+  The fix is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#141).
+
+### Changed
+
+- **A recording's render is kept up to 30 s after `stop_recording`,** for the next capture or recording, as a
+  capture's is, where it was deleted at the stop; it costs the GPU meanwhile, by size as `capture_viewport`'s
+  note in [TOOLS](docs/TOOLS.md#capture_viewport) says. It is deleted at once when another render is kept, a
+  frame failed or the stage changed. `start_recording`'s answer says so. Every render product the bridge makes
+  is now named `ovmcp_feed_<id>`, where they were `ovmcp_capture_<id>` and `ovmcp_recording_<id>` (#141).
+
 ## 0.4.0 (2026-11-02)
 
 Kit's community extension registry lists the bridge from this release, and your assistant can draft a bug report for

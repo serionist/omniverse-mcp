@@ -222,7 +222,8 @@ Needs: 2.1, 4.5
 - Reset the cube to height 3; `start_recording(fps=10, camera_path="/World/RecCam")`, play ~1.5 s, pause, then
   `stop_recording()`: the cube is lower in the last frame than in the first (pausing, not stopping, keeps it down)
 - `camera_path="/World/RedCube"` or a path with no prim, and `width=4097`: each an error, and nothing recording
-- While recording, the answer's `render_product` is a prim on the stage; after `stop_recording()` it is gone
+- While recording, the answer's `render_product` is a prim on the stage; after `stop_recording()` it is the kept
+  feed, gone 30 s later with no capture or recording (#141)
 - At `fps=30`, `metadata.json` numbers its frames 0, 1, 2, ... with none repeated, each with its file
 - Delete the recording's camera mid-recording: `get_sim_state` shows `recording_note`, frames stop, and
   `stop_recording()` ends with a `Note:` saying the camera is gone
@@ -579,8 +580,8 @@ script.
   `/Render/OmniverseKit/HydraTextures` with a short `execute_script`; `capture_viewport()` holds no red
 - `draw_debug("lines", ..., duration=10)` a red zigzag across the view, then `capture_viewport()`
 - Verify: the zigzag shows in the capture, and the render products, read again, are the ones read before the
-  captures, plus at most one kept capture feed, `ovmcp_capture_<id>`, which goes 30 s after the last capture (#114);
-  a recording's render product, or a second capture feed's, fails it
+  captures, plus at most one kept feed, `ovmcp_feed_<id>`, which goes 30 s after the last capture or recording
+  (#114, #141); a second feed's render product fails it
 - Not judged here, so it leaves this row's status alone: a drawing captured at once, 5 times over, through
   `draw_debug`'s handler and `mcp.capture_viewport()` in one script. That needs an `ovmcp.*` import and five awaited
   captures, which the tester's rules forbid; pytest's `test_16_08` checks it, live

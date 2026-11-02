@@ -10,7 +10,8 @@ so `discard` deletes it, once the stage it is on is open (a new stage carries it
 may carry instance segmentation too, which `release` lets go of before the render product goes (#51's E16).
 
 inspect_prim and capture_viewport share one feed, kept between calls (`kept_feed`, `put_back`): Kit 110 can hang for
-good during a new RTX view's first frames, and a feed made for each call made a view each call (#114).
+good during a new RTX view's first frames, and a feed made for each call made a view each call (#114). A recording at
+the kept feed's size borrows it for its length and hands it back at its stop (`lend`, `hand_back`, #141).
 """
 
 import asyncio
@@ -75,14 +76,15 @@ class CameraFeed:
     about four times as far from a settled one as two settled ones are, under real-time path tracing (#25's E23).
     """
 
-    def __init__(self, camera_path: str, width: int, height: int, prefix: str = "ovmcp_recording"):
+    def __init__(self, camera_path: str, width: int, height: int):
         from omni.kit.hydra_texture import create_hydra_texture
 
         self.camera_path = camera_path
         self.width = width
         self.height = height
-        # A name of its own: a session's id is the second it started in, which a forced restart can share.
-        self.name = f"{prefix}_{uuid.uuid4().hex}"
+        # A name of its own: a session's id is the second it started in, which a forced restart can share. One prefix
+        # for every feed, since a capture's may render a recording later and the reverse (#141).
+        self.name = f"ovmcp_feed_{uuid.uuid4().hex}"
         self.frames = 0
         # Whether instance segmentation was ever turned on for this feed, so its release frees its graphs; and whether
         # it is on now, so the call that turned it on, or the release, turns it off.
@@ -115,6 +117,11 @@ class CameraFeed:
         """The feed's size, read as omni.syntheticdata reads a viewport's (with `camera_path` and
         `render_product_path`), so its view parameters, projections and sensors take a feed as they take a viewport."""
         return self.width, self.height
+
+    @property
+    def dropped(self) -> bool:
+        """Whether the feed was let go: it renders nothing more."""
+        return self._texture is None
 
     @property
     def waiting(self) -> bool:
@@ -379,12 +386,16 @@ class _Kept:
 
     Kit 110 can hang for good during a new RTX view's first frames, and a feed made for each call made a view each
     call; a kept feed whose camera changes makes none (#114's K4, K15). It goes after IDLE_SECONDS with no capture, when
-    the stage closes, when Kit saves it, when a call leaves it in doubt, and at shutdown.
+    the stage closes, when Kit saves it, when a call leaves it in doubt, and at shutdown. A recording at its size takes
+    it off the slot for its length, and may hand it back (#141).
     """
 
     def __init__(self) -> None:
         self.feed: CameraFeed | None = None
         self.stage_id: object = None
+        # Set by `forget`, at the extension's shutdown: a recording's stop that comes after it keeps nothing, since
+        # nothing would cancel the timer or stop observing the stage again.
+        self.closed = False
         # Counts each time the feed was taken or let go, so an idle release that waited for the lock while a call took
         # the feed does nothing.
         self.generation = 0
@@ -487,15 +498,16 @@ def kept_feed(camera_path: str, width: int, height: int) -> CameraFeed:
         discard(feed)
         feed = None
     if feed is None:
-        feed = CameraFeed(camera_path, width, height, prefix="ovmcp_capture")
+        feed = CameraFeed(camera_path, width, height)
         _kept.keep(feed, stage_id)
         return feed
     try:
         feed.aim(camera_path, width, height)
     except BaseException:
-        # Half aimed, it would render one camera while the boxes say another: not kept.
+        # Half aimed, it would render one camera while the boxes say another: not kept. Torn down as at Kit's Save,
+        # since an earlier capture may have left segmentation graphs on it (#51's E16).
         _kept.let_go()
-        discard(feed)
+        let_go_now(feed)
         raise
     return feed
 
@@ -524,6 +536,76 @@ async def put_back(feed: CameraFeed, healthy: bool) -> None:
             await release(feed)
 
 
+async def lend(camera_path: str, width: int, height: int) -> CameraFeed:
+    """The feed a recording renders `camera_path` through at `width` x `height`, for its whole length (#141): the kept
+    feed, taken off the slot and pointed at the camera, when it is that size, so no new RTX view is set up (#114's
+    K15); else a new feed, and a kept one stays kept, on its clock. A resize would set up a view, and the next capture
+    at the old size another, where a feed of its own sets up one. Takes _viewport, so a capture running now finishes
+    first. The lent feed is in no slot, so the stage's events, the idle timer and the saves leave it to the recording;
+    `hand_back` returns it."""
+    async with _viewport.get():
+        if _kept.closed:
+            raise RuntimeError("The extension shut down while the recording started")
+        stage_id = omni.usd.get_context().get_stage_id()
+        if _kept.feed is not None and _kept.stage_id != stage_id:
+            # Another stage, whose closing never reached us: it goes as kept_feed lets it go.
+            stale = _kept.let_go()
+            if stale is not None:
+                discard(stale)
+        feed = _kept.feed
+        if feed is None or feed.resolution != (width, height):
+            return CameraFeed(camera_path, width, height)
+        _kept.let_go()
+        try:
+            feed.aim(camera_path, width, height)
+        except BaseException:
+            let_go_now(feed)
+            raise
+        return feed
+
+
+async def hand_back(feed: CameraFeed, stage_id: object, healthy: bool) -> None:
+    """Hands back a recording's feed at its stop: kept for IDLE_SECONDS, for the next capture or recording, when
+    `healthy`, no other feed was kept meanwhile, it still renders and the stage open now is `stage_id`, the one it
+    rendered; released otherwise, in `release`'s order, since a capture may have left segmentation graphs on it.
+
+    It takes _viewport only when no capture holds it, so a stop doesn't wait out a capture running now: the feed is
+    released then instead. A capture already queued for the lock as its holder lets go is let in first, so the stop
+    waits for that one. After the extension's shutdown, before the stop or while it waited, the feed is torn down at
+    once and nothing is kept: no timer, and the stage's events not observed again."""
+    lock = _viewport.get()
+    if not _kept.closed and not lock.locked():
+        async with lock:
+            context = omni.usd.get_context()
+            kept = (
+                healthy
+                and not _kept.closed
+                and _kept.feed is None
+                and not feed.dropped
+                and context.get_stage_id() == stage_id
+                and context.get_stage_state() == omni.usd.StageState.OPENED
+            )
+            if kept:
+                _observe_stage()
+                _kept.keep(feed, stage_id)
+                _kept.start_timer()
+                return
+    if _kept.closed:
+        let_go_now(feed)
+    else:
+        await release(feed)
+
+
+def let_go_now(feed: CameraFeed) -> None:
+    """A feed torn down with no update to wait for, as at Kit's Save: segmentation off, the feed dropped, its graphs
+    freed, its render product deleted now or from the next open stage. For a recording's feed whose frames stopped on
+    an update, or at shutdown. After shutdown a render product that can't go now is forgotten, as `forget` forgets
+    them, so nothing observes the app's updates for it."""
+    _tear_down_at_once(feed)
+    if _kept.closed:
+        _leftovers.forget()
+
+
 async def _release_kept() -> None:
     feed = _kept.let_go()
     if feed is not None:
@@ -550,7 +632,8 @@ async def without_kept_feed() -> AsyncIterator[None]:
 def forget() -> None:
     """At the extension's shutdown: the kept feed torn down at once, its render product deleted while a stage is open,
     and the stage's events no longer observed. Render products waiting for an open stage are forgotten, since the stage
-    may be tearing down."""
+    may be tearing down. Marked shut down, so a recording's stop still under way keeps nothing (`hand_back`)."""
+    _kept.closed = True
     feed = _kept.let_go()
     _kept.stage_events = []
     if feed is not None:

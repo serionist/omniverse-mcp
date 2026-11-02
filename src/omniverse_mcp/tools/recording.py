@@ -77,8 +77,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         """Start recording simulation frames to disk.
 
         Records camera_path, or the active viewport's camera when empty, at width x height (up to 4096 a side),
-        through a render of its own: the viewport, its camera and its size stay as they are. The extra render runs
-        while the recording does, and slows the app's updates, the more the larger the frames.
+        through the render capture_viewport and inspect_prim keep when it is that size, else one of its own: the
+        viewport, its camera and its size stay as they are. The render runs while the recording does and up to 30 s
+        after, kept for the next capture or recording, and slows the app's updates, the more the larger the frames.
 
         Takes a frame every 1/fps seconds of the recording's own clock, at most one an app update. The clock runs with
         the simulation while it plays, so a simulation faster than real time gives more than fps frames a wall second,
@@ -109,7 +110,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         size = f", {r['resolution'][0]}x{r['resolution'][1]} from {r['camera_path']}" if from_camera else ""
         msg = f"Recording {r['session_id']} at {r['fps']}fps{size} -> {h.rel(r['output_dir'])}"
         if from_camera:
-            msg += f"\nRenders into {r['render_product']}, deleted at stop"
+            # The render captures keep, lent to the recording, or one of its own: kept after the stop either way (#141).
+            kept = "kept up to 30 s after the stop for the next capture or recording"
+            msg += f"\nRenders into {r['render_product']}, {kept}"
         if r.get("track_prims"):
             tp: list[str] | int = r["track_prims"]
             count = len(tp) if isinstance(tp, list) else tp
@@ -123,7 +126,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @tool(mcp, EDITS)
     def stop_recording() -> str:
         """Stop the running recording: wait for the frames still being written, write metadata.json with each frame's
-        simulation time, and delete the recording's render product.
+        simulation time, and hand the render back to the captures, kept up to 30 s.
 
         Returns the frame count, the duration, the seconds of simulation played and the seconds stopped or paused (the
         frame count comes out near fps times their sum), the session folder and the state file, with a note when frames

@@ -39,7 +39,7 @@ it runs one; they are hints, never security (the bridge's token is what keeps ot
 
 | Hints | What they mean | Tools |
 |---|---|---|
-| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs and while it is kept for the next capture, up to 30 s after, and leaves Kit's unsaved-edits flag set; the bridge's saves and Kit's own Save leave it out of the file) | `get_scene_tree`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
+| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs and while it is kept for the next capture or recording, up to 30 s after, and leaves Kit's unsaved-edits flag set; the bridge's saves and Kit's own Save leave it out of the file) | `get_scene_tree`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
 | not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `inspect_prim`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug` |
 | destructive | Deletes or overwrites prims, the whole stage, or USD files on disk | `delete_prim`, `save_scene`, `open_scene`, `new_scene`, `flatten_usd`, `export_prim_as_file`, `update_material_paths` |
 | destructive, open world | Runs Python or loads extensions inside the Kit app: anything can happen | `execute_script`, `manage_extensions` |
@@ -859,9 +859,11 @@ world_dimensions = [1.0, 1.0, 1.0]
 > needs for all its samples on top (none more with Isaac Sim's 64 a frame).
 
 > **The render is kept between captures:** Kit 110 (Isaac Sim 6.2) can hang for good while it sets up a new view's
-> first frames, so `capture_viewport` and `inspect_prim` share one render, kept for 30 s after the last capture, at
-> any size. A capture at the last one's size, of any camera, sets up no new view; one at another size resizes the
-> render, one new view. While it is kept, Kit renders one view more. Idle, on headless Isaac Sim 6.2 and an RTX 5090,
+> first frames, so `capture_viewport` and `inspect_prim` share one render, kept for 30 s after the last capture or
+> recording, at any size. A capture at the last one's size, of any camera, sets up no new view; one at another size
+> resizes the render, one new view. `start_recording` at the kept render's size records through it, its camera set,
+> and `stop_recording` keeps it again; at another size a recording renders through one of its own, a new view, and
+> leaves the kept one. While it is kept, Kit renders one view more. Idle, on headless Isaac Sim 6.2 and an RTX 5090,
 > with no capture running:
 >
 > | Size | Kit's updates a second | Kit's share of the GPU's 3D engine | Video memory |
@@ -872,8 +874,8 @@ world_dimensions = [1.0, 1.0, 1.0]
 > | 4096x4096 | 69 | 65 % | about 5.5 GB more |
 >
 > Segmentation is on only during a capture: left on, it cost a 640x480 render another 47 updates a second while idle.
-> The render goes 30 s after the last capture, when the stage closes, when a capture fails, and when the extension
-> is turned off. `save_scene`, `flatten_usd`, `export_prim_as_file` and Kit's own Save (File > Save) let it go before
+> The render goes 30 s after the last capture or recording, when the stage closes, when a capture fails, and when the
+> extension is turned off. `save_scene`, `flatten_usd`, `export_prim_as_file` and Kit's own Save (File > Save) let it go before
 > they write, so their files don't hold it. Two writes do while it is kept: a script that writes the stage's root
 > layer through USD itself, in `execute_script`, and Kit's File > Save Flattened As when it leaves the session layer
 > out.
@@ -953,9 +955,11 @@ Get the current simulation state. No parameters.
 ### `start_recording`
 
 Start recording simulation frames to disk. It records `camera_path`, or the active viewport's camera when empty, at
-`width` x `height`, through a render of its own: the viewport, its camera and its size stay as they are, in the GUI
-too. A side of more than 4096 pixels is refused. The answer names the camera, the size and `render_product`, the
-prim the recording renders into, which it deletes at stop.
+`width` x `height`, through a render apart from the viewport's: the viewport, its camera and its size stay as they
+are, in the GUI too. It is the render `capture_viewport` and `inspect_prim` keep when that is the same size, else one
+of its own, and the stop keeps it up to 30 s for the next capture or recording: Kit 110 can hang while it sets up a
+new view ([`capture_viewport`](#capture_viewport), The render is kept between captures). A side of more than 4096
+pixels is refused. The answer names the camera, the size and `render_product`, the prim the recording renders into.
 
 - **When frames come:** one every 1/`fps` seconds of the recording's own clock, at most one an app update; play the
   simulation to record motion.
@@ -964,8 +968,9 @@ prim the recording renders into, which it deletes at stop.
     more than `fps` frames a second by the wall clock.
   - It runs with the wall clock while the simulation is stopped or paused, or plays a timeline whose time doesn't move
     (a file with no time-code range): `fps` frames a second, whatever Kit's update rate.
-  - The first frame comes on the first update after the start, which waits for the camera's first render and, under
-    Path Tracing, for the samples a capture waits for.
+  - The first frame comes on the first update after the start, which waits for the camera's first render, then 20
+    frames of it, as a capture waits after it sets the camera, and, under Path Tracing, the samples a capture waits
+    for.
   - A frame shows the simulation within one update of its `sim_time`. Frames asked for faster than they can be
     written, or than Kit updates, are skipped rather than sent late in a burst, which the frames' `sim_time` and
     `wall_time` in `metadata.json` show; each frame keeps a number of its own.
@@ -975,9 +980,10 @@ prim the recording renders into, which it deletes at stop.
 - **Kit's grid:** frames taken while the simulation is stopped or paused show it, as the viewport does. Isaac Sim 6.2
   hides it while the simulation plays, in the viewport and in the recording alike; other Kit apps show what their
   viewport does.
-- **What it costs:** the extra render runs every update while the recording does, at the frame's size. Headless on
-  Isaac Sim 6.2 it took a third of the app's updates at 640x480 and three quarters at 4096x4096; each update still
-  advances the simulation as before, so the run takes longer, not differently.
+- **What it costs:** the extra render runs every update while the recording does, at the frame's size, and while it
+  is kept after the stop. Headless on Isaac Sim 6.2 it took a third of the app's updates at 640x480 and three
+  quarters at 4096x4096; each update still advances the simulation as before, so the run takes longer, not
+  differently.
 - **When frames stop:** if the stage changes (`new_scene`, `open_scene`) or the camera is deleted, since the render
   would show something else then. `get_sim_state` and `stop_recording` say why.
 - **One at a time:** while a recording runs, another start is refused, saying to call `stop_recording` first; an
@@ -1008,9 +1014,11 @@ When `track_prims` is set, a `state.txt` file is written alongside frames in pri
 
 ### `stop_recording`
 
-Stop the active recording session. No parameters. It waits for the frames still being written, deletes the
-recording's render product and writes `metadata.json`: the frames' camera, size and times, what they span, and
-`ended` when frames stopped early.
+Stop the active recording session. No parameters. It waits for the frames still being written, hands the render back,
+kept up to 30 s for the next capture or recording (deleted at once when another render is kept, a frame failed, the
+stage changed or a capture was running at that moment; frames that stopped early deleted it already), and writes
+`metadata.json`: the frames' camera, size
+and times, what they span, and `ended` when frames stopped early.
 
 **Returns:** Frame count, duration, output directory, state file path (if tracking prims), and a `Note:` line when
 frames stopped early or the cleanup failed in part, saying why. The first line also says what the frames span, as

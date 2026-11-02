@@ -486,7 +486,7 @@ CASES = [
             "output_dir": "rec_1",
             "resolution": [640, 480],
             "camera_path": "/OmniverseKit_Persp",
-            "render_product": "/Render/OmniverseKit/HydraTextures/ovmcp_recording_0",
+            "render_product": "/Render/OmniverseKit/HydraTextures/ovmcp_feed_0",
             "track_prims": ["/World/G1", "/World/G1/base"],
         },
         {"output_dir": str(Path(OUTPUT) / "recordings"), "fps": 10, "track_prims": ["/World/G1"]},
@@ -976,7 +976,7 @@ def _recording(camera: str, width: int, height: int) -> dict[str, Any]:
         "output_dir": "rec_1",
         "resolution": [width, height],
         "camera_path": camera,
-        "render_product": "/Render/OmniverseKit/HydraTextures/ovmcp_recording_0",
+        "render_product": "/Render/OmniverseKit/HydraTextures/ovmcp_feed_0",
     }
 
 
@@ -996,7 +996,8 @@ def test_start_recording_says_the_camera_and_size_it_records(
 ):
     text = _check(Case("start_recording", args, "/recording/start", answer, args, (says,)), bridge, tmp_path)
     assert "WARNING" not in text
-    assert "\nRenders into /Render/OmniverseKit/HydraTextures/ovmcp_recording_0, deleted at stop\n" in text
+    kept = "kept up to 30 s after the stop for the next capture or recording"
+    assert f"\nRenders into /Render/OmniverseKit/HydraTextures/ovmcp_feed_0, {kept}\n" in text
 
 
 def test_start_recording_warns_an_older_extension_ignores_the_camera_and_size(bridge: MockIsaacServer, tmp_path: Path):
