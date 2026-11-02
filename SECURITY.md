@@ -24,8 +24,8 @@ You'll get an answer within a week.
 
 What does not count:
 
-- `execute_script` running Python inside Kit, or `manage_extensions` turning an extension on: that is what they are
-  for.
+- `execute_script` or `run_script_job` running Python inside Kit, a script file on Kit's machine included, or
+  `manage_extensions` turning an extension on: that is what they are for.
 - Someone who already holds the token, or already runs code as your user, running code in Kit. The token is the
   boundary.
 - A bridge you bound off loopback, with the extension's `host` setting, being reachable from that network. The token

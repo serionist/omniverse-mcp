@@ -26,7 +26,7 @@ connection. The [README](https://github.com/serionist/omniverse-mcp#install) has
 | `/omniverse-mcp:scene` | look before acting: captures, bounds, placing and checking prims, lighting |
 | `/omniverse-mcp:geometry` | face counts, comparing prims and variants, variant sets, flattening and exports |
 | `/omniverse-mcp:simulate` | physics, robots, forces, recording a run, measuring the frame rate |
-| `/omniverse-mcp:script` | `execute_script`, with the API looked up first |
+| `/omniverse-mcp:script` | `execute_script`, with the API looked up first, and long work as a job (`run_script_job`) |
 | `/omniverse-mcp:report-bug` | a tool that fails or answers wrongly: asks you first, then drafts a bug report with the versions, the call and Kit's log, and files it with the GitHub CLI (`gh`) on your yes, or leaves it for you to post |
 
 Claude picks a skill when your request fits it. Inside a skill, tools that only read run without asking (they

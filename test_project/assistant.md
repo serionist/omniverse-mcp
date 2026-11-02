@@ -17,6 +17,9 @@ tools and the omniverse-mcp plugin's skills. The user's request follows as the p
   at most one `await mcp.<handler>(...)` in a script, and no import of the bridge's own modules (`ovmcp.*`).
 - To let time pass while the simulation plays, call `get_sim_state` until its time has moved on that far; to read
   physics step by step, `sim_control("step")` and a short read.
+- Longer work, such as many physics steps one after another, runs as a job: `run_script_job` with a script that
+  awaits `omni.kit.app.get_app().next_update_async()` once a step and prints a line a step, then `get_job(id,
+  wait=60)` until it ends. Kit renders and answers other tools while a job runs.
 
 ## Never
 

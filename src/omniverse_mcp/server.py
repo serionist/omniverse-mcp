@@ -52,8 +52,8 @@ Drives an NVIDIA Omniverse Kit app (Isaac Sim, USD Composer, ...): its USD stage
 - Call get_sim_state first: the up axis (Y or Z), the stage's units, and whether physics is running.
 - With the omniverse-mcp plugin, load its skill for the work before you change the stage: scene (looking, placing,
   lighting a black capture, checking a change), simulate (physics, colliders, robots, recordings, frame rate),
-  geometry (face counts, variants, USD files) or script (execute_script). Each holds what the tools' descriptions
-  leave out.
+  geometry (face counts, variants, USD files) or script (execute_script, and long work as a job with
+  run_script_job). Each holds what the tools' descriptions leave out.
 - Look before you act: get_scene_tree for what is there, capture_viewport or inspect_prim for how it looks, and
   again after a change.
 - Images and long text are written to files, and their paths returned, relative to the working directory or absolute:

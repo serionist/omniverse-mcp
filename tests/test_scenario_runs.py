@@ -818,14 +818,20 @@ def real_outcomes():
 
 
 def test_the_real_outcomes_parse_with_no_problem(real_outcomes):
-    assert [c.id for c in real_outcomes.cases] == ["O1", "O2", "O3", "O4", "O5", "O6"]
+    assert [c.id for c in real_outcomes.cases] == ["O1", "O2", "O3", "O4", "O5", "O6", "O7"]
     by_id = {c.id: c for c in real_outcomes.cases}
     assert (by_id["O1"].given, by_id["O1"].play, by_id["O1"].calls) == ("", 0.0, "no execute_script")
     assert (by_id["O2"].play, by_id["O2"].calls) == (2.0, "any")
     assert by_id["O4"].play == 2.0
     assert "def mesh(" in by_id["O3"].given
     # The physics outcomes make their own scene: a play on Kit's preference alone may not simulate (round 2, R2).
-    assert all('UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")' in by_id[i].given for i in ("O2", "O4"))
+    assert all('UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")' in by_id[i].given for i in ("O2", "O4", "O7"))
+    # Work past an execute_script call's 120 s, which a job runs (#158): the agent plays, and nothing after it.
+    assert (by_id["O7"].play, by_id["O7"].calls) == (0.0, "no execute_script")
+
+
+def test_the_outcomes_header_names_the_job_as_o7_s_path(real_outcomes):
+    assert "O7, `run_script_job`" in " ".join(real_outcomes.header.split())
 
 
 SMALL_OUTCOMES = """# Outcomes
@@ -1383,8 +1389,8 @@ def test_phases_none_alone_runs_every_outcome(run_command):
     assert scenarios.main(["run", "--phases", "none"]) == 0
     (run_dir,) = [p for p in runs.iterdir() if p.is_dir()]
     record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
-    assert record["outcomes"] == "O1,O2,O3,O4,O5,O6"
-    assert [p for _, p in seen["prepared"]] == ["O1", "O2", "O3", "O4", "O5", "O6"]
+    assert record["outcomes"] == "O1,O2,O3,O4,O5,O6,O7"
+    assert [p for _, p in seen["prepared"]] == ["O1", "O2", "O3", "O4", "O5", "O6", "O7"]
 
 
 def test_a_run_with_an_outcome_prepares_plays_and_records_it(run_command):

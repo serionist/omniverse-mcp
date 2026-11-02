@@ -22,7 +22,7 @@ project. Their `allowed-tools` lines are Claude Code's, and other clients ignore
 | [scene](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/scene/SKILL.md) | looking at a stage, placing and checking prims, lighting and black captures |
 | [geometry](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/geometry/SKILL.md) | face counts, comparing prims and variants, variant sets, flattening and exports |
 | [simulate](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/simulate/SKILL.md) | physics, robots, forces, recording a run, measuring the frame rate |
-| [script](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/script/SKILL.md) | `execute_script`, and the traps of Kit's Python |
+| [script](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/script/SKILL.md) | `execute_script`, long work as a job (`run_script_job`, `get_job`, `cancel_job`), and the traps of Kit's Python |
 | [report-bug](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/report-bug/SKILL.md) | a tool that fails or answers wrongly: asks first, then files a bug report with `gh` on the user's yes, or drafts it for them to post |
 
 Every tool, with its parameters and hints, is in [TOOLS.md](https://github.com/serionist/omniverse-mcp/blob/main/docs/TOOLS.md).
@@ -42,6 +42,9 @@ move only while physics plays.
   `key = value` lines.
 - **Look Kit APIs up before scripting:** before writing `execute_script` code, use Context7 (library
   `isaac-sim/isaacsim`) or NVIDIA's documentation for the app's version. Models are not trained on these APIs.
+- **Long work runs as a job:** an `execute_script` call gives up after 120 s while its script runs on. Work that may
+  take longer, such as many physics steps, goes to `run_script_job`, with a script that awaits
+  `omni.kit.app.get_app().next_update_async()` once a step; `get_job(id, wait=60)` reads it, `cancel_job` stops it.
 - **When a tool fails,** `get_logs(min_level="warn")` shows what the Kit app reported.
 - **When a tool misbehaves** (an error its arguments don't explain, a wrong answer, a hang), say it looks like a bug
   in omniverse-mcp and ask the user first, before gathering anything, which they want:

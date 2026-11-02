@@ -165,7 +165,7 @@ Something else? See [Troubleshooting](#troubleshooting).
 | **Geometry** | `get_mesh_stats`, `compare_prims` | Count faces and vertices and find the heaviest parts, compare two objects or variants |
 | **USD files and variants** | `flatten_usd`, `export_prim_as_file`, `create_variant_structure`, `set_variant_selection` | Write a stage as one file, export an object, make and switch variant sets |
 | **Kit** | `get_logs`, `manage_extensions`, `draw_debug` | Read Kit's log, turn Kit extensions on and off, draw lines and points in the viewport |
-| **Scripts** | `execute_script` | Run Python inside Kit for anything the other tools don't do |
+| **Scripts** | `execute_script`, `run_script_job`, `get_job`, `cancel_job` | Run Python inside Kit for anything the other tools don't do; run a long script as a job while Kit renders, read its progress and cancel it |
 
 Every tool, with its parameters, is in the [tool reference](docs/TOOLS.md).
 
@@ -283,8 +283,9 @@ with the GitHub CLI once you agree to the draft, or leaves it for you to post (t
 
 ## Security
 
-The bridge runs any Python the server sends, by design: `execute_script` is a tool. The token keeps other programs
-and web pages out, but not your own AI client, so keep it asking before `execute_script` and `manage_extensions`.
+The bridge runs any Python the server sends, by design: `execute_script` and `run_script_job` are tools. The token
+keeps other programs and web pages out, but not your own AI client, so keep it asking before `execute_script`,
+`run_script_job` and `manage_extensions`.
 Report a vulnerability privately, as [SECURITY.md](SECURITY.md) says.
 
 ## Documentation
