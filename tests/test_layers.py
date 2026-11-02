@@ -488,6 +488,19 @@ def test_a_layer_gone_while_kits_layers_are_walked_is_passed_over(
     assert "unsaved edits" in refusal
 
 
+def test_a_layer_gone_as_none_while_kits_layers_are_walked_is_passed_over(
+    stage: Usd.Stage, scene: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # CI's Python 3.11 on Windows met a freed layer as None, whose read raises AttributeError, not the TypeError an
+    # expired handle raises elsewhere (#168).
+    other = scene.parent / "other.usda"
+    loaded = Sdf.Layer.GetLoadedLayers
+    monkeypatch.setattr(Sdf.Layer, "GetLoadedLayers", staticmethod(lambda: [None, *loaded()]))
+    for saving in (False, True):
+        assert write_refusal(stage, str(other), saving=saving) is None
+    assert refresh_written(stage, str(other)) == []
+
+
 def test_a_layer_gone_after_it_is_named_is_passed_over(stage: Usd.Stage, scene: Path, monkeypatch: pytest.MonkeyPatch):
     other = scene.parent / "other.usda"
     gone = _gone(other)
