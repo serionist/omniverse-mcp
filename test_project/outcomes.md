@@ -229,19 +229,18 @@ import omni.usd
 from pxr import Gf, UsdGeom, UsdPhysics
 
 stage = omni.usd.get_context().get_stage()
-UsdGeom.SetStageMetersPerUnit(stage, 1.0)
 UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")
 floor = UsdGeom.Cube.Define(stage, "/World/Floor")
 floor.CreateSizeAttr(1.0)
-UsdGeom.XformCommonAPI(floor).SetTranslate(Gf.Vec3d(0.0, -0.05, 0.0))
-UsdGeom.XformCommonAPI(floor).SetScale(Gf.Vec3f(12.0, 0.1, 10.0))
+UsdGeom.XformCommonAPI(floor).SetTranslate(Gf.Vec3d(0.0, 0.0, -0.05))
+UsdGeom.XformCommonAPI(floor).SetScale(Gf.Vec3f(12.0, 10.0, 0.1))
 UsdPhysics.CollisionAPI.Apply(floor.GetPrim())
 UsdGeom.Xform.Define(stage, "/World/Crates")
 for i in range(150):
     # 15 rows of 10, 0.6 m apart, each held 1 m up by a crane: a kinematic body stays where it is put.
     crate = UsdGeom.Cube.Define(stage, f"/World/Crates/Crate_{i:03d}")
     crate.CreateSizeAttr(0.3)
-    UsdGeom.XformCommonAPI(crate).SetTranslate(Gf.Vec3d(-2.7 + 0.6 * (i % 10), 1.0, -4.2 + 0.6 * (i // 10)))
+    UsdGeom.XformCommonAPI(crate).SetTranslate(Gf.Vec3d(-2.7 + 0.6 * (i % 10), -4.2 + 0.6 * (i // 10), 1.0))
     UsdPhysics.CollisionAPI.Apply(crate.GetPrim())
     UsdPhysics.RigidBodyAPI.Apply(crate.GetPrim()).CreateKinematicEnabledAttr(True)
 ```
@@ -254,8 +253,8 @@ Verify:
 - No crate under `/World/Crates` is held any more: none has `physics:kinematicEnabled` true
   (`get_scene_tree` of `/World/Crates` with `include_properties` writes every crate's values to one file)
 - After the runner's play, each crate rests on the floor: its bottom (`get_prim_bounds`) within 1 cm of the floor's
-  top, at 0, and its centre within 5 cm in X and Z of where it hung, Crate_i at x = -2.7 + 0.6 (i mod 10),
-  z = -4.2 + 0.6 (i div 10); check at least Crate_000, Crate_074 and Crate_149. The runner stops the timeline before
+  top, at 0, and its centre within 5 cm in X and Y of where it hung, Crate_i at x = -2.7 + 0.6 (i mod 10),
+  y = -4.2 + 0.6 (i div 10); check at least Crate_000, Crate_074 and Crate_149. The runner stops the timeline before
   the judge, which puts every crate back where it hung, then plays 3 s, which drops each crate that was released
 - The crates were released one at a time, in order, each after the one before had 3 s of simulation: from the
   assistant's calls, where a job's code is cut to 4,000 characters, and from what the job printed, which `get_job()`
