@@ -191,7 +191,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         left as it is. usd_path adds its reference to a prim already there as the file is. A file that can't be
         opened is an error. enable_physics puts the RigidBody and Collision APIs on the prim itself, so a shape falls
         and collides while the simulation plays; the meshes under an Xform or a referenced file's root get no
-        Collision API of their own. To copy a prim, use clone_prim; for a robot, create_robot.
+        Collision API of their own: give each one with set_physics_properties' collision=True, which makes a static
+        collider without a rigid body. To copy a prim, use clone_prim; for a robot, create_robot.
         """
         kwargs = {}
         if usd_path:

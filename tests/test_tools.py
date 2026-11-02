@@ -847,7 +847,71 @@ def test_set_physics_properties_with_no_value_says_nothing_was_set(bridge: MockI
         bridge,
         tmp_path,
     )
-    assert text == "Nothing set on /World/RedCube: give mass, density, friction or restitution"
+    assert text == "Nothing set on /World/RedCube: give mass, density, friction, restitution or collision"
+
+
+def _collision_text(args: dict[str, Any], echo: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path) -> str:
+    """The tool's text for args on /World/Floor, given what the extension echoed beside the unset values."""
+    sent = {"prim_path": "/World/Floor", **args}
+    unset = dict.fromkeys(("mass", "density", "friction", "restitution"))
+    answer = {"prim_path": "/World/Floor", "applied": [], **unset, **echo}
+    return _check(Case("set_physics_properties", sent, "/physics/properties", answer, sent, ()), bridge, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("args", "echo", "says"),
+    [
+        (
+            {"collision": True},
+            {"applied": ["CollisionAPI"], "collision": True},
+            "Physics on /World/Floor: collision=on; applied CollisionAPI",
+        ),
+        ({"collision": False}, {"collision": False}, "Physics on /World/Floor: collision=off"),
+        (
+            {"collision": False},
+            {"collision": False, "collider": False},
+            "Physics on /World/Floor: collision=off (it had no collider)",
+        ),
+        (
+            {"collision": True},
+            {
+                "applied": ["CollisionAPI", "MeshCollisionAPI"],
+                "collision": True,
+                "approximation": "convexHull",
+                "body": "/World/Cart",
+            },
+            "Physics on /World/Floor: collision=on; applied CollisionAPI, MeshCollisionAPI; approximation convexHull; "
+            "part of the rigid body /World/Cart",
+        ),
+        # A stronger layer's false, read back after the write.
+        ({"collision": True}, {"collision": False}, "Physics on /World/Floor: collision=off"),
+    ],
+    ids=["on", "off", "off without a collider", "a moving mesh", "held off by a stronger layer"],
+)
+def test_set_physics_properties_says_what_collision_became(
+    args: dict[str, Any], echo: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    assert _collision_text(args, echo, bridge, tmp_path) == says
+
+
+def test_set_physics_properties_warns_when_an_older_extension_drops_collision(bridge: MockIsaacServer, tmp_path: Path):
+    # The 0.4.1 handler builds its echo from fixed keys: collision comes back missing, and the call succeeds.
+    text = _collision_text({"collision": True}, {}, bridge, tmp_path)
+
+    first, warning = text.split("\n")
+    assert first == "Physics on /World/Floor: nothing set"
+    assert warning.startswith("WARNING: collision not set: the Kit extension is 1.0.0, this server's is ")
+    assert "Install this server's, " in warning
+    assert "did apply the Collision API" not in warning
+
+
+def test_the_older_extension_s_warning_says_friction_did_apply_the_api(bridge: MockIsaacServer, tmp_path: Path):
+    text = _collision_text(
+        {"collision": True, "friction": 0.5}, {"friction": 0.5, "applied": ["CollisionAPI"]}, bridge, tmp_path
+    )
+
+    assert text.startswith("Physics on /World/Floor: friction=0.5 (static and dynamic); applied CollisionAPI\n")
+    assert text.endswith("Its friction or restitution did apply the Collision API, so the prim collides.")
 
 
 def test_get_logs_passes_on_the_bridges_note(bridge: MockIsaacServer, tmp_path: Path):

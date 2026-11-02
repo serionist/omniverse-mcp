@@ -11,6 +11,7 @@ import omni.kit.app
 import omni.usd
 from pxr import UsdGeom, UsdPhysics, UsdShade
 
+from ovmcp.core.collision import collision_refusal, set_collision
 from ovmcp.core.force import (
     AT_CENTRE_OF_MASS,
     AT_GIVEN,
@@ -121,7 +122,7 @@ async def handle_sim_state(_body: dict) -> dict:
 
 
 async def handle_set_physics_properties(body: dict) -> dict:
-    """Set mass, friction, restitution on a prim."""
+    """Set mass, density, friction and restitution on a prim, and make it a collider or turn its collision off."""
     prim_path = body.get("prim_path", "")
     if not prim_path:
         return {"status": "error", "error": "No prim_path provided"}
@@ -136,8 +137,12 @@ async def handle_set_physics_properties(body: dict) -> dict:
 
     friction = body.get("friction")
     restitution = body.get("restitution")
-    # Before anything is written, the mass given with it included: an instance can hold no material of its own.
+    collision = body.get("collision")
+    # Before anything is written, the mass given with it included: an instance can hold no material of its own, and
+    # PhysX makes no shape for an Xform (#150).
     refusal = material_refusal(prim) if friction is not None or restitution is not None else None
+    if refusal is None and collision is not None:
+        refusal = collision_refusal(prim, on=bool(collision))
     if refusal:
         return {"status": "error", "error": refusal}
 
@@ -203,6 +208,13 @@ async def handle_set_physics_properties(body: dict) -> dict:
         old = drop_old_material(stage, prim, before, bindings)
         if old:
             result["old_material"] = old
+
+    # Last, so a body or a Collision API this call made counts: a Mesh given a mass gets its hull, and a collision
+    # turned off stays off after friction applied the API (#150).
+    if collision is not None:
+        echo = set_collision(prim, bool(collision))
+        applied.extend(echo.pop("applied"))
+        result.update(echo)
 
     return {"status": "success", "result": result}
 

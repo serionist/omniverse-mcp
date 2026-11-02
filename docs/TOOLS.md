@@ -26,7 +26,7 @@ Reference for every tool the MCP server provides.
 | play, pause, stop or step physics | `sim_control`; `get_sim_state` for where it stands |
 | add a robot, read and move its joints | `create_robot`, `get_robot_info`, `set_joint_targets` |
 | record a run and look back at it | `start_recording`, `stop_recording`, `get_recording_frame` |
-| set mass or friction, push, or probe | `set_physics_properties`, `apply_force`, `raycast` |
+| set mass or friction, make a collider, push, or probe | `set_physics_properties`, `apply_force`, `raycast` |
 | count faces and find where they are, or compare two prims or variants | `get_mesh_stats`, `compare_prims` |
 | make or switch variants | `create_variant_structure`, `set_variant_selection` |
 | write USD files | `save_scene`, `flatten_usd`, `export_prim_as_file`; `update_material_paths` after files move |
@@ -1065,7 +1065,8 @@ as an empty file; a frame number past the last is an error.
 
 ### `set_physics_properties`
 
-Set a prim's mass or density, and its friction or restitution, for PhysX; a value left out stays as it is.
+Set a prim's mass or density, friction or restitution, or make it a collider or turn its collision off, for
+PhysX; a value left out stays as it is.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -1074,6 +1075,20 @@ Set a prim's mass or density, and its friction or restitution, for PhysX; a valu
 | `density` | float | `null` | Density in kg/m^3, not negative; 0 unsets it; a mass set wins over it |
 | `friction` | float | `null` | Friction coefficient, not negative (usually 0-1), set as both static and dynamic friction |
 | `restitution` | float | `null` | Bounciness, 0 (no bounce) to 1 (full bounce) |
+| `collision` | bool | `null` | `true` makes the prim a collider (the Collision API), with no rigid body; `false` turns its collision off and keeps the API |
+
+- **Collision:** `collision=true` makes a static collider, such as a floor something should land on, with no rigid
+  body and no physics material, and turns `physics:collisionEnabled` back on where it was authored off;
+  `collision=false` turns it off and keeps the API, and on a prim with no collider writes nothing and says so. Only a
+  `Cube`, `Sphere`, `Capsule`, `Cylinder`, `Cone`, `Mesh` or `Plane` collides: an Xform is refused, its error naming
+  up to five shapes under it and their count, or the instance they lie in; an inactive prim and a prim inside an
+  instance are refused too, before anything is written. A `Mesh` that moves with a rigid body, its own or an
+  ancestor's, not kinematic, gets a `convexHull` approximation unless one is authored, as PhysX can't simulate a
+  triangle mesh on a moving body. The answer says `collision=on` or `off`, the APIs applied, the approximation, and
+  the rigid body a collider moves with; the value is read back after the write, so a stronger layer's opinion shows
+  as it stands. In one call, collision comes after mass and friction: a `Mesh` given a mass and `collision=true`
+  gets its hull, and `collision=false` with a friction ends with the API and collision off. An extension older than
+  the server leaves collision unset, and the answer warns and says how to install the server's.
 
 - **Mass or density** makes the prim a rigid body (`RigidBodyAPI`) if it isn't one, so a static collider starts to fall
   when the simulation plays.
@@ -1127,6 +1142,11 @@ and says so. Then, when there are any:
   /World/envs/env_2/Robot/link`;
 - the older shared material: `deleted its old material, /World/PhysicsMaterials/Box_PhysMat, which no prim binds now`,
   or `kept its old material, /World/PhysicsMaterials/Box_PhysMat: 1 prim still binds it: /World/Shelf/Box`.
+
+With `collision`: `Physics on /World/Cart/Wheel: collision=on; applied CollisionAPI, MeshCollisionAPI; approximation
+convexHull; part of the rigid body /World/Cart`, or `collision=off`, or `collision=off (it had no collider)`. With a Kit
+extension that doesn't know `collision`, a last line says so and how to install this server's:
+`WARNING: collision not set: ...`.
 
 The material and these clauses need the Kit extension of this release.
 
@@ -1202,8 +1222,8 @@ Cast a ray through PhysX and return the closest collider it hits.
 **Returns:** Hit prim path, hit position, surface normal, and distance in stage units. Returns "No hit" if ray doesn't
 intersect anything. The prim named is the rigid body hit, or a static collider itself.
 
-- **Colliders only:** prims with the Collision API, which `create_prim`'s `enable_physics` adds, are hit; plain meshes
-  are not.
+- **Colliders only:** prims with the Collision API, which `create_prim`'s `enable_physics` and
+  `set_physics_properties`' `collision=true` add, are hit; plain meshes are not.
 - **PhysX must know the scene:** play or step the simulation once first, or the ray may find nothing, or fail.
 
 **When to use:** to find what lies along a line, such as the ground under a point; `get_prim_bounds` measures a prim

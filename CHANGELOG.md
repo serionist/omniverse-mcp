@@ -5,6 +5,16 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Added
+
+- **`set_physics_properties` makes a collider by name, a change to the tool contract:** `collision=true` makes the
+  prim a static collider (the Collision API, with no rigid body or physics material), such as a floor something should
+  land on; `collision=false` turns its collision off and keeps the API. Only a Cube, Sphere, Capsule, Cylinder, Cone,
+  Mesh or Plane collides, so an Xform is refused, naming the shapes under it; a Mesh that moves with a rigid body gets
+  a convex hull. A collider came only through a friction or restitution before. The fix is in the Kit extension too:
+  run `uvx omniverse-mcp extension install`, then restart Kit; an older extension leaves collision unset, and the
+  answer warns (#150).
+
 ### Changed
 
 - **`get_prim_properties` lists a prim's applied API schemas and its relationships' targets:** an `api_schemas` line

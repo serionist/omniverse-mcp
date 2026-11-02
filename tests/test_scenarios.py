@@ -1805,7 +1805,9 @@ class TestScenarios(PhysicsChecks):
             ("TwinA/SlideTwin", {"friction": 0.9}),
             ("TwinB/SlideTwin", {"restitution": 0.0}),
         ):
-            done = self.c.set_physics_properties(f"{root}/{name}", **values)
+            done = self.c.set_physics_properties(
+                f"{root}/{name}", friction=values.get("friction"), restitution=values.get("restitution")
+            )
             self.assertEqual(done["status"], "success", done)
             self.assertEqual(done["result"].get("material"), f"{root}/{name}/PhysMat", done)
         r = self.c.execute(f"UP, PATHS, FRAMES = {up}, {paths!r}, 60\n" + FRICTION_RUN)
@@ -1878,6 +1880,64 @@ class TestScenarios(PhysicsChecks):
         else:
             self.assertIn(stage["unseen"], dropped.get("kept", ""), moved)
             print(f"  clone named, then not; old material kept: {dropped['kept']}")
+        self._pass()
+
+    def _play_for(self, seconds: float) -> None:
+        """Play until the simulation's time has moved on by `seconds`, within 20 s, then pause: where a body lands."""
+        self.assertEqual(self.c.sim_control("play")["status"], "success")
+        start = float(self.c.sim_state()["result"]["sim_time"])
+        deadline = time.monotonic() + 20
+        while float(self.c.sim_state()["result"]["sim_time"]) - start < seconds:
+            self.assertLess(time.monotonic(), deadline, "the simulation's time didn't move on")
+            time.sleep(0.1)
+        self.assertEqual(self.c.sim_control("pause")["status"], "success")
+
+    def test_15_02d_a_floor_made_a_collider_by_name_holds_a_box_until_its_collision_goes_off(self):
+        """#150: set_physics_properties(collision=True) makes a static collider of a floor, with no rigid body, and a
+        box dropped on it rests on it; collision=False turns it off, and the box falls through."""
+        root = "/World/IntTestCollider"
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+        self.addCleanup(self.c.delete_prim, root)
+        self.addCleanup(self.c.sim_control, "stop")
+        up = self._up_axis()
+        # A physics scene of the test's own only when the stage has none, deleted with root.
+        self._run_in_kit(
+            "from pxr import UsdPhysics\n"
+            "stage = omni.usd.get_context().get_stage()\n"
+            "if not any(p.IsA(UsdPhysics.Scene) for p in stage.Traverse()):\n"
+            "    UsdPhysics.Scene.Define(stage, ROOT + '/PhysicsScene')\n"
+            "result = True",
+            ROOT=root,
+        )
+        flat = [3.0, 3.0, 3.0]
+        flat[up] = 0.05
+        # Far from the other phases' prims, the floor's top at 0 along the up axis, the box's bottom 0.75 above it.
+        floor = self.c.create_prim(f"{root}/Floor", "Cube", position=_along_up(up, -0.05, x=50), scale=flat)
+        self.assertEqual(floor["status"], "success", floor)
+        box = self.c.create_prim(
+            f"{root}/Box", "Cube", position=_along_up(up, 1.0, x=50), scale=0.25, enable_physics=True
+        )
+        self.assertEqual(box["status"], "success", box)
+
+        made = self.c.set_physics_properties(f"{root}/Floor", collision=True)
+        self.assertEqual(made["status"], "success", made)
+        self.assertEqual(made["result"]["collision"], True, made)
+        self.assertIn("CollisionAPI", made["result"]["applied"], made)
+        self.assertNotIn("body", made["result"], made)
+        self._play_for(1.5)
+        rest = self.c.prim_bounds(f"{root}/Box")["result"]["min"][up]
+        self.assertAlmostEqual(rest, 0.0, delta=0.02, msg=f"the box's bottom on the floor: {rest}")
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+
+        off = self.c.set_physics_properties(f"{root}/Floor", collision=False)
+        self.assertEqual(off["status"], "success", off)
+        self.assertEqual(off["result"]["collision"], False, off)
+        self._play_for(1.5)
+        fallen = self.c.prim_bounds(f"{root}/Box")["result"]["min"][up]
+        self.assertLess(fallen, -0.5, f"the box fell through the floor: {fallen}")
+        print(f"  on the floor at {rest:.3f}; with collision off, fell to {fallen:.2f}")
         self._pass()
 
     def test_15_03_set_physics_invalid_prim(self):

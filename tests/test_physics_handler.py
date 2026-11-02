@@ -265,6 +265,86 @@ def test_an_instance_is_refused_and_not_even_its_mass_is_written(simulation, kit
     assert kit.stage.GetRootLayer().ExportToString() == before
 
 
+# ---- collision (#150) ----
+
+
+def test_collision_alone_makes_a_floor_a_collider_with_no_body_and_no_material(simulation, kit):
+    UsdGeom.Cube.Define(kit.stage, "/World/Floor")
+
+    r = _set(simulation, "/World/Floor", collision=True)
+
+    assert r["status"] == "success", r
+    assert r["result"]["applied"] == ["CollisionAPI"]
+    assert r["result"]["collision"] is True
+    floor = kit.stage.GetPrimAtPath("/World/Floor")
+    assert floor.HasAPI(UsdPhysics.CollisionAPI)
+    assert not floor.HasAPI(UsdPhysics.RigidBodyAPI)
+    assert not kit.stage.GetPrimAtPath("/World/Floor/PhysMat").IsValid()
+
+
+def test_a_mesh_given_mass_and_collision_in_one_call_gets_its_hull(simulation, kit):
+    # The collision path runs after the mass path, so the body the call makes counts (round 1, P1).
+    rock = UsdGeom.Mesh.Define(kit.stage, "/World/Rock")
+    rock.CreatePointsAttr([(0, 0, 0), (1, 0, 0), (0, 1, 0)])
+
+    r = _set(simulation, "/World/Rock", mass=3.0, collision=True)
+
+    assert r["status"] == "success", r
+    assert r["result"]["approximation"] == "convexHull"
+    assert r["result"]["body"] == "/World/Rock"
+    assert r["result"]["applied"] == ["RigidBodyAPI", "MassAPI", "CollisionAPI", "MeshCollisionAPI"]
+
+
+def test_collision_off_with_a_friction_ends_with_the_api_and_collision_off(simulation, kit):
+    # Friction applies the API; collision=False, after it, turns it off (round 1, P5).
+    r = _set(simulation, friction=0.5, collision=False)
+
+    assert r["status"] == "success", r
+    assert r["result"]["collision"] is False
+    assert "collider" not in r["result"]
+    box = kit.stage.GetPrimAtPath(BOX)
+    assert box.HasAPI(UsdPhysics.CollisionAPI)
+    assert UsdPhysics.CollisionAPI(box).GetCollisionEnabledAttr().Get() is False
+
+
+def test_collision_with_a_friction_names_the_api_once(simulation, kit):
+    r = _set(simulation, friction=0.5, collision=True)
+
+    assert r["status"] == "success", r
+    assert r["result"]["applied"].count("CollisionAPI") == 1
+    assert r["result"]["collision"] is True
+
+
+def test_collision_on_an_xform_is_refused_and_not_even_its_mass_is_written(simulation, kit):
+    UsdGeom.Xform.Define(kit.stage, "/World/Ground")
+    UsdGeom.Cube.Define(kit.stage, "/World/Ground/Slab")
+    before = kit.stage.GetRootLayer().ExportToString()
+
+    r = _set(simulation, "/World/Ground", mass=3.0, collision=True)
+
+    assert r["status"] == "error"
+    assert r["error"].startswith("/World/Ground is an Xform, which PhysX makes no shape for")
+    assert r["error"].endswith("/World/Ground/Slab")
+    assert kit.stage.GetRootLayer().ExportToString() == before
+
+
+def test_collision_on_an_inactive_prim_is_refused_in_words_of_its_own(simulation, kit):
+    kit.stage.GetPrimAtPath(BOX).SetActive(False)
+
+    r = _set(simulation, collision=True)
+
+    assert r["status"] == "error"
+    assert r["error"] == f"{BOX} is inactive, so PhysX makes no shape for it: activate it first"
+
+
+def test_a_call_without_collision_echoes_none(simulation, kit):
+    # The tool reads a missing key as an extension that dropped it: one not sent sends none back.
+    r = _set(simulation, mass=2.0)
+
+    assert r["status"] == "success", r
+    assert "collision" not in r["result"]
+
+
 # ---- /sim/state names the Kit app (#105) ----
 
 

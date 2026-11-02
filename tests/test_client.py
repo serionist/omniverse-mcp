@@ -658,6 +658,17 @@ class TestBridgeClient(unittest.TestCase):
         self.assertEqual(r["status"], "success")
         self.assertIn("MassAPI", r["result"]["applied"])
 
+    def test_set_physics_properties_sends_collision_only_when_given(self):
+        # An unknown key reaches an older handler unread; one not given isn't sent at all (#150).
+        sent = []
+        for collision in (True, False, None):
+            self.mock.requests.clear()
+            self.client.set_physics_properties("/World/Cube", collision=collision)
+            sent.append(next(body for _, path, body in self.mock.requests if path == "/physics/properties"))
+        self.assertEqual(sent[0], {"prim_path": "/World/Cube", "collision": True})
+        self.assertEqual(sent[1], {"prim_path": "/World/Cube", "collision": False})
+        self.assertEqual(sent[2], {"prim_path": "/World/Cube"})
+
     def test_apply_force(self):
         r = self.client.apply_force("/World/Cube", force=[100, 0, 0])
         self.assertEqual(r["status"], "success")

@@ -1360,6 +1360,17 @@
       },
       "input": {
         "properties": {
+          "collision": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "density": {
             "anyOf": [
               {
