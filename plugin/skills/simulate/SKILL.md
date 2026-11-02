@@ -3,15 +3,18 @@ name: simulate
 description: >-
   Use when running physics in Omniverse or Isaac Sim: playing, pausing, stepping or stopping the simulation, mass,
   friction, colliders and forces, something falling through a floor, raycasts, spawning and driving robots (Franka,
-  UR10, G1, Spot and the rest), or recording a run to review frame by frame afterwards.
+  UR10, G1, Spot and the rest), recording a run to review frame by frame afterwards, or measuring how fast a scene
+  runs: its frame rate or FPS, a speed or frame-rate target such as 15 FPS, the physics step, GPU memory, or what a
+  cut to the scene gained.
 allowed-tools: >-
   mcp__plugin_omniverse-mcp_omniverse__get_sim_state mcp__plugin_omniverse-mcp_omniverse__get_robot_info
   mcp__plugin_omniverse-mcp_omniverse__raycast mcp__plugin_omniverse-mcp_omniverse__get_recording_frame
   mcp__plugin_omniverse-mcp_omniverse__get_prim_bounds mcp__plugin_omniverse-mcp_omniverse__capture_viewport
   mcp__plugin_omniverse-mcp_omniverse__get_logs mcp__plugin_omniverse-mcp_omniverse__get_prim_properties
+  mcp__plugin_omniverse-mcp_omniverse__get_performance
 ---
 
-# Simulate, drive robots, record
+# Simulate, drive robots, record, measure
 
 Edits to the stage are instant; motion happens only while the timeline plays. `stop` resets the stage to how it was
 before play, so pause to look at a moment in the middle.
@@ -44,6 +47,13 @@ before play, so pause to look at a moment in the middle.
    without moving the viewport; they stop, with a note, if the stage changes or the camera is deleted.
 6. **Check** with `get_prim_bounds`, `get_robot_info`'s joint states or a capture, rather than assuming the run did
    what was asked. A tool that fails: `get_logs(min_level="warn")`.
+7. **Measure the speed.** `get_performance` gives the frame rate a target reads (`app = ... FPS`), the GPU's render
+   time, the physics step and the simulated-to-real ratio, GPU memory and what the stage holds. Measure as the target
+   will run: play the simulation with the robots' sensors on, call nothing else meanwhile, measure before capturing
+   (a capture's kept render is released for the measurement), and with other GPU work on the machine idle. After
+   each cut to the scene, measure again and compare the two answers' `conditions` first. A `not settled` note means
+   the run hadn't settled: measure again, with more `warmup`. The numbers are this machine's: a target set for
+   another machine is checked there.
 
 ## Traps
 
@@ -53,3 +63,4 @@ before play, so pause to look at a moment in the middle.
 | `raycast` finds nothing | play first: it uses PhysX |
 | A stopped run loses the state you wanted | `pause`, not `stop`, to look at it |
 | Gravity along the wrong axis | the up axis from `get_sim_state`: a Y-up stage falls along -Y |
+| `get_performance` reads fast on a stopped stage | play first: with eco mode on, RTX may stop rendering a still stage, and physics doesn't step, as its note says |

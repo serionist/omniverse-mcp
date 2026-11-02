@@ -207,6 +207,7 @@ the install command; a new route leaves `PROTOCOL` alone, so the other tools go 
 /sim/control         -> handle_sim_control
 /sim/capture         -> handle_capture
 /sim/state           -> handle_sim_state
+/sim/performance     -> handle_performance
 /camera/set          -> handle_camera_set
 /camera/look_at      -> handle_camera_look_at
 /camera/inspect      -> handle_camera_inspect
@@ -297,14 +298,20 @@ The format is implemented in `ovmcp/core/formatter.py` with functions for:
    texture's drawable-changed event. On Kit 110 Kit calls it on the main thread in every timeline state (#25's
    E16); on Kit 107, whose event stream is another, nobody has measured. So it does no USD work and logs nothing, as
    #5 asks of a callback Kit may call from another thread: it only hands the frame to the captures waiting for it
-7. What runs on every app update, a recording's tick, the drawings' watch and the watch over a dropped feed's render
-   product, observes Kit's update event (`omni.kit.app.GLOBAL_EVENT_UPDATE`) through Events 2.0, by
+7. What runs on every app update, a recording's tick, the drawings' watch, the watch over a dropped feed's render
+   product and `get_performance`'s measurement, observes Kit's update event (`omni.kit.app.GLOBAL_EVENT_UPDATE`) through Events 2.0, by
    `handlers/_updates.py`'s `on_update`, as Kit's own `next_update_async` does in Kit 107 and Kit 110. Its order is 0,
    where the app's update stream ran its subscriptions: after USD's update and the physics step (-10), before Hydra's
    render (30), `next_update_async` (50) and the asyncio loop that runs the handlers (100), as Kit's `KitUpdateOrder.h`
    orders them. On Isaac Sim 6.2 headless every call came on the main thread, a texture's drawable-changed event before
    it in the same update, and Kit called an observer again after it raised (#122). The app's event streams log a
    deprecation, with a call stack, at each call; `tests/test_updates.py` fails on any in the extension
+8. `get_performance` (`handlers/performance.py`) times the app updates it observes, at order 0, so a physics step's
+   profile stats, which PhysX's benchmarks interface sends with the step at -10, come before the update's own call:
+   the measurement counts the steps of the updates whose intervals it keeps. Their callback only adds numbers up, as
+   point 5 asks of one Kit may call from another thread. It lifts Kit's frame-rate limiter
+   (`/app/runLoops/main/rateLimitEnabled`) while it measures and puts it back in a `finally`, and holds the viewport
+   lock with the kept capture feed released (`without_kept_feed`), since a kept feed renders every update
 
 This means all handler code runs on the main thread - there are no threading issues with USD access, but long-running handlers will block the simulation for the duration of their execution.
 
