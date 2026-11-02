@@ -2890,6 +2890,218 @@ result = len(points)
 _SPHERES = 32
 
 
+# An area's file as #155's case has them: a variant set, state, whose variants each hold a cube of their own size, so
+# each state has a box of its own (1 closed, 3 open); closed is selected. No up axis or units, so create_prim brings it
+# as it is.
+_VARIANT_AREA_USDA = """#usda 1.0
+(
+    defaultPrim = "Area"
+)
+
+def Xform "Area" (
+    variants = {
+        string state = "closed"
+    }
+    prepend variantSets = "state"
+)
+{
+    variantSet "state" = {
+        "closed" {
+            def Cube "Wall"
+            {
+                double size = 1
+            }
+        }
+        "open" {
+            def Cube "Door"
+            {
+                double size = 3
+            }
+        }
+    }
+}
+"""
+
+# What a switch may change of the open stage: the root layer's and the session layer's /World as text (the root
+# layer's /Render, where a capture's kept feed comes and goes, left out), the active field each holds for AREA, and
+# Fabric Scene Delegate's setting.
+_VARIANT_LAYERS = """
+import carb.settings
+import omni.usd
+from pxr import Sdf
+
+stage = omni.usd.get_context().get_stage()
+
+
+def world(layer):
+    if not layer.GetPrimAtPath("/World"):
+        return None
+    copy = Sdf.Layer.CreateAnonymous()
+    Sdf.CopySpec(layer, "/World", copy, "/World")
+    return copy.ExportToString()
+
+
+def active(layer):
+    spec = layer.GetPrimAtPath(AREA)
+    return spec.active if spec and spec.HasActive() else None
+
+
+result = {
+    "root": world(stage.GetRootLayer()),
+    "session": world(stage.GetSessionLayer()),
+    "active": [active(stage.GetRootLayer()), active(stage.GetSessionLayer())],
+    "fabric": bool(carb.settings.get_settings().get_as_bool("/app/useFabricSceneDelegate")),
+}
+"""
+
+# Removes what a test left in Kit's session layer: the spec at each of PATHS, and the session's /World when it holds
+# nothing and wasn't there before (WORLD).
+_DROP_SESSION_SPECS = """
+import omni.usd
+
+layer = omni.usd.get_context().get_stage().GetSessionLayer()
+for path in PATHS:
+    spec = layer.GetPrimAtPath(path)
+    if spec:
+        del layer.GetPrimAtPath(spec.path.GetParentPath()).nameChildren[spec.name]
+world = layer.GetPrimAtPath("/World")
+if world and not WORLD and world.IsInert():
+    del layer.pseudoRoot.nameChildren["World"]
+result = True
+"""
+
+
+class TestVariantSwitchesKeepTheFiles(unittest.TestCase):
+    """set_variant_selection, compare_prims and set_prim_attribute against an area's file with a variant set,
+    referenced (#155): a switch by default goes to Kit's session layer and leaves the root layer as it was, a clear
+    brings the files' selection back, edit_target writes into the root layer, and compare_prims leaves both layers as
+    they were. Fabric Scene Delegate's setting is read and printed: the refresh's toggle runs under it."""
+
+    AREA = "/World/IntTestVariantArea"
+    LIGHT = "/World/IntTestVariantLight"
+
+    @classmethod
+    def setUpClass(cls):
+        host, port = live_bridge()
+        cls.client = BridgeClient(host=host, port=port, timeout=60.0)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.client.close()
+
+    def _run(self, code: str, **names: Any) -> Any:
+        script = "".join(f"{name} = {value!r}\n" for name, value in names.items()) + code
+        result = self.client.execute(script)
+        self.assertEqual(result["status"], "success", result.get("error"))
+        return result["result"]["return_value"]
+
+    def _layers(self) -> dict[str, Any]:
+        return self._run(_VARIANT_LAYERS, AREA=self.AREA)
+
+    def setUp(self):
+        folder = Path(tempfile.mkdtemp(prefix="ovmcp-variants-"))
+        self.addCleanup(shutil.rmtree, folder, True)
+        area = folder / "IntTestArea.usda"
+        area.write_text(_VARIANT_AREA_USDA, encoding="utf-8", newline="\n")
+        world_before = self._layers()["session"] is not None
+        self.addCleanup(self.client.delete_prim, self.LIGHT)
+        self.addCleanup(self.client.delete_prim, self.AREA)
+        # Before the deletes, which run last: what the tests left in the session layer goes first.
+        self.addCleanup(self._run, _DROP_SESSION_SPECS, PATHS=[self.AREA, self.LIGHT], WORLD=world_before)
+        made = self.client.create_prim(self.AREA, usd_path=str(area), position=[50, 0, 0])
+        self.assertEqual(made["status"], "success", made.get("error"))
+
+    def _switch(self, name: str, **kwargs: Any) -> dict[str, Any]:
+        result = self.client.set_variant_selection(self.AREA, "state", name, **kwargs)
+        self.assertEqual(result["status"], "success", result.get("error"))
+        return result["result"]
+
+    def _size(self) -> float:
+        bounds = self.client.prim_bounds(self.AREA)
+        self.assertEqual(bounds["status"], "success", bounds.get("error"))
+        return max(bounds["result"]["dimensions"])
+
+    def _variant_sets(self) -> str:
+        block = self.client.prim_properties(self.AREA, fmt="text")["result"]["text"]
+        return next(line for line in block.splitlines() if line.startswith("variant_sets = "))
+
+    def _capture(self) -> str:
+        result = self.client.capture_viewport(320, 240)
+        self.assertEqual(result["status"], "success", result.get("error"))
+        return result["result"]["image_base64"]
+
+    def test_a_switch_by_default_leaves_the_root_layer_and_a_clear_brings_the_files_selection_back(self):
+        found = self.client.viewport_light("get")["result"]["lighting_mode"]
+        self.addCleanup(self.client.viewport_light, "set", mode=found)
+        self.assertEqual(self.client.viewport_light("set", mode="camera")["status"], "success")
+        self.assertEqual(self.client.camera_look_at(self.AREA, distance=8.0)["status"], "success")
+        before = self._layers()
+        closed = self._capture()
+        self.assertAlmostEqual(self._size(), 1.0, places=3)
+
+        started = time.perf_counter()
+        switched = self._switch("open")
+        took = time.perf_counter() - started
+        opened = self._capture()
+
+        self.assertEqual((switched["layer"], switched["files_select"]), ("session", "closed"), switched)
+        self.assertEqual(switched["new_selection"], "open")
+        after = self._layers()
+        self.assertEqual(after["root"], before["root"], "the switch wrote into the root layer, the stage's file")
+        self.assertEqual(after["active"], [None, None], "the refresh left an active opinion")
+        self.assertAlmostEqual(self._size(), 3.0, places=3)
+        self.assertEqual(self._variant_sets(), "variant_sets = state: open [closed, open] (session)")
+        self.assertNotEqual(opened, closed, "the capture after the switch shows the old state")
+
+        cleared = self._switch("")
+        self.assertEqual(cleared["new_selection"], "closed")
+        self.assertAlmostEqual(self._size(), 1.0, places=3)
+        self.assertEqual(self._layers()["root"], before["root"])
+        print(f"  Fabric Scene Delegate {'on' if before['fabric'] else 'off'}; the switch took {took:.2f} s")
+
+    def test_edit_target_writes_the_selection_into_the_root_layer_once_the_session_holds_none(self):
+        self._switch("open")
+        refused = self.client.set_variant_selection(self.AREA, "state", "closed", layer="edit_target")
+        self.assertEqual(refused["status"], "error", refused)
+        self.assertIn("Kit's session layer holds", refused["error"])
+        self._switch("")
+
+        kept = self._switch("open", layer="edit_target")
+
+        self.assertEqual(kept["layer"], "edit_target")
+        layers = self._layers()
+        self.assertIn('string state = "open"', layers["root"])
+        self.assertEqual(layers["active"], [None, None], "the refresh left an active opinion")
+        self.assertEqual(self._variant_sets(), "variant_sets = state: open [closed, open] (root)")
+
+    def test_compare_prims_leaves_both_layers_as_they_were(self):
+        for held in ("", "open"):
+            with self.subTest(session=held or "none"):
+                if held:
+                    self._switch(held)
+                before = self._layers()
+                result = self.client.compare_prims(
+                    prim_path=self.AREA, variant_set="state", variant_a="closed", variant_b="open"
+                )
+                self.assertEqual(result["status"], "success", result.get("error"))
+                self.assertAlmostEqual(max(result["result"]["a"]["bounds_dimensions"]), 1.0, places=3)
+                self.assertAlmostEqual(max(result["result"]["b"]["bounds_dimensions"]), 3.0, places=3)
+                self.assertEqual(self._layers(), before)
+
+    def test_set_prim_attribute_in_the_session_layer_leaves_the_root_layer(self):
+        self.assertEqual(self.client.create_prim(self.LIGHT, "DistantLight")["status"], "success")
+        before = self._layers()["root"]
+
+        result = self.client.set_attribute(self.LIGHT, "inputs:intensity", 1234, layer="session")
+
+        self.assertEqual(result["status"], "success", result.get("error"))
+        self.assertEqual(result["result"]["layer"], "Kit's session layer")
+        self.assertEqual(self._layers()["root"], before)
+        refused = self.client.set_attribute(self.LIGHT, "inputs:intensity", 10, layer="edit_target")
+        self.assertEqual(refused["status"], "error", refused)
+        self.assertIn("execute_script removes it", refused["error"])
+
+
 class TestColdCook(unittest.TestCase):
     """Last in the suite: a play that cooks collision meshes from scratch (#5). With a Python consumer on Kit's log, a
     cooking worker that logged waited for the GIL that Kit's main thread held while it waited for the worker, and Kit
