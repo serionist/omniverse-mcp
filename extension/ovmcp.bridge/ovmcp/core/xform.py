@@ -127,7 +127,7 @@ def _rank(stage: Usd.Stage) -> dict[str, int]:
     return {layer.identifier: i for i, layer in enumerate(stage.GetLayerStack(includeSessionLayers=True))}
 
 
-def _blocker(prim: Usd.Prim, attr: Usd.Attribute, layer: Sdf.Layer) -> str | None:
+def write_blocker(prim: Usd.Prim, attr: Usd.Attribute, layer: Sdf.Layer) -> str | None:
     """Why a value written to attr in layer wouldn't show, or None.
 
     The strongest opinion decides: a stronger layer's value outranks the write; time samples in the written layer or a
@@ -398,7 +398,7 @@ def _plan(prim: Usd.Prim, parts: Parts, layer: Sdf.Layer) -> _Plan:
         if attr:
             attributes.append(attr)
     for attr in attributes:
-        why = _blocker(prim, attr, layer)
+        why = write_blocker(prim, attr, layer)
         if why:
             raise ValueError(why)
     return plan
