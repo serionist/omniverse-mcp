@@ -140,6 +140,8 @@ class FakeKit:
         self.tensor_pushes: list[tuple[Any, ...]] = []
         self.errors: list[str] = []
         self.warnings: list[str] = []
+        # The running job as /sim/state names it (#158), or None.
+        self.job: dict[str, Any] | None = None
 
     def add_body(self, path: str) -> None:
         prim = UsdGeom.Cube.Define(self.stage, path).GetPrim()
@@ -237,6 +239,7 @@ def load_simulation(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
         "handlers_under_test.recording": _module(
             "handlers_under_test.recording", recording_active=lambda: False, recording_note=lambda: None
         ),
+        "handlers_under_test.jobs": _module("handlers_under_test.jobs", job_brief=lambda: kit.job),
     }
     for name, module in fakes.items():
         monkeypatch.setitem(sys.modules, name, module)

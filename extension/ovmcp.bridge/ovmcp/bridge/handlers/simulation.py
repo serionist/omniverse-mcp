@@ -43,6 +43,7 @@ from ovmcp.core.material import (
 from ovmcp.core.protocol import kit_app
 
 from ._utils import _get_stage, _next_update
+from .jobs import job_brief
 from .recording import recording_active, recording_note
 
 # ---------------------------------------------------------------------------
@@ -110,6 +111,8 @@ async def handle_sim_state(_body: dict) -> dict:
             "meters_per_unit": UsdGeom.GetStageMetersPerUnit(stage),
             "recording_active": recording_active(),
             **({"recording_note": note} if (note := recording_note()) else {}),
+            # A job running, named as a recording is (#158).
+            **({"job": job} if (job := job_brief()) else {}),
             # The Kit app, for a bug report the agent drafts (#105).
             **kit_app(),
         },

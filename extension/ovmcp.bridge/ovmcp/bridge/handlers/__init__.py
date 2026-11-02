@@ -17,6 +17,9 @@ from .camera import (
 # --- Debug drawing ---
 from .debug_draw import handle_draw_debug
 
+# --- Jobs (a script now, #157's sweep later) ---
+from .jobs import handle_job_cancel, handle_job_get, handle_job_script
+
 # --- Logging ---
 from .logging import handle_get_logs
 
@@ -96,6 +99,10 @@ __all__ = [
     "handle_viewport_light",
     # Debug drawing
     "handle_draw_debug",
+    # Jobs
+    "handle_job_cancel",
+    "handle_job_get",
+    "handle_job_script",
     # Logging
     "handle_get_logs",
     # Misc

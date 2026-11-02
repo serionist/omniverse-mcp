@@ -13,6 +13,7 @@ import carb
 import omni.ext
 import omni.kit.app
 
+from ovmcp.core import output
 from ovmcp.core.http import LOOPBACK_HOSTS, BridgeServer
 from ovmcp.core.protocol import EXTENSION_NAME, kit_app_facts, set_extension_version, set_kit_app, version_from_ext_id
 from ovmcp.core.token import new_token, remove_token, write_token
@@ -40,6 +41,9 @@ from .handlers import (
     handle_get_logs,
     handle_get_robot_info,
     handle_health,
+    handle_job_cancel,
+    handle_job_get,
+    handle_job_script,
     handle_mesh_stats,
     handle_new_scene,
     handle_open_scene,
@@ -107,6 +111,9 @@ class Extension(omni.ext.IExt):
         routes = {
             "/health": handle_health,
             "/execute": handle_execute,
+            "/jobs/script": handle_job_script,
+            "/jobs/get": handle_job_get,
+            "/jobs/cancel": handle_job_cancel,
             "/scene/tree": handle_scene_tree,
             "/scene/dump": handle_scene_dump,
             "/scene/prim": handle_prim_properties,
@@ -166,6 +173,16 @@ class Extension(omni.ext.IExt):
         carb.log_info(f"[MCP Bridge] Starting on {self._host}:{self._port}")
 
     def on_shutdown(self):
+        # First, while its stage is still open: a job left running would go on where no route could reach it.
+        try:
+            from .handlers.jobs import shut_down as shut_down_jobs
+
+            shut_down_jobs()
+        except Exception as e:
+            carb.log_warn(f"[MCP Bridge] The running job's teardown failed at shutdown: {e}")
+        # The streams back under Kit's own interceptor, which Kit's restore at exit looks for (ovmcp.core.output).
+        output.uninstall()
+
         try:
             from .handlers.recording import shut_down
 
