@@ -83,6 +83,127 @@ def _kit_app(r: dict[str, Any]) -> str:
     return " ".join(parts) or "unknown"
 
 
+GIB = 1 << 30
+
+
+def _missing(numbers: dict[str, Any]) -> str | None:
+    """Why the extension gave no numbers for a line, or None when it gave them."""
+    return str(numbers["missing"]) if "missing" in numbers else None
+
+
+def _app_line(r: dict[str, Any]) -> str:
+    app = r.get("app")
+    if not app:
+        return f"app = not measured: {r.get('app_missing') or 'no frame was timed'}"
+    measured, asked = int(r.get("measured_frames", 0)), int(r.get("frames", 0))
+    over = f"{measured} frames" if measured >= asked else f"{measured} of {asked} frames"
+    return (
+        f"app = {app['fps']:.1f} FPS (frame time mean {app['mean_ms']:.1f} ms, p50 {app['p50_ms']:.1f}, "
+        f"p95 {app['p95_ms']:.1f}, worst {app['worst_ms']:.1f}) over {over} after {r.get('warmup', 0)}"
+    )
+
+
+def _physics_line(p: dict[str, Any]) -> str:
+    text = (
+        f"physics = {p['steps_per_second']:g} steps a simulated second, {p['steps_per_frame']:.1f} steps a frame, "
+        f"{p['step_ms']:.1f} ms a step ({p['frame_ms']:.1f} ms a frame); simulated {p['simulated_seconds']:.2f} s in "
+        f"{p['wall_seconds']:.2f} s"
+    )
+    return text + (f" ({p['ratio']:.2f} of real time)" if p.get("ratio") is not None else "")
+
+
+def _memory_line(m: dict[str, Any]) -> str:
+    used, budget = m.get("used_bytes"), m.get("budget_bytes")
+    if used is None:
+        return f"gpu_memory = not given by Hydra for {m.get('device', 'device 0')}"
+    of = f" of a {budget / GIB:.1f} GiB budget" if budget is not None else ""
+    return f"gpu_memory = {used / GIB:.1f} GiB used{of} (Hydra's figures for device 0, {m.get('device', 'unknown')})"
+
+
+def _stage_line(s: dict[str, Any]) -> str:
+    text = f"stage = {s.get('prims', 0)} prims, {s.get('meshes', 0)} meshes"
+    if s.get("instances"):
+        text += f", {s['instances']} instances of {s.get('prototypes', 0)} prototypes"
+    if s.get("point_instancers"):
+        text += f", {s.get('point_instances', 0)} point instances in {s['point_instancers']} point instancers"
+    return text
+
+
+def _products_line(products: list[dict[str, Any]]) -> str:
+    """The render products by kind and size, in the order each first comes: each renders every update."""
+    if not products:
+        return "render_products = none"
+    groups: dict[tuple[str, str], int] = {}
+    for product in products:
+        size = "x".join(str(side) for side in product.get("resolution") or ["?", "?"])
+        key = (str(product.get("kind", "render product")), size)
+        groups[key] = groups.get(key, 0) + 1
+    named = [f"{count} {kind}{'s' if count > 1 else ''} at {size}" for (kind, size), count in groups.items()]
+    return f"render_products = {len(products)}: {', '.join(named)}"
+
+
+def _on_off(value: Any) -> str:
+    return "on" if value else "off"
+
+
+def _conditions_line(c: dict[str, Any]) -> str:
+    """What two answers are compared by: the machine, the app, the renderer and the timeline; the limiter; and what
+    Isaac Sim's throttling turns on and off around play and stop."""
+    machine: list[str] = [str(c["gpu"])] if c.get("gpu") else []
+    machine.append(f"{_kit_app(c)} (Kit {c.get('kit_version') or 'unknown'})")
+    if c.get("renderer"):
+        mode = f" ({c['render_mode']})" if c.get("render_mode") else ""
+        machine.append(f"renderer {c['renderer']}{mode}")
+    machine.append(str(c.get("timeline", "unknown")))
+    if c.get("headless") is not None:
+        machine.append("headless" if c["headless"] else "with a window")
+    if c.get("fixed_time_stepping") is True and c.get("time_codes_per_second"):
+        machine.append(f"fixed time steps of 1/{float(c['time_codes_per_second']):g} s")
+    elif c.get("fixed_time_stepping") is False:
+        machine.append("time steps by the wall clock")
+    if not c.get("rate_limit_lifted"):
+        limiter = "rate limit not set, so left as it was"
+    elif c.get("rate_limit"):
+        frequency = c.get("rate_limit_frequency")
+        at = f" at {frequency:g} Hz" if isinstance(frequency, int | float) else ""
+        limiter = f"rate limit lifted for the measurement (it was on{at})"
+    else:
+        limiter = "rate limit off"
+    throttling = [
+        f"async rendering {_on_off(c.get('async_rendering'))}",
+        f"eco mode {_on_off(c.get('eco_mode'))}",
+    ]
+    for key, name in (("sleep_ms_on_focus", "sleepMsOnFocus"), ("sleep_ms_out_of_focus", "sleepMsOutOfFocus")):
+        if c.get(key):
+            throttling.append(f"{name} {c[key]} ms")
+    return f"conditions = {', '.join(machine)}; {limiter}; {', '.join(throttling)}"
+
+
+def _performance_text(r: dict[str, Any]) -> str:
+    """get_performance's answer, the number a target reads first, then a line for each other, then the conditions and
+    the notes; a number Kit couldn't give says so on its own line."""
+    lines = [_app_line(r)]
+    halves = r.get("halves")
+    if halves:
+        lines.append(f"settled = first half {halves['first_ms']:.1f} ms, second half {halves['second_ms']:.1f} ms")
+    gpu = r.get("gpu_render") or {"missing": "not measured"}
+    lines.append(
+        f"gpu_render = {_missing(gpu)}"
+        if _missing(gpu)
+        else f"gpu_render = mean {gpu['mean_ms']:.1f} ms, p95 {gpu['p95_ms']:.1f}"
+    )
+    physics = r.get("physics") or {"missing": "not measured"}
+    lines.append(f"physics = {_missing(physics)}" if _missing(physics) else _physics_line(physics))
+    memory = r.get("gpu_memory") or {"missing": "not measured"}
+    lines.append(f"gpu_memory = {_missing(memory)}" if _missing(memory) else _memory_line(memory))
+    lines.append(_stage_line(r.get("stage") or {}))
+    lines.append(_products_line(r.get("render_products") or []))
+    lines.append(_conditions_line(r.get("conditions") or {}))
+    notes: list[str] = r.get("notes") or []
+    lines.extend(f"note = {note}" for note in notes)
+    return "\n".join(lines)
+
+
 def _unit(direction: list[float]) -> list[float]:
     """direction scaled to length 1, as raycast_closest's unit_dir asks. Isaac Sim 6.2's PhysX scales it itself;
     other builds are untried, and a zero one has no direction to cast along."""
@@ -152,6 +273,42 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
                 f"{install_advice()}"
             )
         return "\n".join(lines)
+
+    @tool(mcp, READS)
+    def get_performance(
+        frames: Annotated[
+            int, Field(ge=2, le=2000, description="App updates to time, after the warm-up: 120 take 8 s at 15 FPS")
+        ] = 120,
+        warmup: Annotated[
+            int,
+            Field(
+                ge=0,
+                le=600,
+                description="App updates to let pass first, once the stage has loaded, so shaders and caches settle",
+            ),
+        ] = 30,
+    ) -> str:
+        """Measure how fast the Kit app runs the open stage: the app loop's frames per second and frame time (mean,
+        p50, p95, worst) over `frames` app updates after `warmup`; the GPU's render time a frame; while the simulation
+        plays, the physics steps a frame, their time and the simulated-to-real ratio; GPU memory; the stage's prim,
+        mesh and instance counts; the render products (cameras, lidars) rendering every update; and the conditions to
+        compare two answers by: the GPU, the Kit app, the renderer, the timeline, headless or not, the frame-rate
+        limiter, async rendering and eco mode.
+
+        Use it to check a frame-rate target, such as 15 FPS with a robot's sensors on, and to see what each cut of the
+        scene gains. Play the simulation first, with the sensors on, so physics and rendering run as they will; a
+        stopped timeline gives no physics lines. Measure alone: a capture called meanwhile waits for the measurement,
+        and any other call's work counts in its frames. It waits for the stage to finish loading, and stops at 90 s,
+        answering what it measured.
+
+        While it measures, Kit's frame-rate limiter is lifted and put back after, so a playing stage with fixed time
+        steps runs faster than real time for those seconds, and a robot driven from outside falls behind meanwhile.
+        The render a capture keeps for the next one is released first, so the next capture sets up its view again.
+        The answer notes when the run's two halves differ by more than 10% (measure again), when eco mode on a still
+        timeline makes the stage read faster than it plays, and when a recording's camera counts in the numbers. The
+        numbers are this machine's and GPU's: measure where the target must be met."""
+        resp = bridge_call(client.performance, frames, warmup)
+        return _performance_text(resp["result"])
 
     @tool(mcp, EDITS)
     def set_physics_properties(

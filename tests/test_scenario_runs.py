@@ -938,8 +938,9 @@ def test_phases_none_runs_the_outcomes_alone(suite):
 
 def test_the_server_tools_split_by_their_read_only_hint():
     read_only, others = scenarios.server_tools()
-    assert len(read_only) == 10
+    assert len(read_only) == 11
     assert "mcp__omniverse__get_prim_bounds" in read_only
+    assert "mcp__omniverse__get_performance" in read_only  # what it lifts, it puts back (#156)
     assert {"mcp__omniverse__execute_script", "mcp__omniverse__sim_control"} <= set(others)
     assert not set(read_only) & set(others)
 

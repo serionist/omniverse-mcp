@@ -31,6 +31,14 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   what wouldn't show (a stronger layer's value, time samples, a prim inside an instance) is refused with nothing
   written. Until now an agent set these with `execute_script`. The tool is in the Kit extension: run
   `uvx omniverse-mcp extension install`, then restart Kit (#151).
+- **`get_performance`,** a new tool in the tool contract: measures how fast the Kit app runs the open stage, the
+  same way each time, for a frame-rate target such as 15 FPS with a robot's sensors on. Over `frames` app updates
+  after `warmup` it gives the frame rate and frame times (mean, p50, p95, worst) with the two halves' means, the
+  GPU's render time, the physics steps a frame and the simulated-to-real ratio while the simulation plays, GPU
+  memory, the stage's prim, mesh and instance counts, the render products, and the conditions to compare two
+  answers by. Kit's frame-rate limiter is lifted while it measures and put back after. Until now an agent timed
+  updates with `execute_script`. The tool is in the Kit extension: run `uvx omniverse-mcp extension install`, then
+  restart Kit (#156).
 
 ### Changed
 

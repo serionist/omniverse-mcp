@@ -25,6 +25,7 @@ Reference for every tool the MCP server provides.
 | point the camera, at a point or a prim | `set_camera` |
 | fix a black capture | `viewport_light` |
 | play, pause, stop or step physics | `sim_control`; `get_sim_state` for where it stands |
+| measure the frame rate, the physics step and GPU memory | `get_performance` |
 | add a robot, read and move its joints | `create_robot`, `get_robot_info`, `set_joint_targets` |
 | record a run and look back at it | `start_recording`, `stop_recording`, `get_recording_frame` |
 | set mass or friction, make a collider, push, or probe | `set_physics_properties`, `apply_force`, `raycast` |
@@ -40,7 +41,7 @@ it runs one; they are hints, never security (the bridge's token is what keeps ot
 
 | Hints | What they mean | Tools |
 |---|---|---|
-| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs and while it is kept for the next capture or recording, up to 30 s after, and leaves Kit's unsaved-edits flag set; the bridge's saves and Kit's own Save leave it out of the file) | `get_scene_tree`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
+| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs and while it is kept for the next capture or recording, up to 30 s after, and leaves Kit's unsaved-edits flag set; the bridge's saves and Kit's own Save leave it out of the file; `get_performance` lifts Kit's frame-rate limiter while it measures, and puts it back) | `get_scene_tree`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_performance`, `get_recording_frame`, `raycast`, `get_logs` |
 | not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `set_prim_attribute`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `inspect_prim`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug` |
 | destructive | Deletes or overwrites prims, the whole stage, or USD files on disk | `delete_prim`, `save_scene`, `open_scene`, `new_scene`, `flatten_usd`, `export_prim_as_file`, `update_material_paths` |
 | destructive, open world | Runs Python or loads extensions inside the Kit app: anything can happen | `execute_script`, `manage_extensions` |
@@ -60,7 +61,7 @@ A value out of a parameter's range, or not one of its choices, is refused before
 - [Material Tools](#material-tools) (2 tools)
 - [Robot Tools](#robot-tools) (3 tools)
 - [Camera Tools](#camera-tools) (4 tools)
-- [Simulation Tools](#simulation-tools) (2 tools)
+- [Simulation Tools](#simulation-tools) (3 tools)
 - [Recording Tools](#recording-tools) (3 tools)
 - [Physics Tools](#physics-tools) (3 tools)
 - [Debug Tools](#debug-tools) (1 tool)
@@ -1024,6 +1025,74 @@ Get the current simulation state. No parameters.
 - `note` - only when the bridge's release differs from the server's: the command that installs the matching one
 
 **When to use:** Always call this first to understand the environment (especially up axis and whether physics is running).
+
+---
+
+### `get_performance`
+
+Measure how fast the Kit app runs the open stage, the same way each time: the app loop's frame rate and frame times,
+the GPU's render time, the physics step while the simulation plays, GPU memory, what the stage holds, and the
+conditions two answers are compared by.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `frames` | int | `120` | App updates to time, 2 to 2000: 120 take 8 s at 15 FPS |
+| `warmup` | int | `30` | App updates to let pass first, 0 to 600, once the stage has loaded |
+
+**How it measures,** as Isaac Sim's own benchmark recorders do, without needing them:
+
+- **Alone:** it holds the viewport lock, so a capture called meanwhile waits, and any other call's work counts in its
+  frames. The render a capture keeps for the next one (up to 30 s after it) is released first, since it renders every
+  update; the next capture sets up its view again.
+- **The limiter:** Kit's frame-rate limiter (`/app/runLoops/main/rateLimitEnabled`) is lifted for the measurement and
+  put back after, whatever happens, so a light stage reads its own speed, not the cap. A playing stage with fixed time
+  steps runs faster than real time meanwhile, and a robot driven from outside falls behind its commands for those
+  seconds. A Kit app that doesn't set the limiter is left as it is.
+- **The frames:** it waits until the stage has finished loading, lets `warmup` updates pass, then times `frames` + 1
+  updates and drops the first interval, with the GPU time and the physics steps of that update.
+- **The bound:** it stops at 90 s, under the server's 120 s, and answers what it measured, with a note giving the
+  frames it got; a measurement whose 90 s went to loading or the warm-up has no statistics, and says so.
+
+**Returns,** one line each, the number a target reads first:
+
+```
+app = 22.4 FPS (frame time mean 44.6 ms, p50 43.9, p95 51.2, worst 63.0) over 120 frames after 30
+settled = first half 44.9 ms, second half 44.3 ms
+gpu_render = mean 31.2 ms, p95 36.0
+physics = 120 steps a simulated second, 5.4 steps a frame, 6.1 ms a step (32.9 ms a frame); simulated 10.80 s in 10.70 s (1.01 of real time)
+gpu_memory = 14.2 GiB used of a 47.8 GiB budget (Hydra's figures for device 0, NVIDIA RTX 6000 Pro)
+stage = 18342 prims, 2210 meshes, 9120 instances of 41 prototypes, 50000 point instances in 2 point instancers
+render_products = 6: 2 lidars at 1024x1024, 4 cameras at 1280x720
+conditions = NVIDIA RTX 6000 Pro, Isaac-Sim Python 6.2.0 (Kit 110.4.0), renderer rtx (RaytracedLighting), playing, headless, fixed time steps of 1/60 s; rate limit lifted for the measurement (it was on at 60 Hz); async rendering off, eco mode off
+```
+
+- `app` - frames per second from the mean frame time, and the frame time's mean, 50th and 95th percentile (nearest
+  rank) and worst, in ms
+- `settled` - the mean frame times of the first and the second half of the frames
+- `gpu_render` - Hydra's GPU profiler: the time of a frame's top-level render passes, averaged over the GPUs
+- `physics` - only while the timeline plays: the physics scene's steps a simulated second, the steps an app update
+  carries, PhysX's time a step and a frame, and the time simulated, counted from the steps, against the real time
+- `gpu_memory` - Hydra's `get_device_info()` for device 0: its use and its budget, in GiB (2^30 bytes). Other apps on
+  the same GPU may count in them
+- `stage` - the prims the stage traverses, its meshes, its instances and the prototypes they share, and its point
+  instancers' instances; an instance's inside isn't counted
+- `render_products` - each camera, lidar or other sensor rendering every update, by kind and size, the viewport's own
+  included
+- `conditions` - the GPU, the Kit app and Kit's version, the renderer and its mode, the timeline's state, headless or
+  with a window, fixed time steps or the wall clock, the limiter as it was before the call, and what Isaac Sim's
+  throttling turns on and off around play and stop: async rendering, eco mode and the renderer's sleeps when not 0
+- `note` - each thing that could move the numbers: the halves more than 10% apart ("not settled": measure again), eco
+  mode on while the timeline is stopped or paused (RTX may stop rendering a still stage, so it reads faster than the
+  scene plays), a recording running (its camera renders every update), the time running out
+
+A number the Kit app can't give says so on its line: `gpu_render = not available in this app` in a Kit app without
+`omni.hydra.engine.stats`, or when Hydra's profiler is off and every frame reads 0; `physics = not measured: the
+timeline is stopped, ...` while it doesn't play. Physics comes from `omni.physics.core`'s benchmarks interface, or
+`omni.physx`'s where that is missing (Isaac Sim 5.x).
+
+**When to use:** to check a frame-rate target, such as 15 FPS with a robot's sensors on, and to see what each cut of
+the scene gains. Play the simulation first with the sensors on, measure before capturing, and measure with other GPU
+work on the machine idle. The numbers are this machine's and GPU's: measure where the target must be met.
 
 ---
 

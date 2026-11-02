@@ -719,6 +719,40 @@
         "type": "object"
       }
     },
+    "get_performance": {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input": {
+        "properties": {
+          "frames": {
+            "default": 120,
+            "maximum": 2000,
+            "minimum": 2,
+            "type": "integer"
+          },
+          "warmup": {
+            "default": 30,
+            "maximum": 600,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
     "get_prim_bounds": {
       "annotations": {
         "openWorldHint": false,
