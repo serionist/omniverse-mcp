@@ -2790,10 +2790,12 @@ class TestScenarios(PhysicsChecks):
 
     def test_22_00_create_inspect_target(self):
         """Phase 22.0: Create the prim this phase inspects (no earlier phase leaves one)"""
+        # The bridge takes no size or colour: a scale makes it the 0.8 m it reads as, and a material its colour.
         r = self.c.create_prim(
-            self.INSPECT_TARGET, "Cube", position=_along_up(self._up_axis(), 1.0), size=0.8, color=[0.8, 0.4, 0.1]
+            self.INSPECT_TARGET, "Cube", position=_along_up(self._up_axis(), 1.0), scale=[0.4, 0.4, 0.4]
         )
-        self.assertEqual(r["status"], "success")
+        self.assertEqual(r["status"], "success", r)
+        self.assertEqual(self.c.set_material(self.INSPECT_TARGET, [0.8, 0.4, 0.1])["status"], "success")
         self._pass()
 
     def test_22_01_inspect_with_segmentation(self):
@@ -2850,6 +2852,13 @@ class TestScenarios(PhysicsChecks):
         self.assertEqual(len(captures), 1)
         self.assertIn("image_base64", captures[0])
         print(f"  Isolated inspect captured, dist={r['result']['distance']:.2f}m")
+        self._pass()
+
+    def test_22_06_remove_inspect_target(self):
+        """Phase 22.6: Remove the inspected prim, which stands on the column phase 26's kept cube is placed on"""
+        # Left there, it held phase 26's cubes inside it on either axis, so 26.4 saw no move.
+        r = self.c.delete_prim(self.INSPECT_TARGET)
+        self.assertEqual(r["status"], "success", r)
         self._pass()
 
     # ===== Phase 23: Viewport Lighting =====
