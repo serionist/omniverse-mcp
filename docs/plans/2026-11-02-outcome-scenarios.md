@@ -1,9 +1,9 @@
 ---
 title: Add outcome scenarios to the AI suite, each asked in a user's words and judged by a read-only tester
 issue: "#146"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-11-02
 ---
 
 # Add outcome scenarios to the AI suite, each asked in a user's words and judged by a read-only tester
@@ -264,14 +264,14 @@ plan; a second round reads the edits.
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 | Outcomes in their own `test_project/outcomes.md`, IDs `O1` on, or as phases of `scenarios.md`? | Their own file: a phase's tester gets its Verify lines (F2), the cleanup must stay last (F1), and an outcome needs its own stage, prompt and rules | |
-| Q2 | How a physics outcome is judged (P1): the runner plays a set time and pauses before a read-only judge; the judge may call `sim_control`; or only the stopped stage's facts and the agent's answers count? | The runner plays: the judge stays read-only, and every run plays the same | |
-| Q3 | An agent that breaks its `Calls:` line: PASS capped at WARN (FAIL kept), set to FAIL, or only shown in `results.md`? | Cap at WARN: `compare` then shows when a description change sends agents to code, without calling the outcome wrong | |
-| Q4 | Outcomes in every full run, and in a run with `--phases` only when `--outcomes` names them? | Yes: a release's run then measures them; partial runs stay as cheap as today | |
-| Q5 | 16.9: delete its heading and put one sentence in Phase 16's note, or keep the row? | Delete: the issue asks for no standing SKIP, and `test_16_09` covers it | |
-| Q6 | These six outcomes (O1 to O6), as now written? | Yes | |
-| Q7 | The agent's brief keeps the tester's `execute_script` rules (no waits, no `ovmcp.*` imports)? | Keep: a script that holds Kit's main thread ends the run for every later session | |
-| Q8 | The judge on the same model as the agent (one `--model` for both)? | Yes, one flag | |
+| Q1 | Outcomes in their own `test_project/outcomes.md`, IDs `O1` on, or as phases of `scenarios.md`? | Their own file: a phase's tester gets its Verify lines (F2), the cleanup must stay last (F1), and an outcome needs its own stage, prompt and rules |As recommended (2026-11-02) |
+| Q2 | How a physics outcome is judged (P1): the runner plays a set time and pauses before a read-only judge; the judge may call `sim_control`; or only the stopped stage's facts and the agent's answers count? | The runner plays: the judge stays read-only, and every run plays the same |The runner plays (2026-11-02) |
+| Q3 | An agent that breaks its `Calls:` line: PASS capped at WARN (FAIL kept), set to FAIL, or only shown in `results.md`? | Cap at WARN: `compare` then shows when a description change sends agents to code, without calling the outcome wrong |Cap at WARN (2026-11-02) |
+| Q4 | Outcomes in every full run, and in a run with `--phases` only when `--outcomes` names them? | Yes: a release's run then measures them; partial runs stay as cheap as today |As recommended (2026-11-02) |
+| Q5 | 16.9: delete its heading and put one sentence in Phase 16's note, or keep the row? | Delete: the issue asks for no standing SKIP, and `test_16_09` covers it |Delete (2026-11-02) |
+| Q6 | These six outcomes (O1 to O6), as now written? | Yes |Yes (2026-11-02) |
+| Q7 | The agent's brief keeps the tester's `execute_script` rules (no waits, no `ovmcp.*` imports)? | Keep: a script that holds Kit's main thread ends the run for every later session |Keep (2026-11-02) |
+| Q8 | The judge on the same model as the agent (one `--model` for both)? | Yes, one flag |Yes, one flag (2026-11-02) |
 
 **Improvements:**
 
@@ -285,8 +285,8 @@ plan; a second round reads the edits.
 ### Round 2
 
 **How:** one fresh reviewer on Claude Opus 5.5, 2026-11-02, at `c6e5e61`, reading round 1's fixes and what they
-touch. **Verdict:** needs-answers: P1 to P5 closed, no blocker or major open, three minors fixed below; only the owner
-calls Q1 to Q8 remain. **Now:** every finding and improvement applied; no round 3, as only minors came.
+touch. **Verdict:** approved, once the maintainer answered Q1 to Q8 as recommended (2026-11-02): P1 to P5 closed, no
+blocker or major open, three minors fixed below. **Now:** every finding and improvement applied; no round 3, as only minors came.
 
 | # | Sev | Finding | Status |
 |---|---|---|---|
