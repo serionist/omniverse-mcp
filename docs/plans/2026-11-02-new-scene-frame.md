@@ -58,12 +58,14 @@ def new_scene(
 ### The extension (`handlers/scene.py`, `ovmcp/core/stage_open.py`)
 
 - `handle_new_scene` reads `up_axis` and `meters_per_unit` from the body; an unknown axis or a value not above zero is
-  an error before the stage is replaced, so a bad call discards nothing.
+  an error before the stage is replaced, so a bad call discards nothing. The reading and the checks are a Kit-free
+  `frame_of(body)` beside `set_frame` (built so: the plan named only `set_frame`).
 - After `new_stage_async` and `/World`, a Kit-free function in `ovmcp/core/stage_open.py`,
   `set_frame(stage, up_axis, meters_per_unit)`, writes both with `UsdGeom.SetStageUpAxis` and
   `UsdGeom.SetStageMetersPerUnit`; the answer adds `describe(stage)`'s `up_axis` and `meters_per_unit`.
 - A body without the keys (a server older than the extension) gets today's stage: Y-up, units left to Kit, so an older
-  server's "(Y-up)" stays true.
+  server's "(Y-up)" stays true. Built per key: a key left out keeps its part of that stage, and `set_frame` takes
+  `None` for units left to Kit.
 
 ### The suites
 
@@ -77,7 +79,9 @@ def new_scene(
 - **Outcomes, `tools/scenarios.py` and `test_project/outcomes.md`** (fit I2): the runner's `prepare_stage` calls
   `new_scene()` with no arguments, so each outcome starts on the frame a user's agent now gets; the Givens of O2, O4
   and O5 swap their Y and Z values and drop their `SetStageMetersPerUnit` lines, and lines 22 and 23 say Z-up in
-  metres. The Verify lines name no axis. Outcomes landed today, so no earlier run is lost to compare against.
+  metres. The Verify lines name no axis. Outcomes landed today, so no earlier run is lost to compare against. Built
+  so, but O5's sun: a rotation's angles don't swap as a vector's values do, so it takes the angles that shine along
+  the old direction with Y and Z swapped, (-40, 0, -30), read back with usd-core.
 - **AI scenarios, `scenarios.md`:** a session that starts a new stage is told to call `new_scene(up_axis="Y")`, so its
   vectors, written for Y-up, keep their meaning and earlier runs stay comparable. The header (line 13, in every
   tester's prompt) names that call and says `new_scene()` alone makes Z-up; 17.2 checks the default frame, and 17.3,
@@ -131,7 +135,8 @@ maintainer's chat decision, 2026-11-02, before the PR).
 
 `docs/TOOLS.md` (`new_scene`'s section: parameters, the answer, the default), `CHANGELOG.md` (Breaking), the `scene`
 skill if it names the frame, `docs/images/README.md`'s recipe (its `execute_script` for a Z-up stage goes),
-`test_project` files above. `README.md` names the tool only.
+`test_project` files above. `README.md` names the tool only. Built with one more: `docs/ARCHITECTURE.md`'s line for
+`stage_open.py`.
 
 ## Risks
 
