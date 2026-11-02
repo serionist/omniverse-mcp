@@ -1,9 +1,9 @@
 ---
 title: Add set_prim_attribute, which sets one attribute of a prim, such as a light's intensity
 issue: "#151"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-11-02
 ---
 
 # Add set_prim_attribute, which sets one attribute of a prim, such as a light's intensity
@@ -256,7 +256,7 @@ as amended by P2, and leaves Q7 to the maintainer. **The one-way door** needs th
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 to Q7 | Design's table | As recommended there | |
+| Q1 to Q7 | Design's table | As recommended there | As recommended, Q7 included, and the tool contract's new tool agreed (serionist, 2026-11-02) |
 
 **Improvements:**
 
