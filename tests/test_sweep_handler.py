@@ -27,6 +27,7 @@ from ovmcp.core.serial import LazyLock
 from ovmcp.core.usd import select
 
 from .conftest import HANDLERS
+from .test_exposure import rtx_writes
 from .test_sweep import FakeTimeline
 
 OPENED, CLOSING = "OPENED", "CLOSING"
@@ -98,6 +99,13 @@ def _stage(folder: Path) -> Usd.Stage:
     return stage
 
 
+def settled(kit: "FakeKit", stage: Usd.Stage) -> dict[str, str]:
+    """layers(stage) once the kept feed's render product is gone, as the live test reads them after release_kept: RTX's
+    writes onto the cameras rendered through stay until then (#177)."""
+    kit.release()
+    return layers(stage)
+
+
 def layers(stage: Usd.Stage) -> dict[str, str]:
     """Every layer the stage uses, the session layer and the area's file among them, as text."""
     found = [*stage.GetLayerStack(includeSessionLayers=True), *stage.GetUsedLayers()]
@@ -105,8 +113,9 @@ def layers(stage: Usd.Stage) -> dict[str, str]:
 
 
 class FakeFeed:
-    """The lent camera feed as a sweep uses it, with #177's exposure shield as CameraFeed has it: authored in the
-    session layer for the camera it renders through, lifted when it renders through another or is dropped."""
+    """The lent camera feed as a sweep uses it, with #177's marks as CameraFeed takes them: each camera noted before the
+    feed first renders through it, on creation and on aim, and put back when its render product is deleted. Its renders
+    write what Kit 110's RTX writes onto a bare camera, at the edit target."""
 
     def __init__(self, kit: "FakeKit", camera_path: str, width: int, height: int) -> None:
         self.kit = kit
@@ -115,24 +124,40 @@ class FakeFeed:
         self.frames = 0
         self.dropped = False
         self.aimed: list[str] = []
-        self.shield = exposure.shield(kit.get_stage(), camera_path)
+        self.marks: list[Any] = []
+        self._note(camera_path)
 
-    def _lift(self) -> None:
-        shield, self.shield = self.shield, None
-        if shield is not None and self.kit.stage is not None and self.kit.stage.GetSessionLayer() == shield.layer:
-            shield.lift()
+    def _note(self, camera_path: str) -> None:
+        key = exposure.MARKS.take(self.kit.get_stage(), camera_path)
+        if key is None:
+            return
+        if key in self.marks:
+            exposure.MARKS.let_go(key, [])
+            return
+        self.marks.append(key)
 
     def aim(self, camera_path: str, width: int, height: int) -> None:
         assert (width, height) == (self.width, self.height)
         if camera_path != self.camera_path:
-            self._lift()
-            self.shield = exposure.shield(self.kit.get_stage(), camera_path)
+            self._note(camera_path)
             self.camera_path = camera_path
         self.aimed.append(camera_path)
 
     def drop(self) -> None:
         self.dropped = True
-        self._lift()
+
+    def remove_render_product(self, stage: Usd.Stage) -> None:
+        layers = list(stage.GetLayerStack(includeSessionLayers=True))
+        marks, self.marks = self.marks, []
+        for key in marks:
+            exposure.MARKS.let_go(key, layers)
+
+    def render(self) -> None:
+        """One render through the feed's camera: RTX's exposure written onto it when it lacks it."""
+        stage = self.kit.get_stage()
+        prim = stage.GetPrimAtPath(self.camera_path)
+        if prim.IsValid() and not prim.IsInstanceProxy() and exposure.bare(prim):
+            rtx_writes(stage, self.camera_path)
 
     async def first_frame(self, seconds: float) -> None:
         assert seconds == capture.FRAME_SECONDS
@@ -147,6 +172,7 @@ class FakeFeed:
         assert count == 20
         assert budget is not None
         await self.kit.next_update()
+        self.render()
         if self.kit.frames_move:
             self.frames += count
 
@@ -209,8 +235,17 @@ class FakeKit:
             await self.next_update()
 
     def let_go_now(self, feed: FakeFeed) -> None:
+        # As camera_feed's: dropped, its render product deleted at once while a stage is open.
         feed.drop()
+        if self.stage is not None:
+            feed.remove_render_product(self.stage)
         self.torn_down.append(feed)
+
+    def release(self) -> None:
+        """Every feed's render product deleted, as release_kept does with the kept feed: what RTX wrote onto the cameras
+        they rendered through comes back with it."""
+        for feed in self.feeds:
+            feed.remove_render_product(self.get_stage())
 
     async def refresh(self, _stage: Usd.Stage, paths: list[Sdf.Path]) -> None:
         self.refreshed.append(sorted(str(p) for p in paths))
@@ -237,6 +272,7 @@ class FakeKit:
         camera = UsdGeom.Camera(stage.GetPrimAtPath(feed.camera_path))
         session = stage.GetSessionLayer()
         own = session.GetPrimAtPath(sweep.CAMERA_PATH)
+        in_root = stage.GetRootLayer().GetPrimAtPath(sweep.CAMERA_PATH)
         return {
             "camera": feed.camera_path,
             "focal_length": round(camera.GetFocalLengthAttr().Get(), 4),
@@ -244,7 +280,10 @@ class FakeKit:
             "b": stage.GetPrimAtPath(B).GetVariantSet("lod").GetVariantSelection(),
             "time": self.timeline.time,
             "timeline": self.timeline.state,
-            "camera_in_root": stage.GetRootLayer().GetPrimAtPath(sweep.CAMERA_PATH) is not None,
+            # What the root layer holds of the sweep's camera beside RTX's exposure.
+            "camera_in_root": sorted(
+                name for name in (in_root.properties.keys() if in_root else []) if not name.startswith("exposure:")
+            ),
             "camera_ops": sorted(n for n in (own.attributes.keys() if own else []) if n.startswith("xformOp")),
             "clipping": tuple(
                 round(v, 6) for v in UsdGeom.Camera(stage.GetPrimAtPath(sweep.CAMERA_PATH)).GetClippingRangeAttr().Get()
@@ -262,6 +301,8 @@ def kit(tmp_path: Path) -> FakeKit:
 @pytest.fixture
 def env(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     board = JobBoard(watch=lambda _job: None)
+    # This test's own, so no mark outlives it.
+    monkeypatch.setattr(exposure, "MARKS", exposure.Marks())
 
     def stop_for_stage(job: Job, stage_id: object) -> bool:
         # handlers/jobs.py's, on the fake Kit's stage: the watch's reasons, at once.
@@ -398,7 +439,7 @@ def test_each_shot_shows_its_own_state_and_every_layer_and_the_timeline_come_bac
         round(sweep.FOCAL_LENGTH, 4),
     ]
     assert kit.refreshed == [[A], [A, B], [B], [A, B]]
-    assert layers(stage) == before
+    assert settled(kit, stage) == before
     assert (kit.timeline.state, kit.timeline.time) == ("stopped", 0.0)
     assert not stage.GetPrimAtPath(sweep.CAMERA_PATH).IsValid()
     folder = tmp_path / "sweeps" / "site_a"
@@ -419,7 +460,7 @@ def test_the_sweep_s_camera_and_its_ops_are_in_the_session_layer_alone_with_isaa
 
     (seen,) = kit.seen
     assert seen["camera"] == sweep.CAMERA_PATH
-    assert seen["camera_in_root"] is False
+    assert seen["camera_in_root"] == []
     assert seen["camera_ops"] == CAMERA_OPS
     assert seen["clipping"] == (0.01, 1e7)
 
@@ -505,7 +546,7 @@ def test_a_camera_path_shot_renders_its_camera_unwritten_checked_after_its_switc
     assert job.state == COMPLETED
     assert [s["camera"] for s in kit.seen] == [cam, sweep.CAMERA_PATH]
     assert kit.seen[0]["focal_length"] == 7.337
-    assert layers(stage) == before
+    assert settled(kit, stage) == before
     entries = _manifest(tmp_path)["shots"]
     assert entries[0]["camera_path"] == cam
     assert entries[0]["position"] == [1.0, 2.0, 0.65]
@@ -513,8 +554,8 @@ def test_a_camera_path_shot_renders_its_camera_unwritten_checked_after_its_switc
     # Its own horizontal aperture, the vertical as Kit renders it: matched to the image.
     assert (entries[0]["horizontal_aperture"], entries[0]["vertical_aperture"]) == pytest.approx((20.955, 11.7871875))
     assert entries[0]["clipping_range"] == pytest.approx([0.05, 200])
-    # The closed state took the camera away: shot 2 fails with why, and the sweep goes on. The feed's exposure shield
-    # holds an empty over there until it renders through another camera (#177), so the camera reads typeless.
+    # The closed state took the camera away: shot 2 fails with why, and the sweep goes on. RTX's over at the edit target
+    # stays there until the feed's render product goes (#177), so the camera reads typeless, not missing.
     assert entries[1]["error"] == f"{cam} is a typeless prim, not a Camera: camera_path must name a camera"
     assert "file" not in entries[1]
     assert job.result is not None
@@ -599,7 +640,7 @@ def test_a_cancel_mid_sweep_puts_everything_back_and_the_manifest_says_what_it_t
     _, job = _run(env, _body(tmp_path, FOUR))
 
     assert job.state == CANCELLED
-    assert layers(stage) == before
+    assert settled(kit, stage) == before
     assert (kit.timeline.state, kit.timeline.time) == ("stopped", 0.0)
     manifest = _manifest(tmp_path)
     assert (manifest["shots_done"], manifest["ended"]) == (1, "cancelled: cancel_job was called")
@@ -642,7 +683,7 @@ def test_an_error_mid_sweep_fails_the_job_and_still_puts_everything_back(env, ki
     _, job = _run(env, _body(tmp_path, FOUR))
 
     assert (job.state, job.error) == (FAILED, "a fault no shot expects")
-    assert layers(stage) == before
+    assert settled(kit, stage) == before
     assert _manifest(tmp_path)["ended"] == "failed: a fault no shot expects"
     folder = tmp_path / "sweeps" / "site_a"
     assert job.lines.last == f"2 of 4 shots in {folder}/ (manifest.json); failed: a fault no shot expects"
@@ -721,7 +762,7 @@ def test_a_feed_whose_first_frame_never_came_is_released_not_kept(env, kit, tmp_
 
     assert (job.state, job.error) == (FAILED, "The camera /OmniverseKit_Sweep rendered no frame in 30 s")
     assert [healthy for _, _, healthy in kit.handed_back] == [False]
-    assert layers(stage) == before
+    assert settled(kit, stage) == before
 
 
 def test_a_cancel_while_the_first_frame_comes_leaves_the_feed_healthy(env, kit, tmp_path):
@@ -800,7 +841,7 @@ def test_a_second_cancel_while_the_feed_is_handed_back_still_leaves_the_manifest
     _, job = _run(env, _body(tmp_path, FOUR))
 
     assert job.state == CANCELLED
-    assert layers(stage) == before
+    assert settled(kit, stage) == before
     assert _manifest(tmp_path)["ended"] == "cancelled: cancel_job was called"
     folder = tmp_path / "sweeps" / "site_a"
     assert job.lines.last == f"1 of 4 shots in {folder}/ (manifest.json); cancelled: cancel_job was called"
@@ -822,17 +863,17 @@ def test_every_selection_comes_back_in_one_change(env, kit, tmp_path):
     ]
     _run(env, _body(tmp_path, shots))
 
-    # The feed's shield lifted, the selections, the camera deleted: one change each, where a block per snapshot
-    # made one per shot's switch (code review, F2).
+    # The selections and the camera deleted: one change each, where a block per snapshot made one per shot's switch
+    # (code review, F2).
     assert len(changed) <= 4, len(changed)
 
 
-def test_a_scene_camera_rendered_before_a_shot_switches_its_parent_leaves_no_over(env, kit, tmp_path):
-    # The feed's shield makes /World/A in the session layer for the camera; the next shot's selection holds it open as
-    # the shield lifts, and A's snapshot, which found it there, keeps it: the end removes the empty over (#177).
+def test_what_rtx_writes_onto_the_cameras_rendered_through_comes_back_with_the_feed_s_render_product(
+    env, kit, tmp_path
+):
+    # A scene camera without exposure, under a prim a later shot switches.
     stage = kit.get_stage()
-    lens = UsdGeom.Camera.Define(stage, f"{A}/Lens")
-    lens.GetFocalLengthAttr().Set(10.0)
+    UsdGeom.Camera.Define(stage, f"{A}/Lens").GetFocalLengthAttr().Set(10.0)
     before = layers(stage)
     shots = [{"camera_path": f"{A}/Lens"}, _pose(selections={A: {"state": "open"}})]
 
@@ -840,11 +881,20 @@ def test_a_scene_camera_rendered_before_a_shot_switches_its_parent_leaves_no_ove
 
     assert job.state == COMPLETED
     assert [s["camera"] for s in kit.seen] == [f"{A}/Lens", sweep.CAMERA_PATH]
-    assert layers(stage) == before
+    root = stage.GetRootLayer()
+    # Kept with the feed: RTX's writes onto both cameras, the sweep's an over once its camera is deleted.
+    assert "exposure:fStop" in root.GetPrimAtPath(f"{A}/Lens").attributes
+    assert "exposure:fStop" in root.GetPrimAtPath(sweep.CAMERA_PATH).attributes
+    assert not stage.GetPrimAtPath(sweep.CAMERA_PATH).IsDefined()
+    # Which the next sweep's start ignores, and whose camera it marks again.
+    _, again = _run(env, _body(tmp_path, FOUR[:1], name="again"))
+    assert again.state == COMPLETED, again.error
+    assert settled(kit, stage) == before
 
 
 def test_an_empty_over_left_at_the_sweep_s_camera_blocks_nothing_and_stays(env, kit, tmp_path):
-    # As RTX left one in the root layer before #177, and one in the session layer with something in it.
+    # RTX's in the root layer, as a kept feed leaves it until its render product goes (#177), and one in the session
+    # layer with something in it.
     stage = kit.get_stage()
     Sdf.CreatePrimInLayer(stage.GetRootLayer(), Sdf.Path(sweep.CAMERA_PATH))
     held = Sdf.CreatePrimInLayer(stage.GetSessionLayer(), Sdf.Path(sweep.CAMERA_PATH))
@@ -854,7 +904,7 @@ def test_an_empty_over_left_at_the_sweep_s_camera_blocks_nothing_and_stays(env, 
     _, job = _run(env, _body(tmp_path, FOUR[:1]))
 
     assert job.state == COMPLETED, job.error
-    assert layers(stage) == before
+    assert settled(kit, stage) == before
 
 
 # ----- the start -----

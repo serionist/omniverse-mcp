@@ -1044,7 +1044,7 @@ A shot's fields:
 | `position` | `[x, y, z]` of the camera, in the stage's world and units |
 | `yaw`, `pitch` | With `position`: degrees about the stage's up axis, counter-clockwise seen from above, 0 looking along +X; and degrees above the horizon, -90 straight down, 0 when left out |
 | `target` | With `position`, instead of `yaw` and `pitch`: the point it looks at |
-| `camera_path` | Instead of a position: a camera of the stage, rendered as it is, its own pose and lens, nothing written to it |
+| `camera_path` | Instead of a position: a camera of the stage, rendered as it is, its own pose and lens; the sweep writes nothing to it |
 | `focal_length` | Millimetres; Kit's own camera's, 18.15, when left out |
 | `horizontal_aperture`, `vertical_aperture` | Millimetres; 20.955 and fitted to the image when both are left out, one fitted to the other when one is. Two that don't fit the image's shape within 1% are refused, naming the one that fits, as RTX would stretch or crop the picture |
 | `clipping_range` | `[near, far]` in stage units; Isaac Sim's 0.01 m to 10,000 km when left out, where USD's own 1 m would cut the floor in front of a camera 0.65 m above it |
@@ -1071,7 +1071,9 @@ A robot's front camera, 0.65 m up, looking along +Y with a 7.337 mm lens, a dock
   is in the manifest with why, and the sweep goes on. A render that gives no frame in a shot's 30 s ends the sweep.
 - **Afterwards,** whatever its end, a cancel or an error included: every layer is as it was, the session layer's
   selections included, the timeline is back in its state and time, and the sweep's camera, `/OmniverseKit_Sweep` in
-  the session layer, is gone. A stage that changes or begins to close cancels the sweep, and the new stage is left
+  the session layer, is gone. The exposure RTX writes onto a camera it renders through that lacks it, the sweep's
+  and a `camera_path` shot's, stays in the stage's file while the render is kept, up to 30 s after, and goes with it,
+  as a capture's does (#177). A stage that changes or begins to close cancels the sweep, and the new stage is left
   alone.
 - **Progress:** `get_job` gives `shot 37 of 400` as its message, and a line every 25 shots and at each failed one.
   Once it ends, one line: `400 shots in mcp_output/sweeps/site_a/ (manifest.json); 2 black: shots 12, 13; 1 failed:

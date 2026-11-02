@@ -495,20 +495,6 @@ def test_an_inner_selection_refused_takes_back_the_outer_one_written_before_it(n
     assert nested.GetPrimAtPath(NA).GetVariantSet("state").GetVariantSelection() == "closed"
 
 
-def test_prune_removes_the_empty_overs_made_since_and_keeps_the_rest():
-    layer = Sdf.Layer.CreateAnonymous(".usda")
-    Sdf.CreatePrimInLayer(layer, Sdf.Path("/Kept/Empty"))
-    kept = sweep.prim_specs(layer)
-    for path in ("/Kept/Empty/New", "/Made/Empty/Deeper", "/Holds"):
-        Sdf.CreatePrimInLayer(layer, Sdf.Path(path))
-    select(Sdf.CreatePrimInLayer(layer, Sdf.Path("/Holds")), "state", "open")
-
-    removed = sweep.prune(layer, kept)
-
-    assert sorted(str(p) for p in removed) == ["/Kept/Empty/New", "/Made", "/Made/Empty", "/Made/Empty/Deeper"]
-    assert sorted(str(p) for p in sweep.prim_specs(layer)) == ["/Holds", "/Kept", "/Kept/Empty"]
-
-
 def test_refusals_at_the_start_name_a_misspelled_variant_where_its_set_exists(stage: Usd.Stage):
     shots = _shots(
         {"position": [0, 0, 1], "yaw": 0, "selections": {AREA: {"state": "ajar"}}},

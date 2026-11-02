@@ -414,8 +414,9 @@ frames.
 1. **Start:** `/jobs/sweep` takes the shots (a list, or a sweep's manifest, whose entries read back as the shots they
    rendered), the size, and the output root and the name apart, so the name is checked as one plain folder name
    before it is joined to anything. It checks every shot, each selection of a prim and set on the stage now
-   (`variant_refusal`), that no `/OmniverseKit_Sweep` is left from an earlier sweep and that the folder holds no
-   manifest, then starts the job with `watch_stage` and a teardown, and answers its id and folder.
+   (`variant_refusal`), that no camera is defined at `/OmniverseKit_Sweep` (RTX's over there, in the root layer
+   until the kept feed's render product goes, blocks nothing) and that the folder holds no manifest, then starts the
+   job with `watch_stage` and a teardown, and answers its id and folder.
 2. **The job's start:** it reads the timeline's state and time and each named (prim, set)'s session-layer value,
    defines its camera, `/OmniverseKit_Sweep`, in the session layer with Isaac Sim's clipping range (0.01 m to 1e7 m in
    stage units), writes the manifest at once, and borrows the captures' feed (`lend`), as a recording does.
@@ -428,11 +429,12 @@ frames.
    a `camera_path` checked after the switch and rendered as it is, its world pose and lens recorded; 20 of the feed's
    frames, `_capture_frame`, and the PNG. A failed shot is recorded with why; a feed that rendered no frame in a shot's
    time ends the sweep. Every 25 shots a line and the manifest again.
-4. **The end,** whatever ends it, each step on its own: every snapshot restored, last first, the timeline put back,
-   the feed pointed at the viewport's camera and the sweep's camera deleted, unless the stage changed or began to
-   close, which took its layers with it; then the manifest and the summary line, the job's last; then the feed handed
-   back (`hand_back`). At the extension's shutdown the teardown does the same at once, the feed let go
-   (`let_go_now`).
+4. **The end,** whatever ends it, each step on its own: the feed pointed at the viewport's camera, every snapshot
+   restored, last first, in one change block, the timeline put back and the sweep's camera deleted, unless the stage
+   changed or began to close, which took its layers with it; then the manifest and the summary line, the job's last;
+   then the feed handed back (`hand_back`). What RTX wrote onto the cameras the feed rendered through comes back with
+   its render product, as a capture's does (#177). At the extension's shutdown the teardown does the same at once,
+   the feed let go (`let_go_now`).
 
 ## Recording System
 

@@ -3280,7 +3280,8 @@ class TestVariantSwitchesKeepTheFiles(unittest.TestCase):
 # ===== The capture sweep (#157) =====
 
 # The open stage's root and session layers as text, and the timeline's state and time: what a sweep must leave as it
-# found them, read once the kept feed's render product is gone (RELEASE_KEPT_FEED), since Kit writes it into both.
+# found them, read once the kept feed's render product is gone (RELEASE_KEPT_FEED), since Kit writes it into both and
+# RTX's exposure writes onto the scene camera and the sweep's own, in the root layer, come back with it (#177).
 _SWEEP_STAGE = """
 import omni.timeline
 import omni.usd

@@ -17,7 +17,7 @@ from typing import Any, Protocol, cast
 from pxr import Gf, Sdf, Usd
 
 from . import variants
-from .usd import floats, prim_spec, remove_child_spec, select, selections, unselect
+from .usd import floats, prim_spec, select, selections, unselect
 
 # The most shots one sweep takes: the case's check is about 400, and a list of 2,000 is about a megabyte of JSON.
 MAX_SHOTS = 2000
@@ -487,35 +487,6 @@ def switch(stage: Usd.Stage, out: Changes, layer: Sdf.Layer, shot: Shot) -> list
                 snapshot.restore()
         raise
     return snapshots
-
-
-def prim_specs(layer: Sdf.Layer) -> set[Sdf.Path]:
-    """The path of every prim spec in layer, nested ones included."""
-    found: set[Sdf.Path] = set()
-
-    def walk(spec: Sdf.PrimSpec) -> None:
-        found.add(spec.path)
-        for child in spec.nameChildren:
-            walk(child)
-
-    for root in layer.rootPrims:
-        walk(root)
-    return found
-
-
-def prune(layer: Sdf.Layer, kept: set[Sdf.Path]) -> list[Sdf.Path]:
-    """Removes each prim spec of layer that holds nothing and isn't one of kept, the layer's specs at the sweep's start,
-    deepest first, in one change block; the paths removed. Two takers-back can each leave an over the other made: a
-    selection's snapshot keeps an over the exposure shield made (#177), and the shield one a selection holds open."""
-    removed: list[Sdf.Path] = []
-    with Sdf.ChangeBlock():
-        for path in sorted(prim_specs(layer) - kept, key=lambda p: p.pathElementCount, reverse=True):
-            spec = prim_spec(layer, path)
-            parent = prim_spec(layer, path.GetParentPath())
-            if spec is not None and parent is not None and spec.IsInert():
-                remove_child_spec(parent, spec.name)
-                removed.append(path)
-    return removed
 
 
 # ----- the timeline -----

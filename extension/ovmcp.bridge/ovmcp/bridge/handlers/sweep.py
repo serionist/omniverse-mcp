@@ -102,10 +102,8 @@ class _Sweep:
         self.timeline: sweep.TimelineStart | None = None
         self.camera_made = False
         self.up_axis = "Z"
-        # A spec the session layer held at the camera's path before, copied, so the end puts it back; and every prim
-        # spec it held, so the end removes the empty overs made since.
+        # A spec the session layer held at the camera's path before, copied, so the end puts it back.
         self.camera_before: Sdf.Layer | None = None
-        self.session_specs: set[Sdf.Path] | None = None
         self.clipping = sweep.CLIPPING_METRES
         self.feed = None
         # A capture that raised leaves the feed in doubt: released at the end, not kept (#141).
@@ -162,7 +160,6 @@ class _Sweep:
         self.up_axis = str(UsdGeom.GetStageUpAxis(stage))
         meters_per_unit = UsdGeom.GetStageMetersPerUnit(stage)
         self.clipping = sweep.clipping_range(meters_per_unit)
-        self.session_specs = sweep.prim_specs(session)
         self._make_camera(stage)
         self.header.update(
             {
@@ -378,9 +375,9 @@ class _Sweep:
     def _put_stage_back(self) -> None:
         feed = self.feed
         if feed is not None and not feed.dropped:
-            # First, onto the camera a capture takes by default: off the sweep's camera, which goes below and would
-            # render white, and off a scene camera, so the feed lifts the exposure shield it wrote there (#177) before
-            # the selections come back.
+            # First, onto the camera a capture takes by default, off the sweep's camera, which goes below: a feed kept
+            # after the sweep would render a deleted camera white. What RTX wrote onto the cameras the feed rendered
+            # through comes back with the feed's render product (#177).
             self._step(
                 "pointing the feed at the viewport's camera",
                 lambda: feed.aim(_get_active_camera_path(), self.width, self.height),
@@ -397,9 +394,6 @@ class _Sweep:
         if self.camera_made:
             self.camera_made = False
             self._step("deleting its camera", self._delete_camera)
-        specs, self.session_specs = self.session_specs, None
-        if specs is not None:
-            self._step("removing the empty overs it left", lambda: sweep.prune(_get_stage().GetSessionLayer(), specs))
 
     def _delete_camera(self) -> None:
         session = _get_stage().GetSessionLayer()
@@ -463,7 +457,8 @@ async def handle_sweep_start(body: dict) -> dict:
     reasons = sweep.refusals(stage, shots, stage.GetSessionLayer())
     if reasons:
         return _error("\n".join(reasons))
-    # A defined camera only: an empty over left there, such as RTX's exposure attributes (#177), blocks nothing.
+    # A defined camera only: RTX's over, its exposure attributes at the edit target, stays there until the kept feed's
+    # render product goes (#177), and blocks nothing.
     left = stage.GetPrimAtPath(sweep.CAMERA_PATH)
     if left.IsValid() and left.IsDefined():
         return _error(
