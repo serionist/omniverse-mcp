@@ -1732,6 +1732,11 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         # A material from before #30 named only its id, which some Kit apps don't resolve: Kit then rendered its red
         # error material and logged "Unable to find SdrShaderNode". Both kinds must resolve after set_material.
         old = "/World/Looks/IntTestOld_Mat"
+        # Each run makes both kinds afresh: left from a run before, the old one is already upgraded and the cube's
+        # synced, and the test would show nothing of either (#135).
+        for leftover in (old, "/World/Looks/IntTestCube_Mat"):
+            self.client.delete_prim(leftover)
+        start = self.client.get_logs(count=1)["result"]["total_captured"] - 1
         made = self.client.execute(
             "from pxr import UsdShade, Sdf\n"
             "stage = omni.usd.get_context().get_stage()\n"
@@ -1743,6 +1748,16 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
             "result = 'made'"
         )
         self.assertEqual(made["status"], "success", made)
+        # Kit logs an unresolved shader once, as it first syncs it, and not again on later frames or changes (#135).
+        # So the window below holds the first sync of the material set_material makes, and the old material's own
+        # error is waited for before it opens: once, after a start, Kit logged it late enough to fall inside. The old
+        # one's upgrade is what _shader_source checks.
+        self.assertEqual(self.client.capture_viewport(320, 240)["status"], "success")
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if self.client.get_logs(count=50, since_index=start, search="IntTestOld_Mat")["result"]["entries"]:
+                break
+            time.sleep(0.1)
         since = self.client.get_logs(count=1)["result"]["total_captured"] - 1  # the newest entry's index
         result = self.client.set_material("/World/IntTestCube", color=[1, 0, 0], roughness=0.3)
         self.assertEqual(result["status"], "success")
