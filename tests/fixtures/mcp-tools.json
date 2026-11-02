@@ -65,6 +65,36 @@
         "type": "object"
       }
     },
+    "cancel_job": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "job_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
     "capture_viewport": {
       "annotations": {
         "openWorldHint": false,
@@ -639,6 +669,38 @@
         "type": "object"
       }
     },
+    "get_job": {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input": {
+        "properties": {
+          "job_id": {
+            "default": "",
+            "type": "string"
+          },
+          "wait": {
+            "default": 0,
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
     "get_logs": {
       "annotations": {
         "openWorldHint": false,
@@ -1163,6 +1225,37 @@
           "origin",
           "direction"
         ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    "run_script_job": {
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "code": {
+            "default": "",
+            "type": "string"
+          },
+          "file": {
+            "default": "",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "output": {

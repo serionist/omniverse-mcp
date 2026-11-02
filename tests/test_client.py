@@ -607,6 +607,22 @@ class TestBridgeClient(unittest.TestCase):
         r = self.client.extensions_manage("omni.test.ext", "enable")
         self.assertTrue(r["result"]["enabled"])
 
+    def test_job_script_sends_the_code_or_the_file_alone(self):
+        self.client.job_script(code="await bake()")
+        self.assertEqual(self.mock.requests[-1][1:], ("/jobs/script", {"code": "await bake()"}))
+        self.client.job_script(file="D:/bakes/bake.py")
+        self.assertEqual(self.mock.requests[-1][1:], ("/jobs/script", {"file": "D:/bakes/bake.py"}))
+
+    def test_job_get_sends_the_id_and_the_wait_given(self):
+        self.client.job_get()
+        self.assertEqual(self.mock.requests[-1][1:], ("/jobs/get", {}))
+        self.client.job_get("j3", 30.0)
+        self.assertEqual(self.mock.requests[-1][1:], ("/jobs/get", {"job_id": "j3", "wait": 30.0}))
+
+    def test_job_cancel_sends_the_id(self):
+        self.client.job_cancel("j3")
+        self.assertEqual(self.mock.requests[-1][1:], ("/jobs/cancel", {"job_id": "j3"}))
+
     def test_set_material(self):
         r = self.client.set_material("/World/Cube", color=[1, 0, 0], roughness=0.5)
         self.assertEqual(r["status"], "success")
