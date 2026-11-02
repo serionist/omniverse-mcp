@@ -172,7 +172,6 @@ ignore = [
     "S108",    # /tmp paths are fixture data the mock bridge echoes, never opened
 ]
 "extension/ovmcp.bridge/ovmcp/bridge/handlers/misc.py" = [
-    "S102", # execute_script runs the caller's Python inside Kit: that is the tool
     # baseline (see below): "BLE001", "F841"
     "BLE001",
     "F841",

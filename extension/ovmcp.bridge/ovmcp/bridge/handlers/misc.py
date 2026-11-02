@@ -4,10 +4,6 @@ Miscellaneous handlers.
 Handles health, execute, and extension management.
 """
 
-import io
-import json
-import sys
-import textwrap
 import traceback
 from typing import Any
 
@@ -15,6 +11,7 @@ import carb
 import omni.kit.app
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics
 
+from ovmcp.core import output, script
 from ovmcp.core.protocol import PROTOCOL, extension_version, kit_app
 
 from ._utils import _get_stage, _next_update
@@ -48,16 +45,11 @@ async def handle_health(_body: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-async def handle_execute(body: dict) -> dict:
-    code = body.get("code", "")
-    if not code.strip():
-        return {"status": "error", "error": "No code provided"}
-
-    await _next_update()
-
+def script_namespace() -> dict[str, Any]:
+    """What a script, /execute's or a job's, finds already imported: Kit, USD, and `mcp`, the handlers."""
     from ._mcp_bridge import mcp_bridge
 
-    local_ns: dict[str, Any] = {
+    return {
         "omni": omni,
         "carb": carb,
         "Usd": Usd,
@@ -69,60 +61,32 @@ async def handle_execute(body: dict) -> dict:
         "mcp": mcp_bridge,
     }
 
-    captured_out = io.StringIO()
-    captured_err = io.StringIO()
 
+async def handle_execute(body: dict) -> dict:
+    code = body.get("code", "")
+    if not isinstance(code, str) or not code.strip():
+        return {"status": "error", "error": "No code provided"}
+
+    await _next_update()
+
+    namespace = script_namespace()
     exec_error = None
     exec_tb = None
-
-    # Detect async code: if it won't compile as-is but compiles when wrapped
-    # in an async function, run it as a coroutine. This lets scripts use
-    # `await mcp.capture_viewport()` etc.
-    is_async = False
-    try:
-        compile(code, "<script>", "exec")
-    except SyntaxError:
+    # On this handler's own task, Kit's main thread: USD from another thread crashes Kit. Its prints go to this call's
+    # answer alone, whatever else prints while it awaits (ovmcp.core.output).
+    with output.collect(output.Printed()) as printed:
         try:
-            wrapped = "async def __mcp_exec__():\n" + textwrap.indent(code, "    ")
-            compile(wrapped, "<script>", "exec")
-            is_async = True
-        except SyntaxError:
-            pass  # Real syntax error — let exec() report it
+            await script.run(script.compile_script(code), namespace)
+        except SystemExit as e:
+            exec_error = f"Script called sys.exit({e.code}). This is not allowed."
+            exec_tb = traceback.format_exc()
+        except Exception as e:
+            exec_error = str(e)
+            exec_tb = traceback.format_exc()
 
-    # Run exec on the main thread — USD/Omniverse APIs are NOT thread-safe.
-    # Using run_in_executor would crash Isaac Sim on any USD call.
-    old_stdout, old_stderr = sys.stdout, sys.stderr
-    sys.stdout = captured_out
-    sys.stderr = captured_err
-    try:
-        if is_async:
-            wrapped = "async def __mcp_exec__():\n" + textwrap.indent(code, "    ")
-            wrapped += "\n    return locals().get('result')"
-            exec(wrapped, local_ns)
-            async_result = await local_ns["__mcp_exec__"]()
-            if async_result is not None:
-                local_ns["result"] = async_result
-        else:
-            exec(code, local_ns)
-    except SystemExit as e:
-        exec_error = f"Script called sys.exit({e.code}). This is not allowed."
-        exec_tb = traceback.format_exc()
-    except Exception as e:
-        exec_error = str(e)
-        exec_tb = traceback.format_exc()
-    finally:
-        sys.stdout = old_stdout
-        sys.stderr = old_stderr
-
-    stdout_text = captured_out.getvalue()
-    stderr_text = captured_err.getvalue()
-
-    script_result = local_ns.get("result")
-    if script_result is not None:
-        try:
-            json.dumps(script_result)
-        except (TypeError, ValueError):
-            script_result = str(script_result)
+    stdout_text = printed.text(output.STDOUT)
+    stderr_text = printed.text(output.STDERR)
+    script_result = script.jsonable(namespace.get("result"))
 
     if exec_error:
         return {
