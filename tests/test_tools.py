@@ -701,6 +701,22 @@ def test_set_prim_attribute_keeps_the_value_s_json_type(bridge: MockIsaacServer,
     assert body["value"] == value
 
 
+def test_set_prim_attribute_keeps_whole_numbers_whole_inside_a_list(bridge: MockIsaacServer, tmp_path: Path):
+    # An int64[] value past 2**53 would lose its last digits as a float; a bool inside a list stays a bool.
+    answer = {"prim_path": "/World/A", "name": "my:ids", "type": "int64[]", "before": "[]", "after": "1", "layer": "x"}
+    bridge.set_response("/scene/attribute", {"status": "success", "result": answer})
+    value = [9007199254740993, 2, True, [1, 0]]
+
+    erred, text, calls = _call(
+        bridge, tmp_path, "set_prim_attribute", {"prim_path": "/World/A", "name": "my:ids", "value": value}
+    )
+
+    assert not erred, text
+    (body,) = [b for path, b in calls if path == "/scene/attribute"]
+    assert body["value"] == value
+    assert [type(v) for v in body["value"][:3]] == [int, int, bool]
+
+
 def test_manage_extensions_enables_one(bridge: MockIsaacServer, tmp_path: Path):
     # The table's case lists; enabling takes the other route.
     _check(

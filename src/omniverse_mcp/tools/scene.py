@@ -315,7 +315,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             str, Field(description='The attribute, as get_prim_properties names it, e.g. "inputs:intensity"')
         ],
         value: Annotated[
-            bool | int | float | str | list[float | bool | str | list[float]],
+            bool | int | float | str | list[bool | int | float | str | list[int | float]],
             Field(
                 description="Its new value in JSON: a number, true or false, a string or token, or a list for a "
                 "vector, colour or array, e.g. [1, 0, 0]"

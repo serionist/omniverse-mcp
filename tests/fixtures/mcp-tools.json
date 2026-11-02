@@ -1473,17 +1473,27 @@
                 "items": {
                   "anyOf": [
                     {
-                      "type": "number"
+                      "type": "boolean"
                     },
                     {
-                      "type": "boolean"
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
                     },
                     {
                       "type": "string"
                     },
                     {
                       "items": {
-                        "type": "number"
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ]
                       },
                       "type": "array"
                     }
