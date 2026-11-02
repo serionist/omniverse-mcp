@@ -693,6 +693,40 @@ def test_the_scene_trees_text_stops_at_max_depth_with_each_prims_count_of_childr
     assert r["result"]["prim_count"] == 3
 
 
+# ---- /scene/face_count_tree ----
+
+
+def _meshes(stage: Usd.Stage) -> None:
+    """/World/Box, a mesh of 6 quads; /World/Group/Leaf, a mesh of 1 triangle."""
+    box = UsdGeom.Mesh.Define(stage, "/World/Box")
+    box.CreateFaceVertexCountsAttr([4] * 6)
+    box.CreatePointsAttr([Gf.Vec3f(x, y, z) for x in (0, 1) for y in (0, 1) for z in (0, 1)])
+    leaf = UsdGeom.Mesh.Define(stage, "/World/Group/Leaf")
+    leaf.CreateFaceVertexCountsAttr([3])
+    leaf.CreatePointsAttr([Gf.Vec3f(0, 0, 0), Gf.Vec3f(1, 0, 0), Gf.Vec3f(0, 1, 0)])
+
+
+@pytest.mark.parametrize(
+    ("root", "max_depth", "listed"),
+    [
+        ("/", 0, ["/"]),
+        ("/", 1, ["/", "/World"]),
+        ("/World", 0, ["/World"]),
+        ("/World", 1, ["/World", "/World/Box", "/World/Group"]),
+    ],
+)
+def test_the_face_count_tree_lists_its_root_at_depth_0_and_each_level_below_it(scene, kit, root, max_depth, listed):
+    # With a root of /, max_depth 0 listed nothing: / itself counted as depth 1 (#145).
+    _meshes(kit.stage)
+
+    r = _run(scene, "handle_face_count_tree", root=root, max_depth=max_depth)
+
+    assert r["status"] == "success", r
+    blocks = [b for b in r["result"]["text"].split("\n\n") if b.startswith("[")]
+    assert [b.splitlines()[0] for b in blocks] == [f"[{path}]" for path in listed]
+    assert "subtree_faces = 7" in blocks[0]
+
+
 # ---- set_material ----
 
 
