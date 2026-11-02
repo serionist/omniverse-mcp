@@ -791,6 +791,38 @@ def test_prim_properties_text_lists_the_schemas_and_the_target(scene, kit):
     assert "material:binding = /World/Looks/Mat" in lines
 
 
+def _switchable(stage: Usd.Stage) -> None:
+    """/World/Box with the variant set look: red and blue, red selected in the root layer, blue in the session's."""
+    look = UsdGeom.Cube.Define(stage, "/World/Box").GetPrim().GetVariantSets().AddVariantSet("look")
+    for name in ("red", "blue"):
+        look.AddVariant(name)
+    look.SetVariantSelection("red")
+    with Usd.EditContext(stage, stage.GetSessionLayer()):
+        look.SetVariantSelection("blue")
+
+
+def test_prim_properties_json_and_text_give_the_variant_sets(scene, kit):
+    _switchable(kit.stage)
+    sets = [{"name": "look", "selection": "blue", "options": ["blue", "red"], "layer": "session"}]
+
+    r = _run(scene, "handle_prim_properties", prim_path="/World/Box")
+    text = _run(scene, "handle_prim_properties", prim_path="/World/Box", format="text")
+
+    assert r["result"]["variant_sets"] == sets
+    assert "variant_sets = look: blue [blue, red] (session)" in text["result"]["text"].splitlines()
+    assert _run(scene, "handle_prim_properties", prim_path="/World")["result"]["variant_sets"] == []
+
+
+def test_scene_tree_json_with_properties_gives_the_variant_sets(scene, kit):
+    _switchable(kit.stage)
+
+    with_properties = _run(scene, "handle_scene_tree", root="/World/Box", max_depth=0, include_properties=True)
+    without = _run(scene, "handle_scene_tree", root="/World/Box", max_depth=0)
+
+    assert with_properties["result"]["variant_sets"][0]["selection"] == "blue"
+    assert "variant_sets" not in without["result"]
+
+
 # ---- /scene/attribute ----
 
 

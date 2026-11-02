@@ -27,6 +27,7 @@ from ovmcp.core.formatter import (
 from ovmcp.core.material import ensure_material, set_surface
 from ovmcp.core.metrics import Brought, StepError, bring_to_stage, not_brought
 from ovmcp.core.usd import prim_spec
+from ovmcp.core.variants import variant_json
 from ovmcp.core.xform import Parts, check_transform, check_writable, layer_name, position_of, write_transform
 
 from ._utils import (
@@ -74,6 +75,7 @@ async def handle_scene_tree(body: dict) -> dict:
 
         if include_properties:
             node["properties"] = _json_properties(prim)
+            node["variant_sets"] = variant_json(prim)
 
         if depth < max_depth:
             children = []
@@ -187,6 +189,7 @@ async def handle_prim_properties(body: dict) -> dict:
         "type": prim.GetTypeName(),
         "is_active": prim.IsActive(),
         "api_schemas": list(prim.GetAppliedSchemas()),
+        "variant_sets": variant_json(prim),
         "properties": _json_properties(prim),
     }
 

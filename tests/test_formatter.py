@@ -309,6 +309,33 @@ def test_a_scene_tree_with_properties_gives_the_computed_extent(stage):
     assert "extent = [(-0.25, -0.25, -0.25), (0.25, 0.25, 0.25)] (computed: none authored)" in text.splitlines()
 
 
+def _variant_line(prim: Usd.Prim, property_filter: list[str] | None = None) -> list[str]:
+    block = format_prim_block(prim, property_filter=property_filter)
+    return [line for line in block.splitlines() if line.startswith("variant_sets")]
+
+
+def test_variant_sets_lists_each_set_its_selection_options_and_layer_and_says_when_there_is_none(stage):
+    cube = stage.GetPrimAtPath("/World/Cube")
+    assert _variant_line(cube) == ["variant_sets = []"]  # always there, so the server can tell an older extension
+
+    look = cube.GetVariantSets().AddVariantSet("look")
+    for name in ("red", "blue"):
+        look.AddVariant(name)
+    look.SetVariantSelection("red")
+    with Usd.EditContext(stage, stage.GetSessionLayer()):
+        look.SetVariantSelection("blue")
+
+    assert _variant_line(cube) == ["variant_sets = look: blue [blue, red] (session)"]
+
+
+def test_a_property_filter_treats_variant_sets_as_a_property_of_that_name(stage):
+    cube = stage.GetPrimAtPath("/World/Cube")
+
+    # get_scene_tree(property_filter=["variant_sets"]) lists every switch of a scene in one file (#155).
+    assert _variant_line(cube, property_filter=["variant_sets"]) == ["variant_sets = []"]
+    assert _variant_line(cube, property_filter=["physics:"]) == []
+
+
 def test_a_property_filter_keeps_matching_names(stage):
     lines = format_prim_block(stage.GetPrimAtPath("/World/Cube"), property_filter=["size", "xformOp"]).splitlines()
 
@@ -320,7 +347,7 @@ def test_a_prim_without_a_transform_has_no_pose(stage):
 
     assert format_prim_block(prim, include_bounds=True) == (
         "[/World/Typeless]\ntype = Xform\nbbox_center = 0.0000, 0.0000, 0.0000\nbbox_size = 0.1000, 0.1000, 0.1000\n"
-        "api_schemas = []"
+        "api_schemas = []\nvariant_sets = []"
     )
 
 
