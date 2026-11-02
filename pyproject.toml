@@ -54,11 +54,11 @@ omniverse-mcp = "omniverse_mcp.server:main"
 [dependency-groups]
 dev = [
     "basedpyright==1.40.2",
-    "coverage==7.16.2",
+    "coverage==7.17.0",
     "import-linter==2.15",
     "numpy==2.4.6",
     "pytest==9.2.0",
-    "ruff==0.17.1",
+    "ruff==0.17.2",
     "types-usd==24.5.2",
     "usd-core==26.11",
 ]
