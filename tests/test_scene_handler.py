@@ -12,7 +12,7 @@ from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
-from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade
+from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
 from ovmcp.core.usd import floats
 
@@ -725,6 +725,49 @@ def test_the_face_count_tree_lists_its_root_at_depth_0_and_each_level_below_it(s
     blocks = [b for b in r["result"]["text"].split("\n\n") if b.startswith("[")]
     assert [b.splitlines()[0] for b in blocks] == [f"[{path}]" for path in listed]
     assert "subtree_faces = 7" in blocks[0]
+
+
+# ---- /scene/prim's and /scene/tree's JSON (#149) ----
+
+
+def _bound_cube(stage: Usd.Stage) -> None:
+    """/World/Box, a cube bound to /World/Looks/Mat and given a collider."""
+    box = UsdGeom.Cube.Define(stage, "/World/Box").GetPrim()
+    UsdShade.MaterialBindingAPI.Apply(box).Bind(UsdShade.Material.Define(stage, "/World/Looks/Mat"))
+    UsdPhysics.CollisionAPI.Apply(box)
+
+
+def test_prim_properties_json_gives_the_applied_schemas_and_a_bindings_target(scene, kit):
+    # Both read <unreadable> for every relationship before; schemas weren't given at all (#149).
+    _bound_cube(kit.stage)
+
+    r = _run(scene, "handle_prim_properties", prim_path="/World/Box")
+
+    assert r["status"] == "success", r
+    assert r["result"]["api_schemas"] == ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+    props = r["result"]["properties"]
+    assert props["material:binding"] == ["/World/Looks/Mat"]
+    assert props["proxyPrim"] == []  # kept, empty, as an unset attribute is kept as null
+    assert "<unreadable>" not in props.values()
+
+
+def test_scene_tree_json_with_properties_gives_a_relationships_targets(scene, kit):
+    _bound_cube(kit.stage)
+
+    r = _run(scene, "handle_scene_tree", root="/World/Box", max_depth=0, include_properties=True)
+
+    assert r["status"] == "success", r
+    assert r["result"]["properties"]["material:binding"] == ["/World/Looks/Mat"]
+
+
+def test_prim_properties_text_lists_the_schemas_and_the_target(scene, kit):
+    _bound_cube(kit.stage)
+
+    r = _run(scene, "handle_prim_properties", prim_path="/World/Box", format="text")
+
+    lines = r["result"]["text"].splitlines()
+    assert "api_schemas = MaterialBindingAPI, PhysicsCollisionAPI" in lines
+    assert "material:binding = /World/Looks/Mat" in lines
 
 
 # ---- set_material ----

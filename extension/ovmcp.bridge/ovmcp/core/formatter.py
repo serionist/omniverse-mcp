@@ -65,6 +65,14 @@ def format_value(val: object) -> str:
         return "<unreadable>"
 
 
+def relationship_targets(prop: Usd.Property) -> list[str] | None:
+    """A relationship's authored targets as paths, [] when it has none; None for an attribute. The prim block and the
+    JSON forms read relationships through this one rule (#149)."""
+    if not isinstance(prop, Usd.Relationship):
+        return None
+    return [str(path) for path in prop.GetTargets()]
+
+
 def format_prim_block(
     prim: Usd.Prim,
     include_properties: bool = True,
@@ -129,13 +137,24 @@ def format_prim_block(
         lines.append("rigid_body = true")
 
     if include_properties:
+        # What the running app applies, a type's built-in schemas included; [] says plainly that none is, so a missing
+        # collider shows as absent rather than unsaid (#149). A filter treats it as a property of that name.
+        if not property_filter or any(f in "api_schemas" for f in property_filter):
+            lines.append(f"api_schemas = {format_value(list(prim.GetAppliedSchemas()))}")
         for prop in prim.GetProperties():
             name = prop.GetName()
             if property_filter and not any(f in name for f in property_filter):
                 continue
             if not isinstance(prop, Usd.Attribute):
-                # A relationship has no value to read; its targets have never been listed here.
-                lines.append(f"{name} = <unreadable>")
+                try:
+                    targets = relationship_targets(prop)
+                except Exception:
+                    lines.append(f"{name} = <unreadable>")
+                    continue
+                # One with no targets is left out, as an unset attribute is: every gprim's proxyPrim and every
+                # collider's physics:simulationOwner would otherwise add a line that says nothing.
+                if targets:
+                    lines.append(f"{name} = {format_value(targets)}")
                 continue
             try:
                 val = prop.Get()
