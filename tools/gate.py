@@ -6,9 +6,10 @@ Usage: uv run tools/gate.py quick|full [--base <ref>] [--head <ref>]
 Two kinds of check:
 - the working tree's: the lock file, ruff check, ruff format, basedpyright, import-linter's contracts, a coverage
   floor no lower than at the start of each range checked, AGENTS.md within 150 lines, each skill's frontmatter and
-  its Codex link, the hooks stored as executable, the plugin (its manifests, one version everywhere, its skills
-  pre-approving read-only tools only, and Claude Code's own `claude plugin validate --strict`); full adds pytest under
-  coverage, then the report against the floor.
+  its Codex link, the plans (each named YYYY-MM-DD-<slug>.md with a `## Plan review`, no improvement id twice in it,
+  and from FIT_SINCE on no review round without an answered Fit above it), the hooks stored as executable, the plugin
+  (its manifests, one version everywhere, its skills pre-approving read-only tools only, and Claude Code's own
+  `claude plugin validate --strict`); full adds pytest under coverage, then the report against the floor.
   They run when the head is the checked-out commit, and are skipped, with the reason, when the tree is not what is
   checked;
 - the commits': no tool attribution in any message, and no tool as any commit's author or committer, and gitleaks,
@@ -57,6 +58,15 @@ SKILL_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SKILL_NAME_MAX = 64
 DESCRIPTION_MAX = 1024
 GITLEAKS_CONFIG = ".gitleaks.toml"
+# Plans: fit-plan writes `### Fit` at the top of a plan's review section, and review-plan's rounds follow it, once
+# every improvement the fit raised has its answer (REVIEW.md, Improvements).
+PLANS_DIR = "docs/plans"
+PLAN_FILE = re.compile(r"^\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
+PLAN_REVIEW = "## Plan review"
+PLAN_ANSWERS = ("taken", "left", "later")
+# The plans merged before fit-plan existed are dated records, never edited after their merge: the Fit rule reads only
+# a plan started on this day or later. Set past every plan any branch added when fit-plan landed (#160).
+FIT_SINCE = "2026-11-03"
 # The plugin (plan S8): its marketplace, manifest and server, and the tool contract its skills' allowed-tools are read
 # against. The plugin's and the server key's names are one-way doors (AGENTS.md).
 MARKETPLACE = ".claude-plugin/marketplace.json"
@@ -156,6 +166,11 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _GITLEAKS_ERROR = re.compile(r"(?:^|\s)ERR\s")
 _KEY_LINE = re.compile(r"^([A-Za-z][\w-]*):(?:[ \t]+(.*))?$")
 _BLOCK_STYLES = (">", ">-", ">+", "|", "|-", "|+")
+_IMPROVEMENT_ROW = re.compile(r"^\|\s*(I\d+)\s*\|")
+_CELL_EDGE = re.compile(r"(?<!\\)\|")
+# A code fence's line: any indentation (a fence in a list item is indented), a run of three or more backticks or
+# tildes, and its info string.
+_FENCE = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
 
 
 @dataclass
@@ -458,6 +473,92 @@ def link_problems(entries: list[tuple[str, str, str]], skills: set[str]) -> list
     return problems
 
 
+def fence_closes(opener: str, line: str) -> bool:
+    """True when line closes the code fence opener opened: a run of the same character, at least as long, and nothing
+    after it (CommonMark). A shorter run or the other character is text inside the fence, as when a ```` fence quotes
+    a template with ``` fences of its own."""
+    match = _FENCE.match(line)
+    return (
+        match is not None
+        and match.group(1)[0] == opener[0]
+        and len(match.group(1)) >= len(opener)
+        and not match.group(2).strip()
+    )
+
+
+def fence_opens(line: str) -> str | None:
+    """The run that opens a code fence on line, or None. A backtick run with a backtick in its info string is inline
+    code, as in a line that starts with ```name```, not a fence (CommonMark)."""
+    match = _FENCE.match(line)
+    if match is None or (match.group(1)[0] == "`" and "`" in match.group(2)):
+        return None
+    return match.group(1)
+
+
+def plan_review_lines(text: str) -> list[str] | None:
+    """The lines of a plan's `## Plan review` section, up to the next `## ` heading, or None when it has none. Fenced
+    lines are left out: a plan may quote a review record as an example. A fence never closed runs to the end, as it
+    renders."""
+    section: list[str] | None = None
+    opener: str | None = None
+    for line in text.splitlines():
+        if opener is not None:
+            if fence_closes(opener, line):
+                opener = None
+            continue
+        opener = fence_opens(line)
+        if opener is not None:
+            continue
+        if line.startswith("## "):
+            if section is not None:
+                break
+            if line.rstrip() == PLAN_REVIEW:
+                section = []
+            continue
+        if section is not None:
+            section.append(line)
+    return section
+
+
+def plan_problems(name: str, text: str) -> list[str]:
+    """What is wrong with `docs/plans/<name>`'s review record: it has a `## Plan review` section; no improvement id
+    is a row id twice in it, as the Fit's and the rounds' ids number on; and, in a plan started from FIT_SINCE on, a
+    `### Round` in it has a `### Fit` above it, and once a round follows the Fit, each of the Fit's improvements has
+    its answer. The Fit's rows end at the next `###` heading: a round's own improvements may still wait for theirs."""
+    where = f"{PLANS_DIR}/{name}"
+    section = plan_review_lines(text)
+    if section is None:
+        return [f"{where} has no `{PLAN_REVIEW}` section; every plan ends with one (docs/plans/README.md)"]
+    ids = [row.group(1) for row in map(_IMPROVEMENT_ROW.match, section) if row is not None]
+    problems = [
+        f"{where}: its Plan review repeats the improvement id {repeated}; the Fit's and the rounds' ids number on "
+        "(review-plan, step 4)"
+        for repeated in sorted({i for i in ids if ids.count(i) > 1}, key=lambda i: int(i[1:]))
+    ]
+    if name[:10] < FIT_SINCE:
+        return problems
+    headings = [(i, line[4:].strip()) for i, line in enumerate(section) if line.startswith("### ")]
+    rounds = [i for i, title in headings if title.startswith("Round")]
+    if not rounds:
+        return problems
+    fit = next((i for i, title in headings if title == "Fit"), None)
+    if fit is None or fit > rounds[0]:
+        return [*problems, f"{where}: a review round with no `### Fit` above it; review-plan runs fit-plan first"]
+    end = next(i for i, _ in headings if i > fit)
+    for line in section[fit + 1 : end]:
+        row = _IMPROVEMENT_ROW.match(line)
+        if row is None:
+            continue
+        # A `\|` is a pipe inside a cell, not a cell's end.
+        answer = _CELL_EDGE.split(line.strip().strip("|"))[-1].strip()
+        if not answer.startswith(PLAN_ANSWERS):
+            problems.append(
+                f"{where}: the Fit's {row.group(1)} has no answer ({answer!r}); answer it taken, left or later "
+                "before a review round (fit-plan, Act)"
+            )
+    return problems
+
+
 def hook_problems(entries: list[tuple[str, str]]) -> list[str]:
     """Each file in .githooks/ is stored as executable (mode 100755): Linux and macOS skip a hook without the bit,
     and a hook added from Windows gets 100644. entries: (mode, path)."""
@@ -628,6 +729,21 @@ def check_skill_links(_scope: Scope) -> Result:
     ]
     links = sum(1 for _, path, _ in entries if "/" not in path[len(SKILL_LINKS_DIR) + 1 :])
     return outcome("skill links", link_problems(entries, set(skill_folders())), f"{links} links")
+
+
+def check_plans(_scope: Scope, root: Path = ROOT) -> Result:
+    """Every plan in docs/plans/ but its README, whose template holds the review section as an example."""
+    problems = []
+    plans = 0
+    for path in sorted((root / PLANS_DIR).glob("*.md")):
+        if path.name == "README.md":
+            continue
+        if not PLAN_FILE.match(path.name):
+            problems.append(f"{PLANS_DIR}/{path.name}: a plan is named YYYY-MM-DD-<slug>.md (docs/plans/README.md)")
+            continue
+        plans += 1
+        problems += plan_problems(path.name, path.read_text(encoding="utf-8"))
+    return outcome("plans", problems, f"{plans} plans")
 
 
 def json_object(path: Path) -> dict[str, Any]:
@@ -831,6 +947,7 @@ TREE: list[tuple[str, Check]] = [
     ("AGENTS.md", check_agents_md),
     ("skills", check_skills),
     ("skill links", check_skill_links),
+    ("plans", check_plans),
     ("plugin", check_plugin),
     ("hooks", check_hooks),
 ]

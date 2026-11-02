@@ -5,9 +5,10 @@ A non-trivial change gets a plan here before any code: a new tool or capability,
 that changes behaviour. A fix a reviewer can follow from the PR alone needs none; its PR says `Trivial: <why>`.
 
 - One file per plan: `YYYY-MM-DD-<slug>.md`, dated the day it was started.
-- Written with `start-work`, reviewed with `review-plan` until approved, approved by the maintainer, and committed as
-  the first commit of its branch. Someone outside the maintainers puts it up as a draft PR for that approval
-  (`start-work`).
+- Written with `start-work` as the first commit of its branch, fitted with `fit-plan` and reviewed with `review-plan`
+  until approved, then approved by the maintainer, and the approval committed in its frontmatter. Someone outside the
+  maintainers puts it up as a draft PR right after that first commit, where the maintainer answers the fit and
+  approves it (`start-work`).
 - A plan records what was decided and why at the time. It changes while its branch is open, when the work departs from
   it, and not after the merge.
 - A plan that spans several PRs, such as `2026-10-28-modernization.md`, is the exception: each step's PR updates it,
@@ -60,8 +61,10 @@ What could go wrong, and whether each risk is resolved or accepted.
 
 ## Plan review
 
-Written by `review-plan`: each round's reviewer, date and verdict, the findings with their status, the owner calls
-with their answers, and the improvements with theirs.
+"None yet." until `fit-plan` writes `### Fit` here: the plan's commit, the agent, and its improvements (`I1`, ...),
+each answered `taken`, `left: <why>` or `later: #<n>` before the first round. Then `review-plan` writes each
+`### Round <n>` below it: its reviewer, date and verdict, the findings with their status, the owner calls with their
+answers, and the improvements with theirs, their ids numbered on from the Fit's.
 ```
 
 `issue` is quoted: a bare `#` starts a YAML comment.

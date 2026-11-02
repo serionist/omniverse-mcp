@@ -852,6 +852,159 @@ def test_setup_checks_out_a_link_that_is_only_staged(tmp_path):
     assert setup.checkout_links(tmp_path, can_symlink=lambda: True)[0] == "core.symlinks=true (set)"
 
 
+# Plans: fit-plan's answered Fit comes before review-plan's first round, in a plan started from FIT_SINCE on. The
+# plans are invented; their names are built from FIT_SINCE, so each case is read by the Fit rule wherever it moves.
+
+FITTED = f"{gate.FIT_SINCE}-thing.md"
+BEFORE_THE_FIT = "2026-10-28-thing.md"
+FIT = (
+    "### Fit\n\nThe plan at `abc1234`, by a fresh agent, 2026-11-02.\n\n| # | Improvement | Answer |\n|---|---|---|\n"
+    "| I1 | Cut the cache | taken |\n| I2 | Reuse the bridge | left: not worth it |\n| I3 | A check | later: #9 |\n\n"
+)
+ROUND = "### Round 1\n\n**Verdict:** approved.\n\n| # | Sev | Finding | Status |\n|---|---|---|---|\n"
+ROUND_OWN_OPEN = "Improvements:\n\n| # | Improvement | Answer |\n|---|---|---|\n| I4 | A clearer name | open |\n"
+
+
+# A plan quoting docs/plans/README.md's template, whose own ``` fence sits inside the quote's longer one.
+QUOTED_TEMPLATE = "````markdown\n```markdown\n## Plan review\n\nWritten by fit-plan.\n```\n````\n\n"
+
+
+def plan(review: str, heading: str = "## Plan review", before: str = "") -> str:
+    return f"---\ntitle: Add a thing\n---\n\n# Add a thing\n\n## Goal\n\nA thing.\n\n{before}{heading}\n\n{review}\n"
+
+
+def test_fit_since_is_a_date():
+    assert gate.PLAN_FILE.match(f"{gate.FIT_SINCE}-x.md")
+    assert BEFORE_THE_FIT < gate.FIT_SINCE
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        plan("None yet."),
+        plan(FIT),
+        plan(FIT + ROUND),
+        plan(FIT.replace("| taken |", "| open |")),
+        plan(FIT + ROUND + ROUND_OWN_OPEN),
+        plan("None yet.\n\n```markdown\n### Round 1\n```"),
+        plan("None yet.\n\n  ```markdown\n### Round 1\n  ```"),
+        plan("### Fit\n\nThe plan at `abc1234`. None: it is the right plan.\n\n" + ROUND),
+        plan(FIT.replace("| left: not worth it |", "| left: a \\| b |") + ROUND),
+        plan(FIT + ROUND, before="~~~text\n```\n~~~\n\n"),
+        plan(FIT + ROUND, before="```gate.py``` holds the checks.\n\n"),
+        plan(FIT + ROUND + "| P1 | minor | I3's check missed a case | fixed: as I3 said |\n"),
+    ],
+    ids=[
+        "none yet",
+        "fit, no round yet",
+        "fit above a round",
+        "fit unanswered, no round yet",
+        "a round's own row open",
+        "a round in a fence",
+        "a round in an indented fence",
+        "a fit with no improvements",
+        "an answer with an escaped pipe",
+        "a tilde fence holding a backtick line",
+        "a line opening with inline code",
+        "an id named again in a finding",
+    ],
+)
+def test_a_plan_fitted_before_its_rounds_passes(text):
+    assert gate.plan_problems(FITTED, text) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (plan(ROUND), "a review round with no `### Fit` above it"),
+        (plan(ROUND + FIT), "a review round with no `### Fit` above it"),
+        (plan(FIT.replace("| taken |", "| open |") + ROUND), "the Fit's I1 has no answer ('open')"),
+        (plan(FIT.replace("| later: #9 |", "| |") + ROUND), "the Fit's I3 has no answer ('')"),
+        (plan("None yet.", heading="## Review"), "has no `## Plan review` section"),
+        (plan(ROUND, before=QUOTED_TEMPLATE), "a review round with no `### Fit` above it"),
+        (plan(ROUND, before="~~~text\n```\n~~~\n\n"), "a review round with no `### Fit` above it"),
+        (plan(FIT + ROUND, before="```text\nnever closed\n\n"), "has no `## Plan review` section"),
+        (plan(FIT + ROUND + ROUND_OWN_OPEN.replace("| I4 |", "| I3 |")), "repeats the improvement id I3"),
+    ],
+    ids=[
+        "no fit",
+        "fit below the round",
+        "fit unanswered",
+        "fit answer empty",
+        "no plan review",
+        "a quoted template above an unfitted round",
+        "a tilde fence holding a backtick line",
+        "an unclosed fence hides the rest",
+        "an id repeated in a round",
+    ],
+)
+def test_plan_problems(text, expected):
+    problems = gate.plan_problems(FITTED, text)
+    assert len(problems) == 1
+    assert problems[0].startswith(f"docs/plans/{FITTED}")
+    assert expected in problems[0]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [plan(ROUND), plan(ROUND + FIT), plan(FIT.replace("| taken |", "| open |") + ROUND)],
+    ids=["no fit", "fit below the round", "fit unanswered"],
+)
+def test_a_plan_started_before_the_fit_needs_none(text):
+    # The plans merged before fit-plan are dated records, never edited after their merge.
+    assert gate.plan_problems(BEFORE_THE_FIT, text) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (plan("None yet.", heading="## Review"), "has no `## Plan review` section"),
+        (plan(FIT + ROUND + ROUND_OWN_OPEN.replace("| I4 |", "| I3 |")), "repeats the improvement id I3"),
+    ],
+    ids=["no plan review", "an id repeated in a round"],
+)
+def test_a_plan_started_before_the_fit_keeps_the_other_rules(text, expected):
+    problems = gate.plan_problems(BEFORE_THE_FIT, text)
+    assert len(problems) == 1
+    assert expected in problems[0]
+
+
+def plans_folder(root: Path) -> Path:
+    folder = root / "docs" / "plans"
+    folder.mkdir(parents=True)
+    (folder / FITTED).write_text(plan(FIT + ROUND), encoding="utf-8")
+    (folder / BEFORE_THE_FIT).write_text(plan(ROUND), encoding="utf-8")
+    return folder
+
+
+def test_check_plans_reads_only_dated_plans(tmp_path):
+    folder = plans_folder(tmp_path)
+    unfitted = plan(ROUND)
+    (folder / "README.md").write_text(unfitted, encoding="utf-8")
+    result = gate.check_plans(gate.Scope([]), root=tmp_path)
+    assert (result.status, result.detail) == ("pass", "2 plans")
+
+    name = f"{gate.FIT_SINCE}-unfitted.md"
+    (folder / name).write_text(unfitted, encoding="utf-8")
+    result = gate.check_plans(gate.Scope([]), root=tmp_path)
+    assert result.status == "FAIL"
+    assert result.detail.startswith(f"docs/plans/{name}: a review round with no `### Fit` above it")
+
+
+@pytest.mark.parametrize("name", ["thing.md", "2026-11-2-thing.md", "2026-11-02-Thing_Two.md", "2026-11-02.md"])
+def test_check_plans_refuses_a_plan_named_otherwise(tmp_path, name):
+    folder = plans_folder(tmp_path)
+    (folder / name).write_text(plan(FIT), encoding="utf-8")
+    result = gate.check_plans(gate.Scope([]), root=tmp_path)
+    assert result.status == "FAIL"
+    assert result.detail == f"docs/plans/{name}: a plan is named YYYY-MM-DD-<slug>.md (docs/plans/README.md)"
+
+
+def test_the_repo_s_own_plans_pass():
+    result = gate.check_plans(gate.Scope([]))
+    assert result.status == "pass", result.detail
+
+
 # The commit-msg hook
 
 
