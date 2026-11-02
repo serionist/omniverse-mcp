@@ -1,14 +1,16 @@
 """The prim-block text of /scene/dump, get_prim_properties (text) and recording frames, on usd-core."""
 
 import pytest
-from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
+from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics, UsdShade
 
+from ovmcp.core import formatter
 from ovmcp.core.formatter import (
     format_frame_state,
     format_prim_block,
     format_scene_dump,
     format_scene_tree,
     format_value,
+    relationship_targets,
 )
 
 
@@ -160,11 +162,106 @@ def test_a_recording_frame_gives_the_same_rot(stage):
     assert "rot = 0.9239, 0.0000, 0.3827, 0.0000" in format_frame_state([prim], 0, 0.0).splitlines()
 
 
-def test_a_relationship_is_unreadable_and_an_unset_attribute_is_left_out(stage):
+def test_a_relationship_gives_its_targets_and_one_without_any_is_left_out_as_an_unset_attribute_is(stage):
+    # Every relationship read <unreadable>, a material binding included (#149).
+    lines = format_prim_block(stage.GetPrimAtPath("/World/Group/Ball")).splitlines()
+
+    assert "material:binding = /World/Looks/M" in lines
+    assert not any(line.startswith(("unset", "proxyPrim")) for line in lines)  # a gprim's proxyPrim has no targets
+    assert not any("<unreadable>" in line for line in lines)
+
+
+def test_a_relationship_with_many_targets_is_shortened_as_any_list_is(stage):
+    prim = stage.GetPrimAtPath("/World/Cube")
+    rel = prim.CreateRelationship("many")
+    for i in range(10):
+        rel.AddTarget(f"/World/T{i}")
+
+    lines = format_prim_block(prim).splitlines()
+
+    assert (
+        "many = /World/T0, /World/T1, /World/T2, /World/T3, /World/T4, /World/T5, /World/T6, /World/T7 ... (10 items)"
+        in (lines)
+    )
+
+
+def test_relationship_targets_reads_a_relationship_and_not_an_attribute(stage):
+    ball = stage.GetPrimAtPath("/World/Group/Ball")
+
+    assert relationship_targets(ball.GetRelationship("material:binding")) == ["/World/Looks/M"]
+    assert relationship_targets(ball.GetRelationship("proxyPrim")) == []
+    assert relationship_targets(ball.GetAttribute("radius")) is None
+
+
+def _schemas_line(prim: Usd.Prim) -> str:
+    return next(line for line in format_prim_block(prim).splitlines() if line.startswith("api_schemas = "))
+
+
+def test_api_schemas_lists_what_is_applied_and_says_when_nothing_is(stage):
+    cube = stage.GetPrimAtPath("/World/Cube")
+    assert _schemas_line(cube) == "api_schemas = []"  # a floor without a collider shows it plainly (#149)
+
+    UsdShade.MaterialBindingAPI.Apply(cube)
+    UsdPhysics.CollisionAPI.Apply(cube)
+    Usd.CollectionAPI.Apply(cube, "things")
+
+    assert _schemas_line(cube) == "api_schemas = MaterialBindingAPI, PhysicsCollisionAPI, CollectionAPI:things"
+
+
+def test_api_schemas_gives_a_types_built_in_schemas_and_leaves_out_a_name_the_app_hasnt_registered(stage):
+    light = UsdLux.DistantLight.Define(stage, "/World/Sun").GetPrim()
+    assert _schemas_line(light) == "api_schemas = LightAPI, CollectionAPI:lightLink, CollectionAPI:shadowLink"
+
+    cube = stage.GetPrimAtPath("/World/Cube")
+    UsdPhysics.CollisionAPI.Apply(cube)
+    # Authored, but PhysX's schemas aren't registered in usd-core: what the app applies, as physics reads it.
+    cube.AddAppliedSchema("PhysxRigidBodyAPI")
+
+    assert "PhysxRigidBodyAPI" in cube.GetPrimTypeInfo().GetAppliedAPISchemas()
+    assert _schemas_line(cube) == "api_schemas = PhysicsCollisionAPI"
+
+
+def test_api_schemas_names_every_schema_however_many(stage):
+    # A list of more than 8 is shortened elsewhere; here the last name may be the collider an agent looks for.
+    cube = stage.GetPrimAtPath("/World/Cube")
+    for n in range(9):
+        Usd.CollectionAPI.Apply(cube, f"c{n}")
+    UsdPhysics.CollisionAPI.Apply(cube)
+
+    line = _schemas_line(cube)
+
+    assert line.endswith(", PhysicsCollisionAPI")
+    assert "items)" not in line
+    assert line.count(", ") == 9
+
+
+def test_a_relationship_whose_targets_cant_be_read_says_so(stage, monkeypatch):
+    def unreadable(_prop):
+        raise RuntimeError("a broken layer")
+
+    monkeypatch.setattr(formatter, "relationship_targets", unreadable)
     lines = format_prim_block(stage.GetPrimAtPath("/World/Group/Ball")).splitlines()
 
     assert "material:binding = <unreadable>" in lines
-    assert not any(line.startswith("unset") for line in lines)
+
+
+def test_a_property_filter_treats_api_schemas_as_a_property_of_that_name(stage):
+    cube = stage.GetPrimAtPath("/World/Cube")
+
+    kept = format_prim_block(cube, property_filter=["schemas"]).splitlines()
+    left = format_prim_block(cube, property_filter=["physics:"]).splitlines()
+
+    assert "api_schemas = []" in kept
+    assert not any(line.startswith("api_schemas") for line in left)  # a recording filtered to physics: keeps its lines
+
+
+def test_a_frame_with_properties_lists_api_schemas_and_targets(stage):
+    ball = stage.GetPrimAtPath("/World/Group/Ball")
+
+    lines = format_frame_state([ball], 0, 0.0, include_properties=True).splitlines()
+
+    assert "api_schemas = []" in lines
+    assert "material:binding = /World/Looks/M" in lines
 
 
 def test_a_property_filter_keeps_matching_names(stage):
@@ -177,7 +274,8 @@ def test_a_prim_without_a_transform_has_no_pose(stage):
     prim = stage.DefinePrim("/World/Typeless")
 
     assert format_prim_block(prim, include_bounds=True) == (
-        "[/World/Typeless]\ntype = Xform\nbbox_center = 0.0000, 0.0000, 0.0000\nbbox_size = 0.1000, 0.1000, 0.1000"
+        "[/World/Typeless]\ntype = Xform\nbbox_center = 0.0000, 0.0000, 0.0000\nbbox_size = 0.1000, 0.1000, 0.1000\n"
+        "api_schemas = []"
     )
 
 

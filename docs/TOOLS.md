@@ -82,7 +82,7 @@ values.
 |-----------|------|---------|-------------|
 | `root` | string | `"/"` | Starting prim path |
 | `max_depth` | int | `null` | Levels below `root`, 0 up: 5 when left out, or 15 with properties or a filter |
-| `include_properties` | bool | `false` | Each prim's rotation, world box and attribute values, written by Kit to `mcp_output/scene_dump.txt` |
+| `include_properties` | bool | `false` | Each prim's rotation, world box, applied API schemas, attribute values and relationship targets, written by Kit to `mcp_output/scene_dump.txt` |
 | `filter_types` | list[string] | `null` | Only prims of these types (e.g., `["Mesh", "Xform"]`), written to the file; the others' children are still walked |
 | `property_filter` | list[string] | `null` | Only properties whose names hold one of these (e.g., `["joint"]`), written to the file; it takes the properties with it |
 
@@ -97,8 +97,10 @@ blocks to `mcp_output/scene_dump.txt`, replacing the last, and the answer gives 
 holds, which the file's header says too, and how deep it went: `Dumped 120 prims under /World, to depth 15 (48,213
 bytes) -> mcp_output/scene_dump.txt`. Its blocks don't mark a prim whose children were left out.
 
-- Each block holds the prim's type, world position, rotation, world box and physics flags, and every attribute's
-  value with `include_properties`, or those `property_filter` names.
+- Each block holds the prim's type, world position, rotation, world box and physics flags, and with
+  `include_properties` its applied API schemas, every attribute's value and each relationship's targets, or those
+  `property_filter` names (`api_schemas` counts as a name). An extension of 0.4.1 or older gives no `api_schemas`
+  line and prints every relationship as `<unreadable>`.
 - `filter_types` alone writes those flags and boxes for the types it names, without attribute values. Over every type
   that form has no call of its own: `include_properties=True` gives the full blocks, `get_prim_bounds` one prim's box.
 - Kit writes the file itself, so with Kit on another machine it lands there. An extension of 0.2.3 or older counts
@@ -115,15 +117,25 @@ many prims' values at once; `get_prim_properties` reads one prim inline.
 
 ### `get_prim_properties`
 
-Get one prim as a prim block: its type, world position and rotation, world bounding box, physics flags, and every
-attribute's value.
+Get one prim as a prim block: its type, world position and rotation, world bounding box, physics flags, its applied
+API schemas, every attribute's value, and each relationship with its targets.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Full USD path (e.g., `"/World/Robot"`) |
 
-**Returns:** Prim type, position, bounding box, and all USD properties. Relationships, such as a material binding, are
-named without their targets. The world rotation, `rot`, is a quaternion `w, x, y, z` with any scale and shear taken
+**Returns:** Prim type, position, bounding box, and all USD properties.
+
+- **`api_schemas`:** the applied API schemas the Kit app has registered, a type's built-in ones included, `[]` for
+  none: `PhysicsCollisionAPI` for a collider, `MaterialBindingAPI` for a bound material, `PhysxRigidBodyAPI` and
+  Isaac Sim's own on Isaac Sim. A schema name authored in a file but unknown to the app is left out, as physics
+  ignores it too.
+- **Relationships:** each with its targets, such as `material:binding = /World/Looks/Red`; one with no targets is left
+  out, as an unset attribute is.
+- **An older extension,** 0.4.1 or older, lists no schemas and prints every relationship as `<unreadable>`; the answer
+  then ends with a `WARNING:` line and how to install this server's.
+
+The world rotation, `rot`, is a quaternion `w, x, y, z` with any scale and shear taken
 out, so a 45° turn reads as 45° at any scale; a prim scaled to 0 on an axis, or so near it, under about 1e-15 of
 its other axes, that double precision can't tell its rotation, has no `rot` line. `get_scene_tree`'s file and `start_recording`'s `state.txt` give the same line. With an extension of 0.3.0 or
 older, a scaled prim's `rot` is off: Kit read it with the scale left in.

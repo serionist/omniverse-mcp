@@ -16,7 +16,7 @@ from pxr import Sdf, Tf, Usd, UsdGeom, UsdPhysics, UsdShade
 from ovmcp.core import layers
 from ovmcp.core.bounds import world_bbox
 from ovmcp.core.deletion import why_kept
-from ovmcp.core.formatter import format_prim_block, format_scene_dump, format_scene_tree
+from ovmcp.core.formatter import format_prim_block, format_scene_dump, format_scene_tree, relationship_targets
 from ovmcp.core.material import ensure_material, set_surface
 from ovmcp.core.metrics import Brought, StepError, bring_to_stage, not_brought
 from ovmcp.core.usd import prim_spec
@@ -66,13 +66,7 @@ async def handle_scene_tree(body: dict) -> dict:
             node["world_position"] = [round(translate[0], 4), round(translate[1], 4), round(translate[2], 4)]
 
         if include_properties:
-            props = {}
-            for prop in prim.GetProperties():
-                try:
-                    props[prop.GetName()] = _serialize_value(prop.Get())
-                except Exception:
-                    props[prop.GetName()] = "<unreadable>"
-            node["properties"] = props
+            node["properties"] = _json_properties(prim)
 
         if depth < max_depth:
             children = []
@@ -143,6 +137,19 @@ async def handle_scene_dump(body: dict) -> dict:
     }
 
 
+def _json_properties(prim: Usd.Prim) -> dict[str, Any]:
+    """Each property's value for the JSON forms: an attribute's as _serialize_value gives it, null when unset; a
+    relationship's target paths, [] when it has none, where both read <unreadable> before (#149)."""
+    props: dict[str, Any] = {}
+    for prop in prim.GetProperties():
+        try:
+            targets = relationship_targets(prop)
+            props[prop.GetName()] = targets if targets is not None else _serialize_value(prop.Get())
+        except Exception:
+            props[prop.GetName()] = "<unreadable>"
+    return props
+
+
 # ---------------------------------------------------------------------------
 # /scene/prim
 # ---------------------------------------------------------------------------
@@ -163,18 +170,12 @@ async def handle_prim_properties(body: dict) -> dict:
         text = format_prim_block(prim, include_properties=True, include_transform=True, include_bounds=True)
         return {"status": "success", "result": {"text": text, "prim_path": prim_path}}
 
-    props = {}
-    for prop in prim.GetProperties():
-        try:
-            props[prop.GetName()] = _serialize_value(prop.Get())
-        except Exception:
-            props[prop.GetName()] = "<unreadable>"
-
     result: dict[str, Any] = {
         "prim_path": prim_path,
         "type": prim.GetTypeName(),
         "is_active": prim.IsActive(),
-        "properties": props,
+        "api_schemas": list(prim.GetAppliedSchemas()),
+        "properties": _json_properties(prim),
     }
 
     if prim.HasAPI(UsdPhysics.ArticulationRootAPI):

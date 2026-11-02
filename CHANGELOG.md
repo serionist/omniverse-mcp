@@ -5,6 +5,17 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Changed
+
+- **`get_prim_properties` lists a prim's applied API schemas and its relationships' targets:** an `api_schemas` line
+  (`PhysicsCollisionAPI` for a collider, `MaterialBindingAPI` for a bound material, `[]` for none), and each
+  relationship with its targets, such as `material:binding = /World/Looks/Red`, where every relationship read
+  `<unreadable>`; one with no targets is left out, as an unset attribute is. `get_scene_tree`'s file with
+  `include_properties` and a recording's `state.txt` say the same; the JSON a script gets from `mcp.prim_properties`
+  gains an `api_schemas` list and gives each relationship as its list of targets, `[]` for one with none.
+  The change is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit; until then
+  `get_prim_properties` warns (#149).
+
 ### Fixed
 
 - **`get_mesh_stats` on `/` at `max_depth` 0 lists `/`:** its face count tree counted `/` itself as one level down,

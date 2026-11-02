@@ -87,6 +87,10 @@ def test_every_tool_and_parameter_is_described(listed):
         ("set_physics_properties", "follows the source's material until a call on the clone"),
         # An agent reading this knows a robot of other units comes in at its size, its physics converted (#112).
         ("create_robot", "A file whose metersPerUnit or kilogramsPerUnit isn't the stage's is brought to the stage's"),
+        # An agent reading these looks for a collider or a binding here, not with execute_script (#149).
+        ("get_prim_properties", "its applied API schemas"),
+        ("get_prim_properties", "each relationship with its targets"),
+        ("get_scene_tree", "its applied API schemas, attribute values and relationship targets"),
     ],
 )
 def test_a_description_says_what_the_tool_now_does(listed, tool: str, says: str):
