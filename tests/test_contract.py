@@ -91,6 +91,9 @@ def test_every_tool_and_parameter_is_described(listed):
         ("get_prim_properties", "its applied API schemas"),
         ("get_prim_properties", "each relationship with its targets"),
         ("get_scene_tree", "its applied API schemas, attribute values and relationship targets"),
+        # An agent reading this knows the frame it gets without asking, and how to ask for another (#159).
+        ("new_scene", "Z-up in metres when left out"),
+        ("new_scene", 'up_axis="Y"'),
     ],
 )
 def test_a_description_says_what_the_tool_now_does(listed, tool: str, says: str):

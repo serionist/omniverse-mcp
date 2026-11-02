@@ -5,6 +5,17 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Breaking changes
+
+- **`new_scene` makes a Z-up stage in metres, and takes `up_axis` and `meters_per_unit`, a change to the tool
+  contract:** it made a Y-up stage in the Kit app's units, where Isaac Sim's own new stage, its robots, SimReady assets
+  and most robotics scenes are Z-up in metres, so an agent that started a robot scene got a frame it hadn't asked for.
+  `new_scene(up_axis="Y")` makes the Y-up stage again, and `meters_per_unit=0.01` one in centimetres; the answer
+  gives the stage's `up_axis` and `meters_per_unit` as read back. In a Kit app whose own stages are in centimetres,
+  such as USD Composer, the viewport's camera stays placed for centimetres: `set_camera` places it. The change is in
+  the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit; an older extension makes a Y-up
+  stage whatever was asked, and the answer warns (#159).
+
 ### Added
 
 - **`set_physics_properties` makes a collider by name, a change to the tool contract:** `collision=true` makes the

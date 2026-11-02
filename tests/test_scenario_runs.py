@@ -1031,7 +1031,7 @@ def test_prepare_stage_makes_a_new_stage_lit_by_its_own_lights_then_runs_the_giv
     scenarios.prepare_stage(kit.port, _case(given="print(1)\n"))
     asked = [(path, body) for _, path, body in kit.requests if path != "/bridge"]  # the client's handshake
     assert asked == [
-        ("/scene/new", {}),
+        ("/scene/new", {"up_axis": "Z", "meters_per_unit": 1.0}),  # the frame a user's agent gets
         ("/viewport/light", {"action": "set", "mode": "stage"}),  # an earlier session's lighting stays out (P5)
         ("/execute", {"code": "print(1)\n"}),
     ]

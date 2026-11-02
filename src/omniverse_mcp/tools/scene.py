@@ -1,6 +1,6 @@
 """Scene management tools."""
 
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from mcp.server.mcpserver import MCPServer
 from pydantic import Field
@@ -412,15 +412,34 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         return "\n".join(lines)
 
     @tool(mcp, DESTROYS)
-    def new_scene() -> str:
-        """Discard the open stage, unsaved changes included, and open an empty one: Y-up, with a /World Xform as its
-        default prim.
+    def new_scene(
+        up_axis: Annotated[
+            Literal["Z", "Y"], Field(description="The stage's up axis: Z, as Isaac Sim's robots and stages are, or Y")
+        ] = "Z",
+        meters_per_unit: Annotated[
+            float, Field(gt=0, description="The stage's metres per unit: 1.0 for metres, 0.01 for centimetres")
+        ] = 1.0,
+    ) -> str:
+        """Discard the open stage, unsaved changes included, and open an empty one in the up axis and units asked for,
+        with a /World Xform as its default prim.
 
-        Call save_scene first to keep the old one. create_robot stands Isaac Sim's Z-up robots upright on it, but
-        Isaac Sim's other assets and its stages are Z-up: for robot work, open a Z-up stage with open_scene, or set
-        the axis with execute_script (UsdGeom.SetStageUpAxis) before adding anything.
-        The new stage has no file, so save_scene needs a file_path for it. A recording that runs stops taking frames,
-        and draw_debug's drawings go.
+        The stage is Z-up in metres when left out: the frame of Isaac Sim's own new stage, its robots, SimReady assets
+        and most robotics scenes, so scripts, payloads and physics written for them need no conversion. up_axis="Y"
+        makes a Y-up stage, as USD Composer's are, and meters_per_unit=0.01 one in centimetres. The answer gives the
+        stage's up_axis and meters_per_unit as read back. Kit places the viewport's camera for the units of its app's
+        own new stages, so in other units place it with set_camera. Call save_scene first to keep the old one. The new
+        stage has no file, so save_scene needs a file_path for it. A recording that runs stops taking frames, and
+        draw_debug's drawings go.
         """
-        bridge_call(client.new_scene)
-        return "New scene created with /World root prim (Y-up)"
+        r = bridge_call(client.new_scene, up_axis, meters_per_unit)["result"]
+        lines = ["New scene created with /World root prim"]
+        if "up_axis" in r:
+            lines += [f"up_axis = {r['up_axis']}", f"meters_per_unit = {r['meters_per_unit']}"]
+        else:
+            # An extension from before #159 ignores both and makes the Y-up stage it always made, and the plugin
+            # updates the server ahead of the extension.
+            lines.append(
+                "WARNING: This Kit extension, older than the server, made a Y-up stage in Kit's units, whatever was "
+                f"asked; get_sim_state gives its units. Install this server's, {install_advice()}."
+            )
+        return "\n".join(lines)

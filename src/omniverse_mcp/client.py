@@ -399,8 +399,9 @@ class BridgeClient:
             body["file_path"] = file_path
         return self.request("/scene/save", body)
 
-    def new_scene(self) -> dict[str, Any]:
-        return self.request("/scene/new", {})
+    def new_scene(self, up_axis: str = "Z", meters_per_unit: float = 1.0) -> dict[str, Any]:
+        # Both, always: an extension given neither makes the Y-up stage of a server older than #159.
+        return self.request("/scene/new", {"up_axis": up_axis, "meters_per_unit": meters_per_unit})
 
     def open_scene(self, file_path: str) -> dict[str, Any]:
         return self.request("/scene/open", {"file_path": file_path})
