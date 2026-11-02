@@ -3,7 +3,9 @@ and the text the model reads back from a canned answer. tests/test_contract.py p
 what they do with it."""
 
 import asyncio
+import json
 import math
+import re
 from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
@@ -16,7 +18,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from omniverse_mcp import kit_extension
 from omniverse_mcp.client import BridgeClient, KitSilentError
-from omniverse_mcp.server import create_server
+from omniverse_mcp.server import Helpers, create_server
 from omniverse_mcp.tools.misc import duration
 from omniverse_mcp.tools.simulation import _unit
 
@@ -692,6 +694,40 @@ CASES = [
             "last = 37 of 150 stacks settled\n"
             "lines = 37 printed, 2 since the last read:\n  36 of 150 stacks settled\n  37 of 150 stacks settled",
         ),
+    ),
+    # The capture sweep (#157)
+    Case(
+        "capture_sweep",
+        {
+            "shots": [
+                {"name": "dock", "position": [1, 2, 0.65], "yaw": 90, "selections": {"/World/Dock": {"door": "open"}}},
+                {"camera_path": "/World/Robot/FrontCam", "time": 2.5},
+            ],
+            "name": "site_a",
+        },
+        "/jobs/sweep",
+        {
+            "id": "j4",
+            "kind": "sweep",
+            "label": "2 shots at 1280x720: site_a",
+            "folder": f"{OUTPUT}/sweeps/site_a",
+            "manifest": f"{OUTPUT}/sweeps/site_a/manifest.json",
+            "shots": 2,
+            "width": 1280,
+            "height": 720,
+        },
+        {
+            # Only what was given, so Kit's defaults stand for the rest.
+            "shots": [
+                {"name": "dock", "position": [1, 2, 0.65], "yaw": 90, "selections": {"/World/Dock": {"door": "open"}}},
+                {"name": "", "camera_path": "/World/Robot/FrontCam", "time": 2.5},
+            ],
+            "output_dir": str(Path(OUTPUT) / "sweeps"),
+            "name": "site_a",
+            "width": 1280,
+            "height": 720,
+        },
+        ("Sweep j4 started: 2 shots at 1280x720 -> ", 'Read it with get_job("j4", wait=100)'),
     ),
     Case(
         "cancel_job",
@@ -2781,8 +2817,117 @@ def test_get_job_says_why_a_job_was_cancelled_and_how_long_one_has_been_cancelli
 
 
 def test_get_job_gives_another_kind_s_result_whole(bridge: MockIsaacServer, tmp_path: Path):
-    sweep = _job("completed", kind="sweep", result={"manifest": "shots/manifest.json"}, output=_no_output())
-    assert 'Result:\n{\n  "manifest": "shots/manifest.json"\n}' in _job_text(bridge, tmp_path, sweep)
+    other = _job("completed", kind="bake", result={"manifest": "shots/manifest.json"}, output=_no_output())
+    assert 'Result:\n{\n  "manifest": "shots/manifest.json"\n}' in _job_text(bridge, tmp_path, other)
+
+
+def test_get_job_gives_a_sweep_s_result_in_one_line_naming_its_folder(bridge: MockIsaacServer, tmp_path: Path):
+    folder = str(tmp_path / "sweeps" / "site_a")
+    # Kit's own line, its folder as Kit wrote it.
+    summary = (
+        f"400 shots in {folder}/ (manifest.json); 2 black: shots 12, 13; 1 failed: shot 300; 14 taken still loading: "
+        "shots 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 and 4 more"
+    )
+    result = {"folder": folder, "manifest": f"{folder}/manifest.json", "asked": 400, "done": 400, "summary": summary}
+    done = _job("completed", kind="sweep", result=result, output=_no_output(), last=summary)
+
+    text = _job_text(bridge, tmp_path, done)
+
+    # The folder as every file the tools name: relative to the server's working folder when under it.
+    shown = Helpers(str(tmp_path)).rel(folder)
+    assert text.endswith(f"Result: {summary.replace(folder, shown)}")
+    assert "Result:\n{" not in text
+
+
+# ----- capture_sweep (#157) -----
+
+
+@pytest.mark.parametrize("args", [{}, {"shots": [], "shots_file": "x.json"}])
+def test_capture_sweep_needs_one_of_shots_and_shots_file_before_any_request(
+    args: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path
+):
+    erred, text, calls = _call(bridge, tmp_path, "capture_sweep", args)
+    assert erred
+    assert "Give the shots as shots or as shots_file, one of them" in text
+    assert calls == []
+
+
+def test_capture_sweep_refuses_a_shot_s_unknown_field_before_any_request(bridge: MockIsaacServer, tmp_path: Path):
+    shot = {"position": [0, 0, 1], "yaw": 0, "focal_lenght": 7}
+    erred, text, calls = _call(bridge, tmp_path, "capture_sweep", {"shots": [shot]})
+    assert erred
+    assert "focal_lenght" in text
+    assert calls == []
+
+
+def _sweep_started(bridge: MockIsaacServer, tmp_path: Path) -> None:
+    folder = str(tmp_path / "sweeps" / "x")
+    answer = {"id": "j5", "kind": "sweep", "folder": folder, "shots": 1, "width": 1280, "height": 720}
+    bridge.set_response("/jobs/sweep", {"status": "success", "result": answer})
+
+
+def test_capture_sweep_reads_a_shots_file_that_starts_with_a_byte_order_mark(bridge: MockIsaacServer, tmp_path: Path):
+    # As Windows' Notepad and PowerShell's Out-File save UTF-8.
+    path = tmp_path / "shots.json"
+    path.write_bytes(b"\xef\xbb\xbf" + json.dumps([{"position": [0, 0, 1], "yaw": 0}]).encode())
+    _sweep_started(bridge, tmp_path)
+
+    erred, text, calls = _call(bridge, tmp_path, "capture_sweep", {"shots_file": str(path), "name": "x"})
+
+    assert not erred, text
+    assert calls[0][1]["shots"] == [{"position": [0, 0, 1], "yaw": 0}]
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        [{"position": [0, 0, 1], "yaw": 0}],
+        # A sweep's manifest, sent as it is: Kit reads its shots back as they rendered.
+        {"format": "omniverse-mcp-sweep-1", "width": 1280, "shots": [{"index": 1, "camera_path": "/World/Cam"}]},
+    ],
+)
+def test_capture_sweep_sends_a_shots_file_s_list_or_manifest_as_it_is(
+    data: Any, bridge: MockIsaacServer, tmp_path: Path
+):
+    path = tmp_path / "shots.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    _sweep_started(bridge, tmp_path)
+
+    erred, text, calls = _call(bridge, tmp_path, "capture_sweep", {"shots_file": str(path), "name": "x"})
+
+    assert not erred, text
+    assert calls == [("/jobs/sweep", {**calls[0][1], "shots": data})]
+
+
+@pytest.mark.parametrize(
+    ("content", "says"),
+    [
+        (None, "Can't read shots_file"),
+        ("{not json", "Can't read shots_file"),
+        ('{"name": "site_a"}', "holds neither a list of shots nor a sweep's manifest"),
+    ],
+)
+def test_capture_sweep_refuses_a_shots_file_it_can_t_use_before_any_request(
+    content: str | None, says: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    path = tmp_path / "shots.json"
+    if content is not None:
+        path.write_text(content, encoding="utf-8")
+
+    erred, text, calls = _call(bridge, tmp_path, "capture_sweep", {"shots_file": str(path)})
+
+    assert erred
+    assert says in text
+    assert calls == []
+
+
+def test_capture_sweep_names_its_folder_by_the_time_when_given_no_name(bridge: MockIsaacServer, tmp_path: Path):
+    _sweep_started(bridge, tmp_path)
+
+    erred, text, calls = _call(bridge, tmp_path, "capture_sweep", {"shots": [{"position": [0, 0, 1], "yaw": 0}]})
+
+    assert not erred, text
+    assert re.fullmatch(r"\d{8}-\d{6}", calls[0][1]["name"])
 
 
 def test_get_job_names_no_return_value_a_script_didn_t_set(bridge: MockIsaacServer, tmp_path: Path):

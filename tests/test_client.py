@@ -623,6 +623,17 @@ class TestBridgeClient(unittest.TestCase):
         self.client.job_cancel("j3")
         self.assertEqual(self.mock.requests[-1][1:], ("/jobs/cancel", {"job_id": "j3"}))
 
+    def test_job_sweep_sends_the_shots_as_given_and_the_folder_s_root_and_name_apart(self):
+        manifest = {"format": "omniverse-mcp-sweep-1", "shots": [{"camera_path": "/World/Cam"}]}
+        self.client.job_sweep(manifest, "D:/out/sweeps", "site_a", 640, 480)
+        self.assertEqual(
+            self.mock.requests[-1][1:],
+            (
+                "/jobs/sweep",
+                {"shots": manifest, "output_dir": "D:/out/sweeps", "name": "site_a", "width": 640, "height": 480},
+            ),
+        )
+
     def test_set_material(self):
         r = self.client.set_material("/World/Cube", color=[1, 0, 0], roughness=0.5)
         self.assertEqual(r["status"], "success")

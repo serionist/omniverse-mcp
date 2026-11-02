@@ -4,7 +4,7 @@ Reference for every tool the MCP server provides.
 
 - **Where answers go:** a text answer over 1,000 characters is written to `mcp_output/responses/` and the tool
   returns its path; `get_mesh_stats`, `get_robot_info` and `get_job` write only their long part there, the tree, the
-  Joints list and the joint states that don't fit, or a job's lines and output, and keep the rest inline. Images go to `mcp_output/captures/`, recordings to `mcp_output/recordings/`, and
+  Joints list and the joint states that don't fit, or a job's lines and output, and keep the rest inline. Images go to `mcp_output/captures/`, recordings to `mcp_output/recordings/`, a sweep's pictures and manifest to `mcp_output/sweeps/<name>/`, and
   `get_scene_tree`'s dump, with properties or a filter, to `mcp_output/scene_dump.txt`, which the next dump replaces.
   A file under the server's working folder is given by its relative path, any other by its absolute path. Open them
   with your client's file tool.
@@ -18,6 +18,7 @@ Reference for every tool the MCP server provides.
 |---|---|
 | see what is in the scene | `get_scene_tree`; with `include_properties` or a filter, a file of many prims' values |
 | see how it looks | `capture_viewport`; `inspect_prim` for one object from several sides |
+| capture many viewpoints and variant states in one call, and again after a change | `capture_sweep` |
 | read a prim's properties, size or place | `get_prim_properties`, `get_prim_bounds` |
 | create, move, copy, hide or delete prims | `create_prim`, `set_prim_transform`, `clone_prim`, `set_visibility`, `delete_prim` |
 | colour an object | `set_material` |
@@ -43,7 +44,7 @@ it runs one; they are hints, never security (the bridge's token is what keeps ot
 | Hints | What they mean | Tools |
 |---|---|---|
 | read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs and while it is kept for the next capture or recording, up to 30 s after, and leaves Kit's unsaved-edits flag set; the bridge's saves and Kit's own Save leave it out of the file; a camera rendered through carries the exposure schemas RTX writes onto it for as long, and they go with the render, with any value set on its `exposure:` attributes meanwhile, #177; `get_performance` lifts Kit's frame-rate limiter while it measures, and puts it back) | `get_scene_tree`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_performance`, `get_recording_frame`, `raycast`, `get_logs`, `get_job` |
-| not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `set_prim_attribute`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `inspect_prim`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug`, `cancel_job` |
+| not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `set_prim_attribute`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `inspect_prim`, `capture_sweep`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug`, `cancel_job` |
 | destructive | Deletes or overwrites prims, the whole stage, or USD files on disk | `delete_prim`, `save_scene`, `open_scene`, `new_scene`, `flatten_usd`, `export_prim_as_file`, `update_material_paths` |
 | destructive, open world | Runs Python or loads extensions inside the Kit app: anything can happen | `execute_script`, `run_script_job`, `manage_extensions` |
 
@@ -61,7 +62,7 @@ A value out of a parameter's range, or not one of its choices, is refused before
 - [Variant Tools](#variant-tools) (2 tools)
 - [Material Tools](#material-tools) (2 tools)
 - [Robot Tools](#robot-tools) (3 tools)
-- [Camera Tools](#camera-tools) (4 tools)
+- [Camera Tools](#camera-tools) (5 tools)
 - [Simulation Tools](#simulation-tools) (3 tools)
 - [Recording Tools](#recording-tools) (3 tools)
 - [Physics Tools](#physics-tools) (3 tools)
@@ -1015,6 +1016,95 @@ world_dimensions = [1.0, 1.0, 1.0]
 
 ---
 
+### `capture_sweep`
+
+Capture many shots in one call, each with its own camera pose, lens, variant selections and timeline time, as a job
+Kit runs while it renders: for checking a scene's looks and switches from many viewpoints, such as a site's 50
+viewpoints with its switches stepped through, about 400 pictures, where one `capture_viewport` a picture costs a turn
+each and fills the context with answers. It answers at once with the job and the folder:
+
+```
+Sweep j4 started: 400 shots at 1280x720 -> mcp_output/sweeps/site_a/
+Read it with get_job("j4", wait=100); cancel_job("j4") stops it and keeps the shots taken.
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `shots` | list[object] | `null` | The shots in order, up to 2,000 (below); give this or `shots_file` |
+| `shots_file` | string | `""` | A JSON file on the server's machine: a list of shots, or a sweep's `manifest.json` to take its shots again |
+| `width` | int | `1280` | Every picture's width, 1 to 4096 |
+| `height` | int | `720` | Every picture's height, 1 to 4096 |
+| `name` | string | `""` | The sweep's folder in `mcp_output/sweeps/`: letters, digits, `.`, `_`, `-` and spaces, from a letter or a digit; the date and time, such as `20261102-153012`, when empty. A folder that holds a sweep's manifest already is refused |
+
+A shot's fields:
+
+| Field | Description |
+|-------|-------------|
+| `name` | Names its PNG, `0007_dock_a_open.png` (`0007.png` without one), and its manifest entry |
+| `position` | `[x, y, z]` of the camera, in the stage's world and units |
+| `yaw`, `pitch` | With `position`: degrees about the stage's up axis, counter-clockwise seen from above, 0 looking along +X; and degrees above the horizon, -90 straight down, 0 when left out |
+| `target` | With `position`, instead of `yaw` and `pitch`: the point it looks at |
+| `camera_path` | Instead of a position: a camera of the stage, rendered as it is, its own pose and lens; the sweep writes nothing to it |
+| `focal_length` | Millimetres; Kit's own camera's, 18.15, when left out |
+| `horizontal_aperture`, `vertical_aperture` | Millimetres; 20.955 and fitted to the image when both are left out, one fitted to the other when one is. Two that don't fit the image's shape within 1% are refused, naming the one that fits, as RTX would stretch or crop the picture |
+| `clipping_range` | `[near, far]` in stage units; Isaac Sim's 0.01 m to 10,000 km when left out, where USD's own 1 m would cut the floor in front of a camera 0.65 m above it |
+| `selections` | `{prim: {set: variant}}`: the variants the shot shows, switched in Kit's session layer, which no save writes. A set it doesn't name shows what it showed before the sweep |
+| `time` | The timeline's time in seconds: a playing timeline is paused for it, a stopped one stays stopped. Left out, the timeline is as it was at the sweep's start |
+
+A robot's front camera, 0.65 m up, looking along +Y with a 7.337 mm lens, a dock's door open:
+
+```json
+{"name": "dock_a_open", "position": [12, 40, 0.65], "yaw": 90, "pitch": -5,
+ "focal_length": 7.337, "horizontal_aperture": 20.955, "vertical_aperture": 11.787,
+ "selections": {"/World/Site/DockA": {"door": "open"}}}
+```
+
+- **Checked first:** every shot, before anything changes: a pose given one way, numbers where numbers go, the
+  apertures against the image, and each variant of a prim on the stage now. A field a shot hasn't got, such as
+  `focal_lenght`, is refused. The answer names each shot at fault by its number from 1, the first ten.
+- **Each shot,** in turn: its selections written where they differ from what the last shot wrote, outermost first,
+  so one shot can open an area and choose its door's colour, a set inside the area's variant, and a set it doesn't
+  name back to what it was before the sweep; after a switch, up to 20 s while the stage loads what it brought in (a
+  shot taken still loading says so); its time; its camera; 20 frames of the render, and the picture. A shot holds the viewport for at most 30 s, one shot at a time, so a
+  `capture_viewport` or `inspect_prim` called meanwhile runs between two shots.
+- **A shot that fails,** such as a selection refused at its shot or a `camera_path` with no camera after its switch,
+  is in the manifest with why, and the sweep goes on. A render that gives no frame in a shot's 30 s ends the sweep.
+- **Afterwards,** whatever its end, a cancel or an error included: every layer is as it was, the session layer's
+  selections included, the timeline is back in its state and time, and the sweep's camera, `/OmniverseKit_Sweep` in
+  the session layer, is gone. The exposure RTX writes onto a camera it renders through that lacks it, the sweep's
+  and a `camera_path` shot's, stays in the stage's file while the render is kept, up to 30 s after, and goes with it,
+  as a capture's does (#177). A stage that changes or begins to close cancels the sweep, and the new stage is left
+  alone.
+- **Progress:** `get_job` gives `shot 37 of 400` as its message, and a line every 25 shots and at each failed one.
+  Once it ends, one line: `400 shots in mcp_output/sweeps/site_a/ (manifest.json); 2 black: shots 12, 13; 1 failed:
+  shot 300`. A cancelled or failed sweep's last line says the same, `37 of 400 shots in ...; cancelled: cancel_job
+  was called`.
+- **The render:** the one `capture_viewport` keeps, lent for the sweep when it is that size, as `start_recording`
+  borrows it, and kept again after it; else one of its own. One size for every shot; one job runs at a time.
+
+**The manifest,** `manifest.json` beside the PNGs, rewritten every 25 shots so a Kit that hangs still leaves an
+index: the sweep's size, stage, up axis, units, Kit app, renderer (with Path Tracing's samples), lighting mode and how
+it ended (`completed`, `cancelled: ...`, `failed: ...`, `working` while it runs); then each shot's pose, lens, clipping
+range, selections and time as it rendered, its `file` and `is_black`, the timeline's time and frame it was taken on,
+the seconds it waited for loading, or its `error`. A `camera_path` shot's entry has the camera's world position, yaw
+and pitch (not its roll), focal length, apertures (the vertical one as Kit renders it, matched to the image's shape)
+and clipping range.
+
+**Taking a sweep again:** give its `manifest.json` as `shots_file`, with the first sweep's `width` and `height`, after
+a change or on a second scene built from the same spec; a manifest taken at another size is refused, naming its own,
+since its lenses fit that size. A `camera_path` shot is taken from the pose and lens it rendered with, so the second
+scene needn't have the camera. The same shots on an unchanged stage give the same pictures within a small difference (the live suite holds
+the mean under 2 of 255 a channel), for content that stands still or is time-sampled.
+
+> **Replicator's walking agents** move on each update from a seeded routine, whatever the timeline's time, so a
+> `time` doesn't repeat them: stop the timeline (`sim_control("stop")`) before a sweep whose pictures of them must
+> repeat, or bake their paths to time samples.
+
+> **Kit on another machine** writes the sweep in the same path on its own machine, as it writes recordings
+> ([SETUP.md](SETUP.md)).
+
+---
+
 ### `viewport_light`
 
 Query or set the viewport's lighting mode. Non-destructive: it changes how the viewport lights the scene, not the scene.
@@ -1672,7 +1762,7 @@ result = poses
 
 ### `get_job`
 
-Read a job `run_script_job` started. Reading changes nothing in Kit.
+Read a job `run_script_job` or `capture_sweep` started. Reading changes nothing in Kit.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -1681,7 +1771,8 @@ Read a job `run_script_job` started. Reading changes nothing in Kit.
 
 **Returns:** `job`, `state`, `elapsed`, `last` (the last line it printed) and, while it runs, the lines it printed
 since the last read, with the count of all (`lines = 37 printed, 2 since the last read:`), the last 200 when more
-came. Once it ends: a script's return value, or its `error` and the traceback's last lines, and what it printed, each
+came. Once it ends: a script's return value, or a sweep's line, `Result: 400 shots in mcp_output/sweeps/site_a/
+(manifest.json); 2 black: shots 12, 13`; or its `error` and the traceback's last lines; and what it printed, each
 stream's last 200 lines, saying so when there were more. Over 1,000 characters, the summary stays inline (the state,
 the time, the last line, the count of lines, a short return value, the error) and the rest goes to a file the answer
 names.
@@ -1705,7 +1796,8 @@ Cancel a job at its next `await`.
 The job reads `cancelling`, and holds the one slot, until its own cleanup (its `finally` blocks) has run, then
 `cancelled`; `get_job(job_id, wait=10)` reads it. Its code gets `asyncio.CancelledError` with the reason as its
 message. A script whose bare `except:` caught the cancel runs on: `cancel_job` again cancels again, and `get_job` says
-how long it has been cancelling. A job that has ended is left as it is.
+how long it has been cancelling. A sweep puts the stage back and keeps the shots it took, in its manifest. A job
+that has ended is left as it is.
 
 ---
 

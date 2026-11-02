@@ -1,8 +1,8 @@
 """Job handlers: start a script as a job, read a job, cancel it (#158).
 
 A job runs on Kit's loop as a task of its own (ovmcp.core.jobs), so Kit renders, physics steps and other requests are
-answered between its awaits, and it outlives the request that started it. The routes are every kind's: a script now,
-#157's capture sweep later, read and cancelled through the same /jobs/get and /jobs/cancel.
+answered between its awaits, and it outlives the request that started it. The routes are every kind's: a script here,
+#157's capture sweep in handlers/sweep.py, read and cancelled through the same /jobs/get and /jobs/cancel.
 """
 
 from collections.abc import Callable
@@ -60,6 +60,17 @@ def start_job(
     """Starts a job of any kind on the bridge's board: a script's here, #157's sweep with watch_stage and a teardown.
     JobError when one runs, or after the shutdown."""
     return _board.start(kind, label, factory, watch_stage=watch_stage, teardown=teardown)
+
+
+def stop_for_stage(job: Job, stage_id: int) -> bool:
+    """Cancels `job`, which watches the stage it started on, with the watch's reason when that stage changed or began
+    to close, at once rather than on the next update; whether it did. For a job about to write to the stage, which a
+    stage opened between two of its steps would get otherwise. The cancel lands at the job's next await."""
+    reason = _why_stop(stage_id)
+    if reason is None or job.state != WORKING:
+        return False
+    _board.cancel(job.id, reason)
+    return True
 
 
 def job_brief() -> dict | None:
@@ -146,7 +157,7 @@ async def handle_job_get(body: dict) -> dict:
 async def handle_job_cancel(body: dict) -> dict:
     job_id = body.get("job_id", "")
     if not isinstance(job_id, str) or not job_id.strip():
-        return _error("job_id is required: the id run_script_job answered, such as j3")
+        return _error("job_id is required: the id run_script_job or capture_sweep answered, such as j3")
     try:
         before = _board.get(job_id.strip()).state
         job = _board.cancel(job_id.strip(), CANCELLED_BY_USER)

@@ -17,7 +17,7 @@ from .camera import (
 # --- Debug drawing ---
 from .debug_draw import handle_draw_debug
 
-# --- Jobs (a script now, #157's sweep later) ---
+# --- Jobs: a script, and a capture sweep (#157) ---
 from .jobs import handle_job_cancel, handle_job_get, handle_job_script
 
 # --- Logging ---
@@ -80,6 +80,9 @@ from .simulation import (
     handle_sim_state,
 )
 
+# --- Capture sweep ---
+from .sweep import handle_sweep_start
+
 # --- USD advanced (flatten, export, variants, compare, material paths) ---
 from .usd_advanced import (
     handle_compare_prims,
@@ -103,6 +106,7 @@ __all__ = [
     "handle_job_cancel",
     "handle_job_get",
     "handle_job_script",
+    "handle_sweep_start",
     # Logging
     "handle_get_logs",
     # Misc

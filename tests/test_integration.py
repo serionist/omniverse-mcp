@@ -16,7 +16,7 @@ import textwrap
 import time
 import unittest
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from pxr import Sdf
@@ -3275,6 +3275,404 @@ class TestVariantSwitchesKeepTheFiles(unittest.TestCase):
         refused = self.client.set_attribute(self.LIGHT, "inputs:intensity", 10, layer="edit_target")
         self.assertEqual(refused["status"], "error", refused)
         self.assertIn("execute_script removes it", refused["error"])
+
+
+# ===== The capture sweep (#157) =====
+
+# The open stage's root and session layers as text, and the timeline's state and time: what a sweep must leave as it
+# found them, read once the kept feed's render product is gone (RELEASE_KEPT_FEED), since Kit writes it into both and
+# RTX's exposure writes onto the scene camera and the sweep's own, in the root layer, come back with it (#177).
+_SWEEP_STAGE = """
+import omni.timeline
+import omni.usd
+stage = omni.usd.get_context().get_stage()
+timeline = omni.timeline.get_timeline_interface()
+result = {
+    "root": stage.GetRootLayer().ExportToString(),
+    "session": stage.GetSessionLayer().ExportToString(),
+    "timeline": [timeline.is_playing(), timeline.is_stopped(), timeline.get_current_time()],
+}
+"""
+
+# A scene camera at PATH, in the root layer, at EYE looking at TARGET with the case's front camera lens, so a
+# camera_path shot renders through it and a rerun from the manifest takes the pose and lens it recorded.
+_SWEEP_CAMERA = """
+import omni.usd
+from pxr import Gf, UsdGeom
+from ovmcp.core.xform import aim
+stage = omni.usd.get_context().get_stage()
+camera = UsdGeom.Camera.Define(stage, PATH)
+camera.GetFocalLengthAttr().Set(7.337)
+camera.GetHorizontalApertureAttr().Set(20.955)
+camera.GetVerticalApertureAttr().Set(11.787)
+camera.GetClippingRangeAttr().Set(Gf.Vec2f(0.01, 1e7))
+aim(camera.GetPrim(), Gf.Vec3d(*EYE), Gf.Vec3d(*TARGET), stage.GetRootLayer())
+result = str(camera.GetPath())
+"""
+
+# Two PNGs on Kit's machine, A and B: each one's size, the mean absolute difference of their pixels, 0 to 255, in the
+# channel where it is largest, and the share of pixels whose largest channel's difference passes LEVEL.
+_PNG_DIFF = """
+import numpy as np
+from PIL import Image
+
+
+def load(path):
+    return np.asarray(Image.open(path).convert("RGB"), dtype=np.float64)
+
+
+a, b = load(A), load(B)
+result = {
+    "sizes": [[a.shape[1], a.shape[0]], [b.shape[1], b.shape[0]]],
+    "mean": float(np.abs(a - b).mean(axis=(0, 1)).max()) if a.shape == b.shape else None,
+    "changed": float((np.abs(a - b).max(axis=2) > LEVEL).mean()) if a.shape == b.shape else None,
+}
+"""
+
+# Twins of an unchanged stage: the mean absolute difference under this, of 255, in each channel (plan, Tests).
+_TWIN_TOLERANCE = 2.0
+# Two pictures that render apart: a share of their pixels, 0.2% of the frame (about 1,800 pixels at 1280 x 720), each
+# changed by more than 16 of 255, where a render's own noise between twins moves the mean about 0.07 (#51's E14). The
+# whole frame's mean would miss a cube or a walker that fills a small part of it.
+_CHANGED_LEVEL = 16
+_APART = 0.002
+_SWEEP_STARTED = re.compile(r"Sweep (j\d+) started")
+
+
+class _SweepChecks(unittest.TestCase):
+    """What the sweep's live tests share: the client, Kit-side scripts, a sweep waited for, pictures compared."""
+
+    client: BridgeClient
+    slow: BridgeClient
+
+    @classmethod
+    def setUpClass(cls):
+        host, port = live_bridge()
+        cls.client = BridgeClient(host=host, port=port, timeout=60.0)
+        # new_scene's and the job's long reads get the server's own 120 s.
+        cls.slow = BridgeClient(host=host, port=port, timeout=120.0)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.client.close()
+        cls.slow.close()
+
+    def _run(self, code: str, **names: Any) -> Any:
+        script = "".join(f"{name} = {value!r}\n" for name, value in names.items()) + code
+        result = self.client.execute(script)
+        self.assertEqual(result["status"], "success", result.get("error"))
+        return result["result"]["return_value"]
+
+    def _output_folder(self) -> Path:
+        """A folder of the test's own for the server's files and Kit's sweeps, gone when the test ends."""
+        folder = Path(tempfile.mkdtemp(prefix="ovmcp-IntTestSweep-"))
+        self.addCleanup(shutil.rmtree, folder, True)
+        return folder
+
+    def _stage(self) -> dict[str, Any]:
+        """The root and session layers and the timeline, with no capture feed kept."""
+        released = self.client.execute(RELEASE_KEPT_FEED)
+        self.assertEqual(released["status"], "success", released.get("error"))
+        return self._run(_SWEEP_STAGE)
+
+    def _sweep(self, args: dict[str, Any], output: Path) -> str:
+        """capture_sweep through the server, as a client calls it; the job's id."""
+        erred, text = call_tool("capture_sweep", args, output)
+        self.assertFalse(erred, text)
+        found = _SWEEP_STARTED.search(text)
+        self.assertIsNotNone(found, text)
+        assert found is not None
+        job_id = found.group(1)
+        self.addCleanup(self.client.job_cancel, job_id)
+        return job_id
+
+    def _ended(self, job_id: str, minutes: float = 10.0) -> dict[str, Any]:
+        """The job once it has ended, read with get_job's wait."""
+        deadline = time.monotonic() + minutes * 60
+        while True:
+            read = self.slow.job_get(job_id, wait=60.0)
+            self.assertEqual(read["status"], "success", read)
+            if read["result"]["state"] not in ("working", "cancelling"):
+                return read["result"]
+            self.assertLess(time.monotonic(), deadline, f"{job_id} still {read['result']['state']}: {read['result']}")
+
+    def _manifest(self, folder: Path) -> dict[str, Any]:
+        return json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+
+    def _compare(self, a: Path, b: Path) -> dict[str, Any]:
+        found = self._run(_PNG_DIFF, A=str(a), B=str(b), LEVEL=_CHANGED_LEVEL)
+        self.assertEqual(found["sizes"][0], found["sizes"][1], f"{a.name} and {b.name} differ in size")
+        return found
+
+    def _diff(self, a: Path, b: Path) -> float:
+        """The mean difference of two pictures, for twins."""
+        return self._compare(a, b)["mean"]
+
+    def _changed(self, a: Path, b: Path) -> float:
+        """The share of pixels two pictures differ in, for pictures that should render apart."""
+        return self._compare(a, b)["changed"]
+
+
+class TestCaptureSweep(_SweepChecks):
+    """capture_sweep against a referenced area with a variant set (#157), on a Y-up and a Z-up stage of its own: six
+    shots, two states and their start through a pose given by yaw and pitch and through a scene camera, at 1280 x 720
+    with the case's lens; every layer and the timeline as before; the manifest matching the files; the same sweep again
+    from the first's manifest, each picture within the tolerance of its twin; how long each switch waited for loading;
+    and a 50-shot sweep cancelled part way, everything put back and the manifest saying what it took."""
+
+    AREA = "/World/IntTestSweepArea"
+    CAMERA = "/World/IntTestSweepCam"
+    # The case's front camera.
+    LENS: ClassVar[dict[str, float]] = {
+        "focal_length": 7.337,
+        "horizontal_aperture": 20.955,
+        "vertical_aperture": 11.787,
+    }
+
+    @classmethod
+    def tearDownClass(cls):
+        # A stage of its own was made for each up axis: an empty Z-up stage in metres for the tests after.
+        cls.slow.new_scene()
+        super().tearDownClass()
+
+    def _scene(self, up_axis: str) -> None:
+        """A new stage on up_axis in metres with the area at the origin, its camera, and the camera's light."""
+        made = self.slow.new_scene(up_axis=up_axis, meters_per_unit=1.0)
+        self.assertEqual(made["status"], "success", made.get("error"))
+        folder = Path(tempfile.mkdtemp(prefix="ovmcp-sweep-area-"))
+        self.addCleanup(shutil.rmtree, folder, True)
+        area = folder / "IntTestSweepArea.usda"
+        # #155's area: its closed state a 1-unit cube, its open one a 3-unit cube, so the two render apart.
+        area.write_text(_VARIANT_AREA_USDA, encoding="utf-8", newline="\n")
+        made = self.client.create_prim(self.AREA, usd_path=str(area), position=[0, 0, 0])
+        self.assertEqual(made["status"], "success", made.get("error"))
+        eye = [6.0, -6.0, 4.0] if up_axis == "Z" else [6.0, 4.0, 6.0]
+        self._run(_SWEEP_CAMERA, PATH=self.CAMERA, EYE=eye, TARGET=[0.0, 0.0, 0.0])
+        found = self.client.viewport_light("get")["result"]["lighting_mode"]
+        self.addCleanup(self.client.viewport_light, "set", mode=found)
+        self.assertEqual(self.client.viewport_light("set", mode="camera")["status"], "success")
+
+    def _shots(self, up_axis: str) -> list[dict[str, Any]]:
+        """Two poses, each in the open state, the closed one, and the start's: a yaw and pitch 5 m from the area along
+        -X, and the scene camera."""
+        position = [-5.0, 0.0, 1.2] if up_axis == "Z" else [-5.0, 1.2, 0.0]
+        pose = {"position": position, "yaw": 0.0, "pitch": -10.0, **self.LENS}
+        camera = {"camera_path": self.CAMERA}
+        shots = []
+        for name, base in (("pose", pose), ("camera", camera)):
+            shots += [
+                {**base, "name": f"{name}_open", "selections": {self.AREA: {"state": "open"}}},
+                {**base, "name": f"{name}_closed", "selections": {self.AREA: {"state": "closed"}}},
+                {**base, "name": f"{name}_start"},
+            ]
+        return shots
+
+    def test_a_sweep_takes_its_shots_puts_everything_back_and_its_manifest_takes_them_again(self):
+        for up_axis in ("Y", "Z"):
+            with self.subTest(up_axis=up_axis):
+                self._sweep_on(up_axis)
+
+    def _sweep_on(self, up_axis: str) -> None:
+        self._scene(up_axis)
+        output = self._output_folder()
+        before = self._stage()
+
+        started = time.monotonic()
+        first = self._ended(self._sweep({"shots": self._shots(up_axis), "name": "first"}, output))
+        took = time.monotonic() - started
+
+        self.assertEqual(first["state"], "completed", first)
+        after = self._stage()
+        self.assertEqual(after["root"], before["root"], "the sweep left the root layer changed")
+        self.assertEqual(after["session"], before["session"], "the sweep left the session layer changed")
+        self.assertEqual(after["timeline"], before["timeline"], "the sweep left the timeline changed")
+        folder = output / "sweeps" / "first"
+        manifest = self._manifest(folder)
+        self.assertEqual((manifest["ended"], manifest["shots_done"], manifest["up_axis"]), ("completed", 6, up_axis))
+        entries = manifest["shots"]
+        self.assertEqual(sorted(p.name for p in folder.glob("*.png")), sorted(e["file"] for e in entries))
+        for entry in entries:
+            self.assertNotIn("error", entry)
+            self.assertFalse(entry["is_black"], entry)
+            head = (folder / entry["file"]).read_bytes()[:24]
+            self.assertEqual(_png_size(base64.b64encode(head).decode()), (1280, 720), entry["file"])
+        files = [folder / e["file"] for e in entries]
+        for pose, (opened, closed, start) in (("pose", files[0:3]), ("camera", files[3:6])):
+            # The switch rendered, and a shot that names no set shows the start's state, closed.
+            self.assertGreater(self._changed(opened, closed), _APART, f"{pose}: open and closed render alike")
+            self.assertLess(self._diff(closed, start), _TWIN_TOLERANCE, f"{pose}: the start's state isn't closed")
+        camera_entry = entries[3]
+        self.assertEqual(camera_entry["camera_path"], self.CAMERA)
+        self.assertAlmostEqual(camera_entry["horizontal_aperture"], 20.955, places=3)
+
+        # Again, from the first's manifest through the server, the scene camera's shots from the pose it recorded.
+        again = self._ended(self._sweep({"shots_file": str(folder / "manifest.json"), "name": "again"}, output))
+        self.assertEqual(again["state"], "completed", again)
+        twins = output / "sweeps" / "again"
+        retaken = self._manifest(twins)["shots"]
+        self.assertNotIn("camera_path", retaken[3], "a camera_path shot reads back as the pose it rendered")
+        diffs = [self._diff(folder / a["file"], twins / b["file"]) for a, b in zip(entries, retaken, strict=True)]
+        for index, diff in enumerate(diffs, 1):
+            self.assertLess(diff, _TWIN_TOLERANCE, f"shot {index} differs from its twin by {diff:.3f} of 255")
+        self.assertEqual(self._stage(), before)
+        loading = [e.get("loading_seconds") for e in entries]
+        print(
+            f"  {up_axis}-up: 6 shots in {took:.1f} s; twins differ by at most {max(diffs):.3f} of 255; each switch "
+            f"waited {loading} s for loading"
+        )
+
+    def test_a_cancelled_sweep_puts_everything_back_and_its_manifest_says_what_it_took(self):
+        self._scene("Z")
+        output = self._output_folder()
+        before = self._stage()
+        states = ("open", "closed")
+        shots = [
+            {
+                "position": [-5.0, 0.0, 1.2],
+                "yaw": 0.0,
+                "pitch": -10.0,
+                "selections": {self.AREA: {"state": states[i % 2]}},
+            }
+            for i in range(50)
+        ]
+        job_id = self._sweep({"shots": shots, "name": "cancelled"}, output)
+        deadline = time.monotonic() + 120.0
+        while True:
+            read = self.client.job_get(job_id)["result"]
+            shot = re.match(r"shot (\d+) of 50", read["message"])
+            if shot and int(shot.group(1)) >= 5:
+                break
+            self.assertEqual(read["state"], "working", read)
+            self.assertLess(time.monotonic(), deadline, f"the sweep is slow to reach shot 5: {read}")
+            time.sleep(0.5)
+
+        self.assertEqual(self.client.job_cancel(job_id)["status"], "success")
+        ended = self._ended(job_id)
+
+        self.assertEqual((ended["state"], ended["message"]), ("cancelled", "cancel_job was called"))
+        self.assertEqual(self._stage(), before)
+        folder = output / "sweeps" / "cancelled"
+        manifest = self._manifest(folder)
+        self.assertEqual(manifest["ended"], "cancelled: cancel_job was called")
+        self.assertTrue(4 <= manifest["shots_done"] < 50, manifest["shots_done"])
+        self.assertEqual(len(list(folder.glob("*.png"))), manifest["shots_done"])
+        self.assertTrue(ended["last"].startswith(f"{manifest['shots_done']} of 50 shots in "), ended["last"])
+        print(f"  cancelled after {manifest['shots_done']} of 50 shots; the stage and the timeline as they were")
+
+
+# Replicator's agents (#157, fit I4): a config of one walking worker in Isaac Sim's simple warehouse, with no sensors
+# and no writer, and the script that sets it up, as a job, since the warehouse may take minutes to load.
+_AGENT_CONFIG = """isaacsim.replicator.agent:
+  version: 1.7.0
+  seed: 7
+  simulation_duration: 600.0
+  environment:
+    base_stage_asset_path: Isaac/Environments/Simple_Warehouse/full_warehouse.usd
+  character:
+    groups:
+      workers:
+        num: 1
+        asset_path: Isaac/People/Characters/
+        routines:
+        - wander:
+            weight: 1.0
+            repeat: 1
+            walk:
+              speed_range:
+              - 1.0
+              - 1.2
+              distance_range:
+              - 5.0
+              - 10.0
+              navigation_areas: []
+"""
+_AGENT_API = """
+import importlib.util
+result = importlib.util.find_spec("isaacsim.replicator.agent.core.api") is not None
+"""
+_AGENT_SETUP = """
+from isaacsim.replicator.agent.core import api
+if not api.load_config_file(CONFIG):
+    raise RuntimeError(f"Replicator's agents refused the config {CONFIG}: get_logs says why")
+await api.setup_simulation()
+result = True
+"""
+
+
+class TestCaptureSweepAgents(_SweepChecks):
+    """A time repeats time-sampled content, not Replicator's walking agents (#157, fit I4): with the timeline stopped,
+    two sweeps of one agent give the same pictures; after the timeline played, a shot's time doesn't bring the agent
+    back. Isaac Sim with isaacsim.replicator.agent.core alone; it loads the simple warehouse, which may take minutes."""
+
+    EXTENSION = "isaacsim.replicator.agent.core"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.client.sim_control("stop")
+        cls.slow.new_scene()
+        super().tearDownClass()
+
+    def _play(self, seconds: float) -> None:
+        self.assertEqual(self.client.sim_control("play")["status"], "success")
+        time.sleep(seconds)
+        self.assertEqual(self.client.sim_control("pause")["status"], "success")
+
+    def _was_on(self) -> bool:
+        listed = self.client.extensions_list(search=self.EXTENSION)
+        self.assertEqual(listed["status"], "success", listed.get("error"))
+        return any(e["enabled"] and e["name"] == self.EXTENSION for e in listed["result"]["extensions"])
+
+    def _leave(self, was_on: bool) -> None:
+        """The stage as the class leaves it, and the extension off again when the test turned it on."""
+        self.client.sim_control("stop")
+        self.slow.new_scene()
+        if not was_on:
+            self.client.extensions_manage(self.EXTENSION, "disable")
+
+    def test_a_stopped_timeline_repeats_an_agent_and_a_time_doesn_t(self):
+        was_on = self._was_on()
+        enabled = self.client.extensions_manage(self.EXTENSION, "enable")
+        if enabled.get("status") != "success" or not enabled["result"]["enabled"]:
+            self.skipTest(f"this Kit app has no {self.EXTENSION}")
+        self.addCleanup(self._leave, was_on)
+        # Isaac Sim 5.1's agents (0.7) have no api module, nor this config's form.
+        if not self._run(_AGENT_API):
+            self.skipTest(f"this Kit app's {self.EXTENSION} has no api module")
+        output = self._output_folder()
+        config = output / "agents.yaml"
+        config.write_text(_AGENT_CONFIG, encoding="utf-8", newline="\n")
+        set_up = self.slow.job_script(code=f"CONFIG = {str(config)!r}\n{_AGENT_SETUP}")
+        self.assertEqual(set_up["status"], "success", set_up)
+        loaded = self._ended(set_up["result"]["id"], minutes=15.0)
+        self.assertEqual(loaded["state"], "completed", loaded)
+        self.client.sim_control("stop")
+
+        state = self.client.sim_state()["result"]
+        up = "XYZ".index(state["up_axis"])
+        bounds = self.client.prim_bounds("/World/Characters")
+        self.assertEqual(bounds["status"], "success", bounds.get("error"))
+        centre = bounds["result"]["center"]
+        metre = 1.0 / state["meters_per_unit"]
+        eye = list(centre)
+        eye[0] -= 6 * metre
+        eye[up] += 2 * metre
+        shot = {"position": eye, "target": centre}
+
+        stopped = [self._ended(self._sweep({"shots": [shot], "name": n}, output)) for n in ("stopped1", "stopped2")]
+        self.assertEqual([s["state"] for s in stopped], ["completed", "completed"], stopped)
+        still = self._diff(*(output / "sweeps" / n / "0001.png" for n in ("stopped1", "stopped2")))
+
+        timed = {**shot, "time": 1.0}
+        self._play(3.0)
+        first = self._ended(self._sweep({"shots": [timed], "name": "seek1"}, output))
+        self._play(3.0)
+        second = self._ended(self._sweep({"shots": [timed], "name": "seek2"}, output))
+        self.assertEqual([first["state"], second["state"]], ["completed", "completed"])
+        sought = self._changed(*(output / "sweeps" / n / "0001.png" for n in ("seek1", "seek2")))
+
+        self.assertLess(still, _TWIN_TOLERANCE, f"a stopped timeline's agent differs by {still:.3f} of 255")
+        self.assertGreater(sought, _APART, f"a time brought the agent back: {sought:.2%} of the pixels changed")
+        print(f"  stopped twins {still:.3f} of 255 apart; the same time after the agent walked, {sought:.2%} changed")
 
 
 class TestColdCook(unittest.TestCase):

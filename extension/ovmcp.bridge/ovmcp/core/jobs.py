@@ -1,6 +1,6 @@
 """The bridge's jobs (#158): long work that runs on Kit's loop as a task of its own, so Kit renders and other requests
 are answered between its awaits, read and cancelled by id. A user's script is one kind of job; #157's capture sweep
-will be another, through the same board and the same routes.
+is another, through the same board and the same routes.
 
 One job at a time. Its states mirror an MCP task's (working, completed, failed, cancelled, with a status message),
 with cancelling between a cancel and the end of the job's own cleanup, so a later binding of MCP's tasks maps one onto
@@ -106,7 +106,7 @@ class Lines:
 @dataclass(eq=False)
 class Job:
     id: str
-    kind: str  # "script"; "sweep" for #157
+    kind: str  # "script", or "sweep" (#157)
     label: str
     started: float
     teardown: Callable[[], None] | None = None
@@ -218,7 +218,7 @@ class JobBoard:
         """The job `job_id`, or with "", the running or the last job. JobError when there is none such."""
         job = self._job
         if job is None:
-            raise JobError("No job has run since the bridge started: start one with run_script_job")
+            raise JobError("No job has run since the bridge started: start one with run_script_job or capture_sweep")
         if job_id and job_id != job.id:
             raise JobError(
                 f"No job {job_id}: the bridge keeps only the last job, {job.id} ({job.kind}, {job.state}), until the "

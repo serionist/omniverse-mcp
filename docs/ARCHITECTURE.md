@@ -57,6 +57,7 @@ passes it through `inspect.cleandoc`; `tests/test_contract.py` fails on a descri
 | `robot.py` | Robot: create, info with the joint states, joint targets |
 | `simulation.py` | Sim control, state, physics properties, apply force, raycast, debug draw |
 | `recording.py` | Recording: start, stop, get frame |
+| `sweep.py` | capture_sweep: the shots, or a shots file the server reads, sent as a job |
 | `usd_advanced.py` | Mesh stats with the face count tree, flatten, export, variants, compare, material paths |
 | `misc.py` | execute_script, run_script_job, get_job, cancel_job, manage_extensions, get_logs |
 
@@ -72,8 +73,9 @@ absolute path (`Helpers.rel`).
   `get_job` write only their long part there (`Helpers.write_response`), the tree, the Joints list and the joint
   states that don't fit, or a job's lines, output, traceback and long result, and keep the rest inline: the totals,
   the counts and the joint states that fit, or the job's state, time, last line, count of lines and error.
-- **Scene dumps and recordings:** Kit writes them itself, to the path the server passes, so with Kit on another
-  machine they land on that machine. Each recording gets a timestamped folder.
+- **Scene dumps, recordings and sweeps:** Kit writes them itself, to the path the server passes, so with Kit on
+  another machine they land on that machine. Each recording gets a timestamped folder in `recordings/`, each
+  sweep the folder its name gives in `sweeps/`.
 
 This keeps the MCP context window clean - the AI reads files on demand rather than receiving megabytes of scene data inline.
 
@@ -131,8 +133,8 @@ extension come from one release. `omniverse-mcp extension install` (`src/omniver
 | File | Purpose |
 |------|---------|
 | `ovmcp/bridge/extension.py` | Kit lifecycle: makes the token, starts the core's HTTP server with the routes |
-| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake, and the Kit app's name, versions and OS), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `capture.py` (the capture path's waits, each bounded by time, a call's bookkeeping, the frame-size limit, 4096 a side, for start_recording, capture_viewport and inspect_prim, Path Tracing's settle frames, and segmentation's colours), `png.py` (the PNG writer), `logs.py` (Kit's log file read into the log ring, and its query), `force.py` (apply_force's request, its refusals and the point it pushes at; from the stage's joints, the articulation a body is a link of and the fixed joint that holds it to the world; for the push through PhysX's tensor API, which the handler takes while `/physics/suppressReadback` is on: the physics scene's step length, an impulse as one step's force, and the centre of mass from the tensor API's rows), `framing.py`, `isolation.py`, `lighting.py`, `collision.py` (set_physics_properties' collision: the shapes PhysX collides and the refusals for the rest, the rigid body a collider moves with, a moving Mesh's convex hull, and the echo), `material.py` (set_material's OmniPBR, named by its MDL source; set_physics_properties' physics material: its path, a child of the prim, and its refusals; the values a body has, and what the material it binds copies from the one it replaces; one walk of the stage's bindings, for the other prims a write changes and the older shared material it deletes once nothing binds it), `robot.py` (whether create_robot was given a file or a name, its prim's name; the articulation root whose joint states get_robot_info reads), `metrics.py` (a referenced file's up axis and units brought to the stage's, for create_robot and create_prim: the turn that stands a file of another up axis upright, and the scale and the converted values that bring a file of other units to the stage's), `usd_files.py` (where a USD file a tool is given loads from: a URL, a file on Kit's machine, Isaac Sim's asset library), `stage_open.py` (open_scene's checks before Kit closes the open stage, its sequence, its limits and its answer; new_scene's up axis and units, checked before Kit discards the open stage), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `recording.py` (start_recording's request, the camera check, which updates take a frame and its number, and deleting a camera feed's render product from every layer), `exposure.py` (what the edit target held of a camera's exposure before RTX wrote onto it, for each camera a feed renders through, put back exactly when the last feed through it goes), `serial.py`, `layers.py` (the files the open stage has loaded, which flatten_usd and export_prim_as_file refuse to write, the layers Kit holds that they read again from disk, and the open stage without Kit's session layer, which they flatten), `xform.py` (every transform the bridge writes, into a prim's own xform ops, refused when it couldn't show, and a camera's aim, in the layer that holds its ops: Kit's session layer for Kit's own cameras), `deletion.py` (whether delete_prim can take a prim off the stage, from its composition arcs, and why not), `variants.py` (a prim's variant sets and the layer holding each selection; set_variant_selection's and compare_prims' switch in one layer, the session layer by default, refused whole before anything is written, and its snapshot, which puts that layer back field by field; the session layer's selections save_scene leaves out), `script.py` (a script compiled for /execute and a job, told awaiting or plain, and run as a function of its namespace), `output.py` (the router over sys.stdout and sys.stderr that sends a task's prints to its call's or its job's sink), `jobs.py` (the job board: one job at a time, its states, lines, cancel, wait and shutdown), `usd.py` (typed forms of pxr calls the stubs get wrong) |
-| `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, scene_open, simulation, recording, robot, debug_draw, misc, jobs, usd_advanced, logging) with shared utilities in `_utils.py` (among them `enable_extension` and the capture to a file, `capture_file_png`, with `capture_feed_png` on it), `variants.py` (the viewport's refresh after a variant switch: with Fabric Scene Delegate on before Kit 110, the switched prims made inactive in the session layer for some updates, and that layer put back in a `finally`), `camera_feed.py` (a camera rendered at a size in a texture of its own, for a recording or a capture, with a capture's segmentation and its release, and the capture feed kept between calls with the viewport lock, lent to a recording at its size; what RTX writes onto its cameras put back with its render product) and `_mcp_bridge.py` |
+| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake, and the Kit app's name, versions and OS), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `capture.py` (the capture path's waits, each bounded by time, a call's bookkeeping, the frame-size limit, 4096 a side, for start_recording, capture_viewport and inspect_prim, Path Tracing's settle frames, and segmentation's colours), `png.py` (the PNG writer), `logs.py` (Kit's log file read into the log ring, and its query), `force.py` (apply_force's request, its refusals and the point it pushes at; from the stage's joints, the articulation a body is a link of and the fixed joint that holds it to the world; for the push through PhysX's tensor API, which the handler takes while `/physics/suppressReadback` is on: the physics scene's step length, an impulse as one step's force, and the centre of mass from the tensor API's rows), `framing.py`, `isolation.py`, `lighting.py`, `collision.py` (set_physics_properties' collision: the shapes PhysX collides and the refusals for the rest, the rigid body a collider moves with, a moving Mesh's convex hull, and the echo), `material.py` (set_material's OmniPBR, named by its MDL source; set_physics_properties' physics material: its path, a child of the prim, and its refusals; the values a body has, and what the material it binds copies from the one it replaces; one walk of the stage's bindings, for the other prims a write changes and the older shared material it deletes once nothing binds it), `robot.py` (whether create_robot was given a file or a name, its prim's name; the articulation root whose joint states get_robot_info reads), `metrics.py` (a referenced file's up axis and units brought to the stage's, for create_robot and create_prim: the turn that stands a file of another up axis upright, and the scale and the converted values that bring a file of other units to the stage's), `usd_files.py` (where a USD file a tool is given loads from: a URL, a file on Kit's machine, Isaac Sim's asset library), `stage_open.py` (open_scene's checks before Kit closes the open stage, its sequence, its limits and its answer; new_scene's up axis and units, checked before Kit discards the open stage), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `recording.py` (start_recording's request, the camera check, which updates take a frame and its number, and deleting a camera feed's render product from every layer), `exposure.py` (what the edit target held of a camera's exposure before RTX wrote onto it, for each camera a feed renders through, put back exactly when the last feed through it goes), `serial.py`, `layers.py` (the files the open stage has loaded, which flatten_usd and export_prim_as_file refuse to write, the layers Kit holds that they read again from disk, and the open stage without Kit's session layer, which they flatten), `xform.py` (every transform the bridge writes, into a prim's own xform ops, refused when it couldn't show, and a camera's aim, in the layer that holds its ops: Kit's session layer for Kit's own cameras), `deletion.py` (whether delete_prim can take a prim off the stage, from its composition arcs, and why not), `variants.py` (a prim's variant sets and the layer holding each selection; set_variant_selection's and compare_prims' switch in one layer, the session layer by default, refused whole before anything is written, and its snapshot, which puts that layer back field by field; the session layer's selections save_scene leaves out), `script.py` (a script compiled for /execute and a job, told awaiting or plain, and run as a function of its namespace), `output.py` (the router over sys.stdout and sys.stderr that sends a task's prints to its call's or its job's sink), `jobs.py` (the job board: one job at a time, its states, lines, cancel, wait and shutdown), `sweep.py` (capture_sweep's shots, read and checked before anything changes, a manifest's read back as the shots it rendered; a lens fitted to the image; a pose from a yaw and pitch on either up axis; the selections to write before a shot, each set it doesn't name back to its starting session value; the switch, a block included; the timeline's start; the manifest and the summary line), `usd.py` (typed forms of pxr calls the stubs get wrong) |
+| `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, scene_open, simulation, recording, robot, debug_draw, misc, jobs, sweep, usd_advanced, logging) with shared utilities in `_utils.py` (among them `enable_extension` and the capture to a file, `capture_file_png`, with `capture_feed_png` on it), `variants.py` (the viewport's refresh after a variant switch: with Fabric Scene Delegate on before Kit 110, the switched prims made inactive in the session layer for some updates, and that layer put back in a `finally`), `camera_feed.py` (a camera rendered at a size in a texture of its own, for a recording or a capture, with a capture's segmentation and its release, and the capture feed kept between calls with the viewport lock, lent to a recording or a sweep at its size; what RTX writes onto its cameras put back with its render product) and `_mcp_bridge.py` |
 | `config/extension.toml` | Extension metadata and default settings |
 
 ### HTTP Server
@@ -190,6 +192,7 @@ the install command; a new route leaves `PROTOCOL` alone, so the other tools go 
 /jobs/script         -> handle_job_script
 /jobs/get            -> handle_job_get
 /jobs/cancel         -> handle_job_cancel
+/jobs/sweep          -> handle_sweep_start
 /scene/tree          -> handle_scene_tree
 /scene/dump          -> handle_scene_dump
 /scene/prim          -> handle_prim_properties
@@ -371,8 +374,8 @@ same names.
 
 A job is long work that runs on Kit's loop as a task of its own (`ovmcp/core/jobs.py`, `handlers/jobs.py`), so Kit
 renders, physics steps and other requests are answered between its `await`s, and it outlives the request that
-started it (#158). `run_script_job` starts a script as one; #157's capture sweep is to be another kind, through the
-same board and routes.
+started it (#158). `run_script_job` starts a script as one; `capture_sweep` a capture sweep, another kind, through
+the same board and routes ([Capture Sweep](#capture-sweep)).
 
 - **Start:** `/jobs/script` takes `code` or `file`, a `.py` on Kit's machine read as bytes and compiled with its path,
   so its encoding follows Python's source rules and its tracebacks show its lines. A script that never awaits at
@@ -399,6 +402,39 @@ same board and routes.
 - **What a job can't do:** a script that awaits once and then loops, or calls Isaac Sim's `world.step()`, holds the
   main thread as a blocking `/execute` does, and `/jobs/get` runs on the same loop, so nothing reads the job until it
   ends. Kit's restart ends a job.
+
+## Capture Sweep
+
+`capture_sweep` (#157) captures a list of shots as a job of kind `sweep` (`ovmcp/core/sweep.py`, `handlers/sweep.py`),
+read and cancelled through `/jobs/get` and `/jobs/cancel`. Each shot is a pose (a position with a yaw and pitch about
+the stage's up axis, a position and a target, or a `camera_path`), a lens, the variant selections it shows and a
+timeline time. Kit writes the PNGs and `manifest.json` into `<output>/sweeps/<name>/`, as it writes a recording's
+frames.
+
+1. **Start:** `/jobs/sweep` takes the shots (a list, or a sweep's manifest, whose entries read back as the shots they
+   rendered), the size, and the output root and the name apart, so the name is checked as one plain folder name
+   before it is joined to anything. It checks every shot, each selection of a prim and set on the stage now
+   (`variant_refusal`), that no camera is defined at `/OmniverseKit_Sweep` (RTX's over there, in the root layer
+   until the kept feed's render product goes, blocks nothing) and that the folder holds no manifest, then starts the
+   job with `watch_stage` and a teardown, and answers its id and folder.
+2. **The job's start:** it reads the timeline's state and time and each named (prim, set)'s session-layer value,
+   defines its camera, `/OmniverseKit_Sweep`, in the session layer with Isaac Sim's clipping range (0.01 m to 1e7 m in
+   stage units), writes the manifest at once, and borrows the captures' feed (`lend`), as a recording does.
+3. **Each shot,** holding the viewport lock for that shot alone, at most 30 s (`SHOT_SECONDS`), so a capture called
+   meanwhile runs between shots: the selections that differ from those last written, each set a shot doesn't name
+   going back to its starting value, absent, blocked or named, through #155's `switch` in the session layer, its
+   snapshots kept, a block through the block helper; `refresh`; a wait of up to 20 s for the stage to finish loading
+   (`get_stage_loading_status`); the shot's time (a playing timeline paused, a stopped one left stopped) or the
+   start's state and time back; the sweep's camera aimed in the session layer and its lens and clipping range set, or
+   a `camera_path` checked after the switch and rendered as it is, its world pose and lens recorded; 20 of the feed's
+   frames, `_capture_frame`, and the PNG. A failed shot is recorded with why; a feed that rendered no frame in a shot's
+   time ends the sweep. Every 25 shots a line and the manifest again.
+4. **The end,** whatever ends it, each step on its own: the feed pointed at the viewport's camera, every snapshot
+   restored, last first, in one change block, the timeline put back and the sweep's camera deleted, unless the stage
+   changed or began to close, which took its layers with it; then the manifest and the summary line, the job's last;
+   then the feed handed back (`hand_back`). What RTX wrote onto the cameras the feed rendered through comes back with
+   its render product, as a capture's does (#177). At the extension's shutdown the teardown does the same at once,
+   the feed let go (`let_go_now`).
 
 ## Recording System
 
@@ -552,13 +588,14 @@ feed's render product is `ovmcp_feed_<id>`, whichever call made it.
 
 - **Views:** a changed camera makes no new view (8,000 switches on one feed never hung); a changed size makes one, on
   the same render product. Any size is kept.
-- **Recordings (#141):** `lend` takes the viewport lock and, when the kept feed is the recording's size, takes it off
-  the slot with its camera set, so the stage's events, the timer and the saves leave it to the recording; at another
+- **Recordings and sweeps (#141, #157):** `lend` takes the viewport lock and, when the kept feed is the recording's
+  or the sweep's size, takes it off the slot with its camera set, so the stage's events, the timer and the saves leave it to the recording; at another
   size a recording gets a feed of its own and the kept one stays, since a resize would set up a view and the next
   capture at the old size another. `hand_back` at the stop keeps a healthy feed when none is kept and the stage is the
   one it started on, and releases it otherwise; when a capture holds the lock it releases rather than waits. A
   recording's frames stopping early, a start that fails and shutdown tear its feed down at once (`let_go_now`), the
-  graphs a capture left freed first.
+  graphs a capture left freed first. A sweep borrows the feed for its length, aims it at each shot's camera, and
+  hands it back at its end, or lets it go at shutdown, as a recording does.
 - **Released:** 30 s after the last call (`IDLE_SECONDS`, a timer on Kit's loop whose release takes the viewport
   lock and checks a generation number, so one that fires as a call takes the feed does nothing); at once when a call
   leaves it in doubt (an error that escaped the capture, an angle's error, segmentation that raised or gave no data),

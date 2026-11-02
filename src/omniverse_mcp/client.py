@@ -296,7 +296,7 @@ class BridgeClient:
     def execute(self, code: str) -> dict[str, Any]:
         return self.request("/execute", {"code": code})
 
-    # ----- Jobs: a script now, #157's sweep later, read and cancelled through the same routes -----
+    # ----- Jobs: a script, and a capture sweep (#157), read and cancelled through the same routes -----
 
     def job_script(self, code: str = "", file: str = "") -> dict[str, Any]:
         body: dict[str, Any] = {}
@@ -318,6 +318,14 @@ class BridgeClient:
 
     def job_cancel(self, job_id: str) -> dict[str, Any]:
         return self.request("/jobs/cancel", {"job_id": job_id})
+
+    def job_sweep(
+        self, shots: object, output_dir: str, name: str, width: int = 1280, height: int = 720
+    ) -> dict[str, Any]:
+        """A capture sweep (#157): `shots`, a list of shots or a sweep's manifest, which the bridge reads; Kit makes the
+        folder `name` in `output_dir`, a folder on its own machine, and writes the sweep's PNGs and manifest there."""
+        body = {"shots": shots, "output_dir": output_dir, "name": name, "width": width, "height": height}
+        return self.request("/jobs/sweep", body)
 
     # ----- Scene endpoints -----
 

@@ -26,6 +26,17 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ### Added
 
+- **`capture_sweep`, a new tool in the tool contract, with the route `/jobs/sweep` and the output folder's
+  `sweeps/`:** one call captures a list of shots, each with its own camera pose (a position with a yaw and pitch,
+  a target, or a camera of the stage), lens, variant selections and timeline time, as a job `get_job` reads and
+  `cancel_job` cancels. A scene's check from 50 viewpoints through its switches, about 400 pictures, took one
+  `capture_viewport` and one agent turn a picture. Kit writes the PNGs and a `manifest.json` of each shot's pose,
+  lens, selections, time and file into `mcp_output/sweeps/<name>/`; `get_job` gives one line naming the folder
+  and the shots that came out black or failed. Every shot is checked before anything changes, the selections are
+  switched in Kit's session layer, and every layer and the timeline are as they were afterwards, after a cancel
+  too. A sweep's `manifest.json` given as `shots_file` takes the same shots again, after a change or on a second
+  scene. The sweep is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit; an older
+  extension answers with that advice (#157).
 - **Script jobs, three new tools in the tool contract:** `run_script_job` starts a long Python script inside the Kit
   app, given as code or as a `.py` file on Kit's machine, and answers its id at once; the job runs between Kit's
   updates, so Kit renders and other tools answer while it does. `get_job` reads its state, its time and the lines it

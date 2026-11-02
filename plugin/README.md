@@ -23,7 +23,7 @@ connection. The [README](https://github.com/serionist/omniverse-mcp#install) has
 |---|---|
 | the MCP server `omniverse` | `uvx omniverse-mcp==0.4.1`, the server of this plugin's release; its tools show as `mcp__plugin_omniverse-mcp_omniverse__<tool>` ([the tools](https://github.com/serionist/omniverse-mcp/blob/main/docs/TOOLS.md)). Images and long answers go to `mcp_output/` in your project |
 | `/omniverse-mcp:setup` | installs the extension, has you point Kit at it, checks with `get_sim_state` |
-| `/omniverse-mcp:scene` | look before acting: captures, bounds, placing and checking prims, lighting |
+| `/omniverse-mcp:scene` | look before acting: captures, a sweep of many shots, bounds, placing and checking prims, lighting |
 | `/omniverse-mcp:geometry` | face counts, comparing prims and variants, variant sets, flattening and exports |
 | `/omniverse-mcp:simulate` | physics, robots, forces, recording a run, measuring the frame rate |
 | `/omniverse-mcp:script` | `execute_script`, with the API looked up first, and long work as a job (`run_script_job`) |

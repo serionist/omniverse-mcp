@@ -2,12 +2,14 @@
 name: scene
 description: >-
   Use when working on what is in an Omniverse or Isaac Sim stage: finding out what a scene holds, looking at it,
-  placing, moving, creating or hiding prims, lighting and cameras, or checking that a change worked. Covers looking
-  before acting, reading the captures, spatial reasoning with bounds, and the verification loop.
+  placing, moving, creating or hiding prims, lighting and cameras, checking that a change worked, or capturing a
+  scene from many viewpoints and variant states in one sweep. Covers looking before acting, reading the captures,
+  spatial reasoning with bounds, the verification loop, and a sweep's shots and manifest.
 allowed-tools: >-
   mcp__plugin_omniverse-mcp_omniverse__get_sim_state mcp__plugin_omniverse-mcp_omniverse__get_scene_tree
   mcp__plugin_omniverse-mcp_omniverse__get_prim_properties mcp__plugin_omniverse-mcp_omniverse__get_prim_bounds
   mcp__plugin_omniverse-mcp_omniverse__capture_viewport mcp__plugin_omniverse-mcp_omniverse__get_logs
+  mcp__plugin_omniverse-mcp_omniverse__get_job
 ---
 
 # Work on a scene
@@ -47,6 +49,25 @@ while physics plays. Never edit blind: look, change, look again.
 6. **Check every change** with another capture or `get_prim_bounds`. A tool that fails: `get_logs(min_level="warn")`
    shows what Kit reported.
 
+## A check from many viewpoints
+
+To look at a scene from many places and through its switches, such as each stop of an inspection robot with each
+of its variant states, use `capture_sweep`: one call, where `capture_viewport` costs a turn a picture.
+
+1. **List the shots.** Each a `position` with `yaw` and `pitch` (yaw about the up axis, 0 along +X; pitch -90 looks
+   straight down), or with a `target`, or a `camera_path`; the camera's `focal_length` and apertures; the
+   `selections` it shows, `{prim: {set: variant}}`; a `time` when it matters. A long list goes in a JSON file, given
+   as `shots_file`, so it needn't pass through the conversation.
+2. **Run it.** `capture_sweep(shots=..., name="site_a")` answers a job id at once; `get_job(id, wait=100)` until it
+   ends, then one line names the folder and the shots that came out black or failed. Open the PNGs you need:
+   `manifest.json` says which shot each is, with its pose, lens and selections.
+3. **Again, after a change** or on a second scene built from the same spec:
+   `capture_sweep(shots_file="mcp_output/sweeps/site_a/manifest.json", name="site_a_2")` takes the same shots,
+   so the pictures compare one for one. Give the first sweep's `width` and `height` too: a manifest is taken again
+   at its own size, and another is refused.
+
+Every layer, the session layer's selections and the timeline are as they were afterwards, after `cancel_job` too.
+
 ## Light and black captures
 
 Kit 105.1 and later have no default light, so a scene without lights renders black, Kit's grid alone showing, and
@@ -67,6 +88,7 @@ relights the scene on its own.
 | A call fails with "Kit at ... stopped answering" | Kit may be running a long script, or be hung for good in NVIDIA's renderer (#114); calls fail in 5 s while it stays silent. If it stays silent for minutes, ask the user to restart the Kit app |
 | Captures and recordings slow Kit down for 30 s after | the bridge keeps their render that long, so the next capture, or a recording at its size, sets up no new view, where Kit can hang: Kit renders about 15 % fewer updates at 640x480 meanwhile, about 60 % fewer at 4096x4096, so capture and record at the size you need, the same for both |
 | Segmentation missing | the answer says why, as `Segmentation: ERROR` or an angle's `seg: ERROR`: without `omni.syntheticdata` (Isaac Sim has it), `manage_extensions` enables it; with no data yet, capture again; if it stays empty, `get_logs(channel="syntheticdata")` shows what omni.syntheticdata reported, and `get_logs(search="segmentation")` how long the bridge waited |
+| Replicator's walking agents differ between two sweeps | they move on each update whatever the timeline's time: stop the timeline (`sim_control("stop")`) before a sweep whose pictures of them must repeat |
 | Materials look grey at first | MDL compiles on first use: capture again before deciding a material is broken |
 | `UsdGeom.Cube` and the like have no faces | implicit shapes, not meshes: `get_mesh_stats` counts only `UsdGeom.Mesh` |
 | A new stage has no file | pass `file_path` to every `save_scene` of it: that writes a copy, and the stage itself still has no file |
