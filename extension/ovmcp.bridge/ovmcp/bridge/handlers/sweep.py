@@ -125,7 +125,7 @@ class _Sweep:
             ended = f"cancelled: {job.cancel_reason or 'cancelled'}"
             raise
         except Exception as e:
-            ended = f"failed: {e}"
+            ended = f"failed: {str(e) or type(e).__name__}"
             raise
         finally:
             await self._end(ended)

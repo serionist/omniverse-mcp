@@ -606,6 +606,14 @@ def test_an_error_mid_sweep_fails_the_job_and_still_puts_everything_back(env, ki
     assert job.lines.last == f"2 of 4 shots in {folder}/ (manifest.json); failed: a fault no shot expects"
 
 
+def test_an_error_without_a_message_is_named_by_its_type(env, kit, tmp_path):
+    kit.rules[1] = KeyError()
+
+    _run(env, _body(tmp_path, FOUR))
+
+    assert _manifest(tmp_path)["ended"] == "failed: KeyError"
+
+
 def test_the_shutdown_puts_everything_back_at_once_and_lets_the_feed_go(env, kit, tmp_path):
     stage = kit.get_stage()
     before = layers(stage)
