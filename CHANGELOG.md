@@ -5,6 +5,16 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+## 0.4.0 (2026-11-02)
+
+Kit's community extension registry lists the bridge from this release, and your assistant can draft a bug report for
+you. `create_robot` and `create_prim` bring a file of another up axis or other units to the stage's, as Kit does, so a
+file you turned or scaled yourself is now turned or scaled twice (Fixed, below). Each prim gets a physics material of
+its own; captures keep one camera feed between calls, so Isaac Sim 6.2's renderer hang comes far less often, and the
+server says at once when Kit stops answering; recordings take `fps` frames a second by their own clock. Most of it is
+in the Kit extension: run `uvx omniverse-mcp==0.4.0 extension install` (the plugin's `/omniverse-mcp:setup` does it)
+and restart Kit.
+
 ### Added
 
 - **The bridge in Kit's community extension registry:** each release also attaches the Kit extension as
