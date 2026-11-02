@@ -826,8 +826,10 @@ def test_the_real_outcomes_parse_with_no_problem(real_outcomes):
     assert "def mesh(" in by_id["O3"].given
     # The physics outcomes make their own scene: a play on Kit's preference alone may not simulate (round 2, R2).
     assert all('UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")' in by_id[i].given for i in ("O2", "O4", "O7"))
-    # Work past an execute_script call's 120 s, which a job runs (#158): the agent plays, and nothing after it.
-    assert (by_id["O7"].play, by_id["O7"].calls) == (0.0, "no execute_script")
+    # Work past an execute_script call's 120 s, which a job runs (#158). The settle before the judge stops the timeline,
+    # which puts every crate back where it hung: the runner's play drops those released (review G1).
+    assert (by_id["O7"].play, by_id["O7"].calls) == (3.0, "no execute_script")
+    assert "get_job()" in by_id["O7"].verify
 
 
 def test_the_outcomes_header_names_the_job_as_o7_s_path(real_outcomes):

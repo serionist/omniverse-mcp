@@ -248,20 +248,21 @@ for i in range(150):
 
 Ask: The 150 crates under /World/Crates hang 1 m above the floor, held by a crane. Release them one at a time,
 Crate_000 first, letting each fall and settle for 3 seconds of simulation before you release the next, and tell me
-where they came to rest. Leave the simulation paused when you're done, so they stay where they landed.
+where they came to rest.
 
 Verify:
 - No crate under `/World/Crates` is held any more: none has `physics:kinematicEnabled` true
   (`get_scene_tree` of `/World/Crates` with `include_properties` writes every crate's values to one file)
-- Each crate rests on the floor: its bottom (`get_prim_bounds`) within 1 cm of the floor's top, at 0, and its centre
-  within 5 cm in X and Z of where it hung, Crate_i at x = -2.7 + 0.6 (i mod 10), z = -4.2 + 0.6 (i div 10); check at
-  least Crate_000, Crate_074 and Crate_149
-- The crates were released one at a time, in order, each after the one before had 3 s of simulation: the
-  assistant's calls show it, a job's script or the calls themselves. Some 450 s of simulation in all, minutes at
-  any speed Kit runs, more than one `execute_script` call's 120 s
-- The timeline is paused (`get_sim_state`), not stopped: a stop puts every crate back where it hung
+- After the runner's play, each crate rests on the floor: its bottom (`get_prim_bounds`) within 1 cm of the floor's
+  top, at 0, and its centre within 5 cm in X and Z of where it hung, Crate_i at x = -2.7 + 0.6 (i mod 10),
+  z = -4.2 + 0.6 (i div 10); check at least Crate_000, Crate_074 and Crate_149. The runner stops the timeline before
+  the judge, which puts every crate back where it hung, then plays 3 s, which drops each crate that was released
+- The crates were released one at a time, in order, each after the one before had 3 s of simulation: from the
+  assistant's calls, where a job's code is cut to 600 characters, and from what the job printed, which `get_job()`
+  gives once it has finished, each stream's last 200 lines. Some 450 s of simulation in all, minutes at any speed
+  Kit runs, more than one `execute_script` call's 120 s
 - The answer says where they came to rest: on the floor under where each hung, as a list, a range or a summary
 
 Calls: no execute_script
 
-Play: none
+Play: 3 s

@@ -193,6 +193,23 @@ cancel), `README.md`'s list and count, `test_project/outcomes.md` (the new outco
 - **The finished job's result is lost when the next job starts:** accepted and documented; `get_job` reads it until
   then.
 
+## Build notes
+
+Where the work departed from the plan, and what only a live run shows.
+
+- **A script's result** is `{"return_value"}`, and every ended job carries its `output` (each stream's last 200 lines
+  and its count), so a failed or cancelled job keeps its prints too; `get_job` shows what the plan describes.
+- **A top-level `return`** runs inside a coroutine function built from the script's own syntax tree, not the indented
+  text, so its lines keep their numbers too. Tracebacks still name the script `<string>`, as `exec()` did.
+- **The router** puts itself back at the end of a call or a job whose script replaced `sys.stdout` or `sys.stderr`,
+  as the old swap put Kit's stream back, reads as no terminal while a task has a sink, and installs nothing after the
+  shutdown (code review, F1 and F3). Kit 110 imports an extension's modules afresh when it is turned on again, so a
+  new start begins open.
+- **O7** plays 3 s after the agent (code review, G1): the runner's settle stops the timeline before each judge, and a
+  stop puts every crate back where it hung. **To check live:** whether `physics:kinematicEnabled` set to false during
+  a play survives that stop, so the runner's play drops the crates released. If a stop puts it back too, O7 can't
+  pass as written.
+
 ## Plan review
 
 ### Fit
