@@ -111,5 +111,17 @@ On my headless Isaac Sim 6.2.0 (Kit 110.4.0) at 8212, with this branch's extensi
   false on all 150 and the crates checked on the floor, 0.2 mm from where they hung. The two `execute_script` calls
   only read: the timeline's end time and looping, before a 450 s job, and the 150 bodies' poses from PhysX.
 
+- **After the rebase onto `7d30015`** (#156's `get_performance`, #159's Z-up `new_scene`, #163, #168), O7's Given
+  moved to a Z-up floor (`72e3875`): with another session's windowed Isaac Sim on the GPU, 211 passed and 2 failed
+  on Z-up and on Y-up. `test_15_07` and `test_15_08` time a spin by the wall clock and turned 4.44 and 3.46 degrees
+  against 5; `TestGetPerformance`'s heavier-stage test read 15.78 against 12.02 ms. With that sim gone, 212 passed
+  and `TestGetPerformance` failed alone (20.63 against 8.01 ms after a capture). Run three times each, alternating
+  `main`'s extension and this branch's on one machine, that test failed once on each (filed as #175), and phase 15
+  passed in #155's runs under the lighter load, so neither is this change's. O7 on the Z-up floor (run
+  `20261102-211224`): WARN for its Calls line alone (three short reads); one job of 8 min 1 s, the GPU shared,
+  released the 150 crates in order, 3.02 s of simulation apart, each within 1 mm of its place on the floor.
+- **The rebase onto #155's merge** (`8f3c401`) met conflicts in `AGENTS.md` and `docs/ARCHITECTURE.md` alone; the
+  gate passed on it, and the next live run, #157's, runs both.
+
 **What it couldn't show:** Kit 107 (Isaac Sim 5.1 fails in its own start-up on this machine), and whether
 `on_shutdown` runs before Kit's scripting shutdown under `fastShutdown`.
