@@ -18,10 +18,8 @@ from ._bridge import bridge_call
 if TYPE_CHECKING:
     from omniverse_mcp.server import Helpers
 
-# The most shots one sweep takes, as the Kit extension holds it.
+# The most shots one sweep takes, as the Kit extension holds it (tests/test_sweep.py pins the two together).
 MAX_SHOTS = 2000
-# How many shot numbers a line names before it says how many more.
-SHOWN = 10
 
 Point = Annotated[list[float], Field(min_length=3, max_length=3)]
 
@@ -45,7 +43,9 @@ class Shot(BaseModel):
         None, description="A camera of the stage to render through as it is, instead of a position and a lens"
     )
     focal_length: float | None = Field(None, gt=0, description="Millimetres; Kit's own camera's 18.15 when left out")
-    horizontal_aperture: float | None = Field(None, gt=0, description="Millimetres; 20.955 when left out")
+    horizontal_aperture: float | None = Field(
+        None, gt=0, description="Millimetres; 20.955, or fitted to vertical_aperture, when left out"
+    )
     vertical_aperture: float | None = Field(
         None, gt=0, description="Millimetres; fitted to the image's shape when left out, refused when it doesn't fit"
     )
@@ -69,7 +69,8 @@ def _read_shots_file(path: str) -> object:
     """A shots file's JSON: a list of shots, or a sweep's manifest, sent to Kit as it is, which checks each shot.
     ToolError when it can't be read or is neither."""
     try:
-        data: object = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+        # utf-8-sig: a file saved by Windows' Notepad or PowerShell may start with a byte order mark.
+        data: object = json.loads(Path(path).expanduser().read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
         raise ToolError(f"Can't read shots_file {path}: {e}") from e
     if isinstance(data, list) or (isinstance(data, dict) and "shots" in data):
@@ -77,23 +78,12 @@ def _read_shots_file(path: str) -> object:
     raise ToolError(f"shots_file {path} holds neither a list of shots nor a sweep's manifest, with its shots")
 
 
-def _numbers(found: list[int]) -> str:
-    shown = ", ".join(str(i) for i in found[:SHOWN])
-    more = f" and {len(found) - SHOWN} more" if len(found) > SHOWN else ""
-    return f"{'shot' if len(found) == 1 else 'shots'} {shown}{more}"
-
-
 def sweep_line(result: dict[str, Any], h: "Helpers") -> str:
-    """A completed sweep as get_job gives it, in one line: `400 shots in mcp_output/sweeps/site_a/ (manifest.json); 2
-    black: shots 12, 13; 1 failed: shot 300`."""
-    asked, done = result.get("asked", 0), result.get("done", 0)
-    count = f"{done} of {asked}" if done < asked else f"{done}"
-    parts = [f"{count} {'shot' if asked == 1 else 'shots'} in {h.rel(result['folder'])}/ (manifest.json)"]
-    for key, what in (("black", "black"), ("failed", "failed"), ("loading", "taken still loading")):
-        found: list[int] = result.get(key) or []
-        if found:
-            parts.append(f"{len(found)} {what}: {_numbers(found)}")
-    return "; ".join(parts)
+    """A completed sweep as get_job gives it, in one line, `400 shots in mcp_output/sweeps/site_a/ (manifest.json); 2
+    black: shots 12, 13; 1 failed: shot 300`: Kit's own summary, its folder named as the server names a file, relative
+    to its working folder when under it."""
+    folder = str(result["folder"]).rstrip("/\\")
+    return str(result["summary"]).replace(f" in {folder}/ (", f" in {h.rel(folder)}/ (", 1)
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
@@ -133,7 +123,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         Kit writes each shot's PNG and a manifest.json, each shot's pose, lens, selections, time and file, into
         mcp_output/sweeps/<name>/. Read it with get_job(id, wait=100): shot 37 of 400 as it goes, then one line naming
         the folder and the shots that came out black or failed. A sweep's manifest.json given as shots_file takes the
-        same shots again, on this scene after a change or on another built from the same spec. Afterwards every
+        same shots again, given the first sweep's width and height, on this scene after a change or on another built
+        from the same spec. Afterwards every
         layer, the timeline and the selections are as they were, after cancel_job too, which keeps the shots taken. A
         time repeats time-sampled animation; Replicator's walking agents move on each update whatever the time, so
         stop the timeline (sim_control) for shots of them that repeat. One size for all the shots; one job runs at a

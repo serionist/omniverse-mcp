@@ -119,7 +119,7 @@ def _job_answer(r: dict[str, Any], h: "Helpers") -> str:
             result: dict[str, Any] = r.get("result") or {}
             script = r["kind"] == "script"
             value = result.get("return_value") if script else result
-            if r["kind"] == "sweep" and "folder" in result:
+            if r["kind"] == "sweep" and "summary" in result:
                 # One line, where 400 shots' entries would fill the context: the manifest holds them.
                 head.append(f"Result: {sweep_line(result, h)}")
             elif value is None:

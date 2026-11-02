@@ -3309,8 +3309,8 @@ aim(camera.GetPrim(), Gf.Vec3d(*EYE), Gf.Vec3d(*TARGET), stage.GetRootLayer())
 result = str(camera.GetPath())
 """
 
-# Two PNGs on Kit's machine, A and B: each one's size, and the mean absolute difference of their pixels, 0 to 255, in
-# the channel where it is largest.
+# Two PNGs on Kit's machine, A and B: each one's size, the mean absolute difference of their pixels, 0 to 255, in the
+# channel where it is largest, and the share of pixels whose largest channel's difference passes LEVEL.
 _PNG_DIFF = """
 import numpy as np
 from PIL import Image
@@ -3324,11 +3324,17 @@ a, b = load(A), load(B)
 result = {
     "sizes": [[a.shape[1], a.shape[0]], [b.shape[1], b.shape[0]]],
     "mean": float(np.abs(a - b).mean(axis=(0, 1)).max()) if a.shape == b.shape else None,
+    "changed": float((np.abs(a - b).max(axis=2) > LEVEL).mean()) if a.shape == b.shape else None,
 }
 """
 
 # Twins of an unchanged stage: the mean absolute difference under this, of 255, in each channel (plan, Tests).
 _TWIN_TOLERANCE = 2.0
+# Two pictures that render apart: a share of their pixels, 0.2% of the frame (about 1,800 pixels at 1280 x 720), each
+# changed by more than 16 of 255, where a render's own noise between twins moves the mean about 0.07 (#51's E14). The
+# whole frame's mean would miss a cube or a walker that fills a small part of it.
+_CHANGED_LEVEL = 16
+_APART = 0.002
 _SWEEP_STARTED = re.compile(r"Sweep (j\d+) started")
 
 
@@ -3392,10 +3398,18 @@ class _SweepChecks(unittest.TestCase):
     def _manifest(self, folder: Path) -> dict[str, Any]:
         return json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
 
-    def _diff(self, a: Path, b: Path) -> float:
-        found = self._run(_PNG_DIFF, A=str(a), B=str(b))
+    def _compare(self, a: Path, b: Path) -> dict[str, Any]:
+        found = self._run(_PNG_DIFF, A=str(a), B=str(b), LEVEL=_CHANGED_LEVEL)
         self.assertEqual(found["sizes"][0], found["sizes"][1], f"{a.name} and {b.name} differ in size")
-        return found["mean"]
+        return found
+
+    def _diff(self, a: Path, b: Path) -> float:
+        """The mean difference of two pictures, for twins."""
+        return self._compare(a, b)["mean"]
+
+    def _changed(self, a: Path, b: Path) -> float:
+        """The share of pixels two pictures differ in, for pictures that should render apart."""
+        return self._compare(a, b)["changed"]
 
 
 class TestCaptureSweep(_SweepChecks):
@@ -3484,7 +3498,7 @@ class TestCaptureSweep(_SweepChecks):
         files = [folder / e["file"] for e in entries]
         for pose, (opened, closed, start) in (("pose", files[0:3]), ("camera", files[3:6])):
             # The switch rendered, and a shot that names no set shows the start's state, closed.
-            self.assertGreater(self._diff(opened, closed), _TWIN_TOLERANCE, f"{pose}: open and closed render alike")
+            self.assertGreater(self._changed(opened, closed), _APART, f"{pose}: open and closed render alike")
             self.assertLess(self._diff(closed, start), _TWIN_TOLERANCE, f"{pose}: the start's state isn't closed")
         camera_entry = entries[3]
         self.assertEqual(camera_entry["camera_path"], self.CAMERA)
@@ -3571,6 +3585,10 @@ _AGENT_CONFIG = """isaacsim.replicator.agent:
               - 10.0
               navigation_areas: []
 """
+_AGENT_API = """
+import importlib.util
+result = importlib.util.find_spec("isaacsim.replicator.agent.core.api") is not None
+"""
 _AGENT_SETUP = """
 from isaacsim.replicator.agent.core import api
 if not api.load_config_file(CONFIG):
@@ -3598,10 +3616,27 @@ class TestCaptureSweepAgents(_SweepChecks):
         time.sleep(seconds)
         self.assertEqual(self.client.sim_control("pause")["status"], "success")
 
+    def _was_on(self) -> bool:
+        listed = self.client.extensions_list(search=self.EXTENSION)
+        self.assertEqual(listed["status"], "success", listed.get("error"))
+        return any(e["enabled"] and e["name"] == self.EXTENSION for e in listed["result"]["extensions"])
+
+    def _leave(self, was_on: bool) -> None:
+        """The stage as the class leaves it, and the extension off again when the test turned it on."""
+        self.client.sim_control("stop")
+        self.slow.new_scene()
+        if not was_on:
+            self.client.extensions_manage(self.EXTENSION, "disable")
+
     def test_a_stopped_timeline_repeats_an_agent_and_a_time_doesn_t(self):
+        was_on = self._was_on()
         enabled = self.client.extensions_manage(self.EXTENSION, "enable")
         if enabled.get("status") != "success" or not enabled["result"]["enabled"]:
             self.skipTest(f"this Kit app has no {self.EXTENSION}")
+        self.addCleanup(self._leave, was_on)
+        # Isaac Sim 5.1's agents (0.7) have no api module, nor this config's form.
+        if not self._run(_AGENT_API):
+            self.skipTest(f"this Kit app's {self.EXTENSION} has no api module")
         output = self._output_folder()
         config = output / "agents.yaml"
         config.write_text(_AGENT_CONFIG, encoding="utf-8", newline="\n")
@@ -3632,11 +3667,11 @@ class TestCaptureSweepAgents(_SweepChecks):
         self._play(3.0)
         second = self._ended(self._sweep({"shots": [timed], "name": "seek2"}, output))
         self.assertEqual([first["state"], second["state"]], ["completed", "completed"])
-        sought = self._diff(*(output / "sweeps" / n / "0001.png" for n in ("seek1", "seek2")))
+        sought = self._changed(*(output / "sweeps" / n / "0001.png" for n in ("seek1", "seek2")))
 
         self.assertLess(still, _TWIN_TOLERANCE, f"a stopped timeline's agent differs by {still:.3f} of 255")
-        self.assertGreater(sought, _TWIN_TOLERANCE, f"a time brought the agent back: {sought:.3f} of 255 apart")
-        print(f"  stopped twins {still:.3f} of 255 apart; the same time after the agent walked {sought:.3f}")
+        self.assertGreater(sought, _APART, f"a time brought the agent back: {sought:.2%} of the pixels changed")
+        print(f"  stopped twins {still:.3f} of 255 apart; the same time after the agent walked, {sought:.2%} changed")
 
 
 class TestColdCook(unittest.TestCase):

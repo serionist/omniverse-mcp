@@ -1062,9 +1062,10 @@ A robot's front camera, 0.65 m up, looking along +Y with a 7.337 mm lens, a dock
 - **Checked first:** every shot, before anything changes: a pose given one way, numbers where numbers go, the
   apertures against the image, and each variant of a prim on the stage now. A field a shot hasn't got, such as
   `focal_lenght`, is refused. The answer names each shot at fault by its number from 1, the first ten.
-- **Each shot,** in turn: its selections written where they differ from what the last shot wrote; after a switch,
-  up to 20 s while the stage loads what it brought in (a shot taken still loading says so); its time; its camera;
-  20 frames of the render, and the picture. A shot holds the viewport for at most 30 s, one shot at a time, so a
+- **Each shot,** in turn: its selections written where they differ from what the last shot wrote, outermost first,
+  so one shot can open an area and choose its door's colour, a set inside the area's variant, and a set it doesn't
+  name back to what it was before the sweep; after a switch, up to 20 s while the stage loads what it brought in (a
+  shot taken still loading says so); its time; its camera; 20 frames of the render, and the picture. A shot holds the viewport for at most 30 s, one shot at a time, so a
   `capture_viewport` or `inspect_prim` called meanwhile runs between two shots.
 - **A shot that fails,** such as a selection refused at its shot or a `camera_path` with no camera after its switch,
   is in the manifest with why, and the sweep goes on. A render that gives no frame in a shot's 30 s ends the sweep.
@@ -1087,9 +1088,10 @@ the seconds it waited for loading, or its `error`. A `camera_path` shot's entry 
 and pitch (not its roll), focal length, apertures (the vertical one as Kit renders it, matched to the image's shape)
 and clipping range.
 
-**Taking a sweep again:** give its `manifest.json` as `shots_file`, after a change or on a second scene built from the
-same spec. A `camera_path` shot is taken from the pose and lens it rendered with, so the second scene needn't have the
-camera. The same shots on an unchanged stage give the same pictures within a small difference (the live suite holds
+**Taking a sweep again:** give its `manifest.json` as `shots_file`, with the first sweep's `width` and `height`, after
+a change or on a second scene built from the same spec; a manifest taken at another size is refused, naming its own,
+since its lenses fit that size. A `camera_path` shot is taken from the pose and lens it rendered with, so the second
+scene needn't have the camera. The same shots on an unchanged stage give the same pictures within a small difference (the live suite holds
 the mean under 2 of 255 a channel), for content that stands still or is time-sampled.
 
 > **Replicator's walking agents** move on each update from a seeded routine, whatever the timeline's time, so a

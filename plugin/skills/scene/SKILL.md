@@ -63,7 +63,8 @@ of its variant states, use `capture_sweep`: one call, where `capture_viewport` c
    `manifest.json` says which shot each is, with its pose, lens and selections.
 3. **Again, after a change** or on a second scene built from the same spec:
    `capture_sweep(shots_file="mcp_output/sweeps/site_a/manifest.json", name="site_a_2")` takes the same shots,
-   so the pictures compare one for one.
+   so the pictures compare one for one. Give the first sweep's `width` and `height` too: a manifest is taken again
+   at its own size, and another is refused.
 
 Every layer, the session layer's selections and the timeline are as they were afterwards, after `cancel_job` too.
 

@@ -2821,39 +2821,22 @@ def test_get_job_gives_another_kind_s_result_whole(bridge: MockIsaacServer, tmp_
     assert 'Result:\n{\n  "manifest": "shots/manifest.json"\n}' in _job_text(bridge, tmp_path, other)
 
 
-def _sweep_result(folder: str, **fields: Any) -> dict[str, Any]:
-    return {
-        "folder": folder,
-        "manifest": f"{folder}/manifest.json",
-        "asked": 400,
-        "done": 400,
-        "taken": 399,
-        "black": [],
-        "failed": [],
-        "loading": [],
-        **fields,
-    }
-
-
 def test_get_job_gives_a_sweep_s_result_in_one_line_naming_its_folder(bridge: MockIsaacServer, tmp_path: Path):
     folder = str(tmp_path / "sweeps" / "site_a")
-    result = _sweep_result(folder, black=[12, 13], failed=[300], loading=list(range(1, 15)))
-    done = _job("completed", kind="sweep", result=result, output=_no_output(), last=f"400 shots in {folder}/")
+    # Kit's own line, its folder as Kit wrote it.
+    summary = (
+        f"400 shots in {folder}/ (manifest.json); 2 black: shots 12, 13; 1 failed: shot 300; 14 taken still loading: "
+        "shots 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 and 4 more"
+    )
+    result = {"folder": folder, "manifest": f"{folder}/manifest.json", "asked": 400, "done": 400, "summary": summary}
+    done = _job("completed", kind="sweep", result=result, output=_no_output(), last=summary)
 
     text = _job_text(bridge, tmp_path, done)
 
     # The folder as every file the tools name: relative to the server's working folder when under it.
     shown = Helpers(str(tmp_path)).rel(folder)
-    assert text.endswith(
-        f"Result: 400 shots in {shown}/ (manifest.json); 2 black: shots 12, 13; 1 failed: shot 300; "
-        "14 taken still loading: shots 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 and 4 more"
-    )
+    assert text.endswith(f"Result: {summary.replace(folder, shown)}")
     assert "Result:\n{" not in text
-
-
-def test_get_job_says_a_sweep_that_stopped_short_took_so_many_of_so_many(bridge: MockIsaacServer, tmp_path: Path):
-    done = _job("completed", kind="sweep", result=_sweep_result(str(tmp_path), done=37), output=_no_output())
-    assert "Result: 37 of 400 shots in " in _job_text(bridge, tmp_path, done)
 
 
 # ----- capture_sweep (#157) -----
@@ -2881,6 +2864,18 @@ def _sweep_started(bridge: MockIsaacServer, tmp_path: Path) -> None:
     folder = str(tmp_path / "sweeps" / "x")
     answer = {"id": "j5", "kind": "sweep", "folder": folder, "shots": 1, "width": 1280, "height": 720}
     bridge.set_response("/jobs/sweep", {"status": "success", "result": answer})
+
+
+def test_capture_sweep_reads_a_shots_file_that_starts_with_a_byte_order_mark(bridge: MockIsaacServer, tmp_path: Path):
+    # As Windows' Notepad and PowerShell's Out-File save UTF-8.
+    path = tmp_path / "shots.json"
+    path.write_bytes(b"\xef\xbb\xbf" + json.dumps([{"position": [0, 0, 1], "yaw": 0}]).encode())
+    _sweep_started(bridge, tmp_path)
+
+    erred, text, calls = _call(bridge, tmp_path, "capture_sweep", {"shots_file": str(path), "name": "x"})
+
+    assert not erred, text
+    assert calls[0][1]["shots"] == [{"position": [0, 0, 1], "yaw": 0}]
 
 
 @pytest.mark.parametrize(
