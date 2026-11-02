@@ -3,6 +3,7 @@ sink, and the rest to the stream beneath as before; it passes the stream's other
 StreamInterceptor does, and comes off at shutdown (round 1, P1)."""
 
 import asyncio
+import contextlib
 import copy
 import io
 import sys
@@ -167,12 +168,44 @@ def test_uninstall_puts_the_streams_back(streams):
     output.uninstall()
 
     assert (sys.stdout, sys.stderr) == (out, err)
-    # The next start, a fresh import of the module as Kit makes it, installs a router of its own over Kit's stream,
-    # never over the last.
-    output._state.closed = False
+    output.install()
+    assert sys.stdout is out, "nothing installs after the shutdown"
+    # The next start installs a router of its own over Kit's stream, never over the last, though Kit didn't import
+    # the module afresh.
+    output.reopen()
     output.install()
     assert isinstance(sys.stdout, output.Router)
     assert sys.stdout.beneath is out
+
+
+def test_a_call_that_overlaps_a_job_s_redirect_puts_back_the_router_over_kit_s_stream(streams):
+    # The job redirects its prints across an await; a call starts meanwhile, so its router goes over the job's buffer,
+    # and ends after the redirect has. The router over Kit's stream comes back, not the one over the dead buffer.
+    out, _ = streams()
+
+    async def job() -> None:
+        with output.collect(output.Printed()), contextlib.redirect_stdout(io.StringIO()):
+            await asyncio.sleep(0.02)
+
+    async def call() -> output.Printed:
+        await asyncio.sleep(0.01)
+        with output.collect(output.Printed()) as printed:
+            await asyncio.sleep(0.03)
+            print("from the call")
+        return printed
+
+    async def main() -> tuple[object, output.Printed]:
+        output.install()
+        first = sys.stdout
+        _, printed = await asyncio.gather(job(), call())
+        return first, printed
+
+    first, printed = asyncio.run(main())
+
+    assert sys.stdout is first
+    assert printed.text(output.STDOUT) == "from the call\n"
+    print("Kit's own print")
+    assert out.getvalue() == "Kit's own print\n"
 
 
 def test_a_router_under_another_stream_passes_everything_on_after_uninstall(streams):

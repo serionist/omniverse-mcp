@@ -320,7 +320,7 @@ def reset_output() -> None:
     from ovmcp.core import output
 
     output.uninstall()
-    output._state.closed = False
+    output.reopen()
 
 
 @pytest.fixture

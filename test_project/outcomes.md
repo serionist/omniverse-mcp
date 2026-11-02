@@ -258,7 +258,7 @@ Verify:
   z = -4.2 + 0.6 (i div 10); check at least Crate_000, Crate_074 and Crate_149. The runner stops the timeline before
   the judge, which puts every crate back where it hung, then plays 3 s, which drops each crate that was released
 - The crates were released one at a time, in order, each after the one before had 3 s of simulation: from the
-  assistant's calls, where a job's code is cut to 600 characters, and from what the job printed, which `get_job()`
+  assistant's calls, where a job's code is cut to 4,000 characters, and from what the job printed, which `get_job()`
   gives once it has finished, each stream's last 200 lines. Some 450 s of simulation in all, minutes at any speed
   Kit runs, more than one `execute_script` call's 120 s
 - The answer says where they came to rest: on the floor under where each hung, as a list, a range or a summary

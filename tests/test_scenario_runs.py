@@ -1037,6 +1037,22 @@ def test_the_judges_prompt_holds_the_request_the_verify_lines_and_what_the_agent
     assert "The timeline is stopped" in scenarios.judge_prompt(_case(), outcome(), [], 8212)
 
 
+def test_the_judge_gets_a_job_s_script_longer_than_other_calls_arguments():
+    # A judge confirms a job's order and timing from its code (#158), which ran past 600 characters in O7's run.
+    script = json.dumps({"code": "await step()\n" * 400})
+    agent = outcome("Done.")
+    agent.calls = [
+        {"name": "run_script_job", "input": script, "answer": "Job j1 started"},
+        {"name": "execute_script", "input": script, "answer": ""},
+    ]
+
+    text = scenarios.judge_prompt(_case(), agent, [], 8212)
+
+    assert f"1. run_script_job {script[:4000]} [... {len(script) - 4000} more characters]" in text
+    assert f"2. execute_script {script[:600]} [... {len(script) - 600} more characters]" in text
+    assert "a run_script_job's arguments to 4000" in text
+
+
 def test_prepare_stage_makes_a_new_stage_lit_by_its_own_lights_then_runs_the_given(kit):
     scenarios.prepare_stage(kit.port, _case(given="print(1)\n"))
     asked = [(path, body) for _, path, body in kit.requests if path != "/bridge"]  # the client's handshake

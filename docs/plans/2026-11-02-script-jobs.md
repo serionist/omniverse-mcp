@@ -201,14 +201,17 @@ Where the work departed from the plan, and what only a live run shows.
   and its count), so a failed or cancelled job keeps its prints too; `get_job` shows what the plan describes.
 - **A top-level `return`** runs inside a coroutine function built from the script's own syntax tree, not the indented
   text, so its lines keep their numbers too. Tracebacks still name the script `<string>`, as `exec()` did.
-- **The router** puts itself back at the end of a call or a job whose script replaced `sys.stdout` or `sys.stderr`,
-  as the old swap put Kit's stream back, reads as no terminal while a task has a sink, and installs nothing after the
-  shutdown (code review, F1 and F3). Kit 110 imports an extension's modules afresh when it is turned on again, so a
-  new start begins open.
+- **The router** over Kit's own stream, the first it installed, is put back at the end of a call or a job when
+  something replaced it, as the old swap put Kit's stream back; not the block's own router, which may be one over
+  another task's redirect, since gone (code review, F1 and F4). It reads as no terminal while a task has a sink, and
+  installs nothing between the shutdown and the next start (F3), which reopens it in case Kit didn't import the
+  module afresh, as Kit 110 does.
 - **O7** plays 3 s after the agent (code review, G1): the runner's settle stops the timeline before each judge, and a
-  stop puts every crate back where it hung. **To check live:** whether `physics:kinematicEnabled` set to false during
-  a play survives that stop, so the runner's play drops the crates released. If a stop puts it back too, O7 can't
-  pass as written.
+  stop puts every crate back where it hung. Checked live on Isaac Sim 6.2: a stop leaves `physics:kinematicEnabled`
+  as the script set it, so the runner's play drops the crates released; run 20261102-200045's agent ran one job of
+  4 min 6 s that released all 150 in order, 3.00 s apart, and its judge found them on the floor.
+- **`get_job`** keeps its summary inline and writes only its long part to a file, as `get_mesh_stats` does: with the
+  whole answer in a file, the live test found no state in the answer.
 
 ## Plan review
 

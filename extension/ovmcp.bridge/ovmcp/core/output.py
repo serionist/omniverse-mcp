@@ -87,9 +87,8 @@ class Router:
 
 
 class _State:
-    """The routers this module put over the streams, which uninstall turns off; and whether the extension shut down,
-    after which nothing is installed or put back. Kit imports the extension's modules afresh when it is turned on
-    again, so a new start begins open."""
+    """The routers this module put over the streams, in the order it put them, which uninstall turns off; and whether
+    the extension shut down, after which nothing is installed or put back until reopen()."""
 
     def __init__(self) -> None:
         self.installed: list[Router] = []
@@ -99,32 +98,32 @@ class _State:
 _state = _State()
 
 
-def install() -> dict[str, Router]:
-    """Puts a router over sys.stdout and over sys.stderr, unless one of this module's is there already, and returns
-    the router over each. Nothing after the shutdown: a request still in flight then resumes, and a router it put over
-    Kit's stream would outlive the extension (round 1, P1)."""
+def install() -> None:
+    """Puts a router over sys.stdout and over sys.stderr, unless one of this module's is there already. Nothing after
+    the shutdown: a request still in flight then resumes, and a router it put over Kit's stream would outlive the
+    extension (round 1, P1)."""
     if _state.closed:
-        return {}
-    routers: dict[str, Router] = {}
+        return
     for name in (STDOUT, STDERR):
         current = getattr(sys, name)
         if not isinstance(current, Router):
-            current = Router(name, cast("TextIO", current))
-            _state.installed.append(current)
-            setattr(sys, name, current)
-        routers[name] = current
-    return routers
+            router = Router(name, cast("TextIO", current))
+            _state.installed.append(router)
+            setattr(sys, name, router)
 
 
-def _put_back(routers: dict[str, Router]) -> None:
-    """The routers over the streams again, where a script replaced one with its own, such as io.StringIO() or
-    sys.__stdout__: left in place, the replacement took what Kit itself printed, and the next call's router went over
-    it, where /execute's old swap put Kit's stream back at its end. Nothing after the shutdown."""
+def _put_back() -> None:
+    """The router over Kit's own stream, the first this module installed for each, in its place again where something
+    else is there: a script that replaced sys.stdout with its own stream, such as io.StringIO() or sys.__stdout__, left
+    it taking what Kit itself printed, where /execute's old swap put Kit's stream back at its end. Not a block's own
+    router, which may be one installed over another task's redirect, since gone (code review, F4). Nothing after the
+    shutdown."""
     if _state.closed:
         return
-    for name, router in routers.items():
-        if getattr(sys, name) is not router:
-            setattr(sys, name, router)
+    for name in (STDOUT, STDERR):
+        first = next((router for router in _state.installed if router.stream == name), None)
+        if first is not None and getattr(sys, name) is not first:
+            setattr(sys, name, first)
 
 
 def uninstall() -> None:
@@ -142,16 +141,22 @@ def uninstall() -> None:
     _state.installed.clear()
 
 
+def reopen() -> None:
+    """At the extension's start: routers may be installed again. Kit imports the extension's modules afresh when it
+    is turned on again, which starts this module open; this holds it open where Kit didn't."""
+    _state.closed = False
+
+
 @contextmanager
 def collect(sink: S) -> Generator[S]:
     """While the block runs, what this task prints, and the tasks and callbacks it starts meanwhile, goes to `sink`.
     The sink is closed when the block ends, so a task it left running prints to the stream beneath, as it did before
-    #158, not into a sink nobody reads; and a router the block's code replaced is put back."""
-    routers = install()
+    #158, not into a sink nobody reads; and the router over Kit's stream is put back if something replaced it."""
+    install()
     token = _sink.set(sink)
     try:
         yield sink
     finally:
         sink.closed = True
         _sink.reset(token)
-        _put_back(routers)
+        _put_back()

@@ -89,6 +89,8 @@ class _CarbLog:
 class Extension(omni.ext.IExt):
     def on_startup(self, ext_id: str):
         self._server = None
+        # The last shutdown closed the output router's module; open it again in case Kit didn't import it afresh.
+        output.reopen()
         set_extension_version(version_from_ext_id(ext_id))
         settings = carb.settings.get_settings()
         prefix = f"/exts/{EXTENSION_NAME}"
