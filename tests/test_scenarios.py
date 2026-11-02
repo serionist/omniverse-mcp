@@ -2371,15 +2371,22 @@ class TestScenarios(PhysicsChecks):
         self._pass()
 
     def test_17_02_new_scene(self):
-        """Phase 17.2: Create New Scene (destructive - runs last)"""
-        r = self.c.new_scene()
-        self.assertEqual(r["status"], "success")
+        """Phase 17.2: Create New Scene, in a frame asked for and then in the default, Z-up in metres (#159); each
+        answered as the stage reads back"""
+        for kwargs, frame in (({"up_axis": "Y", "meters_per_unit": 0.01}, ("Y", 0.01)), ({}, ("Z", 1.0))):
+            r = self.c.new_scene(**kwargs)
+            self.assertEqual(r["status"], "success", r)
+            # An answer without the frame would make every new_scene warn of an older extension.
+            self.assertEqual((r["result"]["up_axis"], r["result"]["meters_per_unit"]), frame)
+            state = self.c.sim_state()
+            self.assertEqual(state["status"], "success", state)
+            self.assertEqual((state["result"]["up_axis"], state["result"]["meters_per_unit"]), frame)
         time.sleep(0.5)
 
         # Verify /World exists
         tree = self.c.scene_tree("/World", 1)
         self.assertEqual(tree["status"], "success")
-        print("  New scene created with /World")
+        print("  New scenes made Y-up in centimetres, then Z-up in metres, with /World")
         self._pass()
 
     def test_17_03_draw_debug_forgets_the_old_stage(self):
@@ -2470,7 +2477,9 @@ class TestScenarios(PhysicsChecks):
         since = entries[-1]["index"] if entries else -1
         self._segmented_capture()
         self._segmented_capture()
-        self.assertEqual(self.c.new_scene()["status"], "success")
+        # Phase 17's last new stage: Y-up, so a second run of the suites starts on Y where a first starts on Isaac
+        # Sim's own Z-up stage, and every later phase reads the axis (#6, #159).
+        self.assertEqual(self.c.new_scene(up_axis="Y")["status"], "success")
         time.sleep(0.5)
         self._segmented_capture()
         time.sleep(2.0)
@@ -2694,8 +2703,9 @@ class TestScenarios(PhysicsChecks):
 
     def test_25_03_async_create_and_query(self):
         """Phase 25.3: Async Create and Query"""
+        up = self._up_axis()
         r = self.c.execute(
-            "await mcp.create_prim('/World/McpTestCube', 'Cube', position=[0, 1, 0])\n"
+            f"await mcp.create_prim('/World/McpTestCube', 'Cube', position={_along_up(up, 1)!r})\n"
             "bounds = await mcp.prim_bounds('/World/McpTestCube')\n"
             "result = bounds['result']['center']"
         )
@@ -2703,8 +2713,8 @@ class TestScenarios(PhysicsChecks):
         center = r["result"]["return_value"]
         self.assertIsInstance(center, list)
         self.assertEqual(len(center), 3)
-        # Y should be approximately 1.0
-        self.assertAlmostEqual(center[1], 1.0, places=0)
+        # 1 along the up axis, where it was put
+        self.assertAlmostEqual(center[up], 1.0, places=0)
         print(f"  Created + queried: center={center}")
 
         # Clean up
@@ -2775,14 +2785,14 @@ class TestScenarios(PhysicsChecks):
         self._pass()
 
     # ===== Phase 22: Enhanced Inspect Prim =====
-    # Phases 22 to 26 run after 17.2's new_scene, which makes the stage Y-up, so their heights are on Y; run alone on
-    # a Z-up stage they would place things sideways.
 
     INSPECT_TARGET = "/World/InspectTarget"
 
     def test_22_00_create_inspect_target(self):
         """Phase 22.0: Create the prim this phase inspects (no earlier phase leaves one)"""
-        r = self.c.create_prim(self.INSPECT_TARGET, "Cube", position=[0, 0, 1.0], size=0.8, color=[0.8, 0.4, 0.1])
+        r = self.c.create_prim(
+            self.INSPECT_TARGET, "Cube", position=_along_up(self._up_axis(), 1.0), size=0.8, color=[0.8, 0.4, 0.1]
+        )
         self.assertEqual(r["status"], "success")
         self._pass()
 
@@ -2941,7 +2951,7 @@ class TestScenarios(PhysicsChecks):
     def test_26_01_camera_set_immediate_capture(self):
         """Phase 26.1: Camera Set + Immediate Capture (no delay)"""
         # Create something visible
-        self.c.create_prim("/World/SettleCube", "Cube", position=[0, 0.5, 0], scale=[0.5, 0.5, 0.5])
+        self.c.create_prim("/World/SettleCube", "Cube", position=_along_up(self._up_axis(), 0.5), scale=[0.5, 0.5, 0.5])
         self.c.create_prim("/World/SettleLight", "DistantLight", rotation=[45, 0, 0])
         self.c.set_material("/World/SettleCube", color=[1, 0, 0])
         time.sleep(0.5)
@@ -2967,16 +2977,16 @@ class TestScenarios(PhysicsChecks):
 
     def test_26_02_look_at_immediate_capture(self):
         """Phase 26.2: Look At + Immediate Capture"""
-        self.c.create_prim("/World/SettleTest", "Cube", position=[0, 1, 0], scale=[0.5, 0.5, 0.5])
+        up = self._up_axis()
+        self.c.create_prim("/World/SettleTest", "Cube", position=_along_up(up, 1), scale=[0.5, 0.5, 0.5])
         self.c.create_prim("/World/SettleLight2", "DistantLight", rotation=[45, 0, 0])
         self.c.set_material("/World/SettleTest", color=[0, 1, 0])
         time.sleep(0.5)
 
-        if self._up_axis() == 1:
-            # Scenario 26.2's TestCube, 2 m at (3, 0.5, 0): beside this view on its Y-up stage, it had a box at the
-            # frame's corner (#105). test_integration's test_12i checks either axis.
-            self.c.create_prim("/World/SettleSide", "Cube", position=[3, 0.5, 0], scale=[1, 1, 1])
-            self.addCleanup(self.c.delete_prim, "/World/SettleSide")
+        # Scenario 26.2's TestCube, 2 m at (3, 0.5, 0) on its Y-up stage: beside this view, it had a box at the frame's
+        # corner (#105). On Z the view and the cube are Y's mirror, by TOOLS.md's azimuth convention, so it stays out.
+        self.c.create_prim("/World/SettleSide", "Cube", position=_along_up(up, 0.5, x=3), scale=[1, 1, 1])
+        self.addCleanup(self.c.delete_prim, "/World/SettleSide")
         r = self.c.camera_look_at("/World/SettleTest", azimuth=45, elevation=30)
         self.assertEqual(r["status"], "success")
         # Immediately capture

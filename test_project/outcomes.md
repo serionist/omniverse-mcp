@@ -20,8 +20,7 @@ Each outcome's fields, in this order:
 - **Play:** `none`, or seconds: after the agent, the runner plays the simulation that long and pauses it, so the
   judge reads where physics put things.
 
-`new_scene()` makes a Y-up stage with `/World`; each Given that places things sets the stage to metres first. Heights
-below are along Y.
+`new_scene()` makes a Z-up stage in metres with `/World`, the frame a user's agent gets. Heights below are along Z.
 
 ---
 
@@ -53,15 +52,14 @@ import omni.usd
 from pxr import Gf, UsdGeom, UsdPhysics
 
 stage = omni.usd.get_context().get_stage()
-UsdGeom.SetStageMetersPerUnit(stage, 1.0)
 UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")
 ground = UsdGeom.Cube.Define(stage, "/World/Ground")
 ground.CreateSizeAttr(1.0)
-UsdGeom.XformCommonAPI(ground).SetTranslate(Gf.Vec3d(0.0, -0.05, 0.0))
-UsdGeom.XformCommonAPI(ground).SetScale(Gf.Vec3f(10.0, 0.1, 10.0))
+UsdGeom.XformCommonAPI(ground).SetTranslate(Gf.Vec3d(0.0, 0.0, -0.05))
+UsdGeom.XformCommonAPI(ground).SetScale(Gf.Vec3f(10.0, 10.0, 0.1))
 ball = UsdGeom.Sphere.Define(stage, "/World/Ball")
 ball.CreateRadiusAttr(0.1)
-UsdGeom.XformCommonAPI(ball).SetTranslate(Gf.Vec3d(0.0, 2.0, 0.0))
+UsdGeom.XformCommonAPI(ball).SetTranslate(Gf.Vec3d(0.0, 0.0, 2.0))
 ```
 
 Ask: There's a ball hanging above the ground in my scene. Make it fall onto the ground when the simulation plays,
@@ -126,15 +124,14 @@ import omni.usd
 from pxr import Gf, UsdGeom, UsdPhysics
 
 stage = omni.usd.get_context().get_stage()
-UsdGeom.SetStageMetersPerUnit(stage, 1.0)
 UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")
 floor = UsdGeom.Cube.Define(stage, "/World/Floor")
 floor.CreateSizeAttr(1.0)
-UsdGeom.XformCommonAPI(floor).SetTranslate(Gf.Vec3d(0.0, -0.05, 0.0))
-UsdGeom.XformCommonAPI(floor).SetScale(Gf.Vec3f(6.0, 0.1, 6.0))
+UsdGeom.XformCommonAPI(floor).SetTranslate(Gf.Vec3d(0.0, 0.0, -0.05))
+UsdGeom.XformCommonAPI(floor).SetScale(Gf.Vec3f(6.0, 6.0, 0.1))
 box = UsdGeom.Cube.Define(stage, "/World/Box")
 box.CreateSizeAttr(0.5)
-UsdGeom.XformCommonAPI(box).SetTranslate(Gf.Vec3d(0.0, 1.0, 0.0))
+UsdGeom.XformCommonAPI(box).SetTranslate(Gf.Vec3d(0.0, 0.0, 1.0))
 UsdPhysics.RigidBodyAPI.Apply(box.GetPrim())
 UsdPhysics.CollisionAPI.Apply(box.GetPrim())
 ```
@@ -159,7 +156,6 @@ import omni.usd
 from pxr import Gf, UsdGeom, UsdLux
 
 stage = omni.usd.get_context().get_stage()
-UsdGeom.SetStageMetersPerUnit(stage, 1.0)
 
 
 def box(path, size, at, colour):
@@ -171,17 +167,19 @@ def box(path, size, at, colour):
     UsdGeom.XformCommonAPI(made).SetScale(Gf.Vec3f(*size))
 
 
-box("/World/Floor", (6.0, 0.02, 6.0), (0.0, -0.01, 0.0), (0.25, 0.25, 0.25))
+box("/World/Floor", (6.0, 6.0, 0.02), (0.0, 0.0, -0.01), (0.25, 0.25, 0.25))
 UsdGeom.Xform.Define(stage, "/World/Table")
 wood = (0.55, 0.35, 0.18)
-box("/World/Table/Top", (1.2, 0.05, 0.8), (0.0, 0.75, 0.0), wood)
-for i, (x, z) in enumerate([(-0.55, -0.35), (0.55, -0.35), (-0.55, 0.35), (0.55, 0.35)]):
-    box(f"/World/Table/Leg{i}", (0.05, 0.725, 0.05), (x, 0.3625, z), wood)
-box("/World/Table/Book", (0.2, 0.04, 0.3), (0.35, 0.795, 0.15), (0.1, 0.25, 0.75))
+box("/World/Table/Top", (1.2, 0.8, 0.05), (0.0, 0.0, 0.75), wood)
+for i, (x, y) in enumerate([(-0.55, -0.35), (0.55, -0.35), (-0.55, 0.35), (0.55, 0.35)]):
+    box(f"/World/Table/Leg{i}", (0.05, 0.05, 0.725), (x, y, 0.3625), wood)
+box("/World/Table/Book", (0.2, 0.3, 0.04), (0.35, 0.15, 0.795), (0.1, 0.25, 0.75))
 UsdLux.DomeLight.Define(stage, "/World/Sky").CreateIntensityAttr(1000.0)
 sun = UsdLux.DistantLight.Define(stage, "/World/Sun")
 sun.CreateIntensityAttr(3000.0)
-UsdGeom.XformCommonAPI(sun).SetRotate(Gf.Vec3f(-50.0, 30.0, 0.0))
+# A light shines along its own -Z, straight down on a Z-up stage: this tilts it to 50 degrees above the horizon, so
+# it lights the table's top and its sides.
+UsdGeom.XformCommonAPI(sun).SetRotate(Gf.Vec3f(-40.0, 0.0, -30.0))
 ```
 
 Ask: Show me the table at /World/Table from above and from the side.

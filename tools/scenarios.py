@@ -426,7 +426,8 @@ def prompt(suite: Suite, session: Session, statuses: Mapping[str, str], run_dir:
     run = run_dir.as_posix()
     lines = [f"You are the scenario tester for the Omniverse MCP. The Kit app is at port {port}."]
     if session.new_stage:
-        lines.append("This session starts a new stage: call new_scene() before anything else.")
+        # The scenarios' vectors are written for Y-up, and new_scene() alone makes a Z-up stage (#159).
+        lines.append('This session starts a new stage: call new_scene(up_axis="Y") before anything else.')
     needs = session_needs(suite, session)
     if needs:
         seen = ", ".join(f"{n} {statuses.get(n, NOT_RUN)}" for n in needs)
@@ -1555,9 +1556,9 @@ def settle(port: int, connect: Callable[[int], BridgeClient] = connect) -> None:
 
 
 def prepare_stage(port: int, case: OutcomeCase, connect: Callable[[int], BridgeClient] = connect) -> None:
-    """An outcome's stage before its agent: a new one; lit by the stage's own lights alone, since the lighting mode
-    is Kit's setting, which new_scene() leaves as an earlier session set it; then the Given code. An error Kit answers
-    raises BridgeError, and no answer OSError."""
+    """An outcome's stage before its agent: a new one, in the frame new_scene() gives a user's agent, Z-up in metres;
+    lit by the stage's own lights alone, since the lighting mode is Kit's setting, which new_scene() leaves as an
+    earlier session set it; then the Given code. An error Kit answers raises BridgeError, and no answer OSError."""
     client = connect(port)
     try:
         answer(client.new_scene())
