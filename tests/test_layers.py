@@ -515,3 +515,13 @@ def test_a_layer_gone_after_it_is_named_is_passed_over(stage: Usd.Stage, scene: 
     for saving in (False, True):
         assert write_refusal(stage, str(other), saving=saving) is None
     assert refresh_written(stage, str(other)) == []
+
+
+def test_layer_named_gives_the_session_layer_and_the_edit_target(stage: Usd.Stage, scene: Path):
+    sub = Sdf.Layer.FindOrOpen(str(scene.parent / "sub.usda"))
+    stage.SetEditTarget(Usd.EditTarget(sub))
+
+    assert layers.layer_named(stage, "session") == stage.GetSessionLayer()
+    assert layers.layer_named(stage, "edit_target") == sub
+    with pytest.raises(ValueError, match="layer must be session or edit_target, got 'auto'"):
+        layers.layer_named(stage, "auto")

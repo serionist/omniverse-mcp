@@ -84,9 +84,9 @@ values.
 |-----------|------|---------|-------------|
 | `root` | string | `"/"` | Starting prim path |
 | `max_depth` | int | `null` | Levels below `root`, 0 up: 5 when left out, or 15 with properties or a filter |
-| `include_properties` | bool | `false` | Each prim's rotation, world box, applied API schemas, attribute values and relationship targets, written by Kit to `mcp_output/scene_dump.txt` |
+| `include_properties` | bool | `false` | Each prim's rotation, world box, applied API schemas, variant sets, attribute values and relationship targets, written by Kit to `mcp_output/scene_dump.txt` |
 | `filter_types` | list[string] | `null` | Only prims of these types (e.g., `["Mesh", "Xform"]`), written to the file; the others' children are still walked |
-| `property_filter` | list[string] | `null` | Only properties whose names hold one of these (e.g., `["joint"]`), written to the file; it takes the properties with it |
+| `property_filter` | list[string] | `null` | Only properties whose names hold one of these (e.g., `["joint"]`), written to the file; it takes the properties with it. `["variant_sets"]` lists every prim's variant sets |
 
 **The list,** when none of `include_properties`, `filter_types` or `property_filter` is given (an empty list counts as
 not given): each prim's path, type and world position, answered inline, or written to
@@ -100,9 +100,11 @@ holds, which the file's header says too, and how deep it went: `Dumped 120 prims
 bytes) -> mcp_output/scene_dump.txt`. Its blocks don't mark a prim whose children were left out.
 
 - Each block holds the prim's type, world position, rotation, world box and physics flags, and with
-  `include_properties` its applied API schemas, every attribute's value and each relationship's targets, or those
-  `property_filter` names (`api_schemas` counts as a name). An extension of 0.4.1 or older gives no `api_schemas`
-  line and prints every relationship as `<unreadable>`.
+  `include_properties` its applied API schemas, its variant sets, every attribute's value and each relationship's
+  targets, or those `property_filter` names (`api_schemas` and `variant_sets` count as names). An extension of 0.4.1
+  or older gives no `api_schemas` or `variant_sets` line and prints every relationship as `<unreadable>`.
+- **A scene's switches:** `property_filter=["variant_sets"]` gives every prim's `variant_sets` line, `[]` for a prim
+  with none: grep the file for `variant_sets = ` lines that aren't `[]`.
 - `filter_types` alone writes those flags and boxes for the types it names, without attribute values. Over every type
   that form has no call of its own: `include_properties=True` gives the full blocks, `get_prim_bounds` one prim's box.
 - Kit writes the file itself, so with Kit on another machine it lands there. An extension of 0.2.3 or older counts
@@ -120,7 +122,7 @@ many prims' values at once; `get_prim_properties` reads one prim inline.
 ### `get_prim_properties`
 
 Get one prim as a prim block: its type, world position and rotation, world bounding box, physics flags, its applied
-API schemas, every attribute's value, and each relationship with its targets.
+API schemas, its variant sets, every attribute's value, and each relationship with its targets.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -132,14 +134,23 @@ API schemas, every attribute's value, and each relationship with its targets.
   none: `PhysicsCollisionAPI` for a collider, `MaterialBindingAPI` for a bound material, `PhysxRigidBodyAPI` and
   Isaac Sim's own on Isaac Sim. A schema name authored in a file but unknown to the app is left out, as physics
   ignores it too.
+- **`variant_sets`:** each variant set with its selection (`none` when there is none, a blocked one too), its
+  options by name, and the layer holding the selection: `session` (Kit's session layer, where `set_variant_selection`
+  writes by default), `root`, or a file's name; no layer when nothing selects one. `[]` for a prim with no set:
+
+  ```
+  variant_sets = state: open [closed, open] (session); lod: high [high, low] (area_a.usd)
+  ```
+
+  The JSON a script gets from `mcp.prim_properties` gives the same as a list of `{name, selection, options, layer}`.
 - **Relationships:** each with its targets, such as `material:binding = /World/Looks/Red`; one with no targets is left
   out, as an unset attribute is.
 - **`extent`:** a shape that authors none, as `create_prim`'s Cube doesn't, gives the box its size computes, the box
   `get_prim_bounds` measures, marked `(computed: none authored)`: `extent = [(-0.25, -0.25, -0.25), (0.25, 0.25,
   0.25)] (computed: none authored)` for a 0.5 m cube, where the schema's fallback read ±1 whatever its size. A Mesh or
   a sized light (a sphere, rect, disk or cylinder light) without an authored extent has the computed line too.
-- **An older extension,** 0.4.1 or older, lists no schemas and prints every relationship as `<unreadable>`; the answer
-  then ends with a `WARNING:` line and how to install this server's.
+- **An older extension,** 0.4.1 or older, lists no schemas or variant sets and prints every relationship as
+  `<unreadable>`; the answer then ends with a `WARNING:` line and how to install this server's.
 
 The world rotation, `rot`, is a quaternion `w, x, y, z` with any scale and shear taken
 out, so a 45° turn reads as 45° at any scale; a prim scaled to 0 on an axis, or so near it, under about 1e-15 of
@@ -333,6 +344,7 @@ display colour.
 | `prim_path` | string | required | Full USD path of the prim |
 | `name` | string | required | The attribute, as `get_prim_properties` names it, e.g. `"inputs:intensity"` |
 | `value` | bool, number, string or list | required | Its new value: a number, `true` or `false`, a string or token, or a list for a vector, colour or array, e.g. `[1, 0, 0]` |
+| `layer` | `"auto"`, `"session"` or `"edit_target"` | `"auto"` | Where it is written: `auto` as below, `session` Kit's session layer, which no save writes, `edit_target` where edits go |
 
 **Returns:** the prim block's line for the attribute, its value after and before, its type, and the layer written:
 
@@ -357,8 +369,12 @@ written to the stage's root layer
   (`set_prim_transform`), `visibility` (`set_visibility`), matrices, an animated attribute, one a stronger layer holds,
   a size change whose `extent` another layer or an animation holds, a prim inside an instance or a prototype, and an
   inactive prim.
-- **Where it is written:** where edits go, as the other tools write; Kit's own cameras and a viewport light rig's
-  lights, which live in Kit's session layer, are written there, which `save_scene` doesn't keep.
+- **Where it is written:** with `layer="auto"`, where edits go, as the other tools write; Kit's own cameras and a
+  viewport light rig's lights, which live in Kit's session layer, are written there, which `save_scene` doesn't keep.
+  `layer="session"` writes in Kit's session layer for a check that must leave every file as it is, and
+  `layer="edit_target"` where edits go, whatever the prim. No tool takes a session value back: a later write beneath
+  it, at the edit target, is refused, saying so, until the stage is opened again or `execute_script` removes it from
+  the session layer.
 - **A `DistantLight` comes at an intensity of 50,000,** UsdLux's sunlight, which overexposes a viewport capture; a
   few thousand suits one. A physics value set while the simulation plays may reach PhysX only once it stops. Like the
   other edit tools, the write isn't in Kit's undo.
@@ -388,6 +404,13 @@ Write the open stage's root layer to a USD file: back to the stage's own file, o
   it would lose them; one with none is read again after the write, so the next open gets the new file.
 - **Only the root layer** is written: sublayers and referenced files stay as they are, still referenced. For one
   self-contained file, use `flatten_usd`; for one prim's subtree, `export_prim_as_file`.
+- **Kit's session layer stays out,** and the answer names the variant selections it holds, which
+  `set_variant_selection` writes there by default, after the line it saved:
+
+  ```
+  Not in the file: the variant selections in Kit's session layer, /World/Area state=open; to keep one, clear it
+  with set_variant_selection(variant_name="") and select it again with layer="edit_target"
+  ```
 - **The render a capture keeps** ([`capture_viewport`](#capture_viewport)) is let go first, so the file never holds
   it; a capture asked for meanwhile waits for the save. `flatten_usd` and `export_prim_as_file` do the same.
 
@@ -523,8 +546,11 @@ Compare two prims or two variants: mesh counts, bounds, materials.
 **Returns:** Side-by-side stats (faces, vertices, triangles, meshes, bounds, materials), then B minus A, each with
 its own sign, and the change in faces as a percentage when A has faces; from 0 faces it says `A has 0 faces`.
 
-Mode 2 wins when all four of its parameters are given. It switches the selection to each variant in turn, then back to
-the one before. A variant name is not checked: one not in the set measures the prim with none of the set's variants.
+Mode 2 wins when all four of its parameters are given. It switches to each variant in turn in Kit's session layer,
+then puts that layer back exactly as it was, so no file and no selection changes, whatever failed meanwhile. An unknown
+variant set or variant is refused before anything switches, listing those there, and so is a prim inside an instance,
+naming the instance. An extension of 0.4.1 or older switched at the edit target and wrote the old selection back, so a
+selection the file never held became one it holds, and measured an unknown variant as none of the set's.
 
 **When to use:** Checking what a simplified copy or another variant changed. Bounds are measured afresh after each
 variant switch. For one prim's counts, use `get_mesh_stats`.
@@ -595,19 +621,47 @@ Kit's session layer alone, as Kit's own cameras and the viewport's light rig do.
 
 ### `set_variant_selection`
 
-Select a variant in a prim's variant set, and wait until the viewport shows it. The set and the variant must exist:
-an error lists the ones there.
+Select a variant in a prim's variant set, or clear a layer's selection, and wait until the viewport shows it. The
+set and the variant must exist: an error lists the ones there.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prim_path` | string | required | Prim with variant sets |
 | `variant_set` | string | required | Name of the variant set (e.g., `"model"`) |
-| `variant_name` | string | required | Variant to select (e.g., `"shell"`) |
+| `variant_name` | string | required | Variant to select (e.g., `"shell"`); `""` clears the layer's selection, so the one beneath shows again |
+| `layer` | `"session"` or `"edit_target"` | `"session"` | `session`: Kit's session layer, which no save writes; `edit_target`: where edits go, the root layer, which `save_scene` writes, unless Kit's Layer window made a sublayer the edit target |
 
-**Returns:** Old and new selection, available variants.
+**Returns:** where the selection went, what shows, and what the files select beneath it:
 
-**Important:** switch variants with this tool, not `execute_script`: a variant switched in a script can leave the
-old geometry in the viewport, and this tool refreshes it.
+```
+Variant switched in the session layer: /World/Area state=open (the files select closed; save_scene leaves it out of the file)
+Was: closed. Available: closed, open
+```
+
+- **The session layer by default:** a selection there shows at once over what the files select, and `save_scene`,
+  `flatten_usd` and `export_prim_as_file` leave it out, so a check leaves every file as it found it. It lasts until
+  it is cleared (`variant_name=""`) or the stage is opened again; `get_prim_properties` names it, `(session)`, and
+  `save_scene`'s answer lists it.
+- **To keep a selection in the stage's file,** `layer="edit_target"`: it is refused while the session layer holds a
+  selection for that set, which would hide it, so clear that first with `variant_name=""`. The edit target is the
+  root layer, which `save_scene` writes, unless Kit's Layer window made a sublayer the edit target: `save_scene`
+  writes only the root layer, so the answer then names the sublayer and says `save_scene` doesn't write it.
+- **A clear** removes the layer's own selection only: one the layer doesn't hold writes nothing.
+- **An instance prim** takes a selection of its own, and gets a prototype of its own while it differs from the other
+  instances'; the answer's `Note:` says so. A prim inside an instance is refused, naming the instance to switch.
+- **The viewport:** switch variants with this tool, not `execute_script`: with Fabric Scene Delegate on before Kit
+  110 (Isaac Sim 5.x), it makes the prim inactive in the session layer for some 10 app updates, then puts that layer
+  back and waits 30, so the viewport drops the old geometry, which a variant switched in a script can leave on
+  screen; otherwise it waits 5. On Isaac Sim 6.2 a switch shows without the toggle, measured with Fabric Scene
+  Delegate on, so there it makes none. An extension of 0.4.1 or older wrote that toggle at the edit target and left
+  `active = true` in the stage's file.
+- **An older extension,** 0.4.1 or older, takes no `layer` and writes at the edit target, into the stage's file, and
+  refuses a clear (`variant_name=""`) as `variant_name is required`; either answer then ends with a `WARNING:` line
+  and how to install this server's.
+
+**When to use:** to look at a scene in another of its states, for a check or a capture; `get_scene_tree` with
+`property_filter=["variant_sets"]` finds every switch of a scene. `compare_prims` measures two variants and leaves the
+selection as it was.
 
 ---
 

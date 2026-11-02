@@ -390,8 +390,8 @@ class BridgeClient:
     def set_visibility(self, prim_path: str, visible: bool = True) -> dict[str, Any]:
         return self.request("/scene/visibility", {"prim_path": prim_path, "visible": visible})
 
-    def set_attribute(self, prim_path: str, name: str, value: object) -> dict[str, Any]:
-        return self.request("/scene/attribute", {"prim_path": prim_path, "name": name, "value": value})
+    def set_attribute(self, prim_path: str, name: str, value: object, layer: str = "auto") -> dict[str, Any]:
+        return self.request("/scene/attribute", {"prim_path": prim_path, "name": name, "value": value, "layer": layer})
 
     def save_scene(self, file_path: str = "") -> dict[str, Any]:
         body: dict[str, Any] = {}
@@ -603,13 +603,16 @@ class BridgeClient:
     def export_prim(self, prim_path: str, output_path: str) -> dict[str, Any]:
         return self.request("/scene/export", {"prim_path": prim_path, "output_path": output_path})
 
-    def set_variant_selection(self, prim_path: str, variant_set: str, variant_name: str) -> dict[str, Any]:
+    def set_variant_selection(
+        self, prim_path: str, variant_set: str, variant_name: str, layer: str = "session"
+    ) -> dict[str, Any]:
         return self.request(
             "/scene/variant_selection",
             {
                 "prim_path": prim_path,
                 "variant_set": variant_set,
                 "variant_name": variant_name,
+                "layer": layer,
             },
         )
 

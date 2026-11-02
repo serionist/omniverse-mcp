@@ -8,7 +8,7 @@ from typing import cast
 import pytest
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdShade, Vt
 
-from ovmcp.core.attribute import attribute_refusal, convert, set_attribute, shown, target_layer
+from ovmcp.core.attribute import attribute_refusal, chosen_layer, convert, set_attribute, shown, target_layer
 from ovmcp.core.bounds import world_bbox
 
 
@@ -319,6 +319,46 @@ def test_a_stray_bare_session_over_on_a_user_s_prim_doesn_t_send_its_write_to_th
 
     assert written.layer.identifier == stage.GetRootLayer().identifier
     assert lamp.GetAttribute("inputs:intensity").Get() == 30.0
+
+
+@pytest.mark.parametrize(("choice", "layer"), [("session", "session"), ("edit_target", "root"), ("auto", "root")])
+def test_the_layer_choice_picks_the_layer_written(stage, choice, layer):
+    # A check that must leave the files as they are writes in the session layer (#155).
+    light = UsdLux.DistantLight.Define(stage, "/World/Sun").GetPrim()
+    root = stage.GetRootLayer().ExportToString()
+
+    written = set_attribute(light, "inputs:intensity", 3000, chosen_layer(light, choice))
+
+    expected = stage.GetSessionLayer() if layer == "session" else stage.GetRootLayer()
+    assert written.layer.identifier == expected.identifier
+    assert light.GetAttribute("inputs:intensity").Get() == 3000.0
+    assert (stage.GetRootLayer().ExportToString() == root) is (layer == "session")
+
+
+def test_auto_keeps_kit_s_own_cameras_in_the_session_layer(stage):
+    with Usd.EditContext(stage, stage.GetSessionLayer()):
+        camera = UsdGeom.Camera.Define(stage, "/OmniverseKit_Persp").GetPrim()
+
+    assert chosen_layer(camera, "auto").identifier == stage.GetSessionLayer().identifier
+    assert chosen_layer(camera, "edit_target").identifier == stage.GetRootLayer().identifier
+
+
+def test_an_unknown_layer_choice_is_refused(stage):
+    light = UsdLux.DistantLight.Define(stage, "/World/Sun").GetPrim()
+
+    with pytest.raises(ValueError, match="layer must be auto, session or edit_target, got 'file'"):
+        chosen_layer(light, "file")
+
+
+def test_a_session_value_names_the_way_out_when_a_write_beneath_it_is_refused(stage):
+    # No tool takes a session value back (round 1, P6): the refusal says how it goes.
+    light = UsdLux.DistantLight.Define(stage, "/World/Sun").GetPrim()
+    set_attribute(light, "inputs:intensity", 3000, chosen_layer(light, "session"))
+
+    with pytest.raises(ValueError, match="opened again, or execute_script removes it") as refused:
+        set_attribute(light, "inputs:intensity", 1000, chosen_layer(light, "edit_target"))
+    assert "which outranks the stage's root layer" in str(refused.value)
+    assert light.GetAttribute("inputs:intensity").Get() == 3000.0
 
 
 # ----- the extent -----

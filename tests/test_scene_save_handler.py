@@ -186,3 +186,28 @@ def test_a_save_releases_the_kept_capture_feed_first_and_holds_the_lock_through_
     r = _save(handler, str(out) if as_new else "")
     assert r["status"] == "success", r
     assert kept.log == ["lock taken, feed released", ("lock let go, file written", True)]
+
+
+@pytest.mark.parametrize("as_new", [True, False], ids=["save-as", "save"])
+def test_a_save_names_the_session_layers_variant_selections_it_leaves_out(
+    handler, stage: Usd.Stage, scene: Path, as_new: bool
+):
+    # A selection switched for a check stays out of the file; an agent that meant to keep it learns at the save (#155).
+    look = stage.GetPrimAtPath("/World").GetVariantSets().AddVariantSet("look")
+    for name in ("red", "blue"):
+        look.AddVariant(name)
+    look.SetVariantSelection("red")
+    with Usd.EditContext(stage, stage.GetSessionLayer()):
+        look.SetVariantSelection("blue")
+
+    r = _save(handler, str(scene.parent / "saved.usda") if as_new else "")
+
+    assert r["status"] == "success", r
+    assert r["result"]["session_selections"] == ["/World look=blue"]
+
+
+def test_a_save_with_no_session_selection_names_none(handler):
+    r = _save(handler)
+
+    assert r["status"] == "success", r
+    assert r["result"]["session_selections"] == []

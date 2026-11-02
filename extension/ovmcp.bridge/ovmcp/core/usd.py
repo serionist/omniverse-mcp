@@ -6,6 +6,7 @@
 - A layer's GetPrimAtPath, GetAttributeAtPath and GetRelationshipAtPath are typed as always finding a spec; they give
   None for a path the layer has none for.
 - A prim spec's nameChildren is typed without __delitem__.
+- A prim spec's variantSelections is typed with a class the stubs lack; it is a map of a set's name to its variant's.
 - A layer's dirty is typed without a type; it is a bool.
 - Sdf.Layer.Find is typed with a dict of unknowns and as always finding a layer; it gives None when the registry holds
   none for the path. Sdf.Layer.CreateAnonymous is typed with a dict of unknowns too.
@@ -20,7 +21,7 @@
   without points, a type with no plugin).
 """
 
-from collections.abc import Callable, Sequence, Sized
+from collections.abc import Callable, MutableMapping, Sequence, Sized
 from operator import attrgetter
 from typing import Protocol, cast
 
@@ -85,6 +86,29 @@ def relationship_spec(layer: Sdf.Layer, path: Sdf.Path) -> Sdf.RelationshipSpec 
 
 def remove_child_spec(parent: Sdf.PrimSpec, name: str) -> None:
     del cast("_Deletable", parent.nameChildren)[name]
+
+
+def _selection_map(spec: Sdf.PrimSpec) -> MutableMapping[str, str]:
+    return cast("MutableMapping[str, str]", spec.variantSelections)
+
+
+def selections(spec: Sdf.PrimSpec) -> dict[str, str]:
+    """The variant selections a prim spec holds, by set: "" for a blocked one."""
+    return dict(_selection_map(spec))
+
+
+def select(spec: Sdf.PrimSpec, variant_set: str, name: str) -> None:
+    """Writes name as the spec's selection for variant_set; "" writes a blocked one. Sdf's map erases the key for "",
+    so a block goes through BlockVariantSelection."""
+    if name:
+        _selection_map(spec)[variant_set] = name
+    else:
+        spec.BlockVariantSelection(variant_set)
+
+
+def unselect(spec: Sdf.PrimSpec, variant_set: str) -> None:
+    """Removes the spec's selection for variant_set, a blocked one too."""
+    del _selection_map(spec)[variant_set]
 
 
 def has_unsaved_edits(layer: Sdf.Layer) -> bool:

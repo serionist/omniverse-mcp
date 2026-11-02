@@ -21,6 +21,7 @@ from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 
 from .bounds import center_and_size, world_bbox
 from .usd import Vec, children, has_api, is_a, plugin_extent, rotation_of
+from .variants import format_variant_sets, variant_sets
 
 
 def _join(v: Vec, n: int) -> str:
@@ -159,6 +160,11 @@ def format_prim_block(
         # it as a property of that name.
         if not property_filter or any(f in "api_schemas" for f in property_filter):
             lines.append(f"api_schemas = {', '.join(prim.GetAppliedSchemas()) or '[]'}")
+        # Each variant set with its selection, its options and the layer holding the selection, [] for none, always
+        # there as api_schemas is, so the server can tell an older extension; a filter treats it as a property too, so
+        # get_scene_tree(property_filter=["variant_sets"]) lists every switch of a scene (#155).
+        if not property_filter or any(f in "variant_sets" for f in property_filter):
+            lines.append(f"variant_sets = {format_variant_sets(variant_sets(prim))}")
         for prop in prim.GetProperties():
             name = prop.GetName()
             if property_filter and not any(f in name for f in property_filter):

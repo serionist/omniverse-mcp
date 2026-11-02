@@ -14,7 +14,7 @@ import omni.usd
 from pxr import Sdf, Tf, Usd, UsdGeom, UsdPhysics, UsdShade
 
 from ovmcp.core import layers, stage_open
-from ovmcp.core.attribute import set_attribute, shown
+from ovmcp.core.attribute import AUTO, chosen_layer, set_attribute, shown
 from ovmcp.core.bounds import world_bbox
 from ovmcp.core.deletion import why_kept
 from ovmcp.core.formatter import (
@@ -27,6 +27,7 @@ from ovmcp.core.formatter import (
 from ovmcp.core.material import ensure_material, set_surface
 from ovmcp.core.metrics import Brought, StepError, bring_to_stage, not_brought
 from ovmcp.core.usd import prim_spec
+from ovmcp.core.variants import session_selections, variant_json
 from ovmcp.core.xform import Parts, check_transform, check_writable, layer_name, position_of, write_transform
 
 from ._utils import (
@@ -74,6 +75,7 @@ async def handle_scene_tree(body: dict) -> dict:
 
         if include_properties:
             node["properties"] = _json_properties(prim)
+            node["variant_sets"] = variant_json(prim)
 
         if depth < max_depth:
             children = []
@@ -187,6 +189,7 @@ async def handle_prim_properties(body: dict) -> dict:
         "type": prim.GetTypeName(),
         "is_active": prim.IsActive(),
         "api_schemas": list(prim.GetAppliedSchemas()),
+        "variant_sets": variant_json(prim),
         "properties": _json_properties(prim),
     }
 
@@ -594,7 +597,8 @@ async def handle_set_attribute(body: dict) -> dict:
     if not prim.IsValid():
         return {"status": "error", "error": f"Prim not found: {prim_path}"}
     try:
-        written = set_attribute(prim, name, body["value"])
+        # auto is #151's rule, which keeps Kit's own cameras and a light rig's lights in the session layer (#155).
+        written = set_attribute(prim, name, body["value"], chosen_layer(prim, body.get("layer", AUTO)))
     except ValueError as e:
         return {"status": "error", "error": str(e)}
 
@@ -638,13 +642,19 @@ async def _save_scene(file_path: str) -> dict:
         if not stage.GetRootLayer().Export(file_path):
             return {"status": "error", "error": f"Failed to save the stage to: {file_path}"}
         layers.refresh_written(stage, file_path)
-        return {"status": "success", "result": {"file_path": file_path, "action": "save_as"}}
+        return {"status": "success", "result": {"file_path": file_path, "action": "save_as", **_left_out(stage)}}
 
     current_path = stage.GetRootLayer().realPath
     if not current_path:
         return {"status": "error", "error": "No file path set. Provide file_path for save-as."}
     stage.GetRootLayer().Save()
-    return {"status": "success", "result": {"file_path": current_path, "action": "save"}}
+    return {"status": "success", "result": {"file_path": current_path, "action": "save", **_left_out(stage)}}
+
+
+def _left_out(stage: Usd.Stage) -> dict[str, Any]:
+    """The variant selections Kit's session layer holds, which the save leaves out of the file: an agent that switched
+    expecting to keep one learns at the save (#155)."""
+    return {"session_selections": session_selections(stage)}
 
 
 # ---------------------------------------------------------------------------

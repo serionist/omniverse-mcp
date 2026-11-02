@@ -15,6 +15,14 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   such as USD Composer, the viewport's camera stays placed for centimetres: `set_camera` places it. The change is in
   the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit; an older extension makes a Y-up
   stage whatever was asked, and the answer warns (#159).
+- **`set_variant_selection` switches in Kit's session layer by default, a change to the tool contract:** a
+  selection there shows at once and no save writes it, so a check that steps through a scene's variants leaves every
+  file as it found it; `save_scene` names the session selections it left out. To keep a selection in the stage's file,
+  pass `layer="edit_target"`, where every switch went before; it is refused while the session layer holds a selection
+  for that set, which would hide it. `variant_name=""` now clears the layer's selection, so the files' own shows again.
+  The answer says where the selection went and what the files select beneath it. The change is in the Kit extension:
+  run `uvx omniverse-mcp extension install`, then restart Kit; an older extension still writes at the edit target, and
+  the answer warns (#155).
 
 ### Added
 
@@ -29,8 +37,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   intensity or colour, a camera's focal length or a shape's radius, its value converted to the attribute's type and
   checked against it. A change that alters a shape's box updates its authored extent, so `get_prim_bounds` follows;
   what wouldn't show (a stronger layer's value, time samples, a prim inside an instance) is refused with nothing
-  written. Until now an agent set these with `execute_script`. The tool is in the Kit extension: run
-  `uvx omniverse-mcp extension install`, then restart Kit (#151).
+  written. `layer` picks where it goes: `auto`, the default, where edits go but Kit's own cameras and a light rig's
+  lights in Kit's session layer; `session`, for a check that must leave every file as it is; `edit_target`. Until now
+  an agent set these with `execute_script`. The tool is in the Kit extension: run
+  `uvx omniverse-mcp extension install`, then restart Kit (#151, #155).
 - **`get_performance`,** a new tool in the tool contract: measures how fast the Kit app runs the open stage, the
   same way each time, for a frame-rate target such as 15 FPS with a robot's sensors on. Over `frames` app updates
   after `warmup` it gives the frame rate and frame times (mean, p50, p95, worst) with the two halves' means, the
@@ -39,6 +49,12 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   answers by. Kit's frame-rate limiter is lifted while it measures and put back after. Until now an agent timed
   updates with `execute_script`. The tool is in the Kit extension: run `uvx omniverse-mcp extension install`, then
   restart Kit (#156).
+- **`get_prim_properties` lists a prim's variant sets:** a `variant_sets` line gives each set, its selection, its
+  options and the layer holding the selection (`session`, `root` or a file's name), `[]` for none, such as
+  `state: open [closed, open] (session)`. `get_scene_tree(property_filter=["variant_sets"])` lists every switch of a
+  scene in one file, and the JSON a script gets from `mcp.prim_properties` gains a `variant_sets` list. The change is
+  in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit; until then
+  `get_prim_properties` warns (#155).
 
 ### Changed
 
@@ -67,6 +83,16 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   give the same; a Mesh or a sized light (a sphere, rect, disk or cylinder light) without an authored extent now has
   the computed line too, where it had none. The fix is in the Kit extension: run `uvx omniverse-mcp extension install`,
   then restart Kit (#163).
+- **A variant switch leaves no stray opinions in the stage's file:** with Fabric Scene Delegate on, as in Isaac Sim,
+  `set_variant_selection`'s viewport refresh made the prim inactive and active again at the edit target and left
+  `active = true` in the file, and an error between the two left the prim hidden; it now toggles in Kit's session
+  layer and puts that layer back exactly, and only before Kit 110: on Isaac Sim 6.2 a switch shows without it, so a
+  switch there no longer recomposes the prim twice. `compare_prims` put the selection back by writing the old one,
+  so a selection the file never held became one it holds; it now switches in the session layer and puts it back
+  exactly. The fix is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#155).
+- **`compare_prims` refuses an unknown variant and a prim inside an instance:** an unknown variant name measured the
+  prim with none of the set's variants, and a prim inside an instance failed with an error from USD; both are refused
+  now, before anything switches, naming the variants there or the instance. The fix is in the Kit extension (#155).
 - **`get_mesh_stats` on `/` at `max_depth` 0 lists `/`:** its face count tree counted `/` itself as one level down,
   so it listed no prim there; from `max_depth` 1 on it listed what it should. The fix is in the Kit extension: run
   `uvx omniverse-mcp extension install`, then restart Kit (#145).

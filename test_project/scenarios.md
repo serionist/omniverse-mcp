@@ -724,7 +724,11 @@ Needs: 18.1, 18.2
 
 ### 20.3 Set Variant Selection
 - `set_variant_selection("/World/TestCube", "detail", "low")`
-- Verify: old_selection, new_selection="low", available_variants
+- Verify: the answer says it switched in the session layer, `detail=low`, that the files select `high` (20.1's
+  default) and that save_scene leaves it out of the file; `Was: high`, and both variants listed
+- `get_prim_properties("/World/TestCube")`: its `variant_sets` line reads `detail: low [high, low] (session)`
+- `set_variant_selection("/World/TestCube", "detail", "")`: the answer says the selection was cleared in the session
+  layer and `detail=high` shows again
 
 ### 20.4 Set Variant Selection - Invalid Variant
 - `set_variant_selection("/World/TestCube", "detail", "nonexistent")` → error listing available variants
@@ -739,7 +743,10 @@ Needs: 18.1, 18.2
 
 ### 20.7 Compare Prims (Variant)
 - `compare_prims(prim_path="/World/TestCube", variant_set="detail", variant_a="high", variant_b="low")`
-- Verify: returns a/b stats for each variant and delta
+- Verify: returns a/b stats for each variant and delta; then `get_prim_properties("/World/TestCube")`'s `variant_sets`
+  line reads `detail: high [high, low] (root)`, as before the call: compare_prims left no selection behind
+- `compare_prims(prim_path="/World/TestCube", variant_set="detail", variant_a="high", variant_b="nonexistent")` →
+  error naming the variants there
 
 ### 20.8 Compare Prims - Invalid
 - `compare_prims()` (no args) → error about missing arguments

@@ -122,7 +122,7 @@ def layer_name(stage: Usd.Stage, layer: Sdf.Layer) -> str:
     return layer.realPath or layer.GetDisplayName() or layer.identifier
 
 
-def _rank(stage: Usd.Stage) -> dict[str, int]:
+def layer_ranks(stage: Usd.Stage) -> dict[str, int]:
     """Each of the stage's own layers by strength, strongest first: the session layers, the root, its sublayers."""
     return {layer.identifier: i for i, layer in enumerate(stage.GetLayerStack(includeSessionLayers=True))}
 
@@ -136,7 +136,7 @@ def write_blocker(prim: Usd.Prim, attr: Usd.Attribute, layer: Sdf.Layer) -> str 
     write freezes nothing new and samples below it don't refuse.
     """
     stage = prim.GetStage()
-    rank = _rank(stage)
+    rank = layer_ranks(stage)
     target = rank.get(layer.identifier, len(rank))
     name = attr.GetName()
     stack = attr.GetPropertyStack(_DEFAULT)
@@ -499,7 +499,7 @@ def camera_layer(camera: Usd.Prim) -> Sdf.Layer:
     edit target. A write under the session layer's opinions moves nothing."""
     stage = camera.GetStage()
     edit = stage.GetEditTarget().GetLayer()
-    rank = _rank(stage)
+    rank = layer_ranks(stage)
     for spec in UsdGeom.Xformable(camera).GetXformOpOrderAttr().GetPropertyStack(_DEFAULT):
         where = rank.get(spec.layer.identifier)
         if where is not None:

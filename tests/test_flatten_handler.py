@@ -95,6 +95,7 @@ def handler(stage: Usd.Stage, kept: KeptFeed, monkeypatch: pytest.MonkeyPatch) -
         "handlers_under_test.camera_feed": _module(
             "handlers_under_test.camera_feed", without_kept_feed=kept.without_kept_feed
         ),
+        "handlers_under_test.variants": _module("handlers_under_test.variants", refresh=None),
     }
     for name, module in fakes.items():
         monkeypatch.setitem(sys.modules, name, module)

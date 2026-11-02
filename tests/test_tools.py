@@ -124,7 +124,7 @@ CASES = [
         "get_prim_properties",
         {"prim_path": "/World/Cube"},
         "/scene/prim",
-        {"text": "[/World/Cube]\ntype = Cube\napi_schemas = []\n"},
+        {"text": "[/World/Cube]\ntype = Cube\napi_schemas = []\nvariant_sets = []\n"},
         # The bridge sends text only when asked; without it the tool would read a key that isn't there.
         {"prim_path": "/World/Cube", "format": "text"},
         ("type = Cube",),
@@ -211,14 +211,14 @@ CASES = [
             "after": "3000",
             "layer": "the stage's root layer",
         },
-        {"prim_path": "/World/Sun", "name": "inputs:intensity", "value": 3000},
+        {"prim_path": "/World/Sun", "name": "inputs:intensity", "value": 3000, "layer": "auto"},
         ("[/World/Sun]\ninputs:intensity = 3000 (float; was 50000)\nwritten to the stage's root layer",),
     ),
     Case(
         "save_scene",
         {"file_path": "scene.usd"},
         "/scene/save",
-        {"action": "save_as", "file_path": "scene.usd"},
+        {"action": "save_as", "file_path": "scene.usd", "session_selections": []},
         {"file_path": "scene.usd"},
         ("Scene saved (save_as) -> scene.usd",),
     ),
@@ -334,9 +334,15 @@ CASES = [
             "new_selection": "shell",
             "old_selection": "full",
             "available_variants": ["full", "shell"],
+            "layer": "session",
+            "written_to": "Kit's session layer",
+            "files_select": "full",
         },
-        {"prim_path": "/World/Asset", "variant_set": "model", "variant_name": "shell"},
-        ("model=shell (was: full)",),
+        {"prim_path": "/World/Asset", "variant_set": "model", "variant_name": "shell", "layer": "session"},
+        (
+            "Variant switched in the session layer: /World/Asset model=shell (the files select full; save_scene "
+            "leaves it out of the file)\nWas: full. Available: full, shell",
+        ),
     ),
     Case(
         "create_variant_structure",
@@ -806,6 +812,142 @@ def test_set_prim_attribute_keeps_whole_numbers_whole_inside_a_list(bridge: Mock
     (body,) = [b for path, b in calls if path == "/scene/attribute"]
     assert body["value"] == value
     assert [type(v) for v in body["value"][:3]] == [int, int, bool]
+
+
+def _variant_answer(**changed: Any) -> dict[str, Any]:
+    return {
+        "prim_path": "/World/Area",
+        "variant_set": "state",
+        "old_selection": "closed",
+        "new_selection": "open",
+        "available_variants": ["closed", "open"],
+        "layer": "session",
+        "written_to": "Kit's session layer",
+        "files_select": "closed",
+        **changed,
+    }
+
+
+_INSTANCE_NOTE = "/World/Area is an instance: a selection of its own gives it a prototype of its own"
+
+
+@pytest.mark.parametrize(
+    ("args", "answer", "says"),
+    [
+        (
+            {"layer": "edit_target"},
+            _variant_answer(layer="edit_target", written_to="the stage's root layer (C:/site.usda)"),
+            "Variant switched at the edit target, the stage's root layer (C:/site.usda): /World/Area state=open (the "
+            "files beneath select closed; save_scene writes it into the file)",
+        ),
+        (
+            # A sublayer made the edit target in Kit's Layer window, which save_scene, writing the root layer, never
+            # saves.
+            {"layer": "edit_target"},
+            _variant_answer(layer="edit_target", written_to="C:/scene/props.usda"),
+            "Variant switched at the edit target, C:/scene/props.usda: /World/Area state=open (the files beneath "
+            "select closed; save_scene writes only the root layer, not C:/scene/props.usda)",
+        ),
+        (
+            {"variant_name": ""},
+            _variant_answer(old_selection="open", new_selection="closed"),
+            "Variant selection cleared in the session layer: /World/Area state=closed (the files select closed)",
+        ),
+        (
+            {},
+            _variant_answer(files_select=None, note=_INSTANCE_NOTE),
+            "(the files select none; save_scene leaves it out of the file)\nWas: closed. Available: closed, open\n"
+            "Note: /World/Area is an instance",
+        ),
+    ],
+    ids=["edit-target", "edit-target-a-sublayer", "clear", "instance"],
+)
+def test_set_variant_selection_says_where_the_switch_went(
+    args: dict[str, Any], answer: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    bridge.set_response("/scene/variant_selection", {"status": "success", "result": answer})
+    sent = {"prim_path": "/World/Area", "variant_set": "state", "variant_name": "open", **args}
+
+    erred, text, calls = _call(bridge, tmp_path, "set_variant_selection", sent)
+
+    assert not erred, text
+    assert says in text
+    (body,) = [b for path, b in calls if path == "/scene/variant_selection"]
+    assert body["layer"] == args.get("layer", "session")
+    assert "WARNING" not in text
+
+
+def test_set_variant_selection_warns_when_the_extension_wrote_at_the_edit_target(
+    bridge: MockIsaacServer, tmp_path: Path
+):
+    # An extension from before #155 takes no layer and writes at the edit target, into the stage's file.
+    answer = {
+        "prim_path": "/World/Area",
+        "variant_set": "state",
+        "old_selection": "closed",
+        "new_selection": "open",
+        "available_variants": ["closed", "open"],
+    }
+    bridge.set_response("/scene/variant_selection", {"status": "success", "result": answer})
+
+    erred, text, _calls = _call(
+        bridge,
+        tmp_path,
+        "set_variant_selection",
+        {"prim_path": "/World/Area", "variant_set": "state", "variant_name": "open"},
+    )
+
+    assert not erred, text
+    assert "Variant switched: /World/Area state=open (was: closed)" in text
+    assert "WARNING: This Kit extension, older than the server, wrote the selection at the edit target" in text
+    assert "extension install" in text
+
+
+@pytest.mark.parametrize("name", ["", "open"])
+def test_set_variant_selection_says_an_older_extension_cant_clear(name: str, bridge: MockIsaacServer, tmp_path: Path):
+    # An extension from before #155 refuses an empty variant_name with this alone, which reads as the caller's mistake.
+    bridge.set_response("/scene/variant_selection", {"status": "error", "error": "variant_name is required"})
+
+    erred, text, _calls = _call(
+        bridge,
+        tmp_path,
+        "set_variant_selection",
+        {"prim_path": "/World/Area", "variant_set": "state", "variant_name": name},
+    )
+
+    assert erred
+    assert "variant_name is required" in text
+    warns = "WARNING: This Kit extension, older than the server, can't clear a selection" in text
+    assert warns is (name == "")
+    assert ("extension install" in text) is (name == "")
+
+
+def test_set_prim_attribute_sends_the_layer_asked_for(bridge: MockIsaacServer, tmp_path: Path):
+    answer = {"prim_path": "/World/A", "name": "my:v", "type": "x", "before": "0", "after": "1"}
+    bridge.set_response("/scene/attribute", {"status": "success", "result": answer | {"layer": "Kit's session layer"}})
+    args = {"prim_path": "/World/A", "name": "my:v", "value": 1, "layer": "session"}
+
+    erred, text, calls = _call(bridge, tmp_path, "set_prim_attribute", args)
+
+    assert not erred, text
+    assert "written to Kit's session layer" in text
+    (body,) = [b for path, b in calls if path == "/scene/attribute"]
+    assert body["layer"] == "session"
+
+
+def test_save_scene_names_the_session_layers_selections_it_leaves_out(bridge: MockIsaacServer, tmp_path: Path):
+    left = ["/World/Area lod=low", "/World/Area state=open"]
+    answer = {"action": "save", "file_path": "C:/site.usda", "session_selections": left}
+    bridge.set_response("/scene/save", {"status": "success", "result": answer})
+
+    erred, text, _calls = _call(bridge, tmp_path, "save_scene", {})
+
+    assert not erred, text
+    assert text.splitlines()[1] == (
+        "Not in the file: the variant selections in Kit's session layer, /World/Area lod=low, /World/Area state=open; "
+        'to keep one, clear it with set_variant_selection(variant_name="") and select it again with '
+        'layer="edit_target"'
+    )
 
 
 def test_manage_extensions_enables_one(bridge: MockIsaacServer, tmp_path: Path):
@@ -2370,20 +2512,24 @@ def test_delete_prim_warns_when_the_extension_made_no_check(
 @pytest.mark.parametrize(
     ("block", "warns"),
     [
-        ("[/World/Cube]\ntype = Cube\napi_schemas = PhysicsCollisionAPI\nsize = 1", False),
+        ("[/World/Cube]\ntype = Cube\napi_schemas = PhysicsCollisionAPI\nvariant_sets = []\nsize = 1", False),
+        # An extension built between #149 and #155: schemas, but no variant sets.
+        ("[/World/Cube]\ntype = Cube\napi_schemas = PhysicsCollisionAPI\nsize = 1", True),
         ("[/World/Cube]\ntype = Cube\nmaterial:binding = <unreadable>\nsize = 1", True),
     ],
 )
 def test_get_prim_properties_warns_when_the_extension_lists_no_schemas(
     block: str, warns: bool, bridge: MockIsaacServer, tmp_path: Path
 ):
-    # An extension from before #149 lists no schemas and no relationship's targets, and the plugin updates the server
-    # first: without the warning, the description would promise targets the answer doesn't give.
+    # An extension from before #149 lists no schemas and no relationship's targets, and one from before #155 no
+    # variant sets, and the plugin updates the server first: without the warning, the description would promise lines
+    # the answer doesn't give.
     bridge.set_response("/scene/prim", {"status": "success", "result": {"text": block, "prim_path": "/World/Cube"}})
     erred, text, _calls = _call(bridge, tmp_path, "get_prim_properties", {"prim_path": "/World/Cube"})
     assert not erred, text
     assert text.startswith("[/World/Cube]")
-    assert ("WARNING: This Kit extension, older than the server, lists no applied API schemas" in text) is warns
+    warning = "WARNING: This Kit extension, older than the server, lists no applied API schemas, no variant sets"
+    assert (warning in text) is warns
     assert ("extension install" in text) is warns
 
 

@@ -1,6 +1,6 @@
 """Which USD files the open stage has loaded, so flatten_usd, export_prim_as_file and save_scene never write over one
-of its layers, and read a layer again from its file only when nothing is lost by it (#81, #85); and the open stage
-without Kit's session layer, which the two flatten (#118).
+of its layers, and read a layer again from its file only when nothing is lost by it (#81, #85); the open stage
+without Kit's session layer, which the two flatten (#118); and the layer a tool's `layer` choice names (#155).
 
 Sdf keeps one layer per file in its registry while anything holds it, and every open of that file gets that layer:
 the open stage's own, with its unsaved edits, and any other Kit still holds. Before #81 the two tools cleared the
@@ -187,6 +187,20 @@ def without_session(stage: Usd.Stage) -> Usd.Stage:
         opened.MuteLayer(muted)
     opened.SetLoadRules(stage.GetLoadRules())
     return opened
+
+
+SESSION = "session"
+EDIT_TARGET = "edit_target"
+
+
+def layer_named(stage: Usd.Stage, name: str) -> Sdf.Layer:
+    """The layer a tool's `layer` choice names (#155): Kit's session layer, which no save writes, or the stage's edit
+    target, where edits go; ValueError for any other name."""
+    if name == SESSION:
+        return stage.GetSessionLayer()
+    if name == EDIT_TARGET:
+        return stage.GetEditTarget().GetLayer()
+    raise ValueError(f"layer must be {SESSION} or {EDIT_TARGET}, got {name!r}")
 
 
 def refresh_written(stage: Usd.Stage, path: str) -> list[Sdf.Layer]:
