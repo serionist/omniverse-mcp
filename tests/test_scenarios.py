@@ -2911,6 +2911,28 @@ class TestScenarios(PhysicsChecks):
         print(f"  Lighting off: is_black={is_black}, mode={lighting_mode}")
         self._pass()
 
+    def test_23_07_set_a_light_s_intensity(self):
+        """Phase 23.7: Set a Light's Intensity, through the server, on a light of its own: Phase 18 has no twin here."""
+        path = "/World/IntensityLight"
+        self.assertEqual(self.c.create_prim(path, "DistantLight")["status"], "success")
+        self.addCleanup(self.c.delete_prim, path)
+        folder = tempfile.mkdtemp(prefix="ovmcp-")
+
+        erred, text = call_tool(
+            "set_prim_attribute", {"prim_path": path, "name": "inputs:intensity", "value": 3000}, folder
+        )
+
+        self.assertFalse(erred, text)
+        # UsdLux's fallback for a DistantLight is 50,000 (#151).
+        self.assertIn("inputs:intensity = 3000 (float; was 50000)", text)
+        listed = {light["path"]: light for light in self.c.viewport_light("get")["result"]["scene_lights"]}
+        self.assertEqual(listed[path]["intensity"], 3000)
+        erred, text = call_tool("set_prim_attribute", {"prim_path": path, "name": "intensity", "value": 1}, folder)
+        self.assertTrue(erred, text)
+        self.assertIn("closest first: inputs:intensity", text)
+        print(f"  {path}: intensity 50000 -> 3000; 'intensity' led to inputs:intensity")
+        self._pass()
+
     # ===== Phase 26: Camera Frame Settling =====
 
     def test_26_01_camera_set_immediate_capture(self):

@@ -34,8 +34,8 @@ def labels(sessions):
 
 def test_the_real_scenarios_parse_with_every_needs_line_sound(suite):
     assert len(suite.phases) == 27
-    # 16.9 left the suite for pytest's test_16_09 (#146): it was a SKIP in every run.
-    assert sum(len(p.scenarios) for p in suite.phases) == 143
+    # 16.9 left the suite for pytest's test_16_09 (#146), a SKIP in every run; 23.7 sets a light's intensity (#151).
+    assert sum(len(p.scenarios) for p in suite.phases) == 144
     assert suite.scenario("16.9") is None
     assert scenarios.suite_problems(suite) == []
     assert suite.scenario("6.4-6.9") is not None
