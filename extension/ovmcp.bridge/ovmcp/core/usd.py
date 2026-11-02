@@ -18,7 +18,7 @@
   GetIntroducingLayer is None for the root arc; a Pcp node's layerStack is untyped.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Sequence, Sized
 from operator import attrgetter
 from typing import Protocol, cast
 
@@ -193,6 +193,18 @@ def stage_prim_of(arc: CompositionArc) -> Sdf.Path:
 def node_layers(node: ArcNode) -> list[Sdf.Layer]:
     """The layers of the stack an arc's node reads, strongest first."""
     return list(cast("Sequence[Sdf.Layer]", _node_layers(node)))
+
+
+# A prim spec's composition arcs, as Sdf.PrimSpec names them; the stubs leave most of them out.
+_ARCS = ("hasReferences", "hasPayloads", "hasInheritPaths", "hasSpecializes")
+_VARIANT_SETS = "variantSets"
+
+
+def spec_has_arcs(spec: Sdf.PrimSpec) -> bool:
+    """Whether a prim spec holds a composition arc: a reference, payload, inherit, specialize or variant set."""
+    if any(bool(cast("object", getattr(spec, name))) for name in _ARCS):
+        return True
+    return len(cast("Sized", getattr(spec, _VARIANT_SETS))) > 0
 
 
 def attribute_has_default(spec: Sdf.PropertySpec) -> bool:

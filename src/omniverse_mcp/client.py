@@ -390,6 +390,9 @@ class BridgeClient:
     def set_visibility(self, prim_path: str, visible: bool = True) -> dict[str, Any]:
         return self.request("/scene/visibility", {"prim_path": prim_path, "visible": visible})
 
+    def set_attribute(self, prim_path: str, name: str, value: object) -> dict[str, Any]:
+        return self.request("/scene/attribute", {"prim_path": prim_path, "name": name, "value": value})
+
     def save_scene(self, file_path: str = "") -> dict[str, Any]:
         body: dict[str, Any] = {}
         if file_path:

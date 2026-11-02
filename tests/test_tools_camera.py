@@ -228,7 +228,7 @@ SUN = {"path": "/World/Sun", "type": "DistantLight", "intensity": 1000.0}
 NO_LIGHTS_RIG = (
     "The light rig 'Default' lights the viewport with lights of its own, which aren't the stage's: in mode 'stage', "
     "or in another app, the stage's surfaces render black. create_prim (DistantLight, DomeLight) lights the stage "
-    "itself."
+    "itself, then set_prim_attribute for its intensity: a DistantLight comes at 50,000."
 )
 LIGHTS_RIG = (
     "The light rig 'Default' lights the viewport in place of the stage's lights, which Kit hides, all but a light "

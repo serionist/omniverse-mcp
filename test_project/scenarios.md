@@ -849,6 +849,14 @@ Needs: 18.2
 - Fix it manually: `viewport_light("set", mode="Default")`
 - `capture_viewport()` → image should now be lit, no WARNING
 
+### 23.7 Set a Light's Intensity
+- `set_prim_attribute("/World/DomeLight", "inputs:intensity", 500)`
+- Verify: the answer reads `inputs:intensity = 500 (float; was 1000)` and names the layer written;
+  `viewport_light("get")` lists 18.2's `/World/DomeLight` at intensity 500
+- `set_prim_attribute("/World/DomeLight", "intensity", 500)`
+- Verify: an error naming `inputs:intensity` first among the light's attributes, nothing written
+- `set_prim_attribute("/World/DomeLight", "inputs:intensity", 1000)`, as 18.2 left it
+
 ---
 
 ## Phase 24: Logging

@@ -21,6 +21,7 @@ Reference for every tool the MCP server provides.
 | read a prim's properties, size or place | `get_prim_properties`, `get_prim_bounds` |
 | create, move, copy, hide or delete prims | `create_prim`, `set_prim_transform`, `clone_prim`, `set_visibility`, `delete_prim` |
 | colour an object | `set_material` |
+| set a light's intensity or another attribute | `set_prim_attribute` |
 | point the camera, at a point or a prim | `set_camera` |
 | fix a black capture | `viewport_light` |
 | play, pause, stop or step physics | `sim_control`; `get_sim_state` for where it stands |
@@ -40,7 +41,7 @@ it runs one; they are hints, never security (the bridge's token is what keeps ot
 | Hints | What they mean | Tools |
 |---|---|---|
 | read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs and while it is kept for the next capture or recording, up to 30 s after, and leaves Kit's unsaved-edits flag set; the bridge's saves and Kit's own Save leave it out of the file) | `get_scene_tree`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_recording_frame`, `raycast`, `get_logs` |
-| not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `inspect_prim`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug` |
+| not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `set_prim_attribute`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `inspect_prim`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug` |
 | destructive | Deletes or overwrites prims, the whole stage, or USD files on disk | `delete_prim`, `save_scene`, `open_scene`, `new_scene`, `flatten_usd`, `export_prim_as_file`, `update_material_paths` |
 | destructive, open world | Runs Python or loads extensions inside the Kit app: anything can happen | `execute_script`, `manage_extensions` |
 
@@ -52,7 +53,7 @@ A value out of a parameter's range, or not one of its choices, is refused before
 
 ## Table of Contents
 
-- [Scene Tools](#scene-tools) (11 tools)
+- [Scene Tools](#scene-tools) (12 tools)
 - [Geometry & Mesh Tools](#geometry--mesh-tools) (2 tools)
 - [USD Operations](#usd-operations) (2 tools)
 - [Variant Tools](#variant-tools) (2 tools)
@@ -314,6 +315,51 @@ does. A prim that has no visibility, such as a material, is an error.
 
 **When to use:** to see inside or behind something, then show it again. `delete_prim` removes a prim, and
 `inspect_prim`'s `isolate` hides all but one prim for its captures.
+
+---
+
+### `set_prim_attribute`
+
+Set one attribute of a prim: a light's intensity or colour, a camera's focal length, a shape's size or radius, a
+display colour.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `prim_path` | string | required | Full USD path of the prim |
+| `name` | string | required | The attribute, as `get_prim_properties` names it, e.g. `"inputs:intensity"` |
+| `value` | bool, number, string or list | required | Its new value: a number, `true` or `false`, a string or token, or a list for a vector, colour or array, e.g. `[1, 0, 0]` |
+
+**Returns:** the prim block's line for the attribute, its value after and before, its type, and the layer written:
+
+```
+[/World/SunLight]
+inputs:intensity = 3000 (float; was 50000)
+written to the stage's root layer
+```
+
+- **The attribute must exist on the prim:** `get_prim_properties` lists them, a schema's included before anything
+  sets them. A name the prim lacks is refused with its closest names first, so `intensity` leads to
+  `inputs:intensity`; the tool makes no attribute of its own.
+- **The value is converted to the attribute's type,** within the type's range: a whole number for an `int`, a
+  number a `float` or a `half` can hold, a list of 3 for a `color3f`, `[w, x, y, z]` for a quaternion, a list of
+  those for an array (`[]` empties it). NaN, infinity and a list of the wrong length are refused. A token outside its
+  allowed ones is written as given, with a note naming them: USD treats the list as a hint, and PhysX's `sdf`
+  collider approximation isn't in `physics:approximation`'s.
+- **A shape's box follows:** a change that alters it, such as a sphere's `radius` or a cylinder's `axis`, updates an
+  authored `extent`, which Kit writes on the shapes it makes, so `get_prim_bounds` gives the new size; the answer says
+  so.
+- **Refused, with nothing written:** a relationship (`set_material` binds materials), an xform op
+  (`set_prim_transform`), `visibility` (`set_visibility`), matrices, an animated attribute, one a stronger layer holds,
+  a size change whose `extent` another layer or an animation holds, a prim inside an instance or a prototype, and an
+  inactive prim.
+- **Where it is written:** where edits go, as the other tools write; Kit's own cameras and a viewport light rig's
+  lights, which live in Kit's session layer, are written there, which `save_scene` doesn't keep.
+- **A `DistantLight` comes at an intensity of 50,000,** UsdLux's sunlight, which overexposes a viewport capture; a
+  few thousand suits one. A physics value set while the simulation plays may reach PhysX only once it stops. Like the
+  other edit tools, the write isn't in Kit's undo.
+
+**When to use:** for an attribute no other tool sets. An extension older than the tool answers that it lacks it, with
+the command that installs this server's.
 
 ---
 

@@ -38,7 +38,8 @@ while physics plays. Never edit blind: look, change, look again.
 4. **Place with numbers, not by eye.** `get_prim_bounds` of the thing and of what it goes on, compute the position
    on the up axis (an object rests on a surface when its bottom equals the surface's top), `set_prim_transform`, then
    capture to check.
-5. **Change,** with `create_prim`, `set_prim_transform`, `clone_prim`, `set_material` or `set_visibility`.
+5. **Change,** with `create_prim`, `set_prim_transform`, `clone_prim`, `set_material`, `set_visibility` or
+   `set_prim_attribute`, which sets one attribute no other tool does, such as a light's intensity.
    `clone_prim` refuses a target path that holds a prim, and `create_prim` one that holds a prim of another type:
    choose a free path, or delete the prim there first when the user wants it gone.
 6. **Check every change** with another capture or `get_prim_bounds`. A tool that fails: `get_logs(min_level="warn")`
@@ -51,7 +52,9 @@ the capture warns.
 `viewport_light("get")` shows the lighting mode and whether the stage has lights of its own; a light rig's are the
 viewport's, not the stage's, and go in mode `stage` or another app. `viewport_light(action="set", mode="Default")` is
 the quickest fix, `mode="camera"` a light that follows the camera. When neither suits, add a light to the stage with
-`create_prim` (`DistantLight`, `DomeLight`). Nothing relights the scene on its own.
+`create_prim` (`DistantLight`, `DomeLight`). A `DistantLight` comes at an intensity of 50,000, UsdLux's sunlight, which
+overexposes a capture: `set_prim_attribute(path, "inputs:intensity", 3000)` brings it to a few thousand. Nothing
+relights the scene on its own.
 
 ## Traps
 

@@ -1919,6 +1919,60 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(listed, ["[/]"], whole)
         print(f"  {root}: the totals, then its tree of {tree.count('[/')} prims; / alone at depth 0")
 
+    def test_23c_set_prim_attribute_sets_a_light_and_a_sphere_s_size_with_its_box(self):
+        """set_prim_attribute through the server (#151): a DistantLight's intensity set and read back, a token outside
+        its allowed ones written with its note, an xform op refused; and a Sphere made with Kit's own create-prim
+        command, which authors its extent where create_prim doesn't, grown, its get_prim_bounds box with it."""
+        folder = self._output_folder()
+        light, camera, ball = "/World/IntTestAttrLight", "/World/IntTestAttrCam", "/World/IntTestAttrBall"
+        for path in (light, camera, ball):
+            self.addCleanup(self.client.delete_prim, path)
+        self.assertEqual(self.client.create_prim(light, "DistantLight")["status"], "success")
+        self.assertEqual(self.client.create_prim(camera, "Camera")["status"], "success")
+
+        erred, text = call_tool(
+            "set_prim_attribute", {"prim_path": light, "name": "inputs:intensity", "value": 3000}, folder
+        )
+        self.assertFalse(erred, text)
+        self.assertIn("inputs:intensity = 3000 (float; was 50000)", text)
+        erred, block = call_tool("get_prim_properties", {"prim_path": light}, folder)
+        self.assertFalse(erred, block)
+        self.assertIn("inputs:intensity = 3000", block)
+
+        erred, text = call_tool(
+            "set_prim_attribute", {"prim_path": camera, "name": "projection", "value": "fisheye"}, folder
+        )
+        self.assertFalse(erred, text)
+        self.assertIn("note: fisheye isn't among projection's allowed tokens (perspective, orthographic)", text)
+
+        erred, text = call_tool(
+            "set_prim_attribute", {"prim_path": light, "name": "xformOp:translate", "value": [1, 2, 3]}, folder
+        )
+        self.assertTrue(erred, text)
+        self.assertIn("set_prim_transform", text)
+
+        # Kit's create-prim command authors the sphere's extent beside its radius, as its Create menu does (F14).
+        made = self._kit(
+            "import omni.kit.commands\n"
+            f"omni.kit.commands.execute('CreatePrimWithDefaultXform', prim_type='Sphere', prim_path={ball!r})\n"
+            "sphere = UsdGeom.Sphere(omni.usd.get_context().get_stage().GetPrimAtPath(" + repr(ball) + "))\n"
+            "result = [sphere.GetRadiusAttr().Get(), sphere.GetExtentAttr().HasAuthoredValue()]"
+        )
+        radius, extent_authored = made
+        self.assertTrue(extent_authored, "Kit authored no extent, so this case can't show a stale one")
+        before = self.client.prim_bounds(ball)["result"]["dimensions"]
+
+        erred, text = call_tool(
+            "set_prim_attribute", {"prim_path": ball, "name": "radius", "value": radius * 2}, folder
+        )
+
+        self.assertFalse(erred, text)
+        self.assertIn("extent updated to", text)
+        after = self.client.prim_bounds(ball)["result"]["dimensions"]
+        for b, a in zip(before, after, strict=True):
+            self.assertAlmostEqual(a, b * 2, delta=b * 1e-3)
+        print(f"  {light}: 50000 -> 3000; {ball}: radius {radius} -> {radius * 2}, box {before} -> {after}")
+
     # ===== Logs =====
 
     def test_24_get_logs(self):
