@@ -7,8 +7,9 @@ prim comparison, and material path updates.
 
 from pxr import Sdf, Usd, UsdGeom, UsdShade
 
-from ovmcp.core import layers
+from ovmcp.core import layers, variants
 from ovmcp.core.bounds import world_bbox
+from ovmcp.core.xform import layer_name
 
 from ._utils import (
     _collect_materials,
@@ -17,6 +18,7 @@ from ._utils import (
     _next_update,
 )
 from .camera_feed import without_kept_feed
+from .variants import refresh
 
 # ---------------------------------------------------------------------------
 # /scene/flatten
@@ -182,82 +184,56 @@ async def _export_prim(prim_path: str, output_path: str) -> dict:
 
 
 async def handle_set_variant_selection(body: dict) -> dict:
-    """Switch variant selection with Hydra rprim refresh workaround.
-
-    After SetVariantSelection(), toggles prim activation and pumps frames
-    to force Hydra to rebuild rprims. This works around known FSD/Hydra bugs
-    (OMPE-54434, OMPE-70769, OMPE-71336) that cause stale viewport geometry.
-    """
+    """Select a variant, or clear a layer's selection with "", in the layer the body names, then wait until the
+    viewport shows it (#155). A body without a layer is from an older server, which wrote at the edit target."""
     prim_path = body.get("prim_path", "")
     variant_set = body.get("variant_set", "")
-    variant_name = body.get("variant_name", "")
+    variant_name = body.get("variant_name")
+    choice = body.get("layer", layers.EDIT_TARGET)
 
     if not prim_path:
         return {"status": "error", "error": "prim_path is required"}
     if not variant_set:
         return {"status": "error", "error": "variant_set is required"}
-    if not variant_name:
-        return {"status": "error", "error": "variant_name is required"}
+    if not isinstance(variant_name, str):
+        return {
+            "status": "error",
+            "error": "variant_name is required: a variant's name, or an empty string to clear the layer's selection",
+        }
+    if choice not in (layers.SESSION, layers.EDIT_TARGET):
+        return {"status": "error", "error": f"layer must be session or edit_target, got {choice!r}"}
 
+    await _next_update()
     stage = _get_stage()
     prim = stage.GetPrimAtPath(prim_path)
     if not prim.IsValid():
         return {"status": "error", "error": f"Prim not found: {prim_path}"}
-
-    vsets = prim.GetVariantSets()
-    if not vsets.HasVariantSet(variant_set):
-        available = vsets.GetNames()
-        return {"status": "error", "error": f"Variant set '{variant_set}' not found. Available: {available}"}
-
-    vs = vsets.GetVariantSet(variant_set)
-    available_variants = vs.GetVariantNames()
-    if variant_name not in available_variants:
-        return {
-            "status": "error",
-            "error": f"Variant '{variant_name}' not in '{variant_set}'. Available: {available_variants}",
-        }
-
-    old_selection = vs.GetVariantSelection()
-
-    await _next_update()
-
-    # Set the variant selection
-    vs.SetVariantSelection(variant_name)
-
-    # Hydra rprim refresh workaround — only needed when FSD is enabled.
-    fsd_on = False
+    layer = layers.layer_named(stage, choice)
+    path = prim.GetPath()
+    old_selection = prim.GetVariantSet(variant_set).GetVariantSelection()
+    files_select = variants.beneath(prim, variant_set, layer)
     try:
-        import carb.settings
+        switched = variants.switch(stage, {path: {variant_set: variant_name}}, layer)
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
 
-        fsd_on = carb.settings.get_settings().get_as_bool("/app/useFabricSceneDelegate") or False
-    except Exception:
-        pass
+    if switched.wrote:
+        await refresh(stage, [path])
 
-    if fsd_on:
-        prim.SetActive(False)
-        for _ in range(10):
-            await _next_update()
-        prim.SetActive(True)
-        for _ in range(30):
-            await _next_update()
-    else:
-        # Without FSD, just wait for Hydra to process the variant switch
-        for _ in range(5):
-            await _next_update()
-
-    # Clear bbox cache so subsequent bounds queries return fresh data
-    UsdGeom.BBoxCache(Usd.TimeCode.Default(), ["default", "render"]).Clear()
-
-    return {
-        "status": "success",
-        "result": {
-            "prim_path": prim_path,
-            "variant_set": variant_set,
-            "old_selection": old_selection,
-            "new_selection": variant_name,
-            "available_variants": available_variants,
-        },
+    variant = stage.GetPrimAtPath(path).GetVariantSet(variant_set)
+    result = {
+        "prim_path": prim_path,
+        "variant_set": variant_set,
+        "old_selection": old_selection,
+        "new_selection": variant.GetVariantSelection(),
+        "available_variants": variant.GetVariantNames(),
+        "layer": choice,
+        "written_to": layer_name(stage, layer),
+        "files_select": files_select,
     }
+    if switched.notes:
+        result["note"] = " ".join(switched.notes)
+    return {"status": "success", "result": result}
 
 
 # ---------------------------------------------------------------------------
@@ -334,33 +310,33 @@ async def handle_compare_prims(body: dict) -> dict:
         if not prim.IsValid():
             return {"status": "error", "error": f"Prim not found: {variant_prim}"}
 
-        vsets = prim.GetVariantSets()
-        if not vsets.HasVariantSet(variant_set):
-            return {"status": "error", "error": f"Variant set '{variant_set}' not found"}
+        # Refused before anything switches: an unknown variant measured the prim with none of the set's, and a prim
+        # inside an instance raised from USD (#155).
+        session = stage.GetSessionLayer()
+        for name in (variant_a, variant_b):
+            why = variants.variant_refusal(prim, variant_set, name, session)
+            if why:
+                return {"status": "error", "error": why}
 
-        vs = vsets.GetVariantSet(variant_set)
-        old_selection = vs.GetVariantSelection()
+        # Both switches go to the session layer, which the first switch's snapshot puts back exactly, whatever happens
+        # meanwhile; writing the old selection back made one the files never held.
+        path = prim.GetPath()
+        first = variants.switch(stage, {path: {variant_set: variant_a}}, session)
+        try:
+            await _next_update()
+            prim = stage.GetPrimAtPath(path)
+            stats_a = _compute_mesh_stats(prim)
+            center_a, dims_a, _ = world_bbox(prim)
+            mats_a = _collect_materials(prim)
 
-        # Stats for variant A
-        vs.SetVariantSelection(variant_a)
-        await _next_update()
-        bbox_cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), ["default", "render"])
-        stats_a = _compute_mesh_stats(prim)
-        center_a, dims_a, _ = world_bbox(prim)
-        mats_a = _collect_materials(prim)
-
-        # Clear bbox cache before switching variant
-        bbox_cache.Clear()
-
-        # Stats for variant B
-        vs.SetVariantSelection(variant_b)
-        await _next_update()
-        stats_b = _compute_mesh_stats(prim)
-        center_b, dims_b, _ = world_bbox(prim)
-        mats_b = _collect_materials(prim)
-
-        # Restore original selection
-        vs.SetVariantSelection(old_selection)
+            variants.switch(stage, {path: {variant_set: variant_b}}, session)
+            await _next_update()
+            prim = stage.GetPrimAtPath(path)
+            stats_b = _compute_mesh_stats(prim)
+            center_b, dims_b, _ = world_bbox(prim)
+            mats_b = _collect_materials(prim)
+        finally:
+            first.restore()
         await _next_update()
 
         label_a = f"{variant_prim} [{variant_set}={variant_a}]"

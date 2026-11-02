@@ -848,6 +848,21 @@ def test_set_attribute_answers_the_value_before_and_after_and_the_layer(scene, k
     assert kit.stage.GetPrimAtPath("/World/Sun").GetAttribute("inputs:intensity").Get() == 3000.0
 
 
+@pytest.mark.parametrize(
+    ("layer", "written"), [("session", "Kit's session layer"), ("edit_target", "the stage's root layer")]
+)
+def test_set_attribute_writes_the_layer_asked_for(scene, kit, layer, written):
+    # A check that must leave the files as they are writes in the session layer (#155).
+    UsdLux.DistantLight.Define(kit.stage, "/World/Sun")
+    root = kit.stage.GetRootLayer().ExportToString()
+
+    r = _set(scene, {"prim_path": "/World/Sun", "name": "inputs:intensity", "value": 3000, "layer": layer})
+
+    assert r["status"] == "success", r
+    assert r["result"]["layer"] == written
+    assert (kit.stage.GetRootLayer().ExportToString() == root) is (layer == "session")
+
+
 def test_set_attribute_gives_the_extent_it_moved_and_a_token_s_note(scene, kit):
     ball = UsdGeom.Sphere.Define(kit.stage, "/World/Ball")
     ball.CreateRadiusAttr(1.0)
@@ -871,6 +886,10 @@ def test_set_attribute_gives_the_extent_it_moved_and_a_token_s_note(scene, kit):
         ({"prim_path": "/World/Nothing", "name": "radius", "value": 1}, "Prim not found: /World/Nothing"),
         ({"prim_path": "/World/Ball", "name": "radius", "value": "big"}, "radius (double) takes a number"),
         ({"prim_path": "/World/Ball", "name": "xformOp:translate", "value": [1, 2, 3]}, "set_prim_transform"),
+        (
+            {"prim_path": "/World/Ball", "name": "radius", "value": 1, "layer": "file"},
+            "layer must be auto, session or edit_target",
+        ),
     ],
 )
 def test_set_attribute_refuses_with_nothing_written(scene, kit, body, says):

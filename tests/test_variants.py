@@ -56,17 +56,21 @@ def _write(path: Path, text: str) -> Path:
     return path
 
 
-@pytest.fixture
-def files(tmp_path: Path) -> Path:
+def write_files(folder: Path) -> Path:
     """area.usda, with the sets state (closed selected) and lod (none selected), and site.usda, whose /Site/Area
-    references it."""
-    _write(tmp_path / "area.usda", _AREA_USDA)
+    references it, written to folder."""
+    _write(folder / "area.usda", _AREA_USDA)
     _write(
-        tmp_path / "site.usda",
+        folder / "site.usda",
         '#usda 1.0\ndef Xform "Site"\n{\n    def "Area" (\n        prepend references = @./area.usda@\n    )\n    {\n'
         "    }\n}\n",
     )
-    return tmp_path
+    return folder
+
+
+@pytest.fixture
+def files(tmp_path: Path) -> Path:
+    return write_files(tmp_path)
 
 
 @pytest.fixture
