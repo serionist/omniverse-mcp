@@ -33,6 +33,68 @@ TREE = (
 )
 
 
+# /sim/performance's answer for a playing stage with two robots' sensors on, as the extension sends it: 240 frames of
+# 44.6 ms take 10.70 s, and fixed time steps of 1/60 s at the scene's 120 steps a second carry 2 steps each, 480 steps
+# that simulate 4.00 s.
+PERFORMANCE: dict[str, Any] = {
+    "frames": 240,
+    "warmup": 60,
+    "measured_frames": 240,
+    "app": {"fps": 22.42, "mean_ms": 44.6, "p50_ms": 43.9, "p95_ms": 51.2, "worst_ms": 63.0},
+    "halves": {"first_ms": 44.9, "second_ms": 44.3, "settled": True},
+    "gpu_render": {"mean_ms": 31.2, "p95_ms": 36.0},
+    "physics": {
+        "steps_per_second": 120.0,
+        "steps": 480,
+        "steps_per_frame": 2.0,
+        "step_ms": 6.1,
+        "frame_ms": 12.2,
+        "simulated_seconds": 4.0,
+        "wall_seconds": 10.704,
+        "ratio": 0.3737,
+    },
+    "gpu_memory": {
+        "device": "NVIDIA RTX 6000 Pro",
+        "used_bytes": int(14.2 * 2**30),
+        "total_bytes": 48 * 2**30,
+        "total_kind": "dedicated",
+    },
+    "stage": {
+        "prims": 18342,
+        "meshes": 2210,
+        "instances": 9120,
+        "prototypes": 41,
+        "point_instancers": 2,
+        "point_instances": 50000,
+    },
+    "render_products": [
+        *({"path": f"/Render/Lidar{i}", "kind": "lidar", "resolution": [1024, 1024]} for i in range(2)),
+        *({"path": f"/Render/Cam{i}", "kind": "camera", "resolution": [1280, 720]} for i in range(4)),
+    ],
+    "conditions": {
+        "gpu": "NVIDIA RTX 6000 Pro",
+        "kit_app_name": "Isaac-Sim Python",
+        "kit_app_version": "6.2.0",
+        "kit_version": "110.4.0",
+        "kit_os": "Linux-6.8.0-x86_64-with-glibc2.39",
+        "renderer": "rtx",
+        "render_mode": "RaytracedLighting",
+        "timeline": "playing",
+        "headless": True,
+        "fixed_time_stepping": True,
+        "time_codes_per_second": 60.0,
+        "rate_limit": True,
+        "rate_limit_frequency": 60,
+        "rate_limit_lifted": True,
+        "async_rendering": False,
+        "eco_mode": False,
+        "sleep_ms_on_focus": 0,
+        "sleep_ms_out_of_focus": 0,
+    },
+    "notes": [],
+}
+
+
 @dataclass(frozen=True)
 class Case:
     tool: str
@@ -444,6 +506,28 @@ CASES = [
             "kit_os = Windows-11-10.0.26300-SP0\nextension_version = 1.0.0",
             "note = the Kit extension is 1.0.0",
             f"install the server's, {kit_extension.install_advice()}",
+        ),
+    ),
+    Case(
+        "get_performance",
+        {"frames": 240, "warmup": 60},
+        "/sim/performance",
+        PERFORMANCE,
+        {"frames": 240, "warmup": 60},
+        (
+            "app = 22.4 FPS (frame time mean 44.6 ms, p50 43.9, p95 51.2, worst 63.0) over 240 frames after 60\n"
+            "settled = first half 44.9 ms, second half 44.3 ms\n"
+            "gpu_render = mean 31.2 ms, p95 36.0\n"
+            "physics = 120 steps a simulated second, 2.0 steps a frame, 6.1 ms a step (12.2 ms a frame); simulated "
+            "4.00 s in 10.70 s (0.37 of real time)\n"
+            "gpu_memory = 14.2 GiB used of 48.0 GiB of dedicated video memory (Hydra's figures for device 0, NVIDIA "
+            "RTX 6000 Pro)\n"
+            "stage = 18342 prims, 2210 meshes, 9120 instances of 41 prototypes, 50000 point instances in 2 point "
+            "instancers\n"
+            "render_products = 6: 2 lidars at 1024x1024, 4 cameras at 1280x720\n"
+            "conditions = NVIDIA RTX 6000 Pro, Isaac-Sim Python 6.2.0 (Kit 110.4.0), renderer rtx (RaytracedLighting), "
+            "playing, headless, fixed time steps of 1/60 s; rate limit lifted for the measurement (it was on at 60 "
+            "Hz); async rendering off, eco mode off",
         ),
     ),
     Case(
@@ -1332,6 +1416,114 @@ def test_get_sim_state_says_why_a_recording_s_frames_stopped(bridge: MockIsaacSe
         bridge,
         tmp_path,
     )
+
+
+def test_get_performance_says_what_kit_couldnt_give_and_each_note(bridge: MockIsaacServer, tmp_path: Path):
+    # A stopped stage in a Kit app without Hydra's stats, whose time ran out while it loaded: each missing number on
+    # its line, the conditions it had, and the notes as the extension wrote them.
+    answer = {
+        **PERFORMANCE,
+        "measured_frames": 0,
+        "app": None,
+        "app_missing": "the 90 s this call may take ran out while the stage was still loading",
+        "gpu_render": {"missing": "not available in this app: it has no omni.hydra.engine.stats"},
+        "physics": {"missing": "not measured: the timeline is stopped, so physics doesn't step; play it"},
+        "gpu_memory": {"missing": "not available in this app: it has no omni.hydra.engine.stats"},
+        "stage": {**PERFORMANCE["stage"], "instances": 0, "prototypes": 0, "point_instancers": 0},
+        "render_products": [],
+        "conditions": {
+            **PERFORMANCE["conditions"],
+            "gpu": None,
+            "timeline": "stopped",
+            "headless": False,
+            "fixed_time_stepping": False,
+            "rate_limit": None,
+            "rate_limit_lifted": False,
+            "eco_mode": True,
+            "async_rendering": True,
+            "sleep_ms_on_focus": 10,
+        },
+        "notes": ["eco mode is on and the timeline isn't playing: measure while it plays"],
+    }
+    del answer["halves"]
+    text = _check(
+        Case(
+            "get_performance",
+            {},
+            "/sim/performance",
+            answer,
+            {"frames": 120, "warmup": 30},
+            (
+                "app = not measured: the 90 s this call may take ran out while the stage was still loading\n"
+                "gpu_render = not available in this app: it has no omni.hydra.engine.stats\n"
+                "physics = not measured: the timeline is stopped, so physics doesn't step; play it\n"
+                "gpu_memory = not available in this app: it has no omni.hydra.engine.stats\n"
+                "stage = 18342 prims, 2210 meshes\n"
+                "render_products = none\n"
+                "conditions = Isaac-Sim Python 6.2.0 (Kit 110.4.0), renderer rtx (RaytracedLighting), stopped, with a "
+                "window, time steps by the wall clock; rate limit not set, so left as it was; async rendering on, eco "
+                "mode on, sleepMsOnFocus 10 ms\n"
+                "note = eco mode is on and the timeline isn't playing: measure while it plays",
+            ),
+        ),
+        bridge,
+        tmp_path,
+    )
+    assert "settled" not in text
+
+
+@pytest.mark.parametrize(
+    ("memory", "says"),
+    [
+        (
+            {"device": "Invented GPU", "used_bytes": 2**30, "total_bytes": None, "total_kind": None},
+            "gpu_memory = 1.0 GiB used (Hydra's figures for device 0, Invented GPU)\n",
+        ),
+        (
+            {"device": "Invented GPU", "used_bytes": 2**30, "total_bytes": 16 * 2**30, "total_kind": "budget"},
+            "gpu_memory = 1.0 GiB used of a 16.0 GiB budget (Hydra's figures for device 0, Invented GPU)\n",
+        ),
+        (
+            {"device": "Invented GPU", "used_bytes": None, "total_bytes": 16 * 2**30, "total_kind": "dedicated"},
+            "gpu_memory = not given by Hydra for Invented GPU\n",
+        ),
+    ],
+    ids=["no-total", "budget", "no-use"],
+)
+def test_get_performance_reads_a_limiter_off_steps_without_a_rate_and_part_of_the_memory(
+    memory: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    # A limiter already off before the call is left off, and said so; fixed steps whose rate Kit didn't give are still
+    # fixed; Hydra's figures as far as it gives them.
+    conditions = {
+        **PERFORMANCE["conditions"],
+        "rate_limit": False,
+        "rate_limit_lifted": False,
+        "time_codes_per_second": None,
+    }
+    answer = {**PERFORMANCE, "gpu_memory": memory, "conditions": conditions}
+    case = Case(
+        "get_performance",
+        {},
+        "/sim/performance",
+        answer,
+        {},
+        (says, "playing, headless, fixed time steps; rate limit off; async rendering off, eco mode off"),
+    )
+    _check(case, bridge, tmp_path)
+
+
+def test_get_performance_says_how_many_of_the_frames_asked_it_measured(bridge: MockIsaacServer, tmp_path: Path):
+    answer = {**PERFORMANCE, "measured_frames": 40, "notes": ["the 90 s this call may take ran out after 40 of 240"]}
+    case = Case(
+        "get_performance",
+        {"frames": 240, "warmup": 60},
+        "/sim/performance",
+        answer,
+        {"frames": 240, "warmup": 60},
+        ("over 40 of 240 frames after 60\n", "note = the 90 s this call may take ran out after 40 of 240"),
+    )
+    _check(case, bridge, tmp_path)
 
 
 def test_get_sim_state_reads_an_older_extension_s_missing_kit_app_as_unknown(bridge: MockIsaacServer, tmp_path: Path):

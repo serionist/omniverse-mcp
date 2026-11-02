@@ -446,6 +446,10 @@ class BridgeClient:
     def sim_state(self) -> dict[str, Any]:
         return self.request("/sim/state", {})
 
+    def performance(self, frames: int = 120, warmup: int = 30) -> dict[str, Any]:
+        # The extension stops measuring at 90 s, under this client's 120 s timeout.
+        return self.request("/sim/performance", {"frames": frames, "warmup": warmup})
+
     def capture_viewport(self, width: int = 640, height: int = 480, camera_path: str = "") -> dict[str, Any]:
         body: dict[str, Any] = {"width": width, "height": height}
         if camera_path:

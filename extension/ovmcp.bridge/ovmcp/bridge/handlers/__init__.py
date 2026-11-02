@@ -28,6 +28,9 @@ from .misc import (
     handle_health,
 )
 
+# --- Performance ---
+from .performance import handle_performance
+
 # --- Recording ---
 from .recording import (
     handle_recording_frame,
@@ -100,6 +103,8 @@ __all__ = [
     "handle_extensions_list",
     "handle_extensions_manage",
     "handle_health",
+    # Performance
+    "handle_performance",
     # Recording
     "handle_recording_frame",
     "handle_recording_start",

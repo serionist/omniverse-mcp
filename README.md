@@ -158,7 +158,7 @@ Something else? See [Troubleshooting](#troubleshooting).
 | **Scene** | `get_scene_tree`, `get_prim_properties`, `get_prim_bounds`, `set_prim_transform`, `create_prim`, `delete_prim`, `clone_prim`, `set_visibility`, `set_prim_attribute`, `save_scene`, `open_scene`, `new_scene` | Read the scene's hierarchy and properties; create, move, copy, hide and delete objects; set an attribute such as a light's intensity; save, open a file, or start an empty scene |
 | **Camera** | `capture_viewport`, `inspect_prim`, `set_camera`, `viewport_light` | Capture the viewport with each object's screen box and colour, see one object from several sides, aim the camera at a point or an object, light the view |
 | **Materials** | `set_material`, `update_material_paths` | Give an object a colour and surface; fix material paths after files move |
-| **Simulation** | `sim_control`, `get_sim_state` | Play, pause, stop and step physics; the state, the up axis and the versions |
+| **Simulation** | `sim_control`, `get_sim_state`, `get_performance` | Play, pause, stop and step physics; the state, the up axis and the versions; measure the frame rate, the physics step and GPU memory |
 | **Physics** | `set_physics_properties`, `apply_force`, `raycast` | Mass, friction and bounce; make a collider; push an object; cast a ray |
 | **Robots** | `create_robot`, `get_robot_info`, `set_joint_targets` | Add a robot from Isaac Sim's library (Franka, UR10, G1, Spot and more), read its joints and where they are, set joint targets |
 | **Recording** | `start_recording`, `stop_recording`, `get_recording_frame` | Record frames from any camera at any size, and objects' state, while physics plays, then look back at any frame |

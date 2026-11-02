@@ -114,6 +114,7 @@ class TestBridgeClient(unittest.TestCase):
         cls.mock.set_response(
             "/scene/visibility", {"status": "success", "result": {"prim_path": "/World/Cube", "visible": False}}
         )
+        cls.mock.set_response("/sim/performance", {"status": "success", "result": {"measured_frames": 240}})
         cls.mock.set_response(
             "/scene/attribute",
             {"status": "success", "result": {"prim_path": "/World/Sun", "name": "inputs:intensity", "after": "3000"}},
@@ -542,6 +543,14 @@ class TestBridgeClient(unittest.TestCase):
     def test_sim_state(self):
         r = self.client.sim_state()
         self.assertEqual(r["result"]["state"], "stopped")
+
+    def test_performance_sends_its_frames_and_warm_up(self):
+        r = self.client.performance(240, 60)
+        self.assertEqual(r["result"]["measured_frames"], 240)
+        self.assertEqual(self.mock.requests[-1], ("POST", "/sim/performance", {"frames": 240, "warmup": 60}))
+        # The measurement's defaults, as the tool's.
+        self.client.performance()
+        self.assertEqual(self.mock.requests[-1], ("POST", "/sim/performance", {"frames": 120, "warmup": 30}))
 
     def test_capture_viewport(self):
         r = self.client.capture_viewport(1280, 720)

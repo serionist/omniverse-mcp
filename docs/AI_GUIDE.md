@@ -21,7 +21,7 @@ project. Their `allowed-tools` lines are Claude Code's, and other clients ignore
 | [setup](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/setup/SKILL.md) | installing the Kit extension, connecting, a tool that cannot reach Kit |
 | [scene](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/scene/SKILL.md) | looking at a stage, placing and checking prims, lighting and black captures |
 | [geometry](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/geometry/SKILL.md) | face counts, comparing prims and variants, variant sets, flattening and exports |
-| [simulate](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/simulate/SKILL.md) | physics, robots, forces, recording a run |
+| [simulate](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/simulate/SKILL.md) | physics, robots, forces, recording a run, measuring the frame rate |
 | [script](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/script/SKILL.md) | `execute_script`, and the traps of Kit's Python |
 | [report-bug](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/report-bug/SKILL.md) | a tool that fails or answers wrongly: asks first, then files a bug report with `gh` on the user's yes, or drafts it for them to post |
 

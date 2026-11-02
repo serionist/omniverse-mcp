@@ -2687,6 +2687,165 @@ class TestSaveSceneKeepsTheOpenStagesLayers(unittest.TestCase):
         print("  A file Kit held was saved over and read again; with an unsaved edit, refused")
 
 
+# Kit's frame-rate limiter, which get_performance lifts while it measures and puts back: whether it is on, and its rate.
+_LIMITER = """
+import carb
+settings = carb.settings.get_settings()
+loop = "/app/runLoops/main/"
+result = [settings.get(loop + "rateLimitEnabled"), settings.get(loop + "rateLimitFrequency")]
+"""
+
+# Sets the limiter to ENABLED at FREQUENCY; a None takes the setting away, as it was where the Kit app set none.
+_SET_LIMITER = """
+import carb
+settings = carb.settings.get_settings()
+loop = "/app/runLoops/main/"
+for path, value in ((loop + "rateLimitEnabled", ENABLED), (loop + "rateLimitFrequency", FREQUENCY)):
+    if value is not None:
+        settings.set(path, value)
+    elif hasattr(settings, "destroy_item"):
+        settings.destroy_item(path)
+result = True
+"""
+
+# The limiter's cap the test sets, and how far over it the light stage must read: a cap holds the rate within a frame
+# or two of it, so 20% over it shows the cap was lifted.
+_CAP_HZ = 30
+_OVER_THE_CAP = 1.2
+
+# ROOT with a physics scene of its own when the stage has none, so a playing timeline steps physics.
+_PERF_ROOT = """
+from pxr import UsdGeom, UsdPhysics
+stage = omni.usd.get_context().get_stage()
+UsdGeom.Xform.Define(stage, ROOT)
+if not any(prim.IsA(UsdPhysics.Scene) for prim in stage.Traverse()):
+    UsdPhysics.Scene.Define(stage, ROOT + "/PhysicsScene")
+result = True
+"""
+
+# The heavy stage under ROOT: a point instancer of COUNT cubes in a square on the XY plane, and a 1920x1080 camera
+# feed of the bridge's own looking down on it, which renders every update as a sensor's camera does. The feed is kept on
+# camera_feed's module, so it lives until _PERF_UNPILE discards it.
+_PERF_PILE = """
+from pxr import Gf, UsdGeom, Vt
+from ovmcp.bridge.handlers import camera_feed
+stage = omni.usd.get_context().get_stage()
+pile = UsdGeom.PointInstancer.Define(stage, ROOT + "/Pile")
+cube = UsdGeom.Cube.Define(stage, ROOT + "/Pile/Prototypes/Cube")
+cube.CreateSizeAttr(0.2)
+pile.CreatePrototypesRel().SetTargets([cube.GetPath()])
+side = int(COUNT ** 0.5)
+pile.CreatePositionsAttr(Vt.Vec3fArray([Gf.Vec3f((i % side) * 0.3, (i // side) * 0.3, 0.0) for i in range(COUNT)]))
+pile.CreateProtoIndicesAttr(Vt.IntArray([0] * COUNT))
+camera = UsdGeom.Camera.Define(stage, ROOT + "/Cam")
+UsdGeom.XformCommonAPI(camera).SetTranslate(Gf.Vec3d(side * 0.15, side * 0.15, 120.0))
+camera_feed._ovmcp_test_perf_feed = camera_feed.CameraFeed(ROOT + "/Cam", 1920, 1080)
+result = int(pile.GetInstanceCount())
+"""
+
+_PERF_UNPILE = """
+from ovmcp.bridge.handlers import camera_feed
+feed = getattr(camera_feed, "_ovmcp_test_perf_feed", None)
+camera_feed._ovmcp_test_perf_feed = None
+if feed is not None:
+    camera_feed.discard(feed)
+result = feed is not None
+"""
+
+# How far apart two measurements of the same stage may be, as a share of the smaller mean frame time (#156's step 5).
+_SAME_STAGE_SHARE = 0.15
+
+
+class TestGetPerformance(unittest.TestCase):
+    """get_performance on a playing stage (#156): a light stage, then a heavy one, whose mean frame time is higher; the
+    heavy one measured twice unchanged and once straight after a capture, each within 15% of the first; the physics
+    lines there. The limiter is turned on at 30 Hz first, so the light stage reading well over 30 FPS proves it was
+    lifted, and it is on at 30 Hz again after every call; the Kit app's own setting comes back at the end. Run with the
+    shared machine's other Kit apps idle: they share the GPU, and their load moves frame times."""
+
+    @classmethod
+    def setUpClass(cls):
+        host, port = live_bridge()
+        # A measurement takes up to 90 s, under the server's own 120 s.
+        cls.client = BridgeClient(host=host, port=port, timeout=120.0)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.client.close()
+
+    def _run(self, code: str) -> Any:
+        result = self.client.execute(code)
+        self.assertEqual(result["status"], "success", result.get("error"))
+        return result["result"]["return_value"]
+
+    def _set_limiter(self, enabled: object, frequency: object) -> None:
+        self._run(f"ENABLED = {enabled!r}\nFREQUENCY = {frequency!r}\n{_SET_LIMITER}")
+
+    def _assert_limiter_back(self, capped: list[Any]) -> None:
+        self.assertEqual(self._run(_LIMITER), capped, "the frame-rate limiter wasn't put back on at its rate")
+
+    def _measure(self, capped: list[Any]) -> dict[str, Any]:
+        """One measurement of 120 frames after 30, the limiter checked to be on at its rate again after it."""
+        r = self.client.performance(120, 30)
+        self.assertEqual(r["status"], "success", r.get("error"))
+        self._assert_limiter_back(capped)
+        result = r["result"]
+        self.assertTrue(result["conditions"]["rate_limit_lifted"], result["conditions"])
+        self.assertEqual(result["measured_frames"], 120, result.get("notes"))
+        self.assertEqual(result["conditions"]["timeline"], "playing")
+        self.assertGreater(result["physics"].get("steps", 0), 0, result["physics"])
+        return result
+
+    def _close(self, first: float, second: float, what: str) -> None:
+        self.assertLessEqual(
+            max(first, second), (1 + _SAME_STAGE_SHARE) * min(first, second), f"{what}: {first:.2f} ms, {second:.2f} ms"
+        )
+
+    def test_a_heavier_stage_reads_slower_and_the_same_stage_reads_the_same(self):
+        root = f"/World/IntTestPerf_{secrets.token_hex(4)}"
+        original = self._run(_LIMITER)
+        self._run(f"ROOT = {root!r}\n{_PERF_ROOT}")
+        try:
+            self._set_limiter(True, _CAP_HZ)
+            capped = self._run(_LIMITER)
+            self.assertEqual(capped[0], True)
+            self.client.sim_control("play")
+            light = self._measure(capped)
+            self.assertGreater(light["app"]["fps"], _CAP_HZ * _OVER_THE_CAP, "the limiter's cap held the measurement")
+            # The text the model reads, once: a line per number, the frame rate first, the physics line there.
+            erred, text = call_tool("get_performance", {}, tempfile.gettempdir())
+            self.assertFalse(erred, text)
+            self._assert_limiter_back(capped)
+            self.assertIn(f"rate limit lifted for the measurement (it was on at {capped[1]:g} Hz)", text)
+            lines = text.splitlines()
+            self.assertTrue(lines[0].startswith("app = "), text)
+            self.assertTrue(any(line.startswith("physics = ") and "steps a frame" in line for line in lines), text)
+            self.assertTrue(any(line.startswith("conditions = ") for line in lines), text)
+
+            self.assertEqual(self._run(f"ROOT = {root!r}\nCOUNT = 250000\n{_PERF_PILE}"), 250000)
+            heavy = self._measure(capped)
+            again = self._measure(capped)
+            self.assertEqual(self.client.capture_viewport(640, 480)["status"], "success")
+            after_capture = self._measure(capped)
+
+            light_ms, heavy_ms = light["app"]["mean_ms"], heavy["app"]["mean_ms"]
+            print(
+                f"  light {light_ms:.2f} ms, heavy {heavy_ms:.2f} ms, again {again['app']['mean_ms']:.2f} ms, after a "
+                f"capture {after_capture['app']['mean_ms']:.2f} ms; heavy point instances "
+                f"{heavy['stage']['point_instances']}, render products {len(heavy['render_products'])}"
+            )
+            self.assertGreater(heavy_ms, light_ms)
+            self.assertEqual(heavy["stage"]["point_instances"], 250000)
+            self.assertGreater(len(heavy["render_products"]), len(light["render_products"]))
+            self._close(heavy_ms, again["app"]["mean_ms"], "the unchanged heavy stage measured twice")
+            self._close(heavy_ms, after_capture["app"]["mean_ms"], "the heavy stage measured after a capture")
+        finally:
+            self.client.sim_control("stop")
+            self._run(_PERF_UNPILE)
+            self.client.delete_prim(root)
+            self._set_limiter(*original)
+
+
 # Spheres of a few thousand vertices under ROOT, each vertex pushed in or out by a jitter drawn from the sphere's own
 # seed in SEEDS: meshes no cook cache holds, so every one is cooked, and no cache is cleared to get there. Each is a
 # rigid body with a convex hull. On main's bridge, 8 static colliders played without a hang and 32 rigid bodies hung
