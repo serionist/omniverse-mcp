@@ -481,24 +481,28 @@ class TimelineStart:
         timeline.commit()
 
     def restore(self, timeline: Timeline) -> None:
-        """The state and time of the start again. A timeline playing at the start that is still playing is left to
-        play, as nothing of the sweep stopped it."""
+        """The state and time of the start again, committed when anything changed: a commit runs the timeline's
+        callbacks, which a shot without a time after another such shot has no need of. A timeline playing at the start
+        that is still playing is left to play, as nothing of the sweep stopped it."""
+        changed = False
         if self.playing:
             if not timeline.is_playing():
                 timeline.set_current_time(self.time)
                 timeline.play()
-        elif self.stopped:
-            if not timeline.is_stopped():
+                changed = True
+        else:
+            if self.stopped and not timeline.is_stopped():
+                # Committed before the time is read: a stop puts the time back to the start's.
                 timeline.stop()
                 timeline.commit()
-            if timeline.get_current_time() != self.time:
-                timeline.set_current_time(self.time)
-        else:
-            if timeline.is_playing():
+            elif not self.stopped and timeline.is_playing():
                 timeline.pause()
+                changed = True
             if timeline.get_current_time() != self.time:
                 timeline.set_current_time(self.time)
-        timeline.commit()
+                changed = True
+        if changed:
+            timeline.commit()
 
 
 def still_loading(status: Sequence[Any]) -> bool:
@@ -552,6 +556,8 @@ class Taken:
     is_black: bool = False
     loading: str | None = None
     loading_seconds: float | None = None
+    # Whether its capture failed, which may mean the feed renders nothing; not in the manifest, whose error says so.
+    capture_failed: bool = False
 
 
 def entry(taken: Taken) -> dict[str, object]:

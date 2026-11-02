@@ -1,8 +1,8 @@
 """Job handlers: start a script as a job, read a job, cancel it (#158).
 
 A job runs on Kit's loop as a task of its own (ovmcp.core.jobs), so Kit renders, physics steps and other requests are
-answered between its awaits, and it outlives the request that started it. The routes are every kind's: a script now,
-#157's capture sweep later, read and cancelled through the same /jobs/get and /jobs/cancel.
+answered between its awaits, and it outlives the request that started it. The routes are every kind's: a script here,
+#157's capture sweep in handlers/sweep.py, read and cancelled through the same /jobs/get and /jobs/cancel.
 """
 
 from collections.abc import Callable
@@ -146,7 +146,7 @@ async def handle_job_get(body: dict) -> dict:
 async def handle_job_cancel(body: dict) -> dict:
     job_id = body.get("job_id", "")
     if not isinstance(job_id, str) or not job_id.strip():
-        return _error("job_id is required: the id run_script_job answered, such as j3")
+        return _error("job_id is required: the id run_script_job or capture_sweep answered, such as j3")
     try:
         before = _board.get(job_id.strip()).state
         job = _board.cancel(job_id.strip(), CANCELLED_BY_USER)

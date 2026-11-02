@@ -296,7 +296,7 @@ class BridgeClient:
     def execute(self, code: str) -> dict[str, Any]:
         return self.request("/execute", {"code": code})
 
-    # ----- Jobs: a script now, #157's sweep later, read and cancelled through the same routes -----
+    # ----- Jobs: a script, and a capture sweep (#157), read and cancelled through the same routes -----
 
     def job_script(self, code: str = "", file: str = "") -> dict[str, Any]:
         body: dict[str, Any] = {}

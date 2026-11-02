@@ -461,6 +461,17 @@ def test_a_playing_timeline_nothing_paused_plays_on_untouched():
     assert (timeline.state, timeline.time) == ("playing", 4.0)
 
 
+def test_a_shot_without_a_time_after_another_commits_nothing():
+    timeline = FakeTimeline("paused", 1.0)
+    start = TimelineStart.read(timeline)
+    commits: list[int] = []
+    timeline.commit = lambda: commits.append(1)  # type: ignore[method-assign]
+
+    start.restore(timeline)
+
+    assert (timeline.calls, commits) == ([], [])
+
+
 def test_a_stopped_timeline_moved_by_hand_gets_its_time_back_without_a_stop():
     timeline = FakeTimeline("stopped", 0.0)
     start = TimelineStart.read(timeline)
