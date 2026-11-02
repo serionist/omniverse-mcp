@@ -2856,7 +2856,7 @@ class TestScenarios(PhysicsChecks):
 
     def test_22_06_remove_inspect_target(self):
         """Phase 22.6: Remove the inspected prim, which stands on the column phase 26's kept cube is placed on"""
-        # Left there, it held phase 26's cubes inside it on either axis, so 26.4 saw no move.
+        # Left there, it stood in front of phase 26's kept cube on either axis, so 26.4 could see no move.
         r = self.c.delete_prim(self.INSPECT_TARGET)
         self.assertEqual(r["status"], "success", r)
         self._pass()
@@ -2960,6 +2960,9 @@ class TestScenarios(PhysicsChecks):
     def test_26_01_camera_set_immediate_capture(self):
         """Phase 26.1: Camera Set + Immediate Capture (no delay)"""
         # Create something visible
+        # Removed even when the test fails, so phase 26.4's kept cube, on the same column, isn't hidden inside them.
+        self.addCleanup(self.c.delete_prim, "/World/SettleCube")
+        self.addCleanup(self.c.delete_prim, "/World/SettleLight")
         self.c.create_prim("/World/SettleCube", "Cube", position=_along_up(self._up_axis(), 0.5), scale=[0.5, 0.5, 0.5])
         self.c.create_prim("/World/SettleLight", "DistantLight", rotation=[45, 0, 0])
         self.c.set_material("/World/SettleCube", color=[1, 0, 0])
@@ -2978,15 +2981,14 @@ class TestScenarios(PhysicsChecks):
             self.assertEqual(cap["status"], "success")
             self.assertGreater(len(cap["result"]["image_base64"]), 100)
 
-        # Clean up
-        self.c.delete_prim("/World/SettleCube")
-        self.c.delete_prim("/World/SettleLight")
         print("  3 camera positions captured immediately without delay")
         self._pass()
 
     def test_26_02_look_at_immediate_capture(self):
         """Phase 26.2: Look At + Immediate Capture"""
         up = self._up_axis()
+        self.addCleanup(self.c.delete_prim, "/World/SettleTest")
+        self.addCleanup(self.c.delete_prim, "/World/SettleLight2")
         self.c.create_prim("/World/SettleTest", "Cube", position=_along_up(up, 1), scale=[0.5, 0.5, 0.5])
         self.c.create_prim("/World/SettleLight2", "DistantLight", rotation=[45, 0, 0])
         self.c.set_material("/World/SettleTest", color=[0, 1, 0])
@@ -3004,10 +3006,6 @@ class TestScenarios(PhysicsChecks):
         self.assertGreater(len(cap["result"]["image_base64"]), 100)
         boxes = {b["prim_path"] for b in cap["result"]["screen_bboxes"]}
         self.assertNotIn("/World/SettleSide", boxes)
-
-        # Clean up
-        self.c.delete_prim("/World/SettleTest")
-        self.c.delete_prim("/World/SettleLight2")
         print("  Look-at + immediate capture OK")
         self._pass()
 
