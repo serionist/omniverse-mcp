@@ -57,3 +57,22 @@ major; all fixed in `cbedc57`.
 
 **Not covered:** the gate and CI, the live suites and the PR's text, which the reviewers could not run or read; the
 PR gives them.
+
+**After the review,** `85aeb9a`: a list's items are typed `bool | int | float | str | list[int | float]`, so a whole
+number in a list stays an int and an int64 keeps its precision; checked in this session with its tool test.
+
+## Live run
+
+On my headless Isaac Sim 6.2.0 (Kit 110.4.0) at 8212, with this branch's extension rebased onto `db64f77` (#150),
+each suite run on a fresh Kit:
+
+- Both live suites: 208 passed on a Z-up stage and 208 on a Y-up stage, with
+  `test_23c_set_prim_attribute_sets_a_light_and_a_sphere_s_size_with_its_box` and
+  `test_23_07_set_a_light_s_intensity` among them.
+- AI scenario phase 23 (run `20261102-181113`): every row PASS; 23.7's tester set the dome light to 500 with
+  `set_prim_attribute`, read `written to the stage's root layer` and saw 500.0 in `viewport_light`'s answer.
+- O1 twice (runs `20261102-181229`, `20261102-181322`): PASS both, no `execute_script` either time; the first agent set
+  the cube's size and the ground plane's axis and size with `set_prim_attribute`, four calls.
+- The first O1 judge noted the cube's `extent` reading ±1 beside `size = 0.5`. Measured on the same Kit:
+  `create_prim`'s Cube authors no extent, so the tool, as planned, has no extent to update, and `get_prim_bounds` reads
+  0.5 m from the size; the prim block prints the schema's fallback. Filed as #163.
