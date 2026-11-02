@@ -447,8 +447,8 @@ for layer in stage.GetLayerStack(includeSessionLayers=True):
 viewport = get_active_viewport()
 result = {
     "render": sorted(path for path in paths if not path.startswith("/Render/Vars")),
-    "root_names_a_feed": "ovmcp_capture_" in stage.GetRootLayer().ExportToString(),
-    "graphs": sorted(path for path in SyntheticData.Get()._nodeGraphs if "ovmcp_capture_" in path),
+    "root_names_a_feed": "ovmcp_feed_" in stage.GetRootLayer().ExportToString(),
+    "graphs": sorted(path for path in SyntheticData.Get()._nodeGraphs if "ovmcp_feed_" in path),
     "viewport": [
         str(viewport.camera_path), list(viewport.full_resolution), viewport.resolution_scale, viewport.fill_frame
     ],

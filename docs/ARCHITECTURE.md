@@ -131,7 +131,7 @@ extension come from one release. `omniverse-mcp extension install` (`src/omniver
 |------|---------|
 | `ovmcp/bridge/extension.py` | Kit lifecycle: makes the token, starts the core's HTTP server with the routes |
 | `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake, and the Kit app's name, versions and OS), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `capture.py` (the capture path's waits, each bounded by time, a call's bookkeeping, the frame-size limit, 4096 a side, for start_recording, capture_viewport and inspect_prim, Path Tracing's settle frames, and segmentation's colours), `png.py` (the PNG writer), `logs.py` (Kit's log file read into the log ring, and its query), `force.py` (apply_force's request, its refusals and the point it pushes at; from the stage's joints, the articulation a body is a link of and the fixed joint that holds it to the world; for the push through PhysX's tensor API, which the handler takes while `/physics/suppressReadback` is on: the physics scene's step length, an impulse as one step's force, and the centre of mass from the tensor API's rows), `framing.py`, `isolation.py`, `lighting.py`, `material.py` (set_material's OmniPBR, named by its MDL source; set_physics_properties' physics material: its path, a child of the prim, and its refusals; the values a body has, and what the material it binds copies from the one it replaces; one walk of the stage's bindings, for the other prims a write changes and the older shared material it deletes once nothing binds it), `robot.py` (whether create_robot was given a file or a name, its prim's name; the articulation root whose joint states get_robot_info reads), `metrics.py` (a referenced file's up axis and units brought to the stage's, for create_robot and create_prim: the turn that stands a file of another up axis upright, and the scale and the converted values that bring a file of other units to the stage's), `usd_files.py` (where a USD file a tool is given loads from: a URL, a file on Kit's machine, Isaac Sim's asset library), `stage_open.py` (open_scene's checks before Kit closes the open stage, its sequence, its limits and its answer), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `recording.py` (start_recording's request, the camera check, which updates take a frame and its number, and deleting a camera feed's render product from every layer), `serial.py`, `layers.py` (the files the open stage has loaded, which flatten_usd and export_prim_as_file refuse to write, the layers Kit holds that they read again from disk, and the open stage without Kit's session layer, which they flatten), `xform.py` (every transform the bridge writes, into a prim's own xform ops, refused when it couldn't show, and a camera's aim, in the layer that holds its ops: Kit's session layer for Kit's own cameras), `deletion.py` (whether delete_prim can take a prim off the stage, from its composition arcs, and why not), `usd.py` (typed forms of pxr calls the stubs get wrong) |
-| `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, scene_open, simulation, recording, robot, debug_draw, misc, usd_advanced, logging) with shared utilities in `_utils.py` (among them `enable_extension` and the capture to a file, `capture_file_png`, with `capture_feed_png` on it), `camera_feed.py` (a camera rendered at a size in a texture of its own, for a recording or a capture, with a capture's segmentation and its release, and the capture feed kept between calls with the viewport lock) and `_mcp_bridge.py` |
+| `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, scene_open, simulation, recording, robot, debug_draw, misc, usd_advanced, logging) with shared utilities in `_utils.py` (among them `enable_extension` and the capture to a file, `capture_file_png`, with `capture_feed_png` on it), `camera_feed.py` (a camera rendered at a size in a texture of its own, for a recording or a capture, with a capture's segmentation and its release, and the capture feed kept between calls with the viewport lock, lent to a recording at its size) and `_mcp_bridge.py` |
 | `config/extension.toml` | Extension metadata and default settings |
 
 ### HTTP Server
@@ -342,16 +342,18 @@ result = bounds["result"]["center"]
 
 ## Recording System
 
-A recording renders its camera at its size through a camera feed of its own, so the user's viewport, its camera and
-its size never change (#25):
+A recording renders its camera at its size through a camera feed, so the user's viewport, its camera and its size
+never change (#25):
 
 1. **Start** checks the request (`core/recording.py`; a side up to 4096) and the camera: `camera_path`, or the active
-   viewport's camera, must be a `UsdGeom.Camera`. It makes a `CameraFeed` (`handlers/camera_feed.py`): a texture from
-   Kit's public `omni.kit.hydra_texture.create_hydra_texture`, rendering every update while the recording runs, as
-   Replicator makes its render products but with no annotator, so Replicator's orchestrator, its capture settings and
-   the timeline are left alone. It waits for the feed's first frame (`capture.FRAME_SECONDS`), then, under Path
-   Tracing, for the frames a capture waits for its samples (`capture.settle_frames`, none under RT 2.0), then
-   observes the app's update event (Threading Model, point 7).
+   viewport's camera, must be a `UsdGeom.Camera`. It borrows a `CameraFeed` (`handlers/camera_feed.py`'s `lend`,
+   [Viewport Capture](#viewport-capture)): the feed the captures keep when it is the recording's size, its camera
+   set, so no new RTX view is set up (#141); else a new one, which leaves the kept one on its clock. A feed is a
+   texture from Kit's public `omni.kit.hydra_texture.create_hydra_texture`, rendering every update, as Replicator
+   makes its render products but with no annotator, so Replicator's orchestrator, its capture settings and the
+   timeline are left alone. The start waits for the feed's first frame (`capture.FRAME_SECONDS`), then the 20 frames
+   a capture waits after it sets the camera, and under Path Tracing the frames a capture waits for its samples
+   (`capture.settle_frames`, none under RT 2.0), then observes the app's update event (Threading Model, point 7).
 2. **Each update,** `FrameClock` moves the recording's own clock and decides whether to take a frame. The clock adds
    the simulation time the update advanced when the timeline's time moved forward, and the wall time since the update
    before otherwise (`time.monotonic`): stopped, paused, or a timeline that plays and doesn't move. It reads the time,
@@ -367,12 +369,16 @@ its size never change (#25):
    Its image shows the simulation within one update of its tick.
 4. **Frames stop** when the stage starts to close, another stage opens, or the camera goes: the feed would go on
    rendering something else (white for a deleted camera, the new stage's default camera after a new stage). Frames in
-   flight end at once as empty files, and `stop_recording` and `get_sim_state` say why.
-5. **Stop** drops the update observer, awaits the frames in flight, drops the feed, deletes its render product, and writes
-   `metadata.json`, each step on its own so one that fails leaves the rest done. Kit writes a texture's render product
-   into the root and session layers, whatever the edit target, and lists it in `/Render/OmniverseGlobalRenderSettings`'s
-   `products`; both stay after the texture goes, so `camera_feed.discard` deletes them from every layer of the stage
-   open then, or of the next one once it opens.
+   flight end at once as empty files, and `stop_recording` and `get_sim_state` say why. The feed is torn down at once
+   (`let_go_now`), as at Kit's Save: a capture may have left segmentation graphs on a borrowed one.
+5. **Stop** drops the update observer, awaits the frames in flight, hands the feed back (`hand_back`), and writes
+   `metadata.json`, each step on its own so one that fails leaves the rest done. The feed is kept for the next capture
+   or recording when no other is kept, no frame failed and the stage is the one it started on; else released, its
+   render product deleted. Kit writes a texture's render product into the root and session layers, whatever the edit
+   target, and lists it in `/Render/OmniverseGlobalRenderSettings`'s `products`; both stay after the texture goes, so
+   the release deletes them from every layer of the stage open then, or of the next one once it opens. A stop never
+   waits out a capture for the viewport lock: it releases the feed instead. After the extension's shutdown it keeps
+   nothing.
 
 State tracking uses the prim-block format with frame headers:
 ```
@@ -480,10 +486,18 @@ the stage changed just before the call, so the wait is the same for every captur
 **The kept feed (#114):** Kit 110 can hang for good during a new RTX view's first frames, its main thread looping
 inside NVIDIA's renderer; a feed made for each call made a new view each call, and the hang came about once in 300 to
 400 `inspect_prim` calls. So one feed is kept: `kept_feed` hands a call the kept feed, its `camera_path`, `width` and
-`height` set in place on the texture and on the feed, or makes one; `put_back` hands it back at the call's end.
+`height` set in place on the texture and on the feed, or makes one; `put_back` hands it back at the call's end. Every
+feed's render product is `ovmcp_feed_<id>`, whichever call made it.
 
 - **Views:** a changed camera makes no new view (8,000 switches on one feed never hung); a changed size makes one, on
   the same render product. Any size is kept.
+- **Recordings (#141):** `lend` takes the viewport lock and, when the kept feed is the recording's size, takes it off
+  the slot with its camera set, so the stage's events, the timer and the saves leave it to the recording; at another
+  size a recording gets a feed of its own and the kept one stays, since a resize would set up a view and the next
+  capture at the old size another. `hand_back` at the stop keeps a healthy feed when none is kept and the stage is the
+  one it started on, and releases it otherwise; when a capture holds the lock it releases rather than waits. A
+  recording's frames stopping early, a start that fails and shutdown tear its feed down at once (`let_go_now`), the
+  graphs a capture left freed first.
 - **Released:** 30 s after the last call (`IDLE_SECONDS`, a timer on Kit's loop whose release takes the viewport
   lock and checks a generation number, so one that fires as a call takes the feed does nothing); at once when a call
   leaves it in doubt (an error that escaped the capture, an angle's error, segmentation that raised or gave no data),
@@ -506,7 +520,8 @@ inside NVIDIA's renderer; a feed made for each call made a new view each call, a
   (`omni.kit.window.file`'s `file_window.py`).
 - **Segmentation:** on for the call that asks, off as it puts the feed back: left on, a kept 640x480 feed cost Kit
   110 updates a second while idle against 157 with it off and 183 with no feed. Its graphs stay until the feed goes.
-- **Shutdown:** `forget` tears the feed down as at `SAVING`, its render product deleted while a stage is open.
+- **Shutdown:** `forget` tears the feed down as at `SAVING`, its render product deleted while a stage is open, and marks
+  the module shut down, so a recording's stop still under way keeps nothing.
 - **Cost while kept,** idle, on headless Isaac Sim 6.2 and an RTX 5090: Kit's updates a second fell from 183 with no
   feed to 157 at 640x480, 153 at 1920x1080 and 69 at 4096x4096, its share of the GPU's 3D engine rose from 9 % to
   25 %, 28 % and 65 %, and it took about 0.3, 1.0 and 5.5 GB more video memory.

@@ -319,7 +319,8 @@ RENDER_PRODUCT = (
     "layers = [l.identifier for l in stage.GetLayerStack(includeSessionLayers=True) if l.GetPrimAtPath(PATH)]\n"
     "result = [bool(stage.GetPrimAtPath(PATH)), layers, name in stage.GetRootLayer().ExportToString()]\n"
 )
-# The render products under Kit's textures: one more while a recording runs, or while a capture's feed is kept.
+# The render products under Kit's textures: one more while a recording runs on a feed of its own, or while a
+# feed is kept for the next capture or recording.
 HYDRA_TEXTURES = (
     "prim = omni.usd.get_context().get_stage().GetPrimAtPath('/Render/OmniverseKit/HydraTextures')\n"
     "result = sorted(str(p.GetPath()) for p in prim.GetChildren()) if prim else []\n"
@@ -331,17 +332,17 @@ import carb.settings
 result = os.path.getsize(carb.settings.get_settings().get("/log/file"))
 """
 # What Kit's log gained after MARK of the RTX views it set up (#114's K15): each new view's createViewport, and each
-# view assignment of a capture feed's render product, which a feed's first camera change logs too.
+# view assignment of a feed's render product, which a feed's first camera change logs too.
 KIT_LOG_VIEWS = r"""
 import re
 import carb.settings
 with open(carb.settings.get_settings().get("/log/file"), "rb") as f:
     f.seek(MARK)
     text = f.read().decode("utf-8", "replace")
-assigned = r"View \d+ \(/Render/OmniverseKit/HydraTextures/ovmcp_capture_[0-9a-f]+\) assigned to device"
+assigned = r"View \d+ \(/Render/OmniverseKit/HydraTextures/ovmcp_feed_[0-9a-f]+\) assigned to device"
 result = {"created": text.count("createViewport - handle"), "assigned": len(re.findall(assigned, text))}
 """
-# How long the bridge keeps a capture's feed with no other capture.
+# How long the bridge keeps a feed with no capture or recording.
 KEPT_SECONDS = "from ovmcp.bridge.handlers import camera_feed\nresult = camera_feed.IDLE_SECONDS\n"
 # In one execute_script (#114), at W x H: camera B captured straight after camera A, through the kept feed, against a
 # fresh feed's capture of B; then the blue prim PRIM moved to MOVED through set_transform and captured at once through
@@ -409,6 +410,37 @@ KEPT_MEAN, KEPT_P99 = 1.0, 12.0
 # The most of the change itself (the move's mean of 1.9 to 2.1, the switch's far more) a kept capture may differ by; the
 # probe's kept capture after the move differed by 0.11 of it, and test_26_04's worst run, 0.49, is about a quarter.
 KEPT_SHARE = 1 / 3
+# In one execute_script (#141), at W x H: the recording's frame FRAME, taken through the kept feed just after it
+# rendered camera A, against a fresh feed's capture of its camera B; and A's capture against that, the switch
+# itself. Each fresh feed after release_kept. A is "" for the viewport's camera.
+FRAME_AGAINST_FRESH = """
+import base64, io
+import numpy as np
+from PIL import Image
+from ovmcp.bridge.handlers import camera_feed
+
+
+async def rgb(camera):
+    cap = await mcp.capture_viewport(width=W, height=H, camera_path=camera)
+    if cap["status"] != "success":
+        raise RuntimeError(cap["error"])
+    png = base64.b64decode(cap["result"]["image_base64"])
+    return np.asarray(Image.open(io.BytesIO(png)).convert("RGB")).astype(np.int32)
+
+
+def apart(a, b):
+    d = np.abs(a - b)
+    return {"mean": float(d.mean()), "p99": float(np.percentile(d, 99))}
+
+
+frame = np.asarray(Image.open(FRAME).convert("RGB")).astype(np.int32)
+await camera_feed.release_kept()
+a = await rgb(A)
+await camera_feed.release_kept()
+fresh_b = await rgb(B)
+await camera_feed.release_kept()
+result = {"frame": apart(frame, fresh_b), "switch_itself": apart(a, fresh_b)}
+"""
 
 
 def _png_size(path: str) -> tuple[int, int] | None:
@@ -539,7 +571,7 @@ class TestScenarios(PhysicsChecks):
 
     def _kept_feeds(self) -> list[str]:
         """The render products of capture feeds on the stage: one while a feed is kept (#114)."""
-        return [path for path in self._run_in_kit(HYDRA_TEXTURES) if "ovmcp_capture_" in path]
+        return [path for path in self._run_in_kit(HYDRA_TEXTURES) if "ovmcp_feed_" in path]
 
     def _choose_backend(self, *names: str) -> str:
         """The bridge's choose_backend, through execute: the first of `names` it can draw with, or the default."""
@@ -1014,10 +1046,14 @@ class TestScenarios(PhysicsChecks):
         self.assertFalse(self.c.sim_state()["result"]["recording_active"])
         self._pass()
 
-    def test_06_06_recording_makes_and_removes_its_render_product(self):
-        """Phase 6.6: The recording's render product exists while it runs, and is gone from every layer after (#25)"""
+    def test_06_06_recording_keeps_its_render_product_for_the_next_call(self):
+        """Phase 6.6: The recording's render product exists while it runs, is kept after the stop for the next capture
+        or recording, and is gone from every layer once the kept feed goes (#25, #141)"""
         camera = self._recording_camera()
         self._stop_recording_after()
+        # With no feed kept, the stop keeps the recording's.
+        self._run_in_kit(RELEASE_KEPT_FEED)
+        self.addCleanup(self._run_in_kit, RELEASE_KEPT_FEED)
         play_every_frame = self._run_in_kit(VIEWPORT_STATE)[3]
         r = self.c.recording_start(self._recordings("recordings_product"), camera_path=camera)
         self.assertEqual(r["status"], "success", r)
@@ -1028,10 +1064,12 @@ class TestScenarios(PhysicsChecks):
         stop = self.c.recording_stop()
         self.assertEqual(stop["status"], "success", stop)
         self.assertNotIn("note", stop["result"])
+        self.assertEqual(self._kept_feeds(), [product], "the stop kept no feed for the next call")
+        self._run_in_kit(RELEASE_KEPT_FEED)
         # Kit lists the render product in its render settings too, which outlive the prim unless deleted (#25's E22).
         self.assertEqual(self._run_in_kit(RENDER_PRODUCT, PATH=product), [False, [], False])
         self.assertEqual(self._run_in_kit(VIEWPORT_STATE)[3], play_every_frame)
-        print(f"  {product} in {len(layers)} layers while recording, in none after")
+        print(f"  {product} in {len(layers)} layers while recording, kept after the stop, in none once released")
         self._pass()
 
     def test_06_07_refuses_a_frame_too_large(self):
@@ -1077,12 +1115,22 @@ class TestScenarios(PhysicsChecks):
         self._pass()
 
     def test_06_09_recording_stops_when_its_camera_goes(self):
-        """Phase 6.9: Deleting the camera stops the frames, and stop says why (#25)"""
+        """Phase 6.9: Deleting the camera stops the frames, and stop says why (#25). The recording borrows the feed a
+        capture with segmentation kept, whose graphs go with it as the frames stop, Kit's log quiet (#51's E16, #141)"""
         camera = self._recording_camera("/World/RecCamGone")
         self._stop_recording_after()
+        self._run_in_kit(RELEASE_KEPT_FEED)
+        self.addCleanup(self._run_in_kit, RELEASE_KEPT_FEED)
+        entries = self.c.get_logs(count=1)["result"]["entries"]
+        since = entries[-1]["index"] if entries else -1
+        captured = self.c.capture_viewport(640, 480)  # the recording's size, with segmentation
+        self.assertEqual(captured["status"], "success", captured)
+        self.assertTrue(captured["result"]["segmentation_base64"], captured["result"].get("segmentation_error"))
+        (kept,) = self._kept_feeds()
         r = self.c.recording_start(self._recordings("recordings_gone"), fps=10, camera_path=camera)
         self.assertEqual(r["status"], "success", r)
         product = r["result"]["render_product"]
+        self.assertEqual(product, kept, "the recording made a feed of its own at the kept feed's size")
         time.sleep(0.5)
         self.assertEqual(self.c.delete_prim(camera)["status"], "success")
         time.sleep(0.3)
@@ -1095,7 +1143,10 @@ class TestScenarios(PhysicsChecks):
         self.assertEqual(stop["status"], "success", stop)
         self.assertIn("the camera is gone", stop["result"].get("note", ""))
         self.assertEqual(self._run_in_kit(RENDER_PRODUCT, PATH=product), [False, [], False])
-        print(f"  {stop['result']['frame_count']} frames, then: {stop['result']['note']}")
+        time.sleep(2.0)
+        logged = self.c.get_logs(count=50, since_index=since, search="Py_Graph")["result"]["entries"]
+        self.assertEqual(logged, [], "omni.syntheticdata tripped on the capture's graph")
+        print(f"  {stop['result']['frame_count']} frames, then: {stop['result']['note']}; Kit's log quiet")
         self._pass()
 
     def test_06_10_frames_follow_the_clock_stopped_and_the_simulation_playing(self):
@@ -2428,11 +2479,17 @@ class TestScenarios(PhysicsChecks):
         entries = self.c.get_logs(count=1)["result"]["entries"]
         since = entries[-1]["index"] if entries else -1
         start = self._lines_go_after_the_test()
-        # A capture keeps its feed (#114): the stage's closing drops it, and its render product waits for the next.
+        # A capture keeps its feed (#114), which the recording at its size borrows (#141); a capture after keeps
+        # another. The stage's closing drops the kept one, the recording's frames stop, and both render products
+        # wait for the next stage.
         captured = self.c.capture_viewport(320, 240)
         self.assertEqual(captured["status"], "success", captured)
         r = self.c.recording_start(self._recordings("recordings_events_2"), fps=10, width=320, height=240)
         self.assertEqual(r["status"], "success", r)
+        captured = self.c.capture_viewport(320, 240)
+        self.assertEqual(captured["status"], "success", captured)
+        (kept,) = self._kept_feeds()
+        self.assertNotEqual(kept, r["result"]["render_product"])
         drawn = self.c.draw_debug("line", start=[0, 0, 0], end=[1, 0, 0], duration=0.5)
         self.assertEqual(drawn["status"], "success", drawn)
         # The recording's and the drawing's observers are made by now, before an open adds Kit's own entries.
@@ -2445,8 +2502,9 @@ class TestScenarios(PhysicsChecks):
         self.assertEqual(stop["status"], "success", stop)
         self._wait_for_line_count(start, timeout=5.0)
         time.sleep(0.5)  # the render products' watch deletes them once the opened stage is open
-        # The watch ran on the update observer: the recording's render product, carried over by the open, is gone.
+        # The watch ran on the update observer: the render products, carried over by the open, are gone.
         self.assertEqual(self._run_in_kit(RENDER_PRODUCT, PATH=r["result"]["render_product"]), [False, [], False])
+        self.assertEqual(self._run_in_kit(RENDER_PRODUCT, PATH=kept), [False, [], False])
         marker = f"scenario 17.8 {time.time_ns()}"
         self.assertEqual(self.c.execute(f'import carb\ncarb.log_info("{marker}")')["status"], "success")
         # Kit's notices are Info: a log file that leaves Info out would pass this test with the notices still made.
@@ -2954,7 +3012,7 @@ class TestScenarios(PhysicsChecks):
             path = folder / f"{name}.usda"
             r = write(str(path))
             self.assertEqual(r["status"], "success", r)
-            self.assertNotIn("ovmcp_capture_", path.read_text(encoding="utf-8"), f"{name} wrote the kept feed")
+            self.assertNotIn("ovmcp_feed_", path.read_text(encoding="utf-8"), f"{name} wrote the kept feed")
             self.assertEqual(self._kept_feeds(), [], f"{name} left the feed on the stage")
 
         # Kit's own Save, of a copy of the stage opened from its file; the stage as it was is opened again after.
@@ -2969,9 +3027,73 @@ class TestScenarios(PhysicsChecks):
         r = client.execute("import omni.usd\nresult = list(await omni.usd.get_context().save_stage_async())")
         self.assertEqual(r["status"], "success", r)
         self.assertTrue(r["result"]["return_value"][0], r)
-        self.assertNotIn("ovmcp_capture_", scene.read_text(encoding="utf-8"), "Kit's Save wrote the kept feed")
+        self.assertNotIn("ovmcp_feed_", scene.read_text(encoding="utf-8"), "Kit's Save wrote the kept feed")
         self.assertEqual(self._kept_feeds(), [], "the feed outlived Kit's Save")
         print("  save_scene, flatten_usd, export_prim of /Render and Kit's Save wrote no capture feed")
+        self._pass()
+
+    def test_26_06_recordings_share_the_kept_feed(self):
+        """Phase 26.6: A capture, a recording, a capture and a recording at one size render through one kept feed, one
+        RTX view in all; a recording at another size makes one of its own and leaves the kept one; a recording's frame
+        0 through the kept feed shows its own camera, as a fresh feed's capture does (#141)"""
+        _up, _cube, camera = self._kept_scene()
+        self._stop_recording_after()
+        mark = self._run_in_kit(KIT_LOG_SIZE)
+        products: list[str] = []
+
+        def captured() -> None:
+            r = self.c.capture_viewport(320, 240)
+            self.assertEqual(r["status"], "success", r)
+            products.extend(self._kept_feeds())
+
+        def recorded(width: int, height: int) -> dict:
+            r = self.c.recording_start(
+                self._recordings("recordings_kept"), fps=10, width=width, height=height, camera_path=camera
+            )
+            self.assertEqual(r["status"], "success", r)
+            time.sleep(0.5)
+            stop = self.c.recording_stop()
+            self.assertEqual(stop["status"], "success", stop)
+            self.assertNotIn("note", stop["result"])
+            return r
+
+        captured()
+        first = recorded(320, 240)
+        products.append(first["result"]["render_product"])
+        captured()
+        products.append(recorded(320, 240)["result"]["render_product"])
+        views = self._run_in_kit(KIT_LOG_VIEWS, MARK=mark)
+        self.assertEqual(views["created"], 1, "a capture, a recording, a capture and a recording at one size")
+        self.assertEqual(len(set(products)), 1, f"not one feed: {products}")
+        self.assertEqual(self._kept_feeds(), products[:1], "no feed kept after the stop")
+
+        other = recorded(160, 120)
+        self.assertNotEqual(other["result"]["render_product"], products[0])
+        self.assertEqual(self._kept_feeds(), products[:1], "the recording at another size took the kept feed")
+        captured()
+        self.assertEqual(
+            self._run_in_kit(KIT_LOG_VIEWS, MARK=mark)["created"], 2, "more than the other size's own feed"
+        )
+
+        frame = Path(first["result"]["output_dir"]).resolve() / "frame_00000.png"
+        self.assertGreater(frame.stat().st_size, 0, "frame 0 didn't come")
+        values = {"W": 320, "H": 240, "A": "", "B": camera, "FRAME": str(frame)}
+        code = "".join(f"{name} = {value!r}\n" for name, value in values.items()) + FRAME_AGAINST_FRESH
+        host, port = live_bridge()
+        client = BridgeClient(host=host, port=port, timeout=60.0)
+        try:
+            r = client.execute(code)
+        finally:
+            client.close()
+        self.assertEqual(r["status"], "success", r)
+        done = r["result"]["return_value"]
+        print(f"  {views['created']} view for 4 calls at one size; frame 0 {done['frame']}")
+        print(f"  (the switch {done['switch_itself']})")
+        self.assertLessEqual(done["frame"]["mean"], KEPT_MEAN)
+        self.assertLessEqual(done["frame"]["p99"], KEPT_P99)
+        self.assertLessEqual(
+            done["frame"]["mean"], KEPT_SHARE * done["switch_itself"]["mean"], "frame 0 shows the camera before"
+        )
         self._pass()
 
 
