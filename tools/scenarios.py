@@ -1256,45 +1256,49 @@ def run_sessions(
         if not halt and left is not None and left <= 0:
             known = f"the budget of ${budget:.2f} is spent"
             halt = f"the budget may be spent: {', '.join(unknown)}'s cost is unknown" if unknown else known
-        if not halt:
-            try:
-                settle()
-            except (OSError, BridgeError) as e:
-                halt = f"Kit didn't answer between sessions: {e}"
-        why = refused.get(case.id, "") if case else ""
-        if not halt and case and not why:
-            try:
-                if session.kind == AGENT and prepare is not None:
-                    prepare(case)
-                elif session.kind == JUDGE and case.play and play is not None:
-                    play(case.play)
-            except BridgeError as e:
-                why = f"preparing its stage: {e}" if session.kind == AGENT else f"the runner's play: {e}"
-                refused[case.id] = why
-            except OSError as e:
-                halt = f"Kit didn't answer: {e}"
-        if halt or why:
+        why = ""
+        outcome: Outcome | None = None
+        try:
+            if not halt:
+                try:
+                    settle()
+                except (OSError, BridgeError) as e:
+                    halt = f"Kit didn't answer between sessions: {e}"
+            why = refused.get(case.id, "") if case else ""
+            if not halt and case and not why:
+                try:
+                    if session.kind == AGENT and prepare is not None:
+                        prepare(case)
+                    elif session.kind == JUDGE and case.play and play is not None:
+                        play(case.play)
+                except BridgeError as e:
+                    why = f"preparing its stage: {e}" if session.kind == AGENT else f"the runner's play: {e}"
+                    refused[case.id] = why
+                except OSError as e:
+                    halt = f"Kit didn't answer: {e}"
+            if not (halt or why):
+                if case and session.kind == AGENT:
+                    text = case.ask
+                elif case:
+                    text = judge_prompt(case, *agents[case.id], port)
+                else:
+                    text = prompt(suite, session, statuses, run_dir, port)
+                outcome = launch(session, text, left)
+        except BaseException:
+            # An interrupt or an error, in the runner's own steps too (a play can take 18 s): the record says so,
+            # rather than reading as a run that finished.
+            record.stopped, record.cost_known = "cut short", False
+            not_run(session, "the run was cut short")
+            for later in sessions[index + 1 :]:
+                skipped = SessionRecord(later.label, later.kind, later.phase, list(later.ids), later.new_stage)
+                skipped.stopped = "not run: the run was cut short"
+                records.append(skipped)
+                not_run(later, "the run was cut short")
+            raise
+        if outcome is None:
             record.stopped = f"not run: {halt or why}"
             found: dict[str, Row] = {}
         else:
-            if case and session.kind == AGENT:
-                text = case.ask
-            elif case:
-                text = judge_prompt(case, *agents[case.id], port)
-            else:
-                text = prompt(suite, session, statuses, run_dir, port)
-            try:
-                outcome = launch(session, text, left)
-            except BaseException:
-                # An interrupt or an error: the record says so, rather than reading as a run that finished.
-                record.stopped, record.cost_known = "cut short", False
-                not_run(session, "the run was cut short")
-                for later in sessions[index + 1 :]:
-                    skipped = SessionRecord(later.label, later.kind, later.phase, list(later.ids), later.new_stage)
-                    skipped.stopped = "not run: the run was cut short"
-                    records.append(skipped)
-                    not_run(later, "the run was cut short")
-                raise
             # A stopped tester sends no result event: count what it was allowed to spend, so --budget stays a cap.
             spent += outcome.cost if outcome.cost_known else (left or 0.0)
             if not outcome.cost_known:
@@ -1343,6 +1347,7 @@ def results_md(record: Mapping[str, Any]) -> str:
         ("Stage at the start", f"{kit.get('stage', '?')}, {kit.get('prim_count', '?')} prims"),
         ("Tester", f"{record.get('client', '')}, model {', '.join(record.get('models') or []) or '?'}"),
         ("Phases asked", record.get("phases", "")),
+        ("Outcomes asked", record.get("outcomes", "none")),
         ("Took", f"{record.get('seconds', 0) / 60:.0f} min, ${record.get('cost', 0):.2f}{_unknown_cost(record)}"),
     ]
     out = [f"# Scenario run {record.get('name', '')}", "", "| Field | Value |", "|---|---|"]
@@ -1576,11 +1581,12 @@ def run_play(
     client = connect(port)
     try:
         answer(client.sim_control("play"))
-        start = float(answer(client.sim_state()).get("sim_time") or 0.0)
-        began = clock()
         limit = PLAY_TIMES * seconds + PLAY_SLACK
         moved = 0.0
         try:
+            # Inside the try: a read that fails after the play still pauses.
+            start = float(answer(client.sim_state()).get("sim_time") or 0.0)
+            began = clock()
             while clock() - began < limit:
                 moved = float(answer(client.sim_state()).get("sim_time") or 0.0) - start
                 if moved >= seconds:
@@ -1644,7 +1650,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 2
     try:
         asked = phases_asked(args.phases, suite)
-        cases = outcomes_asked(args.outcomes, bool(args.phases), outcomes)
+        # `--phases none` asks for no phase, so it runs the outcomes, as a run without --phases does.
+        cases = outcomes_asked(args.outcomes, bool(args.phases) and args.phases.strip() != "none", outcomes)
     except ValueError as e:
         print(e)
         return 2
@@ -1797,7 +1804,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--phases", help="15, 15-16 or 18-21,24; every phase when left out; none for outcomes alone")
     run.add_argument(
         "--outcomes",
-        help="all, none or O1,O3 (test_project/outcomes.md); all when --phases is left out, none when it is given",
+        help="all, none or O1,O3 (test_project/outcomes.md); all when --phases is left out or none, else none",
     )
     run.add_argument("--budget", type=float, help="the run's total in USD; each session gets what remains")
     run.add_argument("--model", help="the tester's model; Claude Code's default when left out")

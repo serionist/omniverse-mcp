@@ -513,6 +513,12 @@ def test_the_prompt_reaches_the_tester_by_stdin_whatever_its_length(tmp_path):
     assert outcome.text == f"read {len(prompt)} characters, the first line 'You judge outcome O1.'"
 
 
+def test_a_tester_that_ends_without_reading_its_prompt_ends_the_session_as_usual(tmp_path):
+    prompt = "x" * 100_000  # more than a pipe holds, so the feeder's write meets a closed pipe
+    outcome = scenarios.run_session(stub("deaf", tmp_path), tmp_path / "t.jsonl", tmp_path, cwd=tmp_path, prompt=prompt)
+    assert (outcome.exit, outcome.text) == (0, "done without reading")
+
+
 def test_a_foreign_server_stops_the_tester_at_once(tmp_path):
     began = time.monotonic()
     outcome = scenarios.run_session(stub("foreign", tmp_path), tmp_path / "t.jsonl", tmp_path, cwd=tmp_path)
@@ -1108,6 +1114,9 @@ def outcome_run(suite, tmp_path, judge_status="PASS", agent_calls=(), prepare=No
         prepare=prepare or default_prepare,
         play=play or default_play,
     )
+    # One row an outcome, from its judge: a second, from its agent, would list it twice and make compare's not_run
+    # hold it (round 1 of the code review, F2).
+    assert [r.id for r in rows] == ["O1", "O2", "27.1"]
     return seen, records, {r.id: r for r in rows}
 
 
@@ -1132,7 +1141,6 @@ def test_an_outcome_is_prepared_acted_on_played_and_judged(suite, tmp_path):
     agent_prompt = seen[2][2]
     assert agent_prompt == "Do the first thing."  # nothing of Verify, Calls or Given (the plan's Goal)
     assert "- It is done" in seen[4][2] and "I did it." in seen[4][2]
-    assert [r.id for r in rows.values()] == ["O1", "O2", "27.1"]  # one row an outcome, from its judge
     assert (rows["O1"].session, rows["O1"].status, rows["O1"].notes) == ("judge-O1", "PASS", "checked")
     assert [r.label for r in records][:2] == ["outcome-O1", "judge-O1"]
     assert records[0].skills == ["omniverse-mcp:scene"]
@@ -1183,6 +1191,66 @@ def test_a_play_that_doesnt_get_there_leaves_that_outcome_not_run(suite, tmp_pat
     assert rows["27.1"].status == "PASS"
 
 
+def test_an_interrupt_in_an_agent_or_in_the_runners_play_leaves_one_not_run_row_each(suite, tmp_path):
+    outcomes, _ = scenarios.parse_outcomes(SMALL_OUTCOMES)
+    sessions = scenarios.plan(suite, set(), ["O1", "O2"])
+
+    def interrupted(session, text, left):
+        if session.label == "outcome-O1":
+            raise KeyboardInterrupt
+        return outcome(table(f"{session.ids[0]} | t | PASS | n"))
+
+    rows: list[scenarios.Row] = []
+    records: list[scenarios.SessionRecord] = []
+    with pytest.raises(KeyboardInterrupt):
+        scenarios.run_sessions(
+            suite, sessions, tmp_path, 8212, interrupted, lambda: None, None, records, rows, outcomes=outcomes
+        )
+    assert [(r.id, r.status) for r in rows] == [("O1", "NOT RUN"), ("O2", "NOT RUN"), ("27.1", "NOT RUN")]
+    assert records[0].stopped == "cut short"
+
+    def stopped_playing(seconds):
+        raise KeyboardInterrupt  # Ctrl+C during the runner's play, which can take 18 s (round 1, F1)
+
+    rows, records = [], []
+    with pytest.raises(KeyboardInterrupt):
+        scenarios.run_sessions(
+            suite,
+            sessions,
+            tmp_path,
+            8212,
+            lambda session, text, left: outcome(table(f"{session.ids[0]} | t | PASS | n")),
+            lambda: None,
+            None,
+            records,
+            rows,
+            outcomes=outcomes,
+            play=stopped_playing,
+        )
+    assert [(r.id, r.status) for r in rows] == [("O1", "PASS"), ("O2", "NOT RUN"), ("27.1", "NOT RUN")]
+    assert [(r.label, r.stopped) for r in records][-2:] == [
+        ("judge-O2", "cut short"),
+        ("phase-27", "not run: the run was cut short"),
+    ]
+
+
+def test_a_failed_read_after_the_play_still_pauses():
+    timeline = FakeTimeline(0.5)
+    reads = {"n": 0}
+    real_state = timeline.sim_state
+
+    def state():
+        reads["n"] += 1
+        if reads["n"] == 1:
+            raise OSError("no answer")
+        return real_state()
+
+    timeline.sim_state = state
+    with pytest.raises(OSError, match="no answer"):
+        scenarios.run_play(8212, 2.0, connect=lambda _port: cast("Any", timeline))
+    assert timeline.actions == ["play", "pause", "closed"]
+
+
 def test_results_md_lists_each_outcomes_skills_and_calls():
     record = {
         "sessions": [
@@ -1197,7 +1265,8 @@ def test_results_md_lists_each_outcomes_skills_and_calls():
             {"id": "27.1", "test": "Cleanup", "status": "PASS", "notes": "ok"},
         ],
     }
-    text = scenarios.results_md(record)
+    text = scenarios.results_md(record | {"outcomes": "O1,O2"})
+    assert "| Outcomes asked | O1,O2 |" in text
     assert text.index("| 27.1 |") < text.index("| O1 |") < text.index("| O2 |")
     assert (
         "| O1 | omniverse-mcp:scene | create_prim, set_material x2, capture_viewport (4 calls, 0 execute_script) "
@@ -1305,6 +1374,15 @@ def test_a_held_lock_refuses_a_second_run(run_command, capsys):
     assert "another run took port 8212" in capsys.readouterr().out
     assert seen["sessions"] == []
     assert scenarios.lock_path(runs, 8212).read_text(encoding="utf-8") == "run 20261101-000000\n"
+
+
+def test_phases_none_alone_runs_every_outcome(run_command):
+    runs, seen = run_command
+    assert scenarios.main(["run", "--phases", "none"]) == 0
+    (run_dir,) = [p for p in runs.iterdir() if p.is_dir()]
+    record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    assert record["outcomes"] == "O1,O2,O3,O4,O5,O6"
+    assert [p for _, p in seen["prepared"]] == ["O1", "O2", "O3", "O4", "O5", "O6"]
 
 
 def test_a_run_with_an_outcome_prepares_plays_and_records_it(run_command):

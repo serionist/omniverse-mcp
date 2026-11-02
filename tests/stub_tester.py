@@ -6,7 +6,7 @@
 ok: a clean init, a skill load, and a last message with rows. foreign: an init with another MCP server, then a long
 wait the runner must cut short. slow: a clean init, then a long wait. busy: a clean init, then an execute_script
 call that gets no answer. echo: a clean init, then a last message giving the length and first line of the prompt it
-read from stdin, as `claude -p` reads one.
+read from stdin, as `claude -p` reads one. deaf: a clean init and a result, never reading stdin.
 """
 
 import json
@@ -50,6 +50,10 @@ if mode == "busy":
     say({"type": "assistant", "message": {"content": [call]}})
 if mode in ("foreign", "slow", "busy"):
     time.sleep(60)
+    sys.exit(0)
+if mode == "deaf":
+    said = "done without reading"
+    say({"type": "result", "subtype": "success", "total_cost_usd": 0.0, "num_turns": 1, "result": said})
     sys.exit(0)
 if mode == "echo":
     prompt = sys.stdin.read()

@@ -22,8 +22,9 @@ chooses its own tools, then a judge with the read-only tools checks what it did.
 1. **Scope** from the request: the phases (`15`, `15-16`, `18-21,24`; every phase when none is named; `none` for
    outcomes alone), the outcomes (`--outcomes all`, `none` or `O1,O3`: every one in a run of every phase, none in a
    run of some unless named), the port (8212 unless the maintainer names one), and a budget in USD or a model when
-   asked. `uv run tools/scenarios.py run --phases <phases> --dry-run` shows the sessions, the setup scenarios a
-   partial run adds from each phase's `Needs:` line, each prompt and each kind's command line, without Kit.
+   asked. `uv run tools/scenarios.py run --phases <phases> [--outcomes <outcomes>] --dry-run` shows the sessions,
+   the setup scenarios a partial run adds from each phase's `Needs:` line, each prompt and each kind's command line,
+   without Kit.
 2. **Check the Kit app:** `uv run tools/scenarios.py check`, adding `--port <port>` only for a port the maintainer
    named.
    - No Kit answers: say what one needs (the command prints it), and ask the maintainer to start one or to approve
@@ -34,7 +35,7 @@ chooses its own tools, then a judge with the read-only tools checks what it did.
 3. **Run:** `uv run tools/scenarios.py run --phases <phases>`, with `--outcomes` as scoped, the same `--port` and any
    override the maintainer gave `check`, and `--budget` or `--model` as asked. The phases take about 25 minutes and
    $9 with `claude-opus-5-5`, summed from two partial runs in the scenario-skill plan's step 9; the six outcomes about
-   4 minutes and $1.50 to $1.80 more, from two runs in the outcome plan's step 8. Start it in the background where
+   4 minutes and $1.40 to $1.70 more, from the outcome plan's step 8. Start it in the background where
    the client can, else give the maintainer the command for a terminal of their own. It prints each session as it
    ends, then the run's folder.
 4. **Compare:** `uv run tools/scenarios.py compare` sets the newest run against the earlier ones; before a release,

@@ -11,7 +11,11 @@ Each outcome's fields, in this order:
   agent starts. The runner also sets the viewport's lighting to `stage` first, so a stage without lights renders black.
 - **Ask:** the request, all the agent gets.
 - **Verify:** what the judge checks, each a fact about the stage, a capture or the answer.
-- **Calls:** `any`, or `no execute_script`: an agent that calls `execute_script` anyway gets WARN at best.
+- **Calls:** `any`, or `no execute_script`: an agent that calls `execute_script` anyway gets WARN at best. The tool
+  path each such line expects, for reading a standing WARN as the agent's choice or a missing tool: O1, `create_prim`,
+  `set_material` and `viewport_light` (a light rig or the camera light; no tool sets a stage light's intensity); O3,
+  `get_mesh_stats`; O4, `get_prim_properties`, then `set_physics_properties` with a friction or restitution, which adds
+  the collider; O5, `inspect_prim` or `set_camera` with `capture_viewport`; O6, `get_logs`.
 - **Play:** `none`, or seconds: after the agent, the runner plays the simulation that long and pauses it, so the
   judge reads where physics put things.
 
@@ -29,7 +33,8 @@ Ask: Put a red cube, 50 cm on a side, sitting on a ground plane, and show me a p
 Verify:
 - A cube whose box (`get_prim_bounds`) is 0.5 m on each side, within 1 cm, in the stage's units
   (`get_sim_state`'s `meters_per_unit`)
-- The cube reads red: its bound material's diffuse colour has red at least 0.5 and green and blue at most 0.3
+- The cube reads red: its bound material's diffuse colour, or with no material its display colour, has red at least
+  0.5 and green and blue at most 0.3
 - A ground under the cube, a plane or a flat box at least 1 m across, the cube's bottom within 1 cm of its top
 - A capture the assistant gave shows the red cube on the ground, lit: the cube is red, not black. The stage started
   with no light and the viewport lit by the stage's lights alone

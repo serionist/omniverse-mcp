@@ -214,6 +214,28 @@ None for users: test tooling only, no one-way door. A run folder made before thi
 - **What neither shows:** whether six outcomes are the right six. The record keeps calls and skills, so later runs
   can show what a description change did.
 
+### Step 8's runs
+
+On a headless Isaac Sim 6.2.0 (Kit 110.4.0) at 8212, this branch's bridge, the tester `claude-opus-5-5`. Each Given
+was first checked by hand: O1's cube renders black on the unlit stage; O2's ball, given a body, lands at y 0; O3's
+counts are 330 triangles (Base 120, Arm 110 from 110 faces, Head 100); O4's box falls to -30 m as given and rests at 0
+once the floor has a collider; O5's table shows from above and the side; O6's two lines are in Kit's log.
+
+| Run | What | O1 | O2 | O3 | O4 | O5 | O6 | Outcomes' cost |
+|---|---|---|---|---|---|---|---|---|
+| `20261102-151147` | all six, first | PASS | stopped at its judge: the prompt on the command line passed Windows' limit, then moved to stdin | | | | | |
+| `20261102-152404` | all six | WARN | PASS | PASS | WARN | WARN | PASS | $1.69, about 4 min |
+| `20261102-152832` | all six | WARN | PASS | PASS | WARN | FAIL | PASS | $1.36, about 4 min |
+| `20261102-153542`, `-153640` | O5, coloured | | | | | PASS, PASS | | $0.17 each |
+| `20261102-153222` | Phase 16 | 16.1 to 16.8 PASS, no 16.9; `compare`: no regression | | | | | | |
+
+- **O1 and O4's WARNs** are their `Calls:` lines: both agents lit O1's stage, or added O4's collider, with
+  `execute_script`. No tool sets a stage light's intensity, and Isaac Sim's new light comes at 50,000, so O1's agents
+  turned it down with code; O4's applied the Collision API with code where `set_physics_properties` with a friction
+  adds it. The judges agreed on every other line.
+- **O5's WARN, then FAIL** was the Given's: a white table on a white floor left the view from above with almost nothing
+  to judge, and two judges read it differently. Coloured, it passed twice.
+
 ## Docs
 
 - `test_project/outcomes.md` and `test_project/assistant.md` (new); `test_project/AGENTS.md`'s judging section.
