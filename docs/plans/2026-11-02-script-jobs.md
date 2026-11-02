@@ -1,9 +1,9 @@
 ---
 title: Run a long script as a job that Kit keeps rendering through, read and cancelled by id, a change to the tool contract
 issue: "#158"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist (delegated to the author, 2026-11-02)
+approved_at: 2026-11-02
 ---
 
 # Run a long script as a job that Kit keeps rendering through, read and cancelled by id, a change to the tool contract
@@ -30,9 +30,12 @@ When this is done:
 - `get_job(job_id="", wait=0)` gives its state (`working`, `cancelling`, `completed`, `failed`, `cancelled`, the MCP
   task's states), elapsed time, its last lines with a count of all, and, once it ends, its result in its kind's form;
   with no id, the running or the last job, so an agent whose context was compacted finds it again; `wait` up to 100 s
-  returns early on a new line or the job's end, so an agent needn't poll back to back (fit I8, I9);
+  returns early only when the job ends or changes state, so a bake printing a line per stack doesn't bring an agent
+  back every few seconds (fit I8, I9; round 1, P3); each read gives the lines since that job's last read (round 1,
+  I12);
 - `cancel_job(job_id)` cancels it at its next `await`, and the job counts as running until its own cleanup has
-  finished (fit I3);
+  finished (fit I3); a second `cancel_job` cancels again, for a script whose bare `except:` swallowed the first, and
+  `get_job` says how long a job has been cancelling (round 1, P7);
 - one job at a time: a second start is refused, naming the one running; `get_sim_state` names a running job, as it
   names a recording (fit I9);
 - a script that never awaits is refused before it starts, since it would block Kit whatever runs it.
@@ -69,13 +72,22 @@ skill say so plainly; no watchdog is promised, since none could answer.
 
 ### The extension
 
-- **`ovmcp/core/script.py`** (Kit-free, fit I5): `compile_script(code)` gives the code object and whether it awaits;
-  `/execute` uses it too, in place of its `textwrap.indent` wrapper, which changed multi-line strings' contents and
-  shifted traceback lines by one.
+- **`ovmcp/core/script.py`** (Kit-free, fit I5): `compile_script(code, filename)` gives the code object and whether
+  it awaits; `run(code, namespace)` runs it as `types.FunctionType(code, namespace)()`, as the asyncio REPL does,
+  awaiting it when it is a coroutine, so no new file calls `exec` (ruff's S102, which the ratchet forbids adding;
+  `misc.py`'s entry can go; round 1, I11). `/execute` uses both, in place of its `textwrap.indent` wrapper, which
+  changed multi-line strings' contents and shifted traceback lines by one. A script with a top-level `return`, which
+  the wrapper ran and `PyCF_ALLOW_TOP_LEVEL_AWAIT` refuses, still runs: that one `SyntaxError` falls back to the
+  wrapper, so no `execute_script` call changes (round 1, P2). A `file` is read as bytes and compiled with its own path
+  as the file name, so its encoding follows Python's source rules and tracebacks show its lines (round 1, I13).
 - **`ovmcp/core/output.py`** (Kit-free, fit I6): one context-variable router installed as `sys.stdout` and
-  `sys.stderr` once, writing to the current task's buffer, or to Kit's stream when the task has none. `/execute` drops
-  its `sys.stdout` swap, which a job holding across its awaits would otherwise share, so an `/execute` call's output
-  and a job's never mix. A job's printed lines are its progress: no `progress()` to learn.
+  `sys.stderr`, writing to the current task's buffer, or to the stream beneath when the task has none, and passing
+  everything else (`isatty`, `fileno`, `encoding`) to that stream, as Kit's own `StreamInterceptor` does. A buffer
+  closes when its call or job ends, so a task an `/execute` script left behind writes to Kit's stream, as today, not
+  into a buffer nobody reads. `on_shutdown` puts the stream beneath back while the router is still on top, so Kit's
+  own restore at exit, and turning the bridge off and on, find what they expect (round 1, P1). `/execute` drops its
+  `sys.stdout` swap, so an `/execute` call's output and a job's never mix. A job's printed lines are its progress: no
+  `progress()` to learn.
 - **`ovmcp/core/jobs.py`** (Kit-free): `Job` (id, `kind` (`script` now, `sweep` for #157), state, status message,
   started, ended, lines kept to the last 200 with a count of all, `result` as a dict in its kind's shape, error);
   `JobBoard` with `start(kind, label, coroutine_factory, watch_stage=False)` refusing a second job while one is
@@ -94,7 +106,8 @@ skill say so plainly; no watchdog is promised, since none could answer.
   stage's id changes on an update, as `recording.py`'s `_why_frames_stop` watches it, which also catches a stage opened
   from Kit's menu or a script. A script job doesn't watch, since a bake may open stages itself; a sweep does.
 - **Shutdown:** each job gives the board a synchronous teardown, as `recording.shut_down` does, since `on_shutdown`
-  can't await; the board calls it and cancels the task.
+  can't await; the board calls it, cancels the task, and refuses any start after it, as recording's `_state.closed`
+  does, so a start in flight during a reload can't leave a job no route can reach (round 1, I16).
 
 ### The server
 
@@ -103,9 +116,10 @@ skill say so plainly; no watchdog is promised, since none could answer.
   - `get_job(job_id="", wait=0)`: `READS`, `wait` 0 to 100 s, under the server's 120 s;
   - `cancel_job(job_id)`: `EDITS`.
 - **Answers:** `run_script_job`: `Job j3 started (script); read it with get_job("j3")`. `get_job`:
-  `state = working`, `elapsed = 4m 12s`, `last = 37 of 150 stacks settled` and the last 20 lines with the count, then
-  the result in its kind's form once it ends (a script's: return value, stdout, stderr; a sweep's later: its
-  manifest), through `text_response` so a long one goes to a file.
+  `state = working`, `elapsed = 4m 12s`, `last = 37 of 150 stacks settled` and the lines since the last read with the
+  count of all, then the result in its kind's form once it ends (a script's: return value, stdout, stderr, saying when
+  the stdout kept is the last 200 lines; a sweep's later: its manifest), through `text_response` so a long one goes to
+  a file.
 - **`get_sim_state`** adds `job = j3 (script, working, 4m 12s)` while one runs (fit I9).
 - **`execute_script`'s description** names `run_script_job` for anything that may outlast 120 s.
 
@@ -128,8 +142,9 @@ skill say so plainly; no watchdog is promised, since none could answer.
 
 **One-way doors: the tool contract and the wire protocol's paths.** Three new tools and three new routes,
 `/jobs/script`, `/jobs/get` and `/jobs/cancel`, named for every kind of job since a path can't be renamed later:
-additive; `execute_script` keeps its parameters, its description changes, and its output and traceback lines come
-through the shared compiler and router, the same text but for a traceback's line numbers, which now match the script.
+additive; `execute_script` keeps its parameters and every script it ran, a top-level `return` included; its
+description changes, and its output and traceback lines come through the shared compiler and router, the same text
+but for a traceback's line numbers, which now match the script.
 `get_sim_state` adds a `job` line. The maintainer agreed in #158's thread (posted from the maintainer's chat
 decisions, 2026-11-02, before the PR). An older extension answers the unknown routes with the install advice.
 
@@ -141,13 +156,13 @@ can.
 
 | # | Step | Proved by |
 |---|---|---|
-| 1 | `ovmcp/core/script.py` and `ovmcp/core/output.py`, tests first; `/execute` moved onto both | `tests/test_script.py`: awaiting and plain code told apart, a multi-line string kept whole, traceback lines right; `tests/test_output.py`: two tasks' writes to their own buffers, a task without one to the stream; `/execute`'s existing tests unchanged |
+| 1 | `ovmcp/core/script.py` and `ovmcp/core/output.py`, tests first; `/execute` moved onto both | `tests/test_script.py`: awaiting and plain code told apart, a multi-line string kept whole, traceback lines right, a top-level `return` still run, a file's encoding and line numbers; `tests/test_output.py`: two tasks' writes to their own buffers, a task without one to the stream, a closed buffer's later writes to the stream, attributes passed through, the stream put back; `tests/test_misc_handler.py`, new for `/execute` (round 1, P6): a plain and an awaiting script, `result`, stdout and stderr, an error's traceback line, written first against today's handler so the move keeps them |
 | 2 | `ovmcp/core/jobs.py`, tests first | `tests/test_jobs.py`: start, one at a time, a cancelling job holding the slot until its `finally` returns, the reason passed, lines kept to 200 with the count, a failure's error, a finished job read late, `get("")`, a teardown called at shutdown |
 | 3 | `handlers/jobs.py`, the routes, the code-or-file start, `wait`, the stage watch, the shutdown teardown, `get_sim_state`'s line | `tests/test_jobs_handler.py` with the Kit fakes: a job's prints in its buffer while an `/execute` call's go to its own; a watching job cancelled by a stage change and a script job not; a plain script refused |
 | 4 | The client, the three tools, `execute_script`'s description; `uv run tools/golden.py` | `tests/test_client.py`, `tests/test_tools.py`, `tests/test_contract.py` |
-| 4b | An outcome in `test_project/outcomes.md` whose work outlasts 120 s, its `Calls:` expecting `run_script_job`, so the pointer in `execute_script`'s description is shown to steer agents (fit I10) | an outcome run |
+| 4b | An outcome in `test_project/outcomes.md` whose work outlasts 120 s, `Calls: no execute_script`, with `run_script_job` named in the header's expected tool paths, so the pointer in `execute_script`'s description is shown to steer agents (fit I10); `test_project/assistant.md`, whose brief rules out code that waits on Kit, says a job awaiting each update is the way to run long work (round 1, P5) | an outcome run |
 | 4c | Docs, the `script` skill | review |
-| 5 | Live: a job that plays the timeline and steps a falling box for 150 s of updates while `get_prim_bounds` and `capture_viewport` answer; its progress read twice; its result the box's final pose; a second job cancelled mid-way; a plain-loop script refused | `tests/test_integration.py`, on Isaac Sim 6.2 at 8212 |
+| 5 | Live: a job that plays the timeline and steps a falling box for a few seconds of updates while `get_prim_bounds` and `capture_viewport` answer, since the route answers at once and seconds prove the job runs apart from the call (round 1, I15); its progress read twice; its result the box's final pose; a second job cancelled mid-way; a plain-loop script refused | `tests/test_integration.py`, on Isaac Sim 6.2 at 8212 |
 | 6 | `uv run tools/gate.py full`, `review-code`, the PR | the review record |
 
 ## Tests
@@ -155,13 +170,18 @@ can.
 - Unit (CI): steps 1 to 4.
 - Live: step 5, with the suites on a Z-up and a Y-up stage; a 10-minute job by hand once, as the issue's Done when
   asks, its progress and result read, and Kit answering throughout.
-- What neither shows: bechtel-mvp's own bake, which isn't written; USD Composer, where the loop is the same Kit loop.
+- What neither shows: bechtel-mvp's own bake, which isn't written; USD Composer, where the loop is the same Kit loop;
+  Isaac Sim 5.x (Kit 107), whose kernel's stream handling isn't on this machine, and Linux (round 1, I14).
 
 ## Docs
 
 `docs/TOOLS.md` (the three tools, `execute_script`'s pointer, `get_sim_state`'s `job` line), `docs/ARCHITECTURE.md`
-(the routes; jobs on Kit's loop, the per-task output), the `script` skill (when to use a job, awaiting each step, what
-blocks), `README.md`'s list and count, `test_project/outcomes.md` (the new outcome), `CHANGELOG.md` (Added).
+(the routes; jobs on Kit's loop, the per-task output; its lines 289 and 341 on the wrapper and the `StringIO` swap this
+removes), `AGENTS.md`'s `ovmcp/core` row (script, output, jobs), the code-running tools to keep asking before in
+`docs/SETUP.md:67`, `README.md`'s Security section and `SECURITY.md:27`, which now name `run_script_job` beside
+`execute_script` (round 1, P4), the `script` skill (when to use a job, awaiting each step, what blocks, a swallowed
+cancel), `README.md`'s list and count, `test_project/outcomes.md` (the new outcome) and `assistant.md`, `CHANGELOG.md`
+(Added).
 
 ## Risks
 
@@ -199,3 +219,47 @@ Noticed on the way, for Round 1: the watchdog can't be read while a job blocks, 
 task in Kit 6.2 (Where it runs; the watchdog is dropped); `/execute` kept its `sys.stdout` swap (Output; I6 answers
 it); the refusal was tested in `core/jobs.py` but designed in the handler (Steps; now in `core/script.py`); #158 has
 no agreement comment yet (Compatibility).
+
+### Round 1
+
+**How:** one fresh general-purpose agent on Claude Opus 5.5, 2026-11-02, read only, every lens, at `66585d2`, with
+`task.cancel(msg)` and `PyCF_ALLOW_TOP_LEVEL_AWAIT` checked on Python 3.11 and 3.12. **Verdict:** approved. **Now:**
+every finding fixed, I11 to I16 taken, and the plan approved on the maintainer's delegation.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P1 | minor | The router, installed once, never came off: Kit's own restore at exit checks for its `StreamInterceptor` and skipped, a reload stacked a second router, and a task an `/execute` script left behind printed into a buffer nobody read | fixed: attributes passed through, buffers closed at their call's end, the stream put back at shutdown; tests for each |
+| P2 | minor | A top-level `return`, which the wrapper ran, is a `SyntaxError` under `PyCF_ALLOW_TOP_LEVEL_AWAIT`, against Compatibility's "the same text" | fixed: that one error falls back to the wrapper; tested |
+| P3 | minor | `wait` returned on any new line, so a bake printing per stack brought an agent back every few seconds | fixed: early only on the job's end or a state change |
+| P4 | minor | The security docs name `execute_script` as the code-running tool to keep asking before; `run_script_job` runs code too | fixed: `docs/SETUP.md`, the README's Security, `SECURITY.md`, `AGENTS.md`'s core row and `ARCHITECTURE.md`'s two lines in Docs |
+| P5 | minor | The outcome agent's brief rules out code that waits on Kit, so the new outcome would measure the brief, not the pointer | fixed: `assistant.md` names a job for long work; `Calls:` stays `no execute_script` with the tool in the header's paths |
+| P6 | minor | `/execute` has no CI test, so "its existing tests unchanged" proved nothing | fixed: `tests/test_misc_handler.py` for `/execute`, written against today's handler first |
+| P7 | minor | A bare `except:` swallowing the cancel keeps the job cancelling and the only slot held | fixed: a second cancel cancels again; `get_job` gives the time spent cancelling; the skill says so |
+
+**Refuted:**
+- **A way past the token, `Origin` or `Host` checks:** `refusal()` runs before the route lookup for every path, and
+  the routes join the same table.
+- **`file` widens access:** `/execute` already runs any code; the token is the boundary.
+- **A blocking job is a new hang:** `execute_script` does the same today; Risks names it.
+- **`task.cancel(msg)` deprecated or its message lost:** run on 3.11 and 3.12 with `-W error`, it reaches the job's
+  `except` with no warning.
+- **A job's and a tool's captures interleave on the kept feed:** `camera_feed.py`'s viewport lock runs them in turn.
+- **`cancel_job` should be `DESTROYS`:** `stop_recording` and `sim_control` are `EDITS`.
+- **`get_job(wait=100)` blocks other calls:** it delays them through the client's lock, and the case makes one call at
+  a time.
+- **Noticed on the way:** the watchdog (answered in "Where it runs"), the `sys.stdout` swap (fit I6 and P1), the
+  refusal's tests (now `core/script.py`'s), the agreement (posted before the PR).
+
+**Improvements:**
+
+| # | Improvement | Answer |
+|---|---|---|
+| I11 | Run the code as `types.FunctionType(code, namespace)()`, as the asyncio REPL does, so no new file calls `exec` and `misc.py`'s S102 entry can go | taken |
+| I12 | Each `get_job` read gives the lines since that job's last read, and says when a script's stdout is capped at 200 lines | taken |
+| I13 | Read `file` as bytes and compile it with its own path, for its encoding and its traceback lines | taken |
+| I14 | Name Isaac Sim 5.x and Linux in what neither shows | taken |
+| I15 | Shorten step 5's job to seconds: the route answers at once, and the 10-minute run by hand covers length | taken |
+| I16 | The board refuses a start after shutdown, as recording's `_state.closed` does | taken |
+
+**Not covered:** P1's shutdown effect is read from Kit 110's kernel source, not seen in a running Kit; Kit 107's kernel
+isn't on this machine.
