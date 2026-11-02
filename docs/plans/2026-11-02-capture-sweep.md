@@ -207,6 +207,46 @@ Replicator agents), `CHANGELOG.md` (Added) (round 1, P10).
   restart loses the session layer, so the files are as they were anyway.
 - **The lent feed's memory at a large size:** one feed at the sweep's size, as a recording's.
 
+## Build notes
+
+Where the build departed from the plan, and what only a live run shows. The tool contract, the route and the scope
+are as planned.
+
+- **`shots` defaults to `None`,** not `[]`: a mutable default is ruff's B006, and the repo's other list parameters are
+  `None`. A `Shot` model with `extra="forbid"` refuses a misspelled field before any request; Kit checks the rest.
+- **`clipping_range` is a shot's field,** given or read back: the manifest records the range each shot rendered with
+  (P15), so a shot from a list and one from a manifest take one form. A shot without one gets Isaac Sim's range in
+  the stage's units, which its entry then records.
+- **A `camera_path` shot's lens in the manifest** is its focal length, its horizontal aperture and the vertical one
+  Kit renders with under the viewport's default aperture conform (match horizontally,
+  `omni.kit.widget.viewport`'s `api.py`): horizontal times height over width, so it reads back as a lens that fits.
+  Its pose is its world position with a yaw and pitch: a roll isn't kept.
+- **A dead feed ends the sweep:** a shot whose capture failed while the feed rendered no frame fails the job, naming
+  the shot, where each later shot would wait its 30 s holding the viewport lock. A capture that failed while frames
+  still came is recorded, and the sweep goes on, as planned.
+- **The end's order:** the stage put back, then the manifest and the summary line, then the feed handed back, last,
+  so a second `cancel_job` during `hand_back`'s await can't cost the manifest. Before its camera is deleted, the lent
+  feed is pointed at the viewport's camera, so a feed kept after the sweep doesn't render a deleted camera.
+- **Refused at the start, beside the plan's:** a stage that holds `/OmniverseKit_Sweep` already, and a Kit app
+  without `omni.kit.hydra_texture` or `omni.kit.widget.viewport.capture`, as `start_recording` refuses it. The
+  manifest is written as the job starts (`working`), so a second sweep given the same name is refused while the
+  first runs.
+- **The default lens** is Kit's own camera's 18.147562 mm (`omni.kit.widget.viewport`'s typed default), not 18.147.
+- **The timeline:** a seek commits at once (`Timeline.commit`, Kit 105 and up, as Isaac Sim's own utilities use it);
+  a shot without a time commits only when it changed something, since a commit runs the timeline's callbacks. Whether
+  `set_current_time` keeps a stopped timeline stopped isn't documented: the end stops it again if not, then puts its
+  time back. Step 5 shows which.
+- **The manifest's `frame`** is the timeline's time times the stage's time codes per second, the USD time code shown;
+  `timeline_time` is beside it. A loading wait is `get_stage_loading_status()[2] > 0`, as Isaac Sim's own tests read
+  it, and each switching shot records its `loading_seconds`, which step 5 prints.
+- **The server:** the tool is a module of its own, `tools/sweep.py`; `get_job` builds a sweep's line from its result's
+  fields, the folder through `Helpers.rel`, where the bridge's summary names Kit's absolute path. While it runs the
+  job's message is `shot 37 of 400`, cleared once it completes.
+- **Step 5's code is written, not run:** `TestCaptureSweep` (a Y-up and a Z-up stage of its own, six shots, the
+  layers, the timeline, the manifest, twins from the manifest within 2 of 255, a 50-shot cancel) and
+  `TestCaptureSweepAgents` (one worker in Isaac Sim's simple warehouse, from `isaacsim.replicator.agent.core`'s
+  sample configs; skipped without the extension) in `tests/test_integration.py`. Kit 107 isn't covered.
+
 ## Plan review
 
 ### Fit
