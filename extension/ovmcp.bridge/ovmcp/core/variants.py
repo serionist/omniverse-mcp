@@ -252,6 +252,23 @@ def top_most(paths: Iterable[Sdf.Path]) -> list[Sdf.Path]:
     return [p for p in unique if not any(p != other and p.HasPrefix(other) for other in unique)]
 
 
+# The first Kit whose Fabric Scene Delegate shows a switch without the refresh's toggle: measured on Isaac Sim 6.2
+# (Kit 110.4) with it on, a referenced area's root and an instance prim alike rendered the new variant after a plain
+# switch, where the toggle cost about 0.3 s a call and recomposes a whole area (#155's step 5). Kit 107 (Isaac Sim 5.1)
+# wasn't measured, so it keeps the toggle, as a Kit whose version can't be read does.
+TOGGLE_BEFORE_KIT = 110
+
+
+def toggle_needed(kit_version: str) -> bool:
+    """Whether a variant switch on this Kit, `110.4.0+feature...` as IApp gives it, needs the refresh's toggle while
+    Fabric Scene Delegate is on."""
+    try:
+        major = int(kit_version.split(".", 1)[0])
+    except ValueError:
+        return True
+    return major < TOGGLE_BEFORE_KIT
+
+
 def deactivate(layer: Sdf.Layer, paths: Iterable[Sdf.Path]) -> Snapshot:
     """Makes each prim of paths inactive in layer, in one change block, and returns the layer's snapshot from before,
     which makes them active again with no opinion left behind."""

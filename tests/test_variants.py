@@ -329,6 +329,20 @@ def test_deactivate_puts_back_an_active_field_that_was_there(stage: Usd.Stage):
     assert session.ExportToString() == text
 
 
+@pytest.mark.parametrize(
+    ("kit_version", "needed"),
+    [
+        ("110.4.0+feature.386251.187cf21b.gl", False),  # Isaac Sim 6.2, measured: the switch shows without it
+        ("111.0.0", False),
+        ("107.3.1+release.2134.af0b2bba.gl", True),  # Isaac Sim 5.1, not measured
+        ("unknown", True),
+        ("", True),
+    ],
+)
+def test_the_fabric_toggle_is_needed_before_kit_110_and_wherever_the_version_is_unknown(kit_version: str, needed: bool):
+    assert variants.toggle_needed(kit_version) is needed
+
+
 def test_top_most_leaves_out_a_prim_under_another(stage: Usd.Stage):
     paths = [Sdf.Path("/World/Site/Area"), Sdf.Path("/World/Site"), Sdf.Path("/World/Other"), Sdf.Path("/World/Site")]
 

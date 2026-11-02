@@ -35,8 +35,8 @@ before calling them.
    `set_variant_selection(..., layer="edit_target")` writes the selection where edits go: the root layer, which
    `save_scene` keeps, unless Kit's Layer window made a sublayer the edit target, which `save_scene` doesn't write
    (the answer says so).
-   Always switch with the tool: it detects Fabric Scene Delegate and refreshes the viewport, where a switch from
-   `execute_script` leaves stale geometry on screen.
+   Always switch with the tool: it detects Fabric Scene Delegate and refreshes the viewport where Kit needs it
+   (before Kit 110, Isaac Sim 5.x), where a switch from `execute_script` can leave stale geometry on screen.
 6. **Asset preparation.**
    - `flatten_usd` resolves every reference into one file; `export_prim_as_file` writes a subtree as a self-contained
      file. Both overwrite the output path: confirm it with the user. Both refuse a file the open stage has loaded, its

@@ -202,6 +202,23 @@ an instance), `AGENTS.md`'s `ovmcp/core` row and `docs/ARCHITECTURE.md`'s handle
   `execute_script` removing the session spec; a clear for attributes is a later issue once a case asks.
 - **Kit 107 and the refresh:** decided by step 5's measurement on both Kits; until it is measured, the toggle stays.
 
+## Build notes
+
+Where the work departed from the plan, and what only a live run shows.
+
+- **The Fabric refresh's toggle** (step 5, fit I3, round 1's P1): measured on Isaac Sim 6.2.0 (Kit 110.4) with Fabric
+  Scene Delegate on, a referenced root and an instance prim, each switched from a red 1 m cube to a blue 3 m cube.
+  Through the tool, with the toggle, about 0.33 to 0.39 s a call; through the core's `switch` alone with 5 updates,
+  0.03 s; the viewport showed the blue cube and no red after either (about 212,800 blue pixels, 0 red), and the red
+  one back after either clear. Isaac Sim 5.1 fails in its own start-up on this machine, so Kit 107 wasn't measured:
+  the toggle runs only before Kit 110, or where Kit's version can't be read (`variants.toggle_needed`), as P1 keeps it
+  wherever a Kit isn't measured. The plan's Risks note the toggle recomposes a whole area each time, a cost a 1 m
+  cube doesn't show.
+- **The live test** measures the switch in a capture's segmentation (round 1 of the code review, G3), not only that
+  two captures differ.
+- **The rebase onto `main`** at `7d30015` brought #159's Z-up `new_scene`, #156 and #163 under the live tests; both
+  suites passed again on Z-up and Y-up stages.
+
 ## Plan review
 
 ### Fit

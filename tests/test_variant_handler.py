@@ -17,6 +17,8 @@ from typing import Any
 import pytest
 from pxr import Sdf, Usd
 
+from ovmcp.core import protocol
+
 from .conftest import EXTENSION_ROOT
 from .test_variants import AREA, write_files
 
@@ -260,6 +262,21 @@ def test_without_fabric_the_switch_only_waits(handler, kit):
 
     assert hidden
     assert not any(hidden)
+
+
+def test_from_kit_110_a_fabric_switch_only_waits(handler, kit, monkeypatch):
+    # Measured on Isaac Sim 6.2 with Fabric Scene Delegate on: the switch shows without the toggle, which cost about
+    # 0.3 s a call and recomposes a whole area (#155's step 5).
+    monkeypatch.setattr(protocol, "_kit_app", {**protocol.kit_app(), "kit_version": "110.4.0+feature.386251.gl"})
+    kit.fabric = True
+    hidden: list[bool] = []
+    kit.on_update = lambda _n: hidden.append(not kit.stage.GetPrimAtPath(AREA).IsActive())
+
+    assert _switch(handler, variant_name="open", layer="session")["status"] == "success"
+
+    assert hidden
+    assert not any(hidden)
+    assert _active_opinions(kit.stage) == []
 
 
 def test_a_clear_of_nothing_writes_nothing_and_needs_no_refresh(handler, kit):

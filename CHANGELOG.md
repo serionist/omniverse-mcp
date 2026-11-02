@@ -86,9 +86,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 - **A variant switch leaves no stray opinions in the stage's file:** with Fabric Scene Delegate on, as in Isaac Sim,
   `set_variant_selection`'s viewport refresh made the prim inactive and active again at the edit target and left
   `active = true` in the file, and an error between the two left the prim hidden; it now toggles in Kit's session
-  layer and puts that layer back exactly. `compare_prims` put the selection back by writing the old one, so a
-  selection the file never held became one it holds; it now switches in the session layer and puts it back exactly.
-  The fix is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#155).
+  layer and puts that layer back exactly, and only before Kit 110: on Isaac Sim 6.2 a switch shows without it, so a
+  switch there no longer recomposes the prim twice. `compare_prims` put the selection back by writing the old one,
+  so a selection the file never held became one it holds; it now switches in the session layer and puts it back
+  exactly. The fix is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#155).
 - **`compare_prims` refuses an unknown variant and a prim inside an instance:** an unknown variant name measured the
   prim with none of the set's variants, and a prim inside an instance failed with an error from USD; both are refused
   now, before anything switches, naming the variants there or the instance. The fix is in the Kit extension (#155).

@@ -157,9 +157,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         holding each selection. A selection on an instance prim gives it a prototype of its own; a prim inside an
         instance is refused, naming the instance. An unknown set or variant is refused, listing those there
         (create_variant_structure makes them). Switch variants with this rather than execute_script: with Fabric
-        Scene Delegate on, it deactivates and reactivates the prim in the session layer around the switch, some 40 app
-        updates, so the viewport drops the old geometry; otherwise it waits 5. compare_prims measures two variants and
-        leaves the selection as it was.
+        Scene Delegate on before Kit 110 (Isaac Sim 5.x), it deactivates and reactivates the prim in the session layer
+        around the switch, some 40 app updates, so the viewport drops the old geometry; otherwise it waits 5.
+        compare_prims measures two variants and leaves the selection as it was.
         """
         try:
             r = bridge_call(client.set_variant_selection, prim_path, variant_set, variant_name, layer)["result"]

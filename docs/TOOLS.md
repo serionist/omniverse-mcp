@@ -649,10 +649,12 @@ Was: closed. Available: closed, open
 - **A clear** removes the layer's own selection only: one the layer doesn't hold writes nothing.
 - **An instance prim** takes a selection of its own, and gets a prototype of its own while it differs from the other
   instances'; the answer's `Note:` says so. A prim inside an instance is refused, naming the instance to switch.
-- **The viewport:** switch variants with this tool, not `execute_script`: with Fabric Scene Delegate on, it makes the
-  prim inactive in the session layer for some 10 app updates, then puts that layer back and waits 30, so the viewport
-  drops the old geometry; otherwise it waits 5. A variant switched in a script can leave the old geometry on screen.
-  An extension of 0.4.1 or older wrote that toggle at the edit target and left `active = true` in the stage's file.
+- **The viewport:** switch variants with this tool, not `execute_script`: with Fabric Scene Delegate on before Kit
+  110 (Isaac Sim 5.x), it makes the prim inactive in the session layer for some 10 app updates, then puts that layer
+  back and waits 30, so the viewport drops the old geometry, which a variant switched in a script can leave on
+  screen; otherwise it waits 5. On Isaac Sim 6.2 a switch shows without the toggle, measured with Fabric Scene
+  Delegate on, so there it makes none. An extension of 0.4.1 or older wrote that toggle at the edit target and left
+  `active = true` in the stage's file.
 - **An older extension,** 0.4.1 or older, takes no `layer` and writes at the edit target, into the stage's file, and
   refuses a clear (`variant_name=""`) as `variant_name is required`; either answer then ends with a `WARNING:` line
   and how to install this server's.
