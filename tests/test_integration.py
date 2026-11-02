@@ -970,6 +970,39 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertFalse(erred, text)
         self.assertIn("rot = 0.9239, 0.0000, 0.3827, 0.0000", text)
 
+    def test_08d_get_prim_properties_lists_applied_schemas_and_a_bindings_target(self):
+        """A material binding read <unreadable> and no schema was listed, so an agent read them with execute_script
+        (#149): a cube given a material and a friction lists both schemas and its binding's target, in the text and the
+        JSON; a plain cube's api_schemas shows any schema Kit applies on its own."""
+        path, plain = "/World/IntTestSchemas", "/World/IntTestPlain"
+        for p in (path, plain):
+            self.addCleanup(self.client.delete_prim, p)
+            self.assertEqual(self.client.create_prim(p, "Cube")["status"], "success")
+        made = self.client.set_material(path, [1.0, 0.0, 0.0])
+        self.assertEqual(made["status"], "success", made)
+        material = made["result"]["material_path"]
+        rubbed = self.client.set_physics_properties(path, friction=0.6)
+        self.assertEqual(rubbed["status"], "success", rubbed)
+
+        erred, text = call_tool("get_prim_properties", {"prim_path": path}, self._output_folder())
+
+        self.assertFalse(erred, text)
+        lines = text.splitlines()
+        schemas = next(line for line in lines if line.startswith("api_schemas = "))
+        self.assertIn("MaterialBindingAPI", schemas)
+        self.assertIn("PhysicsCollisionAPI", schemas)
+        self.assertIn(f"material:binding = {material}", lines)
+        self.assertNotIn("<unreadable>", text)
+        self.assertNotIn("WARNING", text)
+        r = self.client.prim_properties(path)["result"]
+        self.assertIn("PhysicsCollisionAPI", r["api_schemas"])
+        self.assertEqual(r["properties"]["material:binding"], [material])
+
+        erred, plain_text = call_tool("get_prim_properties", {"prim_path": plain}, self._output_folder())
+        self.assertFalse(erred, plain_text)
+        plain_schemas = next(line for line in plain_text.splitlines() if line.startswith("api_schemas = "))
+        print(f"  {path}: {schemas}; a plain cube: {plain_schemas}")
+
     # ===== Simulation =====
 
     def test_09_sim_control(self):
