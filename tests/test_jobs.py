@@ -5,6 +5,7 @@ next starts; a read's wait ends early only on a change of state; the shutdown ca
 
 import asyncio
 import contextlib
+import io
 import sys
 from collections.abc import Awaitable, Callable, Iterator
 from typing import Any
@@ -26,6 +27,8 @@ from ovmcp.core.jobs import (
     JobError,
 )
 
+from .conftest import reset_output
+
 
 class Clock:
     """time.monotonic as the board reads it, moved by the test."""
@@ -40,7 +43,7 @@ class Clock:
 @pytest.fixture(autouse=True)
 def _router_off() -> Iterator[None]:
     yield
-    output.uninstall()
+    reset_output()
 
 
 @pytest.fixture
@@ -406,6 +409,45 @@ def test_a_line_that_never_ends_counts_once_it_grows_too_long(board):
     job = _ran(board, _printing((output.STDOUT, "x" * (LONGEST_LINE + 1)), (output.STDOUT, "y\n")))
 
     assert [len(line) for line in board.read(job)["lines"]] == [LONGEST_LINE + 1, 1]
+
+
+def test_a_progress_bar_redrawn_with_carriage_returns_reads_as_its_latest_state(board):
+    redrawn = [(output.STDOUT, f"\rsettling {'#' * i}{'.' * (5 - i)}") for i in range(6)]
+    job = _ran(board, _printing(*redrawn, (output.STDOUT, "\n"), (output.STDOUT, "50%\r100%\r"), (output.STDOUT, "\n")))
+
+    assert board.read(job)["lines"] == ["settling #####", "100%"]
+
+
+def test_a_redrawn_line_never_grows_past_its_latest_state(board):
+    # LONGEST_LINE redraws of a short bar: what is pending stays the bar, never a line of all of them.
+    async def bar(_job: Job) -> dict[str, Any]:
+        for i in range(LONGEST_LINE):
+            print(f"\r{i % 100:3d}%", end="")
+        await asyncio.sleep(0)
+        return {}
+
+    assert board.read(_ran(board, bar))["lines"] == [f"{(LONGEST_LINE - 1) % 100:3d}%"]
+
+
+def test_a_job_that_replaces_sys_stdout_leaves_the_router_in_place(board):
+    async def careless(_job: Job) -> dict[str, Any]:
+        sys.stdout = io.StringIO()
+        await asyncio.sleep(0)
+        return {}
+
+    async def main() -> tuple[object, output.Printed]:
+        output.install()
+        router = sys.stdout
+        board.start("script", "", careless)
+        await _turns()
+        with output.collect(output.Printed()) as printed:
+            print("a later call")
+        return router, printed
+
+    router, printed = asyncio.run(main())
+
+    assert sys.stdout is router
+    assert printed.text(output.STDOUT) == "a later call\n"
 
 
 def test_stdout_and_stderr_come_in_order_in_the_lines_and_apart_in_the_output(board):

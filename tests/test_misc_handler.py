@@ -13,9 +13,9 @@ from typing import Any
 import pytest
 from pxr import Usd
 
-from ovmcp.core import output, protocol
+from ovmcp.core import protocol
 
-from .conftest import EXTENSION_ROOT
+from .conftest import EXTENSION_ROOT, reset_output
 
 HANDLER = EXTENSION_ROOT / "ovmcp" / "bridge" / "handlers" / "misc.py"
 
@@ -63,8 +63,7 @@ def misc(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     yield module
-    # The router /execute puts over the streams, taken off as the extension's shutdown takes it off.
-    output.uninstall()
+    reset_output()
 
 
 def test_health_reports_the_kit_app_beside_the_protocol(misc, monkeypatch):
@@ -194,3 +193,16 @@ def test_two_calls_at_once_each_get_their_own_output(misc):
 
     assert first["result"]["stdout"] == "first 0\nfirst 1\nfirst 2\n"
     assert second["result"]["stdout"] == "second 0\nsecond 1\nsecond 2\n"
+
+
+@pytest.mark.parametrize("stream", ["io.StringIO()", "sys.__stdout__"])
+def test_a_script_that_replaces_sys_stdout_leaves_the_router_in_place(misc, stream):
+    # The old handler's finally put Kit's stream back. Left in place, the replacement took what Kit itself printed, and
+    # the next call's router went over it rather than over Kit's stream.
+    _execute(misc, "print('first')")
+    routers = (sys.stdout, sys.stderr)
+    _execute(misc, f"import io, sys\nsys.stdout = {stream}\nsys.stderr = {stream}\nprint('gone')")
+
+    assert (sys.stdout, sys.stderr) == routers
+    later = _execute(misc, "import sys\nprint('seen')\nprint('noted', file=sys.stderr)")
+    assert (later["result"]["stdout"], later["result"]["stderr"]) == ("seen\n", "noted\n")

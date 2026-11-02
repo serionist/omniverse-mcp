@@ -13,6 +13,8 @@ import pytest
 
 from ovmcp.core import output
 
+from .conftest import reset_output
+
 
 class Stream(io.StringIO):
     """A console stream as Kit's interceptor stands for one: text, and attributes of its own."""
@@ -42,7 +44,7 @@ def streams(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[[], tuple[Stre
         return out, err
 
     yield put
-    output.uninstall()
+    reset_output()
 
 
 def test_two_tasks_print_into_their_own_sinks(streams):
@@ -165,7 +167,9 @@ def test_uninstall_puts_the_streams_back(streams):
     output.uninstall()
 
     assert (sys.stdout, sys.stderr) == (out, err)
-    # The next start installs a router of its own, over Kit's stream, never over the last.
+    # The next start, a fresh import of the module as Kit makes it, installs a router of its own over Kit's stream,
+    # never over the last.
+    output._state.closed = False
     output.install()
     assert isinstance(sys.stdout, output.Router)
     assert sys.stdout.beneath is out
@@ -201,3 +205,63 @@ def test_a_router_copies_without_an_endless_lookup(streams):
 
     assert isinstance(copied, output.Router)
     assert copied.beneath is out
+
+
+def test_a_block_puts_back_the_router_its_code_replaced(streams):
+    out, err = streams()
+
+    async def main() -> None:
+        with output.collect(output.Printed()):
+            sys.stdout = io.StringIO()
+            sys.stderr = sys.__stderr__
+
+    asyncio.run(main())
+
+    assert isinstance(sys.stdout, output.Router)
+    assert sys.stdout.beneath is out
+    assert isinstance(sys.stderr, output.Router)
+    assert sys.stderr.beneath is err
+
+
+def test_after_uninstall_a_call_still_in_flight_installs_nothing(streams):
+    # A request in flight at the shutdown resumes after it: a router put back over Kit's stream would outlive it.
+    out, _ = streams()
+    output.install()
+    output.uninstall()
+
+    async def main() -> output.Printed:
+        with output.collect(output.Printed()) as printed:
+            print("after the shutdown")
+        return printed
+
+    printed = asyncio.run(main())
+
+    assert sys.stdout is out
+    assert printed.text(output.STDOUT) == ""
+    assert out.getvalue() == "after the shutdown\n"
+
+
+def test_a_block_after_uninstall_puts_nothing_back(streams):
+    out, _ = streams()
+
+    async def main() -> None:
+        with output.collect(output.Printed()):
+            output.uninstall()
+            sys.stdout = io.StringIO()
+
+    asyncio.run(main())
+
+    assert not isinstance(sys.stdout, output.Router)
+    assert sys.stdout is not out
+
+
+def test_a_task_with_a_sink_is_no_terminal(streams):
+    # A library that finds a terminal writes colour codes, which would land in an answer.
+    streams()
+
+    async def main() -> bool:
+        with output.collect(output.Printed()):
+            return sys.stdout.isatty()
+
+    assert asyncio.run(main()) is False
+    assert sys.stdout.isatty() is True

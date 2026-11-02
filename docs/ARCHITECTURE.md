@@ -299,8 +299,10 @@ The format is implemented in `ovmcp/core/formatter.py` with functions for:
    top-level `return`, which the compiler refuses there, still runs, inside a coroutine function built from the
    script's own syntax tree. Its prints go to its call's or its job's sink through `ovmcp/core/output.py`: one router
    over `sys.stdout` and `sys.stderr`, a context variable naming the sink of the task printing, so what another
-   handler, call or job prints meanwhile stays out of it. A thread, or a task with no sink, prints to the stream
-   beneath, Kit's console; a sink closes when its call ends, so a task a script left running prints there too
+   handler, call or job prints meanwhile stays out of it, and it reads as no terminal, so no library writes colour
+   codes into it. A thread, or a task with no sink, prints to the stream beneath, Kit's console; a sink closes when
+   its call ends, so a task a script left running prints there too. A script that replaces `sys.stdout` or
+   `sys.stderr` gets the router back at its call's end, as the old swap put Kit's stream back
 4. A capture waits for its feed's frames, then its file, and a settle for the viewport's frames, each wait bounded by time (`ovmcp/core/capture.py`): `asyncio.wait_for` and polls on the same loop, no thread, so a camera or a viewport that renders nothing fails the call rather than hanging it. A viewport frame wait observes Kit's `NEW_FRAME` event through omni.usd's `next_frame_async`, as an immediate observer, which Kit 110's own code says may fire on the renderer thread with async rendering. Isaac Sim's headless Python app renders synchronously (`asyncRendering = false`); its GUI renders asynchronously whenever the simulation is stopped or paused, since `isaacsim.core.throttling` (`enable_async = true` in `isaacsim.exp.full.kit`) turns async rendering on at startup and a few updates after each stop or pause, and off on play. On Isaac Sim 6.2 headless with async rendering turned on the same way, every `NEW_FRAME`, immediate or deferred, and every `DRAWABLE_CHANGED` came on the main thread (#57); the GUI itself, and other Kit apps such as USD Composer, are untested
 5. The bridge hands Kit's logging no Python callback. Kit runs one on whichever thread logs, and a physics worker that
    logged waited for the GIL that the main thread held while it waited for the worker, so Kit hung
@@ -372,15 +374,17 @@ started it (#158). `run_script_job` starts a script as one; #157's capture sweep
 same board and routes.
 
 - **Start:** `/jobs/script` takes `code` or `file`, a `.py` on Kit's machine read as bytes and compiled with its path,
-  so its encoding follows Python's source rules and its tracebacks show its lines. A script that never awaits is
-  refused before it starts: it would hold the main thread from its start to its end, whatever ran it. The job starts
+  so its encoding follows Python's source rules and its tracebacks show its lines. A script that never awaits at
+  its top level is refused before it starts: its loops would hold the main thread from its start to its end, whatever
+  ran it, and a coroutine it only defines or schedules would run where no route reaches it. The job starts
   with `asyncio.ensure_future`, and the route answers its id, `j1` and on, at once. One job at a time: a second start
   is refused, naming the one running.
 - **States,** as an MCP task's: `working`; `cancelling`, from a cancel until the job's own cleanup has returned, which
   holds the slot, so a sweep that puts the stage back finishes first; `completed`, `failed`, `cancelled`, with a
   status message. The last job is kept, for `/jobs/get`, until the next starts.
 - **Lines:** what the job's task, and the tasks it starts, print is its progress (`ovmcp/core/output.py`): both
-  streams in order, the last 200 kept with a count of all. Each `/jobs/get` gives the lines since the last read, and
+  streams in order, the last 200 kept with a count of all, a line redrawn with a carriage return as its latest
+  state. Each `/jobs/get` gives the lines since the last read, and
   once the job ends, each stream's last 200 lines and the result in its kind's shape (a script's `return_value`), or
   the error and traceback.
 - **`/jobs/get`'s `wait`,** up to 100 s, under the server's 120 s for a call, returns early only on the job's end or a

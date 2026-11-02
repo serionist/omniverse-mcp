@@ -31,8 +31,8 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   updates, so Kit renders and other tools answer while it does. `get_job` reads its state, its time and the lines it
   printed since the last read, and once it ends its result or error, waiting up to 100 s for its end; `cancel_job`
   cancels it at its next `await`. Work that outlasted the 120 s a call gets, such as settling 150 stacks under
-  physics one by one, had to be cut into calls. A script that never awaits is refused, since it would hold Kit
-  throughout; one job runs at a time, and `get_sim_state` names it. `execute_script`'s description points at the job
+  physics one by one, had to be cut into calls. A script that never awaits at its top level is refused, since its
+  loops would hold Kit throughout; one job runs at a time, and `get_sim_state` names it. `execute_script`'s description points at the job
   for long work, and its answers change in two small ways: a traceback's line numbers are the script's own, one
   fewer than before for a script that awaits, and what other calls print while it awaits stays out of its output.
   The jobs are in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#158).

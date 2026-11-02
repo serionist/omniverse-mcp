@@ -418,7 +418,8 @@ UsdPhysics.RigidBodyAPI.Apply(box.GetPrim())
 result = at
 """
 
-# test_06b's job: plays the timeline for STEPS updates, a line every 30, then pauses and returns PATH's world position.
+# test_06b's job: plays the timeline for STEPS updates, a line every 5, so a read seconds after another finds a new one,
+# then pauses and returns PATH's world position.
 _JOB_FALL = """
 import omni.kit.app
 import omni.timeline
@@ -430,7 +431,7 @@ timeline.play()
 try:
     for step in range(STEPS):
         await app.next_update_async()
-        if step % 30 == 0:
+        if step % 5 == 0:
             print(f"step {step} of {STEPS}")
 finally:
     timeline.pause()
@@ -885,7 +886,7 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(ended["state"], "completed", ended)
         position = ended["result"]["return_value"]
         self.assertLess(position[axis], up - 0.5 / state["meters_per_unit"], f"the box fell: {position}")
-        self.assertIn("step 570 of 600", ended["output"]["stdout"])
+        self.assertIn("step 595 of 600", ended["output"]["stdout"])
         erred, text = call_tool("get_job", {"job_id": job_id}, self._output_folder())
         self.assertFalse(erred, text)
         self.assertIn("state = completed", text)

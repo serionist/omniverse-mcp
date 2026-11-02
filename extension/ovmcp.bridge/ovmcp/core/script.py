@@ -25,9 +25,11 @@ _FLAGS = ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
 _RETURN_OUTSIDE = "'return' outside function"
 
 NEVER_AWAITS = (
-    "This script never awaits, so it would hold Kit's main thread from its start to its end: Kit wouldn't render, and "
-    "nothing could read or cancel the job. Await in its loop, `await omni.kit.app.get_app().next_update_async()` once "
-    "a step, so Kit updates between steps; or run a short script with execute_script."
+    "This script never awaits at its top level, so as a job it would run from its start to its end inside one update: "
+    "a loop there holds Kit's main thread, Kit doesn't render, and nothing can read or cancel the job; and a coroutine "
+    "the script only defines or schedules doesn't count: await it at the top level, `await main()`. Await in each "
+    "loop, `await omni.kit.app.get_app().next_update_async()` once a step, so Kit updates between steps; or run a "
+    "short script with execute_script."
 )
 
 

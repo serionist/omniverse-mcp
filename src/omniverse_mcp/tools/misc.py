@@ -170,12 +170,13 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         The job runs on Kit's main thread between Kit's updates, so Kit renders and other tools answer while it runs.
         It must await once a step: `await omni.kit.app.get_app().next_update_async()` lets one update pass, physics
-        stepping while the timeline plays. A script that never awaits is refused, since it would hold Kit from its
-        start to its end; one that awaits once and then loops, or calls Isaac Sim's world.step(), holds Kit too, and no
-        tool can read or cancel it until it ends. It has execute_script's names (omni, carb, Usd, UsdGeom, UsdLux,
-        UsdPhysics, Sdf, Gf, mcp); assign to result to return data. Print a line a step: the lines are the progress
-        get_job shows. Read it with get_job(id, wait=60), cancel it with cancel_job. One job runs at a time, and the
-        last one is kept until the next starts.
+        stepping while the timeline plays. A script that never awaits at its top level is refused, since its loops
+        would hold Kit from its start to its end; a coroutine the script only defines or schedules doesn't count: await
+        it at the top level, `await main()`. One that awaits once and then loops, or calls Isaac Sim's world.step(),
+        holds Kit too, and no tool can read or cancel it until it ends. It has execute_script's names (omni, carb, Usd,
+        UsdGeom, UsdLux, UsdPhysics, Sdf, Gf, mcp); assign to result to return data. Print a line a step: the lines are
+        the progress get_job shows. Read it with get_job(id, wait=60), cancel it with cancel_job. One job runs at a
+        time, and the last one is kept until the next starts.
         """
         if bool(code.strip()) == bool(file.strip()):
             raise ToolError("Give the script as code or as file, one of them")
@@ -193,7 +194,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             Field(
                 ge=0,
                 le=100,
-                description="Seconds to wait for the job to end or change state, at most 100; new lines don't end it",
+                description=(
+                    "Seconds to wait for the job to end or change state, at most 100; new lines don't end it, and "
+                    "other calls through this server wait meanwhile"
+                ),
             ),
         ] = 0,
     ) -> str:

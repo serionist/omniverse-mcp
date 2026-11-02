@@ -1639,10 +1639,12 @@ file, its encoding included, and its tracebacks name its path and lines.
 - **Where it runs:** on Kit's main thread, as a task of Kit's loop, between Kit's updates: Kit renders, physics steps
   and other tools answer while it runs.
 - **It must await,** once a step: `await omni.kit.app.get_app().next_update_async()` lets one update pass, physics
-  stepping while the timeline plays. A script that never awaits is refused before it starts, since it would hold Kit
-  from its start to its end. One that awaits once and then loops, or calls Isaac Sim's `world.step()`, holds Kit too:
+  stepping while the timeline plays. A script that never awaits at its top level is refused before it starts, since
+  its loops would hold Kit from its start to its end; a coroutine the script only defines or schedules doesn't count:
+  await it at the top level, `await main()`. One that awaits once and then loops, or calls Isaac Sim's `world.step()`, holds Kit too:
   no tool, `get_job` included, can read or cancel it until it ends; `get_job` then gives its result as usual.
-- **Progress:** each line it prints is progress `get_job` shows, both streams in order, the last 200 kept.
+- **Progress:** each line it prints is progress `get_job` shows, both streams in order, the last 200 kept; a line
+  redrawn with a carriage return, as a progress bar is, reads as its latest state.
 - **One at a time:** a second start is refused, naming the job running. The last job is kept, for `get_job`, until
   the next starts; Kit's restart ends a job.
 - **The stage:** a script job runs on through a stage change, since a script may open stages itself. Let a job run
@@ -1675,7 +1677,7 @@ Read a job `run_script_job` started. Reading changes nothing in Kit.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `job_id` | string | `""` | The job's id, such as `j3`; the running job, or the last one, when empty |
-| `wait` | float | `0` | Seconds to wait, 0 to 100, for the job to end or change state |
+| `wait` | float | `0` | Seconds to wait, 0 to 100, for the job to end or change state; other calls through this server wait meanwhile |
 
 **Returns:** `job`, `state`, `elapsed`, `last` (the last line it printed) and, while it runs, the lines it printed
 since the last read, with the count of all (`lines = 37 printed, 2 since the last read:`), the last 200 when more

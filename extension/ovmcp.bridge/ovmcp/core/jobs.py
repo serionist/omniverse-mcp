@@ -26,7 +26,7 @@ CANCELLED = "cancelled"
 RUNNING = frozenset({WORKING, CANCELLING})
 
 # The lines a job keeps, of all it printed and of each stream for its output; and how long a line may grow without its
-# end before it counts as one, so a progress bar redrawn with "\r" can't grow without bound.
+# end before it counts as one, so text printed with no line end can't grow without bound.
 KEEP_LINES = 200
 LONGEST_LINE = 10_000
 
@@ -35,6 +35,13 @@ SHUT_DOWN = "the extension shut down"
 
 class JobError(Exception):
     """A request the board refuses; the message says why, and what to do."""
+
+
+def _redrawn(text: str) -> str:
+    """The text after its last carriage return, so a progress bar redrawn in place reads as its latest state; a
+    carriage return at its very end stays, since a "\\n" may follow it in the next write."""
+    cut = text.rfind("\r", 0, len(text) - 1)
+    return text[cut + 1 :] if cut >= 0 else text
 
 
 class Lines:
@@ -57,6 +64,7 @@ class Lines:
         *ended, rest = (self._pending[stream] + text).split("\n")
         for line in ended:
             self._add(stream, line)
+        rest = _redrawn(rest)
         if len(rest) > LONGEST_LINE:
             self._add(stream, rest)
             rest = ""
@@ -70,7 +78,7 @@ class Lines:
                 self._pending[stream] = ""
 
     def _add(self, stream: str, line: str) -> None:
-        line = line.removesuffix("\r")
+        line = _redrawn(line.removesuffix("\r"))
         self._last.append(line)
         self.count += 1
         self._kept[stream].append(line)

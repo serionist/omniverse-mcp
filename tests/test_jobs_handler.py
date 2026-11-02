@@ -17,10 +17,10 @@ from typing import Any
 
 import pytest
 
-from ovmcp.core import output, script
+from ovmcp.core import script
 from ovmcp.core.jobs import CANCELLED, CANCELLING, COMPLETED, FAILED, WORKING, Job
 
-from .conftest import HANDLERS, FakeUpdates, load_updates
+from .conftest import HANDLERS, FakeUpdates, load_updates, reset_output
 
 OPENED, CLOSING = "OPENED", "CLOSING"
 
@@ -90,7 +90,7 @@ def handlers(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Iterator[SimpleNa
     namespace = jobs.script_namespace
     monkeypatch.setattr(jobs, "script_namespace", lambda: {**namespace(), "GATES": gates})
     yield SimpleNamespace(misc=misc, jobs=jobs, gates=gates)
-    output.uninstall()
+    reset_output()
 
 
 async def _turns(count: int = 6) -> None:
@@ -153,6 +153,20 @@ def test_a_script_that_never_awaits_is_refused_and_nothing_starts(handlers, code
     assert refused == {"status": "error", "error": script.NEVER_AWAITS}
     assert "await omni.kit.app.get_app().next_update_async()" in refused["error"]
     assert read["error"].startswith("No job has run")
+
+
+def test_a_script_that_only_schedules_its_coroutine_is_told_to_await_it(handlers, tmp_path: Path):
+    # Rightly refused, since the job would end at once with its coroutine out of reach; it holds no thread, though.
+    path = tmp_path / "bake.py"
+    path.write_bytes(
+        b"import asyncio\n\nasync def main():\n    await asyncio.sleep(0)\n\nasyncio.ensure_future(main())\n"
+    )
+
+    refused = asyncio.run(handlers.jobs.handle_job_script({"file": str(path)}))
+
+    assert "a coroutine the script only defines or schedules doesn't count" in refused["error"]
+    assert "await it at the top level, `await main()`" in refused["error"]
+    assert "would hold Kit's main thread from its start to its end" not in refused["error"]
 
 
 @pytest.mark.parametrize(

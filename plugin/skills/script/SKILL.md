@@ -68,7 +68,8 @@ and models are not trained on them: look an API up before using it, never guess.
 | Switching a variant in a script | the viewport keeps the old geometry: `set_variant_selection` |
 | USD called from a thread | crashes Kit: stay on the script's own task |
 | `stage.Flush()` | does not exist in OpenUSD; `stage.Reload()` reloads layers from disk |
-| A job that never awaits | refused before it starts: it would hold Kit from its start to its end. Await once a step |
+| A job that never awaits at its top level | refused before it starts: its loops would hold Kit from its start to its end. Await once a step; a coroutine it only defines or schedules doesn't count, so `await main()` at the top level |
 | A job that awaits once and then loops, or calls Isaac Sim's `world.step()` | holds Kit like a blocking script: no tool, `get_job` included, answers until it ends. Await `next_update_async()` in the loop instead, with the timeline playing |
 | A bare `except:` in a job's loop | catches the cancel, and the job runs on, reading `cancelling`: catch `Exception`, or call `cancel_job` again |
 | `sim_control("stop")` after a job | puts every body back where play found it: pause to keep where they landed |
+| `sys.exit()` in a script or a job | Isaac Sim quits, since its fast shutdown ends the app on a call to it: never call it; return, or raise an error |

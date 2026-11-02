@@ -314,6 +314,15 @@ def load_updates() -> ModuleType:
     return module
 
 
+def reset_output() -> None:
+    """The output router (ovmcp.core.output) as a test leaves it: taken off, as the extension's shutdown takes it off,
+    and the module open again for the next test, as Kit's fresh import of a re-enabled extension's modules leaves it."""
+    from ovmcp.core import output
+
+    output.uninstall()
+    output._state.closed = False
+
+
 @pytest.fixture
 def state(tmp_path, monkeypatch):
     """A private token folder, and no token from the environment: never the developer's real ones."""
