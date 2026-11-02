@@ -38,7 +38,7 @@ jobs:
             echo "::error::$GITHUB_REF_NAME is not on main. A release is tagged on a commit of main."
             exit 1
           fi
-      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       # The tag is vX.Y.Z, pyproject.toml, extension.toml, plugin.json, server.json, every omniverse-mcp== pin under
       # plugin/ and the extension README's say X.Y.Z, and CHANGELOG.md has a dated section for it, the release's notes.
       # Before the approval, so nothing is published without them.
