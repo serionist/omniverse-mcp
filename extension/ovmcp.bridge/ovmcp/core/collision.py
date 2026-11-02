@@ -62,9 +62,7 @@ def collision_refusal(prim: Usd.Prim) -> str | None:
             f"it lie inside the instance {instance.GetPath()}, whose prims can't be changed one by one: their "
             "colliders belong in the asset it references, or the instance needs instanceable turned off"
         )
-    return (
-        f"{path} is {kind}, which PhysX makes no shape for: only a {COLLIDING_NAMES} collide, and none lies under it"
-    )
+    return f"{path} is {kind}, which PhysX makes no shape for: only a {COLLIDING_NAMES} collide, and none lies under it"
 
 
 def rigid_body_of(prim: Usd.Prim) -> Usd.Prim | None:

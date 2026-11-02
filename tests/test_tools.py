@@ -853,7 +853,7 @@ def test_set_physics_properties_with_no_value_says_nothing_was_set(bridge: MockI
 def _collision_text(args: dict[str, Any], echo: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path) -> str:
     """The tool's text for args on /World/Floor, given what the extension echoed beside the unset values."""
     sent = {"prim_path": "/World/Floor", **args}
-    unset = {k: None for k in ("mass", "density", "friction", "restitution")}
+    unset = dict.fromkeys(("mass", "density", "friction", "restitution"))
     answer = {"prim_path": "/World/Floor", "applied": [], **unset, **echo}
     return _check(Case("set_physics_properties", sent, "/physics/properties", answer, sent, ()), bridge, tmp_path)
 

@@ -6,6 +6,7 @@ import pytest
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics
 
 from ovmcp.core.collision import collision_refusal, set_collision
+from ovmcp.core.usd import has_api
 
 
 @pytest.fixture
@@ -131,8 +132,8 @@ def test_on_makes_a_static_collider_with_no_body_and_no_material(stage):
     echo = set_collision(floor, True)
 
     assert echo == {"applied": ["CollisionAPI"], "collision": True}
-    assert floor.HasAPI(UsdPhysics.CollisionAPI)
-    assert not floor.HasAPI(UsdPhysics.RigidBodyAPI)
+    assert has_api(floor, UsdPhysics.CollisionAPI)
+    assert not has_api(floor, UsdPhysics.RigidBodyAPI)
     assert not floor.GetRelationship("material:binding:physics").IsValid()
 
 
@@ -153,7 +154,7 @@ def test_off_turns_collision_off_and_keeps_the_api(stage):
     echo = set_collision(floor, False)
 
     assert echo == {"applied": [], "collision": False}
-    assert floor.HasAPI(UsdPhysics.CollisionAPI)
+    assert has_api(floor, UsdPhysics.CollisionAPI)
     assert UsdPhysics.CollisionAPI(floor).GetCollisionEnabledAttr().Get() is False
 
 
@@ -213,7 +214,7 @@ def test_a_static_mesh_keeps_physx_s_triangles(stage):
     echo = set_collision(terrain, True)
 
     assert "approximation" not in echo
-    assert not terrain.HasAPI(UsdPhysics.MeshCollisionAPI)
+    assert not has_api(terrain, UsdPhysics.MeshCollisionAPI)
 
 
 def test_a_kinematic_body_s_mesh_keeps_its_triangles(stage):

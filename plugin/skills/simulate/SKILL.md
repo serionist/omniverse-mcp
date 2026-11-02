@@ -2,8 +2,8 @@
 name: simulate
 description: >-
   Use when running physics in Omniverse or Isaac Sim: playing, pausing, stepping or stopping the simulation, mass,
-  friction and forces, raycasts, spawning and driving robots (Franka, UR10, G1, Spot and the rest), or recording a run
-  to review frame by frame afterwards.
+  friction, colliders and forces, something falling through a floor, raycasts, spawning and driving robots (Franka,
+  UR10, G1, Spot and the rest), or recording a run to review frame by frame afterwards.
 allowed-tools: >-
   mcp__plugin_omniverse-mcp_omniverse__get_sim_state mcp__plugin_omniverse-mcp_omniverse__get_robot_info
   mcp__plugin_omniverse-mcp_omniverse__raycast mcp__plugin_omniverse-mcp_omniverse__get_recording_frame
@@ -22,7 +22,8 @@ before play, so pause to look at a moment in the middle.
 2. **Physics on what moves.** `create_prim(..., enable_physics=True)` gives a prim a rigid body and collision;
    `set_physics_properties` sets mass, density, friction and restitution. Without a collider an object falls through
    the ground: `get_prim_properties`' `api_schemas` line says whether a prim has one (`PhysicsCollisionAPI`) and a
-   rigid body (`PhysicsRigidBodyAPI`).
+   rigid body (`PhysicsRigidBodyAPI`). `set_physics_properties(floor, collision=True)` makes a static collider of a
+   floor, with no rigid body, so it stays put. Give each shape under an Xform its own; the Xform itself is refused.
 3. **Robots.** `create_robot` spawns one of franka, ur10, carter, jetbot, g1, go1, go2, h1, spot or anymal from
    Isaac Sim's asset library (Isaac Sim only), or a robot's own USD file, a path or a URL, in any Kit app.
    `get_robot_info` lists its joints, and reads where they are while the simulation plays or is paused;
