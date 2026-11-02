@@ -550,7 +550,8 @@ The line count below is `isaacsim.util.debug_draw`'s, read with Kit's clock in o
 `from isaacsim.util.debug_draw import _debug_draw; import time; result = [_debug_draw.acquire_debug_draw_interface().get_num_lines(), round(time.monotonic(), 2)]`.
 A drawing lasts its `duration` in seconds of that clock, 5 by default. Read the count before 16.3; each step from 16.6
 on starts once it is back there. To see a drawing go, read again and again, a call at a time: nothing waits inside a
-script.
+script. `omni.debugdraw`, the other drawing backend, is pytest's `test_16_09`: no tool switches to it, and Isaac Sim
+draws with `isaacsim.util.debug_draw` whenever it has it.
 
 ### 16.3 Draw Debug Line
 - `draw_debug("line", start=[0,0,0], end=[5,5,0], color=[1,0,0])`
@@ -585,12 +586,6 @@ script.
 - Not judged here, so it leaves this row's status alone: a drawing captured at once, 5 times over, through
   `draw_debug`'s handler and `mcp.capture_viewport()` in one script. That needs an `ovmcp.*` import and five awaited
   captures, which the tester's rules forbid; pytest's `test_16_08` checks it, live
-
-### 16.9 The omni.debugdraw Backend
-- pytest's, not this suite's: `test_16_09` switches the bridge's drawing to `omni.debugdraw` with the bridge's own
-  `choose_backend`, an `ovmcp.*` import, and no tool switches it: Isaac Sim draws with `isaacsim.util.debug_draw`
-  whenever it has it
-- SKIP it, naming `test_16_09`, and call nothing
 
 ---
 

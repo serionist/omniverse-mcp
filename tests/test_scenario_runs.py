@@ -8,6 +8,7 @@ import sys
 import time
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any, cast
 
 import gate
 import pytest
@@ -33,7 +34,9 @@ def labels(sessions):
 
 def test_the_real_scenarios_parse_with_every_needs_line_sound(suite):
     assert len(suite.phases) == 27
-    assert sum(len(p.scenarios) for p in suite.phases) == 144
+    # 16.9 left the suite for pytest's test_16_09 (#146): it was a SKIP in every run.
+    assert sum(len(p.scenarios) for p in suite.phases) == 143
+    assert suite.scenario("16.9") is None
     assert scenarios.suite_problems(suite) == []
     assert suite.scenario("6.4-6.9") is not None
     assert "swap each vector's Y and Z" in suite.header
@@ -789,6 +792,424 @@ def test_main_checkout_is_the_first_worktree():
     assert scenarios.main_checkout() == Path(first)
 
 
+# ----- outcomes (#146) -----
+
+
+@pytest.fixture(scope="module")
+def real_outcomes():
+    outcomes, problems = scenarios.parse_outcomes(scenarios.OUTCOMES.read_text(encoding="utf-8"))
+    assert problems == []
+    return outcomes
+
+
+def test_the_real_outcomes_parse_with_no_problem(real_outcomes):
+    assert [c.id for c in real_outcomes.cases] == ["O1", "O2", "O3", "O4", "O5", "O6"]
+    by_id = {c.id: c for c in real_outcomes.cases}
+    assert (by_id["O1"].given, by_id["O1"].play, by_id["O1"].calls) == ("", 0.0, "no execute_script")
+    assert (by_id["O2"].play, by_id["O2"].calls) == (2.0, "any")
+    assert by_id["O4"].play == 2.0
+    assert "def mesh(" in by_id["O3"].given
+    # The physics outcomes make their own scene: a play on Kit's preference alone may not simulate (round 2, R2).
+    assert all('UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")' in by_id[i].given for i in ("O2", "O4"))
+
+
+SMALL_OUTCOMES = """# Outcomes
+
+The header.
+
+## O1: First
+
+Given: none
+
+Ask: Do the first thing.
+
+Verify:
+- It is done
+
+Calls: no execute_script
+
+Play: none
+
+## O2: Second
+
+Given:
+
+```python
+import omni.kit.app
+Ask: int = 1  # a field's spelling inside the code is code
+await omni.kit.app.get_app().next_update_async()
+```
+
+Ask: Do the second thing.
+
+Verify:
+- The ball rests
+
+Calls: any
+
+Play: 1.5 s
+"""
+
+
+def test_small_outcomes_parse_with_awaiting_code_and_a_field_spelling_inside_it():
+    outcomes, problems = scenarios.parse_outcomes(SMALL_OUTCOMES)
+    assert problems == []
+    assert outcomes.header == "The header."
+    first, second = outcomes.cases
+    assert (first.ask, first.verify, first.given, first.play) == ("Do the first thing.", "- It is done", "", 0.0)
+    assert second.ask == "Do the second thing."
+    assert second.given.startswith("import omni.kit.app\nAsk: int = 1")
+    assert second.play == 1.5
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "says"),
+    [
+        ("Calls: no execute_script", "Calls: at most 3", "`Calls:` is one of any, no execute_script"),
+        ("Play: none", "Play: soon", "`Play:` is `none` or seconds"),
+        ("Play: 1.5 s", "Play: 0 s", "`Play:` is `none` or seconds"),
+        ("Verify:\n- It is done", "Verify: none", "its `Verify:` is empty"),
+        ("Ask: Do the first thing.\n", "", "no `Ask:` line"),
+        ("Given: none", "Given: make a cube", "a fenced python block"),
+        ("Ask: int = 1  # a field", "x = (  # a field", "its Given doesn't compile"),
+        ("## O2: Second", "## O1: Second", "an outcome ID appears twice"),
+        ("Play: none\n", "Play: none\n\nCalls: any\n", "`Calls:` appears twice"),
+    ],
+)
+def test_a_malformed_outcome_is_named(old, new, says):
+    assert old in SMALL_OUTCOMES
+    _, problems = scenarios.parse_outcomes(SMALL_OUTCOMES.replace(old, new, 1))
+    assert any(says in p for p in problems), problems
+
+
+@pytest.mark.parametrize(
+    ("value", "phases_given", "expected"),
+    [
+        (None, False, ["O1", "O2"]),  # a run of every phase runs every outcome
+        (None, True, []),  # a run of some phases runs none unless asked
+        ("all", True, ["O1", "O2"]),
+        ("none", False, []),
+        ("O2, O1", True, ["O1", "O2"]),
+    ],
+)
+def test_outcomes_asked(value, phases_given, expected):
+    outcomes, _ = scenarios.parse_outcomes(SMALL_OUTCOMES)
+    assert scenarios.outcomes_asked(value, phases_given, outcomes) == expected
+
+
+def test_outcomes_asked_refuses_one_outcomes_md_lacks():
+    outcomes, _ = scenarios.parse_outcomes(SMALL_OUTCOMES)
+    with pytest.raises(ValueError, match="O9 isn't an outcome"):
+        scenarios.outcomes_asked("O1,O9", False, outcomes)
+
+
+def test_outcomes_run_after_the_phases_and_before_the_cleanup(suite):
+    sessions = scenarios.plan(suite, {1}, ["O1", "O2"])
+    assert [s.label for s in sessions] == [
+        "phase-01",
+        "outcome-O1",
+        "judge-O1",
+        "outcome-O2",
+        "judge-O2",
+        "phase-27",
+    ]
+    assert not any(s.new_stage for s in sessions[1:])  # the runner prepares an outcome's stage itself
+
+
+def test_phases_none_runs_the_outcomes_alone(suite):
+    assert scenarios.phases_asked("none", suite) == set()
+    assert [s.label for s in scenarios.plan(suite, set(), ["O1"])] == ["outcome-O1", "judge-O1", "phase-27"]
+
+
+def test_the_server_tools_split_by_their_read_only_hint():
+    read_only, others = scenarios.server_tools()
+    assert len(read_only) == 10
+    assert "mcp__omniverse__get_prim_bounds" in read_only
+    assert {"mcp__omniverse__execute_script", "mcp__omniverse__sim_control"} <= set(others)
+    assert not set(read_only) & set(others)
+
+
+def test_the_agent_works_restricted_to_its_own_folder_with_the_brief(tmp_path):
+    session = scenarios.Session(scenarios.AGENT, ("O1",), 0, False)
+    cmd, cwd, expect = scenarios.session_command("claude", session, "ASK", tmp_path / "c", tmp_path, "RULES", "BRIEF")
+    assert cwd == tmp_path / "mcp_output" / "outcome-O1"
+    assert "--restricted" in cmd
+    assert "--add-dir" not in cmd  # outcomes.md and the judges' files stay out of its reach (round 1, P2)
+    assert cmd[cmd.index("--append-system-prompt") + 1] == "BRIEF"
+    assert cmd[cmd.index("--tools") + 1] == "Read,Grep,Glob,Skill"
+    assert expect == scenarios.Expect(plugin=True)
+
+
+def test_the_judge_has_the_read_only_tools_alone_in_its_agents_folder(tmp_path):
+    session = scenarios.Session(scenarios.JUDGE, ("O1",), 0, False)
+    cmd, cwd, expect = scenarios.session_command("claude", session, "P", tmp_path / "c", tmp_path, "RULES", "BRIEF")
+    read_only, others = scenarios.server_tools()
+    # In the agent's folder, so the paths in its answers resolve; its own added, where its server writes (round 2, R1).
+    assert cwd == tmp_path / "mcp_output" / "outcome-O1"
+    assert cmd[cmd.index("--add-dir") + 1] == str(tmp_path / "mcp_output" / "judge-O1")
+    assert "--restricted" in cmd
+    assert cmd[cmd.index("--append-system-prompt") + 1] == "RULES"
+    assert cmd[cmd.index("--tools") + 1] == "Read,Grep,Glob"
+    allowed = cmd[cmd.index("--allowedTools") + 1 : cmd.index("--output-format")]
+    assert allowed == ["Read", "Grep", "Glob", *read_only]
+    assert not any(a.startswith("Skill") or a == "mcp__omniverse" for a in allowed)
+    disallowed = cmd[cmd.index("--disallowedTools") + 1 : cmd.index("--restricted")]
+    assert disallowed == others
+    assert expect is not None and expect.tools == frozenset(["Read", "Grep", "Glob", *read_only])
+
+
+def test_the_init_check_holds_a_judge_to_its_tools_and_an_agent_to_the_plugin(tmp_path):
+    event = json.loads(json.dumps(B2_INIT).replace("PLUGIN", tmp_path.as_posix()))
+    judge = scenarios.Expect(tools=frozenset(["Read", "Grep", "Glob", "mcp__omniverse__get_sim_state"]))
+    assert scenarios.init_problems(event | {"tools": ["Read", "mcp__omniverse__get_sim_state"]}, tmp_path, judge) == []
+    wider = event | {"tools": ["Read", "mcp__omniverse__execute_script"]}
+    assert "tools outside the run's list: mcp__omniverse__execute_script" in scenarios.init_problems(
+        wider, tmp_path, judge
+    )
+    agent = scenarios.Expect(plugin=True)
+    assert scenarios.init_problems(event, tmp_path, agent) == []
+    without = event | {"plugins": [{"name": "cc-plugin-agents-md", "path": "builtin"}]}
+    assert any("no omniverse-mcp plugin" in p for p in scenarios.init_problems(without, tmp_path, agent))
+    assert scenarios.init_problems(without, tmp_path) == []  # a phase's tester, as before
+
+
+def test_a_session_keeps_each_server_call_with_its_input_and_answer(tmp_path):
+    outcome = scenarios.Outcome()
+    lines = [
+        json.dumps(B2_INIT).replace("PLUGIN", tmp_path.as_posix()),
+        *stream(
+            ("assistant", {"type": "tool_use", "id": "a", "name": "mcp__omniverse__create_prim", "input": {"x": 1}}),
+            ("user", {"type": "tool_result", "tool_use_id": "a", "content": [{"type": "text", "text": "made"}]}),
+            ("assistant", {"type": "tool_use", "id": "b", "name": "Read", "input": {"file_path": "x"}}),
+            ("assistant", {"type": "tool_use", "id": "c", "name": "mcp__omniverse__execute_script", "input": {}}),
+            ("user", {"type": "tool_result", "tool_use_id": "c", "is_error": True, "content": "boom"}),
+        ),
+    ]
+    for line in lines:
+        scenarios._read_event(line, outcome, tmp_path)
+    assert outcome.calls == [
+        {"name": "create_prim", "input": '{"x": 1}', "answer": "made"},
+        {"name": "execute_script", "input": "{}", "answer": "error: boom"},
+    ]
+    assert outcome.call_names == ["create_prim", "execute_script"]
+
+
+def _case(given: str = "", play: float = 0.0) -> scenarios.OutcomeCase:
+    return scenarios.OutcomeCase("O1", "First", given, "ASK TEXT", "- VERIFY LINE", "no execute_script", play)
+
+
+def test_the_judges_prompt_holds_the_request_the_verify_lines_and_what_the_agent_did(tmp_path):
+    agent = outcome("All done.", stopped="stopped at the session's limit, 900 s")
+    agent.calls = [{"name": "create_prim", "input": '{"prim_type": "Cube"}', "answer": "x" * 700}]
+    files = [tmp_path / "mcp_output" / "outcome-O1" / "captures" / "capture_0001.png"]
+    text = scenarios.judge_prompt(_case(play=2.0), agent, files, 8212)
+    for part in ("ASK TEXT", "- VERIFY LINE", "All done.", "played the simulation for 2 s and paused it"):
+        assert part in text
+    assert '1. create_prim {"prim_type": "Cube"}' in text
+    assert f"   -> {'x' * 600} [... 100 more characters]" in text
+    assert "The runner stopped the assistant: stopped at the session's limit, 900 s." in text
+    assert f"- {files[0].as_posix()}" in text
+    assert "one row, for O1" in text
+    assert "The timeline is stopped" in scenarios.judge_prompt(_case(), outcome(), [], 8212)
+
+
+def test_prepare_stage_makes_a_new_stage_lit_by_its_own_lights_then_runs_the_given(kit):
+    scenarios.prepare_stage(kit.port, _case(given="print(1)\n"))
+    asked = [(path, body) for _, path, body in kit.requests if path != "/bridge"]  # the client's handshake
+    assert asked == [
+        ("/scene/new", {}),
+        ("/viewport/light", {"action": "set", "mode": "stage"}),  # an earlier session's lighting stays out (P5)
+        ("/execute", {"code": "print(1)\n"}),
+    ]
+    kit.set_response("/execute", {"status": "error", "error": "NameError: boom"})
+    with pytest.raises(scenarios.BridgeError, match="boom"):
+        scenarios.prepare_stage(kit.port, _case(given="boom\n"))
+
+
+class FakeTimeline:
+    """A client whose sim_time moves `rate` seconds of simulation for each read while playing."""
+
+    def __init__(self, rate: float):
+        self.rate, self.time, self.playing, self.actions = rate, 0.0, False, []
+
+    def sim_control(self, action):
+        self.actions.append(action)
+        self.playing = action == "play"
+        return {"status": "success", "result": {}}
+
+    def sim_state(self):
+        if self.playing:
+            self.time += self.rate
+        return {"status": "success", "result": {"sim_time": self.time}}
+
+    def close(self):
+        self.actions.append("closed")
+
+
+def test_the_runners_play_pauses_once_the_time_has_moved_on_that_far():
+    timeline, clock = FakeTimeline(0.5), Clock()
+
+    def sleep(seconds):
+        clock.now += seconds
+
+    scenarios.run_play(8212, 2.0, connect=lambda _port: cast("Any", timeline), clock=clock, sleep=sleep)
+    assert timeline.actions == ["play", "pause", "closed"]
+    assert timeline.time >= 2.5  # the read at play, then four more
+
+
+def test_a_play_that_doesnt_get_there_pauses_and_says_how_far_it_got():
+    timeline, clock = FakeTimeline(0.0), Clock()
+
+    def sleep(seconds):
+        clock.now += seconds
+
+    with pytest.raises(scenarios.PlayError, match=r"moved 0\.00 s of 2 s in 18 s"):
+        scenarios.run_play(8212, 2.0, connect=lambda _port: cast("Any", timeline), clock=clock, sleep=sleep)
+    assert timeline.actions == ["play", "pause", "closed"]
+
+
+def outcome_run(suite, tmp_path, judge_status="PASS", agent_calls=(), prepare=None, play=None):
+    """run_sessions over SMALL_OUTCOMES' two outcomes and the cleanup, everything it does in `seen`."""
+    outcomes, _ = scenarios.parse_outcomes(SMALL_OUTCOMES)
+    seen = []
+
+    def launch(session, text, left):
+        seen.append(("launch", session.label, text))
+        if session.kind == scenarios.AGENT:
+            done = outcome("I did it.", skills=["omniverse-mcp:scene"])
+            done.calls = [{"name": name, "input": "{}", "answer": "ok"} for name in agent_calls]
+            return done
+        if session.kind == scenarios.JUDGE:
+            return outcome(table(f"{session.ids[0]} | t | {judge_status} | checked"))
+        return outcome(table("27.1 | t | PASS | n"))
+
+    def default_prepare(case):
+        seen.append(("prepare", case.id))
+
+    def default_play(seconds):
+        seen.append(("play", seconds))
+
+    records, rows = scenarios.run_sessions(
+        suite,
+        scenarios.plan(suite, set(), ["O1", "O2"]),
+        tmp_path,
+        8212,
+        launch,
+        lambda: seen.append(("settle",)),
+        outcomes=outcomes,
+        prepare=prepare or default_prepare,
+        play=play or default_play,
+    )
+    return seen, records, {r.id: r for r in rows}
+
+
+def test_an_outcome_is_prepared_acted_on_played_and_judged(suite, tmp_path):
+    seen, records, rows = outcome_run(suite, tmp_path)
+    steps = [s[:2] for s in seen]
+    assert steps == [
+        ("settle",),
+        ("prepare", "O1"),
+        ("launch", "outcome-O1"),
+        ("settle",),
+        ("launch", "judge-O1"),
+        ("settle",),
+        ("prepare", "O2"),
+        ("launch", "outcome-O2"),
+        ("settle",),
+        ("play", 1.5),  # after the settle, so the judge reads where physics put things (round 1, P1)
+        ("launch", "judge-O2"),
+        ("settle",),
+        ("launch", "phase-27"),
+    ]
+    agent_prompt = seen[2][2]
+    assert agent_prompt == "Do the first thing."  # nothing of Verify, Calls or Given (the plan's Goal)
+    assert "- It is done" in seen[4][2] and "I did it." in seen[4][2]
+    assert [r.id for r in rows.values()] == ["O1", "O2", "27.1"]  # one row an outcome, from its judge
+    assert (rows["O1"].session, rows["O1"].status, rows["O1"].notes) == ("judge-O1", "PASS", "checked")
+    assert [r.label for r in records][:2] == ["outcome-O1", "judge-O1"]
+    assert records[0].skills == ["omniverse-mcp:scene"]
+
+
+def test_a_script_where_the_calls_line_says_none_caps_a_pass_at_warn(suite, tmp_path):
+    _, records, rows = outcome_run(suite, tmp_path, agent_calls=("create_prim", "execute_script"))
+    assert rows["O1"].status == "WARN"
+    assert rows["O1"].notes == "checked; Calls: execute_script 1, where the line says none"
+    assert rows["O2"].status == "PASS"  # O2's line is `any`
+    assert records[0].calls == ["create_prim", "execute_script"]
+    _, _, rows = outcome_run(suite, tmp_path, judge_status="FAIL", agent_calls=("execute_script",))
+    assert rows["O1"].status == "FAIL"  # a FAIL stays a FAIL (Q3)
+    assert rows["O1"].notes.endswith("where the line says none")
+
+
+def test_a_given_kit_refuses_leaves_that_outcome_not_run_and_the_run_going(suite, tmp_path):
+    def prepare(case):
+        if case.id == "O1":
+            raise scenarios.BridgeError("NameError: boom")
+
+    seen, records, rows = outcome_run(suite, tmp_path, prepare=prepare)
+    launched = [s[1] for s in seen if s[0] == "launch"]
+    assert launched == ["outcome-O2", "judge-O2", "phase-27"]
+    assert rows["O1"].status == scenarios.NOT_RUN
+    assert rows["O1"].notes == "not run: preparing its stage: NameError: boom"
+    assert records[1].stopped == "not run: preparing its stage: NameError: boom"
+    assert rows["O2"].status == "PASS"
+
+
+def test_no_answer_while_preparing_halts_the_run(suite, tmp_path):
+    def prepare(case):
+        raise OSError("connection refused")
+
+    seen, _, rows = outcome_run(suite, tmp_path, prepare=prepare)
+    assert [s for s in seen if s[0] == "launch"] == []
+    assert {r.status for r in rows.values()} == {scenarios.NOT_RUN}
+    assert rows["27.1"].notes == "not run: Kit didn't answer: connection refused"
+
+
+def test_a_play_that_doesnt_get_there_leaves_that_outcome_not_run(suite, tmp_path):
+    def play(seconds):
+        raise scenarios.PlayError("the simulation's time moved 0.00 s of 1.5 s in 16 s")
+
+    seen, _, rows = outcome_run(suite, tmp_path, play=play)
+    assert "judge-O2" not in [s[1] for s in seen if s[0] == "launch"]
+    assert rows["O2"].notes == "not run: the runner's play: the simulation's time moved 0.00 s of 1.5 s in 16 s"
+    assert rows["27.1"].status == "PASS"
+
+
+def test_results_md_lists_each_outcomes_skills_and_calls():
+    record = {
+        "sessions": [
+            {"label": "outcome-O1", "kind": "outcome", "ids": ["O1"], "skills": ["omniverse-mcp:scene"], "stopped": ""}
+            | {"calls": ["create_prim", "set_material", "set_material", "capture_viewport"]},
+            {"label": "judge-O1", "kind": "judge", "ids": ["O1"], "skills": [], "stopped": ""},
+            {"label": "outcome-O2", "kind": "outcome", "ids": ["O2"], "skills": [], "stopped": "not run: x"},
+        ],
+        "rows": [
+            {"id": "O2", "test": "Second", "status": scenarios.NOT_RUN, "notes": "not run: x"},
+            {"id": "O1", "test": "First", "status": "PASS", "notes": "ok"},
+            {"id": "27.1", "test": "Cleanup", "status": "PASS", "notes": "ok"},
+        ],
+    }
+    text = scenarios.results_md(record)
+    assert text.index("| 27.1 |") < text.index("| O1 |") < text.index("| O2 |")
+    assert (
+        "| O1 | omniverse-mcp:scene | create_prim, set_material x2, capture_viewport (4 calls, 0 execute_script) "
+        "| PASS |" in text
+    )
+    assert "| O2 | none | not run | NOT RUN |" in text
+
+
+def test_compare_counts_skill_loads_without_the_judges():
+    new = run_record("20261102-000000", [("O1", "PASS")], skills=("omniverse-mcp:scene",))
+    new["sessions"] += [{"label": "judge-O1", "kind": "judge", "skills": []}]
+    report = scenarios.compare(new, [])
+    assert (report["sessions"], report["without_skill"]) == (2, 1)  # phase-01 and phase-02; the judge left out
+
+
+def test_outcome_ids_sort_after_every_phase():
+    ids = ["O10", "27.1", "O2", "1.1", "6.4-6.9"]
+    assert sorted(ids, key=scenarios._id_key) == ["1.1", "6.4-6.9", "27.1", "O2", "O10"]
+
+
 # ----- the run command -----
 
 
@@ -810,10 +1231,13 @@ def run_command(tmp_path, monkeypatch):
     monkeypatch.setattr(scenarios, "check", lambda *a, **k: ([], scenarios.Kit(app="Isaac-Sim")))
     monkeypatch.setattr(scenarios, "runs_root", lambda: runs)
     monkeypatch.setattr(scenarios, "settle", seen["settled"].append)
+    seen["prepared"], seen["played"] = [], []
+    monkeypatch.setattr(scenarios, "prepare_stage", lambda port, case: seen["prepared"].append((port, case.id)))
+    monkeypatch.setattr(scenarios, "run_play", lambda port, seconds: seen["played"].append((port, seconds)))
 
-    def run_session(cmd, transcript, plugin_dir, watch, cwd, env):
-        seen["sessions"].append({"watch": watch, "cwd": cwd})
-        rows = table("1.1 | t | PASS | n", "1.2 | t | PASS | n", "27.1 | t | PASS | n")
+    def run_session(cmd, transcript, plugin_dir, watch, cwd, env, expect=None):
+        seen["sessions"].append({"watch": watch, "cwd": cwd, "cmd": cmd, "expect": expect})
+        rows = table("1.1 | t | PASS | n", "1.2 | t | PASS | n", "27.1 | t | PASS | n", "O4 | t | PASS | n")
         return outcome(rows, skills=["omniverse-mcp:scene"], started="s", ended="e", tokens={"output_tokens": 5})
 
     monkeypatch.setattr(scenarios, "run_session", run_session)
@@ -873,3 +1297,19 @@ def test_a_held_lock_refuses_a_second_run(run_command, capsys):
     assert "another run took port 8212" in capsys.readouterr().out
     assert seen["sessions"] == []
     assert scenarios.lock_path(runs, 8212).read_text(encoding="utf-8") == "run 20261101-000000\n"
+
+
+def test_a_run_with_an_outcome_prepares_plays_and_records_it(run_command):
+    runs, seen = run_command
+    assert scenarios.main(["run", "--phases", "none", "--outcomes", "O4"]) == 0
+    (run_dir,) = [p for p in runs.iterdir() if p.is_dir()]
+    record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    assert (record["phases"], record["outcomes"]) == ("none", "O4")
+    assert [s["label"] for s in record["sessions"]] == ["outcome-O4", "judge-O4", "phase-27"]
+    assert (seen["prepared"], seen["played"]) == ([(8212, "O4")], [(8212, 2.0)])
+    agent, judge, _ = seen["sessions"]
+    assert agent["cwd"] == judge["cwd"] == run_dir / "mcp_output" / "outcome-O4"
+    assert "--restricted" in agent["cmd"] and agent["expect"] == scenarios.Expect(plugin=True)
+    assert judge["expect"].tools is not None
+    assert {r["id"]: r["status"] for r in record["rows"]} == {"O4": "PASS", "27.1": "PASS"}
+    assert "## Outcomes" in (run_dir / "results.md").read_text(encoding="utf-8")

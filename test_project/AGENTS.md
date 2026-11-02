@@ -24,6 +24,20 @@ Kit app of the run's own. These rules hold for every session; the prompt gives y
 `12847 faces`). A FAIL names the error or the wrong value, a WARN what was unexpected, and either names its capture
 under `mcp_output/`. Never guess: when unsure, WARN and say what you saw.
 
+## Judging an outcome
+
+A prompt that opens "You judge outcome" makes you an outcome's judge (`outcomes.md`): an assistant was given a user's
+request and acted, and you check what it did against the Verify lines, which it never saw.
+
+- **Your tools read and nothing else:** the read-only tools, and `Read` on the assistant's files and your own. Change
+  nothing; the timeline is as the prompt says, stopped or paused after the runner's play. Make no `new_scene()` call.
+- **Check each Verify line on the stage itself** where a tool can read it, and against the assistant's answers and
+  captures where it can't: find its prims with `get_scene_tree`, measure with `get_prim_bounds`, read attributes with
+  `get_prim_properties`, open its captures with `Read`, and capture again when a line is about what the stage shows.
+- **Judge the outcome, not the path:** a request met in another way than you'd have chosen passes; the runner checks
+  the Calls: line on its own.
+- **Answer** with one row for the outcome, as the prompt asks; the statuses are the table above.
+
 ## Code in `execute_script`
 
 `execute_script` runs on Kit's main thread, and Kit answers nothing else until it returns: a run stops once Kit has

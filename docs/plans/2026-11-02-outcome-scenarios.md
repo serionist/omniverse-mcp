@@ -132,9 +132,10 @@ Each outcome is three steps, four with a `Play:` line:
    `sim_time` has moved on by the line's seconds, within a wall-clock limit of four times that plus 10 s, then
    `sim_control("pause")`. The same play every run, whatever the agent did. A play that doesn't get there makes the
    row NOT RUN with what `sim_state` said, and the judge doesn't start.
-   - **Kit's answers in Prepare and Play:** an error Kit answers (a Given that raises, a refused call) makes that row
-     NOT RUN and the run goes on; no answer at all (`OSError`, `BridgeError`) halts the run as `settle`'s does today,
-     "Kit didn't answer", rather than reading as a run cut short.
+   - **Kit's answers in Prepare and Play:** an error Kit answers (a Given that raises, a refused call: the client's
+     `BridgeError`) makes that row NOT RUN and the run goes on; no answer at all (`OSError`, which the client's
+     timeouts are) halts the run as `settle`'s does today, "Kit didn't answer", rather than reading as a run cut
+     short.
 4. **The judge,** session `judge-O1`. Without a `Play:` line it starts after `settle`, as every session does, on the
    stage the agent authored; with one, it starts with no `settle`, on the paused stage, and the next session's
    `settle` stops it. `test_project/AGENTS.md` as today, its new judging
