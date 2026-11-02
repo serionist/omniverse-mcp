@@ -1,9 +1,9 @@
 ---
 title: Switch variants in the session layer by default, choose the layer an edit goes to, and list a prim's variant sets, a change to the tool contract
 issue: "#155"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist (delegated to the author, 2026-11-02)
+approved_at: 2026-11-02
 ---
 
 # Switch variants in the session layer by default, choose the layer an edit goes to, and list a prim's variant sets, a change to the tool contract
@@ -77,20 +77,27 @@ back with a clear and `""` with `BlockVariantSelection()` (`:707-711`).
     instance prim to switch instead; an unknown set or option is refused listing those there, and an unknown set on a
     prim with an unloaded payload says so; `layer="edit_target"` where the session layer holds a selection for that
     set is refused, since it wouldn't show, naming the fix (`variant_name=""` with `layer="session"` first);
-  - `Snapshot` (fit I1), built like `attribute._Undo`: for each prim and set a switch touches, whether the layer had
-    the prim's spec, the selection in one of three states (absent, blocked `""`, a name), and the spec's `active`
-    field; `restore()` writes each back through the Sdf spec, and removes a spec only when the switch created it;
-  - `switch(stage, {prim: {set: name}}, layer) -> Snapshot` (fit I2): refuses every switch before it writes any,
-    writes them all in one `Sdf.ChangeBlock` (`""` clears that layer's selection), and returns the snapshot of what
-    it wrote over, with a note for each prim that is an instance (its own selection gives it a prototype of its own
-    while it differs from its siblings'). One call serves one switch (the tool), two (`compare_prims`) or a shot's
-    whole set of changes (#157, which merges the last shot's revert with the next shot's apply).
+  - `Snapshot` (fit I1), built like `isolation.Hidden` (round 1, I7): Kit-free, Sdf only, recording for each prim and
+    set a switch touches the selection in one of three states (absent, blocked `""`, a name), the spec's `active`
+    field, and the list of specs the switch created; `restore()` writes each field back in one change block and
+    removes only the specs it created, child first, once they hold nothing. Not `Sdf.CleanupEnabler`, which also
+    deletes a bare over that was already there (measured), so "as it was" would fail for that layer;
+  - `switch(stage, {prim: {set: name}}, layer) -> Snapshot` (fit I2): every Usd read first (the refusals, the instance
+    notes, the snapshot), then one `Sdf.ChangeBlock` with Sdf writes only, since Usd API is unsafe inside one (round 1,
+    P3): `Sdf.CreatePrimInLayer` and `spec.variantSelections[set] = name` for a name; for `""`, the key deleted where
+    the layer's spec holds it and nothing written otherwise, so a clear of nothing never creates `over` specs in a
+    user's file, as Usd's `ClearVariantSelection()` does (measured). It returns the snapshot, with a note for each prim
+    that is an instance (its own selection gives it a prototype of its own while it differs from its siblings'). One
+    call serves one switch (the tool), two (`compare_prims`) or a shot's whole set of changes (#157, which merges the
+    last shot's revert with the next shot's apply).
 - **`ovmcp/core/layers.py`** gains `layer_named(stage, "session" | "edit_target")`, which `variants.py` and
   `attribute.py` share.
-- **`handlers/variants.py`,** `refresh(stage, prims)` (fit I2): the Fabric refresh for a whole switch at once, one
-  `SetActive(False)` over the top-most switched prims in the session layer, its updates, then their `active` fields put
-  back from the snapshot in a `finally`, so a cancel or an error between the two never leaves a prim hidden; it runs
-  only when Fabric Scene Delegate is on and step 5 finds the toggle still needed (fit I3).
+- **`handlers/variants.py`,** `refresh(stage, prims)` (fit I2): the Fabric refresh for a whole switch at once. It takes
+  its own session-layer snapshot of the top-most switched prims (the specs it makes, their `active`) before one
+  `SetActive(False)` there, then its updates, then restores that snapshot in a `finally`, whichever layer the
+  selection went to, so a cancel or an error never leaves a prim hidden and no `active` opinion stays behind (round
+  1, P4); it runs only when Fabric Scene Delegate is on and step 5 finds the toggle still needed on every Kit it
+  measured (fit I3; round 1, P1).
 - **`handle_set_variant_selection`:** reads `layer` (absent: `edit_target`, today's behaviour, so an older server
   keeps it), calls `switch`, then `refresh`. The answer adds `layer`, `files_select` (the selection beneath the written
   layer) and the instance note.
@@ -111,14 +118,19 @@ back with a clear and `""` with `BlockVariantSelection()` (`:707-711`).
   leaves it out of the file)`, the instance note when there is one. An older extension, which answers no `layer`:
   `WARNING:` it wrote at the edit target, into the stage's file.
 - `set_prim_attribute`: `layer: Literal["auto", "session", "edit_target"] = "auto"`; the answer names the layer as
-  today.
-- `get_prim_properties`: warns, as for `api_schemas` (#149), when the text has no `variant_sets` line.
+  today. No older-extension warning: the tool and its `layer` answer are both unreleased (#151), so no released
+  extension lacks them; its CHANGELOG entry gains `layer` (round 1, I8).
+- `get_prim_properties`: the existing older-extension check (#149's `api_schemas`) covers `variant_sets`, both
+  unreleased, with one warning (round 1, I8).
 - `get_scene_tree(property_filter=["variant_sets"])` lists every switch of a scene in one call: the formatter's filter
   matches `variant_sets` as it matches `api_schemas` (fit I5).
 - `save_scene`'s answer names the variant selections the session layer holds and the save leaves out of the file
   (fit I4), so an agent that switched expecting to keep it learns at the save, not many calls back.
-- Descriptions: `set_variant_selection` says the session default and what it means for saving; `set_prim_attribute`
-  says when to pick `session` (a check that must leave files as they are).
+- Descriptions (round 1, P2): `set_variant_selection` says the session default and what it means for saving;
+  `set_prim_attribute` says when to pick `session` (a check that must leave files as they are) and how such a value
+  goes (reopening the stage, or `execute_script` removing the session spec); `compare_prims` loses "A variant name is
+  not checked" and says it refuses an unknown variant and a prim inside an instance; `get_prim_properties` names the
+  `variant_sets` line; `get_scene_tree`'s `property_filter` names `variant_sets`; `save_scene` names its new line.
 
 ### Alternatives
 
@@ -138,18 +150,20 @@ the PR).
 
 - **An agent that switched a variant and saved it:** `layer="edit_target"` writes it into the file as before; the
   answer says where every switch went.
-- **An older extension with this server:** both tools warn that the write went to the edit target.
+- **An older extension with this server:** `set_variant_selection` warns that the write went to the edit target, and
+  `get_prim_properties` that the block lacks the new lines; `set_prim_attribute` is unreleased, so no older extension
+  has it.
 - **An older server with this extension:** no `layer` sent, so the edit target, as before.
 
 ## Steps
 
 | # | Step | Proved by |
 |---|---|---|
-| 1 | `ovmcp/core/variants.py` and `layers.layer_named`, tests first | `tests/test_variants.py` with usd-core: a referenced file's set switched in the session layer, the root layer's export unchanged; a snapshot restored leaves the session layer's export as before, for each of absent, blocked and named selections, a spec that existed and one the switch made, and an `active` field set; a batch refused whole when one switch is wrong; `edit_target` refused under a session selection; an instance proxy refused; an unloaded payload named; the instance note; `variant_sets` with each layer named |
+| 1 | `ovmcp/core/variants.py` and `layers.layer_named`, tests first | `tests/test_variants.py` with usd-core: a referenced file's set switched in the session layer, the root layer's export unchanged; a snapshot restored leaves the session layer's export as before, for each of absent, blocked and named selections, a spec that existed (a bare over among them) and one the switch made, and an `active` field set; a clear of nothing at the edit target leaves the root layer's export unchanged (round 1, P3); a batch refused whole when one switch is wrong; `edit_target` refused under a session selection; an instance proxy refused; an unloaded payload named; the instance note; `variant_sets` with each layer named |
 | 2 | The prim block's `variant_sets` line, the filter matching it, and the JSON | `tests/test_formatter.py`, `tests/test_scene_handler.py` |
-| 3 | `handlers/variants.py`'s `refresh`, `handle_set_variant_selection`, `handle_compare_prims`, `handle_set_attribute`'s `layer`, `save_scene`'s line | handler tests with the Kit fakes: after a switch with the refresh, no `active` opinion in any layer, and none after an error mid-refresh; `compare_prims` leaves the session and root layers as they were, and refuses an instance proxy; `save_scene` names the session selections |
+| 3 | `handlers/variants.py`'s `refresh`, `handle_set_variant_selection`, `handle_compare_prims`, `handle_set_attribute`'s `layer`, `save_scene`'s line | handler tests with the Kit fakes: after a switch with the refresh, in the session layer and at the edit target, no `active` opinion in any layer, and none after an error mid-refresh (round 1, P4); `compare_prims` leaves the session and root layers as they were, and refuses an instance proxy; `save_scene` names the session selections |
 | 4 | The client, both tools, `get_prim_properties`' warning; `uv run tools/golden.py` | `tests/test_client.py`, `tests/test_tools.py`, `tests/test_contract.py` |
-| 5 | Live: a file with a variant set, referenced; a switch by default leaves the root layer's export identical, `get_prim_bounds` and a capture show the new state, a clear brings the old back; `layer="edit_target"` writes it into the root layer; `compare_prims` leaves both layers as they were; the prim block's `variant_sets` names each layer; `set_prim_attribute(layer="session")` on a light leaves the root layer as it was. With Fabric Scene Delegate on (Isaac Sim 6.2's default, `isaacsim.exp.base.kit:203`), a switch captured with the refresh and without it, on a referenced root and on an instance prim, each timed: if nothing renders stale without it, the toggle goes; if it stays, whether a capture's own 20 frames cover its updates (fit I3) | `tests/test_integration.py` on Isaac Sim 6.2 at 8212; the measurements in the PR |
+| 5 | Live: a file with a variant set, referenced; a switch by default leaves the root layer's export identical, `get_prim_bounds` and a capture show the new state, a clear brings the old back; `layer="edit_target"` writes it into the root layer; `compare_prims` leaves both layers as they were; the prim block's `variant_sets` names each layer; `set_prim_attribute(layer="session")` on a light leaves the root layer as it was. With Fabric Scene Delegate on (Isaac Sim 6.2's default, `isaacsim.exp.base.kit:203`), a switch captured with the refresh and without it, on a referenced root and on an instance prim, each timed, on Isaac Sim 6.2 and on Isaac Sim 5.1 (Kit 107, installed at `D:\isaacsim5.1`, Fabric Scene Delegate on by default too): if nothing renders stale without it on both, the toggle goes; otherwise it stays, and whether a capture's own 20 frames cover its updates is recorded (fit I3; round 1, P1) | `tests/test_integration.py` on Isaac Sim 6.2 at 8212; the 5.1 measurement by hand; the measurements in the PR |
 | 6 | Docs, `test_project/scenarios.md` phase 20's expectations, `uv run tools/gate.py full`, the AI phase 20 run, `review-code`, the PR | the review record |
 
 ## Tests
@@ -164,9 +178,12 @@ the PR).
 
 `docs/TOOLS.md` (`set_variant_selection`, `set_prim_attribute`, `compare_prims`, `save_scene`, `get_prim_properties`'
 notes, `get_scene_tree` with `property_filter=["variant_sets"]` to list a scene's switches), the `geometry` skill
-(finding the switches, switching for a check, clearing, the instance note) and the `scene` skill's line on
-`set_prim_attribute`, `CHANGELOG.md` (Breaking: the switch's default; Added: `layer`, `variant_sets`; Fixed: the
-refresh's and `compare_prims`' stray opinions), `test_project/scenarios.md` phase 20.
+(finding the switches, switching for a check, clearing, the instance note; `get_scene_tree` added to its
+`allowed-tools`, round 1, I9) and the `scene` skill's line on `set_prim_attribute`, `CHANGELOG.md` (Breaking: the
+switch's default; Added: `variant_sets`, and `layer` folded into #151's unreleased `set_prim_attribute` entry; Fixed:
+the refresh's and `compare_prims`' stray opinions, and `compare_prims` refusing an unknown variant and a prim inside
+an instance), `AGENTS.md`'s `ovmcp/core` row and `docs/ARCHITECTURE.md`'s handler and core lists for the new modules
+(round 1, P5), `test_project/scenarios.md` phase 20.
 
 ## Risks
 
@@ -179,6 +196,11 @@ refresh's and `compare_prims`' stray opinions), `test_project/scenarios.md` phas
   costs, since #157's sweep time depends on it. Resolved by the measurement, either way.
 - **An instance prim's own selection** builds a prototype per distinct selection: accepted; the answer says so, as the
   case measured.
+- **A `set_prim_attribute(layer="session")` value has no tool to take it back:** keeping it later with `edit_target`
+  or `auto` is refused, since the session layer outranks the write (`xform.py`'s write blocker), and no tool clears a
+  session value. Accepted (round 1, P6): the refusal and the description name the way out, reopening the stage or
+  `execute_script` removing the session spec; a clear for attributes is a later issue once a case asks.
+- **Kit 107 and the refresh:** decided by step 5's measurement on both Kits; until it is measured, the toggle stays.
 
 ## Plan review
 
@@ -201,3 +223,42 @@ its exact restore give #157 a primitive to call per shot, at a cost fit for hund
 Noticed on the way, for Round 1: `ClearVariantSelection()` leaves an empty over even under `Sdf.CleanupEnabler` (the
 Measured section, now corrected); #155 has no agreement comment yet (Compatibility); neither put-back was in a
 `finally` (The extension; I1 and I2 answer it).
+
+### Round 1
+
+**How:** one fresh general-purpose agent on Claude Opus 5.5, 2026-11-02, read only, every lens, at `b9157ca`, with
+in-memory checks on usd-core 26.11 and the Isaac Sim 6.2 and 5.1 installs. **Verdict:** approved. **Now:** every
+finding fixed, I7 to I9 taken, and the plan approved on the maintainer's delegation.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P1 | minor | The toggle's removal was decided on Isaac Sim 6.2 alone, but 5.1 turns Fabric Scene Delegate on too | fixed: step 5 measures on 5.1 as well (`D:\isaacsim5.1`); the toggle stays unless neither renders stale |
+| P2 | minor | Four descriptions went stale or silent: `compare_prims` still said a variant name isn't checked, and `get_prim_properties`, `get_scene_tree`'s filter and `save_scene` didn't name the new lines | fixed: The server names all four; a CHANGELOG line for `compare_prims`' refusals |
+| P3 | minor | The plan didn't say which API writes inside the change block, where Usd API is unsafe; and Usd's `ClearVariantSelection()` at the edit target wrote `over` specs into the user's file while clearing nothing (measured) | fixed: Usd reads first, Sdf writes only inside the block, a clear of nothing writes nothing; tested |
+| P4 | minor | The refresh put `active` back from the switch's snapshot, of the layer the selection went to, so an `edit_target` switch wrote the root's `active` into the session layer | fixed: `refresh` takes its own session-layer snapshot; tested for both layers |
+| P5 | minor | The new modules were missing from `AGENTS.md`'s core row and `ARCHITECTURE.md`'s lists | fixed: both in Docs |
+| P6 | minor | A `set_prim_attribute(layer="session")` value has no tool to take it back | fixed: accepted in Risks; the refusal and the description name the way out |
+
+**Refuted:**
+- **A session selection sends later `auto` attribute writes to the session layer:** `_holds` uses `spec_has_arcs`,
+  which counts `variantSets`, not `variantSelections`; measured False on the session over.
+- **Overlapping refreshes leave a prim hidden:** the client sends one request at a time; only two clients on one Kit
+  could overlap.
+- **The protocol number must rise:** the change only adds fields, as #150's did.
+- **Save, flatten or export bake a session selection:** save writes the root layer; flatten and export use
+  `without_session`.
+- **Kit 107 lacks `BlockVariantSelection`:** present in 5.1's Sdf and Usd.
+- **The plan's citations:** the assembler's session switch and `isaacsim.exp.base.kit:203` are as cited.
+- **Noticed on the way:** the `CleanupEnabler` claim (now corrected), the agreement (posted before the PR), the
+  put-backs in a `finally` (I1 and I2).
+
+**Improvements:**
+
+| # | Improvement | Answer |
+|---|---|---|
+| I7 | Model `Snapshot` on `isolation.Hidden`, not `_Undo`'s `Sdf.CleanupEnabler`, which also deletes a bare over that was already there (measured) | taken |
+| I8 | `set_prim_attribute` and `api_schemas` are unreleased: drop the attribute tool's older-extension warning, fold `layer` into #151's CHANGELOG entry, and let the `api_schemas` check cover `variant_sets` | taken |
+| I9 | Add `get_scene_tree` to the `geometry` skill's `allowed-tools` | taken |
+
+**Not covered:** live behaviour under Fabric Scene Delegate and on Kit 107, which step 5 measures; bridge-security and
+harness-integrity, which nothing here touches.
