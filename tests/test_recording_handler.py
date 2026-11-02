@@ -1,6 +1,7 @@
 """The recording handler against a fake Kit (#25, #69, #111): the feed it makes and the frames it waits for first,
 when it takes frames and how it numbers them, what they span, how frames stop when the stage changes or the camera
-goes, and how start, stop and shutdown clean up.
+goes, and how start, stop and shutdown clean up: the feed lent at the start, handed back at the stop, and torn down at
+once when frames stop early, a start fails or the extension shuts down (#141).
 
 handlers/recording.py is loaded from its file with Kit's modules, its _utils and its camera feed faked in sys.modules,
 as tests/test_debug_draw_handler.py loads its handler. The stage is a real usd-core one, and the Kit-free core is the
@@ -34,7 +35,7 @@ class FakeFeed:
     def __init__(self, kit: "FakeKit", camera_path: str, width: int, height: int) -> None:
         self.kit = kit
         self.camera_path, self.width, self.height = camera_path, width, height
-        self.render_product_path = f"/Render/OmniverseKit/HydraTextures/ovmcp_recording_{len(kit.feeds)}"
+        self.render_product_path = f"/Render/OmniverseKit/HydraTextures/ovmcp_feed_{len(kit.feeds)}"
         self.waiting = False
         self.dropped = False
 
@@ -54,7 +55,7 @@ class FakeFeed:
 
 class FakeKit:
     """Kit as the handler sees it: the stage and its state, the timeline and the clock, the update stream, the feeds
-    made and discarded, and each capture's frame, which a test hands over when it chooses."""
+    lent, handed back and torn down, and each capture's frame, which a test hands over when it chooses."""
 
     def __init__(self) -> None:
         self.stage = Usd.Stage.CreateInMemory()
@@ -79,8 +80,13 @@ class FakeKit:
         # What the start did, in order: the frames it waited for, and its subscription.
         self.events: list[str] = []
         self.feeds: list[FakeFeed] = []
-        self.discarded: list[FakeFeed] = []
-        self.discard_raises = False
+        # What the start asked lend for; what the stop handed back, with the stage and whether healthy; what was torn
+        # down at once; and the teardowns and forget in order.
+        self.lent: list[tuple[str, int, int]] = []
+        self.handed_back: list[tuple[FakeFeed, int, bool]] = []
+        self.hand_back_raises = False
+        self.torn_down: list[FakeFeed] = []
+        self.feed_log: list[Any] = []
         self.forgotten = 0
         self.captures: list[asyncio.Future[bytes]] = []
         self.updates = FakeUpdates()
@@ -93,15 +99,24 @@ class FakeKit:
         if self.first_frame_fails:
             raise capture.NoFrameError("The camera /World/RecCam rendered no frame in 30 s")
 
-    def make_feed(self, camera_path: str, width: int, height: int) -> FakeFeed:
+    async def lend(self, camera_path: str, width: int, height: int) -> FakeFeed:
+        self.lent.append((camera_path, width, height))
         self.feeds.append(FakeFeed(self, camera_path, width, height))
         return self.feeds[-1]
 
-    def discard(self, feed: FakeFeed) -> None:
-        feed.drop()
-        self.discarded.append(feed)
-        if self.discard_raises:
+    async def hand_back(self, feed: FakeFeed, stage_id: int, healthy: bool) -> None:
+        self.handed_back.append((feed, stage_id, healthy))
+        if self.hand_back_raises:
             raise RuntimeError("the layer is locked")
+
+    def let_go_now(self, feed: FakeFeed) -> None:
+        feed.drop()
+        self.torn_down.append(feed)
+        self.feed_log.append(("let go", feed))
+
+    def forget(self) -> None:
+        self.forgotten += 1
+        self.feed_log.append("forgotten")
 
     async def capture_feed_png(self, _feed: FakeFeed, _budget: Any = None) -> bytes:
         future: asyncio.Future[bytes] = asyncio.get_running_loop().create_future()
@@ -160,13 +175,16 @@ def recording(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
             _get_active_camera_path=lambda: "/OmniverseKit_Persp",
             _get_stage=lambda: kit.stage,
             _settle_frames=lambda: kit.settle_frames,
+            CAMERA_SETTLE_FRAMES=20,
             capture_feed_png=kit.capture_feed_png,
         ),
         "handlers_under_test.camera_feed": _module(
             "handlers_under_test.camera_feed",
-            CameraFeed=kit.make_feed,
-            discard=kit.discard,
-            forget=lambda: setattr(kit, "forgotten", kit.forgotten + 1),
+            CameraFeed=FakeFeed,
+            lend=kit.lend,
+            hand_back=kit.hand_back,
+            let_go_now=kit.let_go_now,
+            forget=kit.forget,
         ),
     }
     for name, module in fakes.items():
@@ -199,9 +217,11 @@ def _metadata(stop: dict[str, Any]) -> dict[str, Any]:
     return json.loads(Path(stop["result"]["metadata_file"]).read_text())
 
 
-def test_start_makes_one_feed_of_the_camera_at_the_size_asked(recording, kit, tmp_path):
+def test_start_borrows_one_feed_of_the_camera_at_the_size_asked(recording, kit, tmp_path):
     r = asyncio.run(_start(recording, tmp_path, camera_path="/World/RecCam"))
     assert r["status"] == "success", r
+    # The kept feed when it is this size, else a new one: camera_feed.lend decides (#141).
+    assert kit.lent == [("/World/RecCam", 320, 240)]
     (feed,) = kit.feeds
     assert (feed.camera_path, feed.width, feed.height) == ("/World/RecCam", 320, 240)
     result = r["result"]
@@ -269,7 +289,8 @@ def test_a_feed_that_renders_no_first_frame_is_an_error_that_leaves_nothing(reco
     r = asyncio.run(_start(recording, tmp_path))
     assert r["status"] == "error"
     assert "rendered no frame in 30 s" in r["error"]
-    assert kit.discarded == kit.feeds
+    assert kit.torn_down == kit.feeds
+    assert kit.handed_back == []
     assert not recording.recording_active()
 
 
@@ -285,7 +306,7 @@ def test_a_stage_change_during_the_first_frame_is_an_error_that_leaves_nothing(r
     r = asyncio.run(scenario())
     assert r["status"] == "error"
     assert "The stage changed while the recording started" in r["error"]
-    assert kit.discarded == kit.feeds
+    assert kit.torn_down == kit.feeds
     assert not recording.recording_active()
 
 
@@ -404,10 +425,12 @@ def test_each_step_a_recording_spans_counts_as_simulation(recording, kit, tmp_pa
     assert asyncio.run(scenario())["result"]["simulation_seconds"] == 0.1
 
 
-@pytest.mark.parametrize(("owed", "events"), [(63, ["settled 63", "subscribed"]), (0, ["subscribed"])])
-def test_the_start_waits_the_frames_path_tracing_still_owes_before_it_takes_any(recording, kit, tmp_path, owed, events):
-    # Frame 0 comes on the first update after the start: under Path Tracing at a low spp, the feed's second render
-    # would hold a fraction of its samples (#111's review P1). None are owed under RT 2.0.
+@pytest.mark.parametrize(("owed", "events"), [(63, ["settled 83", "subscribed"]), (0, ["settled 20", "subscribed"])])
+def test_the_start_waits_the_frames_a_capture_waits_and_those_path_tracing_owes(recording, kit, tmp_path, owed, events):
+    # Frame 0 comes on the first update after the start. A kept feed shows the camera it rendered before for an update
+    # or two (#114's K14), so the start waits the 20 frames a capture waits after it sets the camera (#141); under Path
+    # Tracing at a low spp, the feed's second render would hold a fraction of its samples, so those too (#111's review
+    # P1). None are owed under RT 2.0.
     kit.settle_frames = owed
     r = asyncio.run(_start(recording, tmp_path))
     assert r["status"] == "success", r
@@ -420,7 +443,7 @@ def test_a_settle_whose_frame_never_comes_is_an_error_that_leaves_nothing(record
     r = asyncio.run(_start(recording, tmp_path))
     assert r["status"] == "error"
     assert "rendered no frame in 30 s" in r["error"]
-    assert kit.discarded == kit.feeds
+    assert kit.torn_down == kit.feeds
     assert "subscribed" not in kit.events
     assert not recording.recording_active()
     assert list(tmp_path.iterdir()) == []
@@ -472,7 +495,10 @@ def test_stop_awaits_the_frames_in_flight_then_cleans_up_and_writes_the_metadata
     assert stop["status"] == "success"
     assert stop["result"]["frame_count"] == 1
     assert "note" not in stop["result"]
-    assert kit.discarded == kit.feeds
+    # Handed back healthy, on the stage it started on: kept for the next capture or recording (#141).
+    (feed,) = kit.feeds
+    assert kit.handed_back == [(feed, 1, True)]
+    assert kit.torn_down == []
     meta = _metadata(stop)
     assert (meta["resolution"], meta["camera_path"], meta["frame_count"]) == ([320, 240], "/World/RecCam", 1)
     assert "ended" not in meta
@@ -484,7 +510,7 @@ def test_stop_awaits_the_frames_in_flight_then_cleans_up_and_writes_the_metadata
 def test_a_removal_that_fails_still_ends_the_recording_and_writes_its_metadata(recording, kit, tmp_path):
     async def scenario() -> dict[str, Any]:
         await _start(recording, tmp_path)
-        kit.discard_raises = True
+        kit.hand_back_raises = True
         return await recording.handle_recording_stop({})
 
     stop = asyncio.run(scenario())
@@ -526,7 +552,8 @@ def test_frames_stop_when_the_stage_changes_or_the_camera_goes(recording, kit, t
     note, stop = asyncio.run(scenario())
     assert note is not None
     assert says in note
-    assert kit.discarded == kit.feeds  # the feed went at once, its render product with it
+    assert kit.torn_down == kit.feeds  # the feed went at once, its render product with it
+    assert kit.handed_back == []  # nothing left to hand back at the stop
     assert says in stop["result"]["note"]
     meta = _metadata(stop)
     assert says in meta["ended"]
@@ -543,7 +570,9 @@ def test_a_forced_start_ends_the_running_recording_first(recording, kit, tmp_pat
     r = asyncio.run(scenario())
     assert r["status"] == "success"
     first, second = kit.feeds
-    assert kit.discarded == [first]
+    # The running recording's feed handed back before the new one borrows: the kept feed, when the sizes match.
+    assert kit.handed_back == [(first, 1, True)]
+    assert kit.lent == [("/OmniverseKit_Persp", 320, 240)] * 2
     assert not second.dropped
     assert kit.updates.names == [f"ovmcp.bridge recording {r['result']['session_id']}"]  # the new one's alone
     assert kit.updates.made == 2
@@ -558,7 +587,7 @@ def test_a_forced_start_with_a_bad_camera_keeps_the_running_recording(recording,
     assert r["status"] == "error"
     assert "not a Camera" in r["error"]
     assert recording.recording_active()
-    assert kit.discarded == []
+    assert (kit.handed_back, kit.torn_down) == ([], [])
 
 
 def test_no_start_slips_in_while_a_forced_start_ends_the_running_recording(recording, kit, tmp_path):
@@ -591,7 +620,7 @@ def test_a_start_waiting_for_its_first_frame_fails_once_the_extension_shuts_down
     r = asyncio.run(scenario())
     assert r["status"] == "error"
     assert "shut down" in r["error"]
-    assert kit.discarded == kit.feeds
+    assert kit.torn_down == kit.feeds
     assert not recording.recording_active()
 
 
@@ -605,7 +634,7 @@ def test_an_app_that_cannot_capture_a_camera_is_refused_before_anything_is_made(
     assert kit.feeds == []
 
 
-def test_shutdown_ends_the_frames_and_the_feed_but_deletes_nothing(recording, kit, tmp_path):
+def test_shutdown_ends_the_frames_and_tears_the_feed_down_at_once_then_forgets(recording, kit, tmp_path):
     async def scenario() -> None:
         await _start(recording, tmp_path)
         kit.update()
@@ -617,8 +646,10 @@ def test_shutdown_ends_the_frames_and_the_feed_but_deletes_nothing(recording, ki
     asyncio.run(scenario())
     (feed,) = kit.feeds
     assert feed.dropped
-    assert kit.discarded == []  # deleting prims while Kit shuts down risks a crash
-    assert kit.forgotten == 1
+    # As the kept feed goes at shutdown (#114's S4, measured quiet): its render product deleted while a stage is open,
+    # else forgotten with the rest; a lent feed's graphs freed first (#141).
+    assert kit.feed_log == [("let go", feed), "forgotten"]
+    assert kit.handed_back == []
     assert kit.captures[0].cancelled()
     assert not recording.recording_active()
     assert kit.updates.observers == []
@@ -647,6 +678,24 @@ def test_a_settle_that_runs_out_of_time_starts_anyway(recording, kit, tmp_path):
     kit.settle_raises = capture.OutOfTimeError("The 30 s this call may take ran out")
     r = asyncio.run(_start(recording, tmp_path))
     assert r["status"] == "success", r
-    assert kit.events == ["settled 255", "subscribed"]
-    assert kit.discarded == []
+    assert kit.events == ["settled 275", "subscribed"]
+    assert kit.torn_down == []
     assert recording.recording_active()
+
+
+def test_a_frame_that_failed_hands_the_feed_back_in_doubt(recording, kit, tmp_path):
+    # A frame whose capture raised leaves the feed in doubt, as a capture's escaped error does: released, not kept.
+    async def scenario() -> dict[str, Any]:
+        await _start(recording, tmp_path)
+        kit.update()
+        kit.update()
+        await _settle()
+        kit.captures[0].set_exception(capture.NoFrameError("The camera /OmniverseKit_Persp rendered no frame in 30 s"))
+        await _settle()
+        return await recording.handle_recording_stop({})
+
+    stop = asyncio.run(scenario())
+    assert stop["status"] == "success"
+    (feed,) = kit.feeds
+    assert kit.handed_back == [(feed, 1, False)]
+    assert (Path(stop["result"]["output_dir"]) / "frame_00000.png").read_bytes() == b""

@@ -1,7 +1,8 @@
 """The camera feed against a fake Kit: the drawable-changed subscription in Kit 110's form and Kit 107's, a frame
 handed to the captures waiting for it and to no other, a capture given up taken back, and a dropped feed's render
 product deleted from the stage open now or the next one (#25). The capture feed kept between calls: its camera and
-size set in place, its timer, the stage's closing and Kit's save, and shutdown (#114).
+size set in place, its timer, the stage's closing and Kit's save, and shutdown (#114); lent to a recording at its
+size and handed back at the stop (#141).
 
 handlers/camera_feed.py and handlers/_utils.py are loaded from their files with Kit's modules faked in sys.modules, as
 tests/test_debug_draw_handler.py loads its handler, camera_feed.py into a fake package beside the real _updates.py; the
@@ -255,12 +256,11 @@ def test_a_feed_renders_its_camera_at_its_size_in_a_texture_of_its_own(feeds, ki
     feed = feeds.CameraFeed("/World/RecCam", 320, 240)
     feeds.CameraFeed("/World/RecCam", 320, 240)
     (name, *args, options), (other_name, *_rest) = kit.created
-    assert name.startswith("ovmcp_recording_")
+    assert name.startswith("ovmcp_feed_")  # whichever call made it: captures and recordings share it (#141)
     assert name != other_name  # two feeds in one second never share a texture
     assert args == [320, 240, "", "/World/RecCam", "rtx"]
     assert options == {"is_async": False}
     assert feed.render_product_path == PRODUCT_PREFIX + name
-    assert feeds.CameraFeed("/World/RecCam", 8, 8, prefix="ovmcp_capture").name.startswith("ovmcp_capture_")
 
 
 def test_the_subscription_takes_the_form_this_kit_has(feeds, kit):
@@ -388,11 +388,11 @@ def test_forget_deletes_nothing_and_stops_looking(feeds, kit):
 
 
 def test_a_feed_reads_as_a_viewport_does_to_omni_syntheticdata(feeds, kit):
-    feed = feeds.CameraFeed("/World/Cam", 320, 240, prefix="ovmcp_capture")
+    feed = feeds.CameraFeed("/World/Cam", 320, 240)
     # What get_view_params, world_to_image and the sensors read of a viewport (#51's A9).
     assert (feed.camera_path, feed.resolution) == ("/World/Cam", (320, 240))
     assert feed.render_product_path == PRODUCT_PREFIX + kit.created[-1][0]
-    assert kit.created[-1][0].startswith("ovmcp_capture_")
+    assert kit.created[-1][0].startswith("ovmcp_feed_")
 
 
 def test_a_feed_s_frames_are_waited_for_and_their_absence_names_the_camera(feeds, kit, monkeypatch):
@@ -426,7 +426,7 @@ def test_segmentation_is_turned_on_only_where_its_graphs_can_be_freed(feeds, kit
 
 def _segmented(feeds: Any, kit: FakeKit) -> Any:
     """A feed with segmentation on, its graph in the registry beside another render product's, its prim on the stage."""
-    feed = feeds.CameraFeed("/World/Cam", 320, 240, prefix="ovmcp_capture")
+    feed = feeds.CameraFeed("/World/Cam", 320, 240)
     feeds.enable_segmentation(feed)
     kit.registry._nodeGraphs = {
         feed.render_product_path + "/PostRender/SDGPipeline": "this feed's graph",
@@ -580,7 +580,7 @@ def test_a_call_at_the_size_of_the_last_reuses_its_feed_and_sets_a_new_camera_on
     other = feeds.kept_feed("/World/Other", 320, 240)
     assert other is first
     assert len(kit.created) == 1  # no new texture, so no new RTX view (#114's K15)
-    assert kit.created[0][0].startswith("ovmcp_capture_")
+    assert kit.created[0][0].startswith("ovmcp_feed_")
     assert kit.log == [("camera_path", "/World/Other")]
     # The boxes and segmentation read the feed's camera: they follow the texture's.
     assert (first.camera_path, first.resolution) == ("/World/Other", (320, 240))
@@ -869,4 +869,202 @@ def test_a_route_that_writes_the_stage_holds_the_lock_with_no_feed_kept(feeds, k
 
     assert asyncio.run(write()) == (True, None)
     assert kit.log == [("updates", False), "update", "update"]
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+
+
+# ---- the kept feed lent to a recording (#141) ----
+
+
+def _lent(feeds: Any, kit: FakeKit, camera: str = "/World/RecCam", size: tuple[int, int] = (320, 240)) -> Any:
+    """lend's feed, its prim on the stage and a frame rendered, the log cleared."""
+    feed = asyncio.run(feeds.lend(camera, *size))
+    if not kit.stage.GetPrimAtPath(feed.render_product_path):
+        _with_product(kit, feed.render_product_path)
+    kit.frame(feed.frames + 1)
+    kit.log.clear()
+    return feed
+
+
+def test_a_recording_at_the_kept_feeds_size_borrows_it_and_only_sets_its_camera(feeds, kit, monkeypatch):
+    monkeypatch.setattr(feeds, "IDLE_SECONDS", 0.01)
+    kept = _kept_with_frames(feeds, kit)
+
+    async def lent_before_the_timer_fires() -> Any:
+        await feeds.put_back(kept, True)
+        feed = await feeds.lend("/World/RecCam", 320, 240)
+        await asyncio.sleep(0.05)  # the idle release would have fired by now
+        return feed
+
+    assert asyncio.run(lent_before_the_timer_fires()) is kept
+    assert len(kit.created) == 1  # no new texture, so no new RTX view (#114's K15)
+    assert kit.log == [("camera_path", "/World/RecCam")]  # no size set, nothing released
+    assert (kept.camera_path, kept.resolution) == ("/World/RecCam", (320, 240))
+    # Off the slot while the recording holds it: no timer, and no stage event or save reaches it there.
+    assert (feeds._kept.feed, feeds._kept.timer, feeds._kept.idle_release) == (None, None, None)
+    assert kit.stage.GetPrimAtPath(kept.render_product_path)
+
+
+def test_a_recording_at_another_size_gets_a_feed_of_its_own_and_leaves_the_kept_one(feeds, kit):
+    kept = _kept_with_frames(feeds, kit)
+
+    async def lent_at_another_size() -> tuple[Any, Any]:
+        await feeds.put_back(kept, True)
+        feed = await feeds.lend("/World/RecCam", 160, 120)
+        timer = feeds._kept.timer
+        feeds._kept._stop_timer()  # the loop ends with the test: its timer would never fire
+        return feed, timer
+
+    feed, timer = asyncio.run(lent_at_another_size())
+    # A resize would set up a view, and the next capture at 320x240 another; a feed of its own sets up one (P1).
+    assert feed is not kept
+    assert (feed.camera_path, feed.resolution) == ("/World/RecCam", (160, 120))
+    assert feed.name.startswith("ovmcp_feed_")
+    assert kit.log == []  # the kept feed untouched: no size, no camera
+    assert feeds._kept.feed is kept
+    assert timer is not None  # still on its clock
+
+
+def test_with_no_feed_kept_a_recording_gets_a_new_one_that_isnt_kept(feeds, kit):
+    asyncio.run(feeds.lend("/World/RecCam", 320, 240))
+    assert len(kit.created) == 1
+    assert feeds._kept.feed is None
+
+
+def test_a_kept_feed_of_another_stage_goes_before_a_recording_gets_a_new_one(feeds, kit):
+    old = _kept_with_frames(feeds, kit)
+    _put_back(feeds, old)
+    kit.stage, kit.stage_id = Usd.Stage.CreateInMemory(), 2
+    _with_product(kit, old.render_product_path)
+    new = asyncio.run(feeds.lend("/World/RecCam", 320, 240))
+    assert new is not old
+    assert kit.textures[0].updates == [False]
+    assert not kit.stage.GetPrimAtPath(old.render_product_path)
+    assert feeds._kept.feed is None
+
+
+def test_a_kept_feed_that_will_not_take_the_recordings_camera_is_torn_down_with_its_graphs(feeds, kit):
+    kept = _kept_with_frames(feeds, kit)
+    feeds.enable_segmentation(kept)
+    kit.registry._nodeGraphs = {kept.render_product_path + "/PostRender/SDGPipeline": "a capture's graph"}
+    _put_back(feeds, kept)  # its sensor turned off, its graph left
+    kit.textures[-1].refuses_camera = True
+    kit.log.clear()
+    with pytest.raises(RuntimeError, match="refused the camera"):
+        asyncio.run(feeds.lend("/World/RecCam", 320, 240))
+    # The graph freed before the render product goes (#51's E16), which discard would have skipped.
+    assert kit.log == [("updates", False), ("reset", "a capture's graph", "session layer")]
+    assert kit.registry._nodeGraphs == {}
+    assert not kit.stage.GetPrimAtPath(kept.render_product_path)
+    assert feeds._kept.feed is None
+
+
+def test_a_segmented_kept_feed_that_will_not_take_the_calls_camera_has_its_graphs_freed(feeds, kit):
+    kept = _kept_with_frames(feeds, kit)
+    feeds.enable_segmentation(kept)
+    kit.registry._nodeGraphs = {kept.render_product_path + "/PostRender/SDGPipeline": "a capture's graph"}
+    _put_back(feeds, kept)
+    kit.textures[-1].refuses_camera = True
+    kit.log.clear()
+    with pytest.raises(RuntimeError, match="refused the camera"):
+        feeds.kept_feed("/World/Other", 320, 240)
+    assert kit.log == [("updates", False), ("reset", "a capture's graph", "session layer")]
+    assert kit.registry._nodeGraphs == {}
+
+
+def test_after_shutdown_a_recording_borrows_nothing(feeds, kit):
+    feeds.forget()
+    with pytest.raises(RuntimeError, match="shut down"):
+        asyncio.run(feeds.lend("/World/RecCam", 320, 240))
+    assert kit.created == []
+
+
+def test_a_healthy_feed_handed_back_with_none_kept_is_kept_on_the_clock(feeds, kit):
+    feed = _lent(feeds, kit)
+
+    async def handed_back() -> Any:
+        await feeds.hand_back(feed, kit.stage_id, True)
+        timer = feeds._kept.timer
+        feeds._kept._stop_timer()
+        return timer
+
+    assert asyncio.run(handed_back()) is not None
+    assert feeds._kept.feed is feed
+    assert feeds._kept.stage_id == kit.stage_id
+    assert kit.log == []  # kept as it is, rendering
+    # Its stage's closing and Kit's Save now reach it, as they reach a capture's.
+    names = [o["event_name"] for o in kit.observers if o["event_name"].startswith("stage event")]
+    assert names == ["stage event closing", "stage event saving"]
+    assert feeds.kept_feed("/World/Cam", 320, 240) is feed  # the next capture renders through it
+
+
+@pytest.mark.parametrize(
+    "why",
+    ["another feed kept", "the stage changed", "the stage is closing", "it was dropped", "in doubt"],
+)
+def test_a_feed_handed_back_otherwise_is_released(feeds, kit, why):
+    feed = _lent(feeds, kit)
+    healthy = True
+    other = None
+    if why == "another feed kept":
+        other = _kept_with_frames(feeds, kit, size=(640, 480))
+        _put_back(feeds, other)
+    elif why == "the stage changed":
+        kit.stage_id = 2
+    elif why == "the stage is closing":
+        kit.stage_state = CLOSING
+    elif why == "it was dropped":
+        feed.drop()
+    else:
+        healthy = False
+    kit.log.clear()
+    asyncio.run(feeds.hand_back(feed, 1, healthy))
+    assert feed.dropped
+    assert feeds._kept.feed is other
+    assert kit.log[-2:] == ["update", "update"]  # release's order
+    if why != "the stage is closing":
+        assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+
+
+def test_a_stop_while_a_capture_holds_the_lock_releases_without_waiting(feeds, kit):
+    feed = _lent(feeds, kit)
+
+    async def stop_during_a_capture() -> None:
+        lock = feeds._viewport.get()
+        await lock.acquire()  # a capture runs
+        try:
+            await asyncio.wait_for(feeds.hand_back(feed, kit.stage_id, True), 1.0)
+        finally:
+            lock.release()
+
+    asyncio.run(stop_during_a_capture())
+    assert feed.dropped
+    assert feeds._kept.feed is None
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+
+
+@pytest.mark.parametrize("stage_open", [True, False], ids=["stage open", "stage closing"])
+def test_a_stop_after_shutdown_tears_the_feed_down_and_keeps_nothing(feeds, kit, stage_open):
+    # A stop still awaiting its frames as the extension shut down: kept now, the feed would render on a timer
+    # nothing cancels, its stage observed again by an unloaded module (round 1's P2).
+    feed = _lent(feeds, kit)
+    feeds.forget()
+    if not stage_open:
+        kit.stage_state = CLOSING
+    asyncio.run(feeds.hand_back(feed, kit.stage_id, True))
+    assert feed.dropped
+    assert (feeds._kept.feed, feeds._kept.timer, feeds._kept.stage_events) == (None, None, [])
+    assert not [o for o in kit.observers if o["event_name"].startswith("stage event")]
+    assert kit.updates.observers == []  # nothing waits for a stage
+    assert bool(kit.stage.GetPrimAtPath(feed.render_product_path)) is not stage_open
+
+
+def test_let_go_now_frees_a_segmented_feeds_graphs_before_its_render_product_goes(feeds, kit):
+    feed = _segmented(feeds, kit)
+    feeds.let_go_now(feed)
+    assert kit.log == [
+        ("disable", feed.render_product_path, ["InstanceSegmentation"]),
+        ("updates", False),
+        ("reset", "this feed's graph", "session layer"),
+    ]
+    assert list(kit.registry._nodeGraphs.values()) == ["another product's graph"]
     assert not kit.stage.GetPrimAtPath(feed.render_product_path)

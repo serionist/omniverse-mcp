@@ -37,7 +37,7 @@ class FakeFeed:
 
     def __init__(self, camera_path: str, width: int, height: int) -> None:
         self.camera_path, self.width, self.height = camera_path, width, height
-        self.render_product_path = "/Render/OmniverseKit/HydraTextures/ovmcp_capture_0"
+        self.render_product_path = "/Render/OmniverseKit/HydraTextures/ovmcp_feed_0"
         self.frames = 0
         self.waits: list[int] = []
 

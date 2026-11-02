@@ -1,9 +1,11 @@
 """
 Recording handlers: start, stop, and frame retrieval.
 
-A recording renders its camera at its size through a camera feed of its own (camera_feed.py), so the user's viewport,
-its camera and its size never change (#25). Frames are numbered when they are taken, never twice (#69), and stop when
-the stage changes or the camera goes, since the feed would render something else then.
+A recording renders its camera at its size through a camera feed (camera_feed.py), so the user's viewport, its camera
+and its size never change (#25): the feed the captures keep when it is that size, else one of its own, handed back at
+the stop for the next capture or recording, since Kit 110 can hang while it sets up a new view (#114, #141). Frames are
+numbered when they are taken, never twice (#69), and stop when the stage changes or the camera goes, since the feed
+would render something else then.
 """
 
 import asyncio
@@ -22,8 +24,8 @@ from ovmcp.core.formatter import format_frame_state
 from ovmcp.core.recording import FrameClock, RecordingArgs, camera_error, recording_args
 
 from ._updates import on_update
-from ._utils import _get_active_camera_path, _get_stage, _settle_frames, capture_feed_png
-from .camera_feed import CameraFeed, discard, forget
+from ._utils import CAMERA_SETTLE_FRAMES, _get_active_camera_path, _get_stage, _settle_frames, capture_feed_png
+from .camera_feed import CameraFeed, forget, hand_back, lend, let_go_now
 
 # What the tools can follow: start_recording has no force, which only the route takes (#82).
 ALREADY_ACTIVE = "A recording is already running: call stop_recording first"
@@ -51,6 +53,8 @@ class _Session:
         self.taking: dict[int, tuple[float, float]] = {}
         self.tasks: set[asyncio.Future] = set()
         self.ended: str | None = None
+        # A frame whose capture raised leaves the feed in doubt: it is released at the stop, not kept (#141).
+        self.doubted = False
         self.started = time.time()
         self.stopped = 0.0
         self.subscription = None
@@ -138,20 +142,21 @@ async def _start(args: RecordingArgs) -> dict:
 
     context = omni.usd.get_context()
     stage_id = context.get_stage_id()
-    feed = CameraFeed(camera_path, args.width, args.height)
+    # The captures' kept feed when it is this size, its camera set; else a new one (#141).
+    feed = await lend(camera_path, args.width, args.height)
     try:
-        # The bound a viewport frame gets, sized for a renderer's cold start (#27).
+        # The bound a viewport frame gets, sized for a renderer's cold start (#27); at once for a kept feed.
         await feed.first_frame(capture.FRAME_SECONDS)
-        # Path Tracing below its total samples renders frames still gathering them: frame 0, taken on the first update,
-        # waits for them as a capture does. None under RT 2.0, nor with Isaac Sim's 64 samples a frame of 64 (#111).
-        settle = _settle_frames()
-        if settle:
-            try:
-                await feed.wait_frames(settle)
-            except capture.OutOfTimeError as e:
-                # The feed renders, as its first frame showed: the settle only polishes frame 0, so a Kit too slow to
-                # give it every sample in time starts anyway. A frame that never comes (NoFrameError) still fails.
-                carb.log_warn(f"[MCP Recording] Started before Path Tracing reached its samples, frame 0 short: {e}")
+        # Frame 0, taken on the first update, waits the frames a capture waits after it sets the camera: a kept feed
+        # shows the camera it rendered before for an update or two (#114's K14), and a change made just before the
+        # start shows only frames later (#57). Path Tracing below its total samples renders frames still gathering
+        # them, so it waits for those too; none under RT 2.0, nor with Isaac Sim's 64 samples a frame of 64 (#111).
+        try:
+            await feed.wait_frames(CAMERA_SETTLE_FRAMES + _settle_frames())
+        except capture.OutOfTimeError as e:
+            # The feed renders, as its first frame showed: the settle only polishes frame 0, so a Kit too slow to give
+            # it every frame in time starts anyway. A frame that never comes (NoFrameError) still fails.
+            carb.log_warn(f"[MCP Recording] Started before the camera's frames settled, frame 0 may be short: {e}")
         if _state.closed:
             # Shut down or hot-reloaded meanwhile: a recording started now would run where nothing could stop it.
             raise RuntimeError("The extension shut down while the recording started")
@@ -165,8 +170,9 @@ async def _start(args: RecordingArgs) -> dict:
         if session.tracked:
             _write_state_header(session)
     except BaseException:
-        # Nothing of a start that failed stays: not the texture, nor its render product on the stage.
-        discard(feed)
+        # Nothing of a start that failed stays: not the texture, nor its render product on the stage, nor the graphs a
+        # capture may have left on a lent feed.
+        let_go_now(feed)
         raise
 
     session.subscription = on_update(f"recording {session_id}", lambda: _on_update(session))
@@ -246,7 +252,9 @@ def _stop_frames(session: _Session, reason: str) -> None:
         task.cancel()
     feed, session.feed = session.feed, None
     if feed is not None:
-        discard(feed)
+        # On an update, which can't await release's two: torn down at once, the graphs a capture may have left on a
+        # lent feed freed before its render product goes (#51's E16).
+        let_go_now(feed)
 
 
 def _on_update(session: _Session) -> None:
@@ -289,7 +297,9 @@ async def _take_frame(session: _Session, feed: CameraFeed, number: int) -> None:
     try:
         data = await capture_feed_png(feed)
     except Exception as e:
-        # Any failure of one frame, a capture timing out or Kit raising, is that frame's alone.
+        # Any failure of one frame, a capture timing out or Kit raising, is that frame's alone, but leaves the feed in
+        # doubt. A frame cancelled as frames stop isn't an Exception, and isn't doubt.
+        session.doubted = True
         carb.log_warn(f"[MCP Recording] Frame {number} not captured: {e}")
     finally:
         # Cancelled too, when frames stop early: the frame is then the empty marker at once.
@@ -302,8 +312,9 @@ async def _take_frame(session: _Session, feed: CameraFeed, number: int) -> None:
 
 
 async def _end(session: _Session, write_metadata: bool) -> tuple[str | None, list[str]]:
-    """Ends `session`: its updates, its frames in flight, its feed and render product, then its metadata.json. Each
-    step on its own, so one that fails leaves the rest done; what failed comes back, with the metadata file's path."""
+    """Ends `session`: its updates, its frames in flight, its feed handed back (kept for the next capture or recording,
+    or released with its render product), then its metadata.json. Each step on its own, so one that fails leaves the
+    rest done; what failed comes back, with the metadata file's path."""
     _state.session = None
     session.subscription = None
     session.stopped = time.time()
@@ -316,7 +327,7 @@ async def _end(session: _Session, write_metadata: bool) -> tuple[str | None, lis
     feed, session.feed = session.feed, None
     if feed is not None:
         try:
-            discard(feed)
+            await hand_back(feed, session.stage_id, healthy=not session.doubted)
         except Exception as e:
             problems.append(f"its render product {feed.render_product_path} was not deleted: {e}")
             carb.log_warn(f"[MCP Recording] {session.session_id}: {problems[-1]}")
@@ -378,8 +389,9 @@ async def handle_recording_stop(_body: dict) -> dict:
 
 
 def shut_down() -> None:
-    """At the extension's shutdown: ends a running recording's frames and feed, and deletes nothing, since the stage
-    may be tearing down. A start still waiting for its first frame fails when it resumes (_start)."""
+    """At the extension's shutdown: ends a running recording's frames, and tears its feed down at once as the kept
+    feed's is (`forget`): its render product deleted while a stage is open, measured quiet (#114's S4), else forgotten.
+    A start still waiting for its first frame fails when it resumes (_start); a stop still under way keeps nothing."""
     _state.closed = True
     session, _state.session = _state.session, None
     if session is not None:
@@ -388,7 +400,7 @@ def shut_down() -> None:
             task.cancel()
         feed, session.feed = session.feed, None
         if feed is not None:
-            feed.drop()
+            let_go_now(feed)
         carb.log_info("[MCP Bridge] Stopped active recording on shutdown")
     forget()
 
