@@ -2,9 +2,10 @@
 name: run-scenarios
 description: >-
   Use when a maintainer asks to run the AI scenario suite ("run the scenarios", "run phase 15 on 8212", "the scenario
-  run before the release", "how did the last scenario run go"). Checks the Kit app a run would drive, runs
-  test_project/scenarios.md's phases, each in a headless Claude Code tester of its own, compares the rows with earlier
-  runs' and reports the regressions, each FAIL and WARN, and the skills the testers loaded.
+  run before the release", "run the outcomes", "how did the last scenario run go"). Checks the Kit app a run would
+  drive, runs test_project/scenarios.md's phases, each in a headless Claude Code tester of its own, and
+  test_project/outcomes.md's outcomes, each a request an agent gets alone and a read-only judge checks, compares the
+  rows with earlier runs' and reports the regressions, each FAIL and WARN, and the skills and calls the agents chose.
 ---
 
 # Run the AI scenario suite
@@ -12,14 +13,17 @@ description: >-
 The scenario suite checks what an AI client gets from the tools, their answers and the plugin's skills, where the
 pytest live suites check the bridge. `tools/scenarios.py` does the work: each phase runs in a headless Claude Code
 tester that has only this checkout's server and the plugin's skills, against a Kit app of its own, and the session
-running this skill sees only the summary. Why it works this way: `docs/plans/2026-11-01-scenario-skill.md`.
+running this skill sees only the summary. Each outcome is a request in a user's words: an agent gets it alone and
+chooses its own tools, then a judge with the read-only tools checks what it did. Why it works this way:
+`docs/plans/2026-11-01-scenario-skill.md` and `docs/plans/2026-11-02-outcome-scenarios.md`.
 
 ## Steps
 
-1. **Scope** from the request: the phases (`15`, `15-16`, `18-21,24`; every phase when none is named), the port (8212
-   unless the maintainer names one), and a budget in USD or a model when asked.
-   `uv run tools/scenarios.py run --phases <phases> --dry-run` shows the sessions, the setup scenarios a partial run
-   adds from each phase's `Needs:` line, and each prompt, without Kit.
+1. **Scope** from the request: the phases (`15`, `15-16`, `18-21,24`; every phase when none is named; `none` for
+   outcomes alone), the outcomes (`--outcomes all`, `none` or `O1,O3`: every one in a run of every phase, none in a
+   run of some unless named), the port (8212 unless the maintainer names one), and a budget in USD or a model when
+   asked. `uv run tools/scenarios.py run --phases <phases> --dry-run` shows the sessions, the setup scenarios a
+   partial run adds from each phase's `Needs:` line, each prompt and each kind's command line, without Kit.
 2. **Check the Kit app:** `uv run tools/scenarios.py check`, adding `--port <port>` only for a port the maintainer
    named.
    - No Kit answers: say what one needs (the command prints it), and ask the maintainer to start one or to approve
@@ -27,11 +31,11 @@ running this skill sees only the summary. Why it works this way: `docs/plans/202
    - A refusal (port 8211, a stage someone may care about, a bridge that differs from this checkout's, another run's
      lock file): report it; its override (`--allow-port-8211`, `--any-stage`, `--any-bridge`) only on the
      maintainer's word.
-3. **Run:** `uv run tools/scenarios.py run --phases <phases>`, with the same `--port` and any override the
-   maintainer gave `check`, and `--budget` or `--model` as asked. A full run takes about 25 minutes and $9 with
-   `claude-opus-5-5`, summed from two partial runs in the plan's step 9: start it in the background where the
-   client can, else give the maintainer the command for a terminal of their own. It prints each session as it
-   ends, then the run's folder.
+3. **Run:** `uv run tools/scenarios.py run --phases <phases>`, with `--outcomes` as scoped, the same `--port` and any
+   override the maintainer gave `check`, and `--budget` or `--model` as asked. The phases take about 25 minutes and
+   $9 with `claude-opus-5-5`, summed from two partial runs in the scenario-skill plan's step 9; the six outcomes
+   OUTCOME_COST. Start it in the background where the client can, else give the maintainer the command for a
+   terminal of their own. It prints each session as it ends, then the run's folder.
 4. **Compare:** `uv run tools/scenarios.py compare` sets the newest run against the earlier ones; before a release,
    `--against <the last release's tag>` sets it against the run made on that release's tree, from a clean tree on
    its PR's final head, or `--against <its folder>`, which that release's PR names, when the tag's tree differs.
@@ -39,7 +43,8 @@ running this skill sees only the summary. Why it works this way: `docs/plans/202
    names its run's folder. It exits 1 on a regression or a scenario not run.
 5. **Report** to the maintainer: compare's counts and skill loads; each regression, FAIL and WARN with its note and
    capture; for each FAIL, what the session's transcript (`transcript-<session>.jsonl` in the run's folder) shows the
-   tester called. A status that moved while the tool's answer in the transcripts stayed the same is two testers'
+   tester called; for each outcome, `results.md`'s Outcomes row, the skills and calls its agent chose, and a WARN
+   its `Calls:` line gave. A status that moved while the tool's answer in the transcripts stayed the same is two testers'
    judgement, not a fix or a regression: say so. Before a release, read each regression's answer in both runs'
    transcripts: in step 9, 15.1 to 15.3 went FAIL, WARN, FAIL over three runs with the same answers, so compare's
    exit 1 alone proves nothing. A PR that ran it quotes compare's output. An issue for a finding only on the

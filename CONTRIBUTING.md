@@ -99,7 +99,9 @@ either ends the run there, with the command for a thread dump: take it before yo
 
 The AI scenario suite, `test_project/scenarios.md`, checks what an agent gets from the tools and the plugin's skills:
 `uv run tools/scenarios.py run` gives each phase to a headless Claude Code tester, on a Kit app at port 8212 by
-default (the maintainers' `run-scenarios` skill; the tester's rules are in `test_project/AGENTS.md`).
+default (the maintainers' `run-scenarios` skill; the tester's rules are in `test_project/AGENTS.md`). Its outcomes,
+`test_project/outcomes.md`, give a request in a user's words to an agent that chooses its own tools, and a read-only
+judge checks what it did.
 
 ### Adding a tool
 

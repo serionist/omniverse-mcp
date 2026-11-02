@@ -622,7 +622,6 @@ def skill_names(checkout: Path = ROOT) -> list[str]:
 
 def tester_command(
     claude: str,
-    text: str,
     config: Path,
     rules: str,
     budget_left: float | None = None,
@@ -638,15 +637,16 @@ def tester_command(
     """The tester's command line, as step 2 found it works: only the run's server, no settings source, the tester's
     rules appended, no shell, web or writes, every omniverse tool and the plugin's skills allowed, the rest refused.
 
-    An outcome's sessions narrow it: `restricted` confines the file tools to the working folder and `add_dirs`; a
-    judge gets its own `tools`, `allowed` and `disallowed` lists."""
+    The prompt goes to its stdin, not the command line: a judge's, with the agent's calls and answers, passed Windows'
+    32,767 characters for a command line in the first outcome run. An outcome's sessions narrow it: `restricted`
+    confines the file tools to the working folder and `add_dirs`; a judge gets its own `tools`, `allowed` and
+    `disallowed` lists."""
     skills = [f"Skill({PLUGIN_NAME}:{name})" for name in skill_names(checkout)]
     if allowed is None:
         allowed = [f"mcp__{SERVER}", "Read", "Grep", "Glob", *skills]
     cmd = [
         claude,
         "-p",
-        text,
         "--plugin-dir",
         str(config / "plugin"),
         "--strict-mcp-config",
@@ -1010,10 +1010,12 @@ def run_session(
     env: Mapping[str, str] | None = None,
     clock: Callable[[], float] = time.monotonic,
     expect: Expect | None = None,
+    prompt: str = "",
 ) -> Outcome:
-    """Run one tester, keep its stream in the transcript, and read what it did: its model, skill loads, cost and last
-    message. Stop it at once on a bad init event, after `limit` seconds, or when the watch says Kit hangs; whatever
-    ends this function, an interrupt or an error included, ends the tester and its server too."""
+    """Run one tester on `prompt`, sent to its stdin, keep its stream in the transcript, and read what it did: its
+    model, skill loads, cost and last message. Stop it at once on a bad init event, after `limit` seconds, or when the
+    watch says Kit hangs; whatever ends this function, an interrupt or an error included, ends the tester and its
+    server too."""
     outcome = Outcome(started=datetime.now().isoformat(timespec="seconds"))
     started = clock()
     proc = subprocess.Popen(  # noqa: S603 - an argument list the script builds itself; nothing goes through a shell
@@ -1022,12 +1024,23 @@ def run_session(
         env=dict(env) if env is not None else None,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        stdin=subprocess.DEVNULL,
+        stdin=subprocess.PIPE,
         encoding="utf-8",
         errors="replace",
         start_new_session=os.name != "nt",
     )
     lines: queue.Queue[str | None] = queue.Queue()
+
+    def feed() -> None:
+        # In a thread of its own: a prompt longer than the pipe holds waits for the tester to read it.
+        try:
+            if proc.stdin is not None:
+                with proc.stdin:
+                    proc.stdin.write(prompt)
+        except OSError:
+            pass  # the tester ended first; its exit and stream say why
+
+    threading.Thread(target=feed, daemon=True).start()
 
     def pump() -> None:
         if proc.stdout is not None:
@@ -1583,7 +1596,6 @@ def run_play(
 def session_command(
     claude: str,
     session: Session,
-    text: str,
     config: Path,
     run_dir: Path,
     rules: str,
@@ -1600,13 +1612,12 @@ def session_command(
     tools alone, the rest refused."""
     output = session_output(run_dir, session)
     if session.kind == AGENT:
-        cmd = tester_command(claude, text, config, brief, left, model, checkout, restricted=True)
+        cmd = tester_command(claude, config, brief, left, model, checkout, restricted=True)
         return cmd, output, Expect(plugin=True)
     if session.kind == JUDGE:
         read_only, others = server_tools(checkout / TOOL_CONTRACT.relative_to(ROOT))
         cmd = tester_command(
             claude,
-            text,
             config,
             rules,
             left,
@@ -1620,7 +1631,7 @@ def session_command(
         )
         agent = session_output(run_dir, Session(AGENT, session.ids, session.phase, False))
         return cmd, agent, Expect(tools=frozenset([*JUDGE_TOOLS, *read_only]))
-    return tester_command(claude, text, config, rules, left, model, checkout), output, None
+    return tester_command(claude, config, rules, left, model, checkout), output, None
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -1656,7 +1667,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         print("=== each session runs with CLAUDE_CODE_DISABLE_AUTO_MEMORY=1; a judge works in its agent's folder:")
         for kind, ids in (("phase", ("1.1",)), (AGENT, ("O1",)), (JUDGE, ("O1",))):
             sample = Session(kind, ids, 1, False)
-            cmd, _, _ = session_command("claude", sample, "<prompt>", Path("<config>"), run_dir, "<rules>", "<brief>")
+            cmd, _, _ = session_command("claude", sample, Path("<config>"), run_dir, "<rules>", "<brief>")
             print(f"{kind}: {subprocess.list2cmdline(cmd)}")
         return 0
     claude = claude_executable()
@@ -1691,13 +1702,15 @@ def cmd_run(args: argparse.Namespace) -> int:
         output.mkdir(parents=True, exist_ok=True)
         try:
             write_config(config, args.port, output)
-            cmd, cwd, expect = session_command(claude, session, text, config, run_dir, rules, brief, left, args.model)
+            cmd, cwd, expect = session_command(claude, session, config, run_dir, rules, brief, left, args.model)
             print(f"{session.label}: {', '.join(session.ids)}", flush=True)
             # A watch of its own: a silence that ended with the last session isn't this one's.
             watch = HealthWatch(health_probe(args.port))
             transcript = run_dir / f"transcript-{session.label}.jsonl"
             # A folder of the run's own as its working folder, away from test_project/ and earlier runs' verdicts.
-            outcome = run_session(cmd, transcript, config / "plugin", watch, cwd=cwd, env=tester_env(), expect=expect)
+            outcome = run_session(
+                cmd, transcript, config / "plugin", watch, cwd=cwd, env=tester_env(), expect=expect, prompt=text
+            )
         finally:
             shutil.rmtree(config, ignore_errors=True)
         skills = ", ".join(outcome.skills) or "none"

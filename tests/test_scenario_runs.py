@@ -228,8 +228,9 @@ def test_the_config_holds_the_skills_without_their_server_and_the_server_pinned(
 
 
 def test_the_tester_command_is_the_one_step_2_proved(tmp_path):
-    cmd = scenarios.tester_command("claude", "PROMPT", tmp_path, "RULES", 1.5, "opus")
-    assert cmd[:3] == ["claude", "-p", "PROMPT"]
+    cmd = scenarios.tester_command("claude", tmp_path, "RULES", 1.5, "opus")
+    # The prompt goes to stdin: a judge's passed Windows' limit for a command line in the first outcome run (#146).
+    assert cmd[:3] == ["claude", "-p", "--plugin-dir"]
     joined = " ".join(cmd)
     for part in (
         "--strict-mcp-config",
@@ -503,6 +504,13 @@ def test_a_session_reads_its_model_skills_cost_and_rows(tmp_path):
     assert outcome.started and outcome.ended
     assert scenarios.rows_from(outcome.text, ["1.1"])["1.1"].status == "PASS"
     assert len(transcript.read_text(encoding="utf-8").splitlines()) == 5
+
+
+def test_the_prompt_reaches_the_tester_by_stdin_whatever_its_length(tmp_path):
+    # A judge's prompt, with the agent's calls and answers, passed Windows' 32,767 characters for a command line (#146).
+    prompt = "You judge outcome O1.\n" + "x" * 100_000
+    outcome = scenarios.run_session(stub("echo", tmp_path), tmp_path / "t.jsonl", tmp_path, cwd=tmp_path, prompt=prompt)
+    assert outcome.text == f"read {len(prompt)} characters, the first line 'You judge outcome O1.'"
 
 
 def test_a_foreign_server_stops_the_tester_at_once(tmp_path):
@@ -931,7 +939,7 @@ def test_the_server_tools_split_by_their_read_only_hint():
 
 def test_the_agent_works_restricted_to_its_own_folder_with_the_brief(tmp_path):
     session = scenarios.Session(scenarios.AGENT, ("O1",), 0, False)
-    cmd, cwd, expect = scenarios.session_command("claude", session, "ASK", tmp_path / "c", tmp_path, "RULES", "BRIEF")
+    cmd, cwd, expect = scenarios.session_command("claude", session, tmp_path / "c", tmp_path, "RULES", "BRIEF")
     assert cwd == tmp_path / "mcp_output" / "outcome-O1"
     assert "--restricted" in cmd
     assert "--add-dir" not in cmd  # outcomes.md and the judges' files stay out of its reach (round 1, P2)
@@ -942,7 +950,7 @@ def test_the_agent_works_restricted_to_its_own_folder_with_the_brief(tmp_path):
 
 def test_the_judge_has_the_read_only_tools_alone_in_its_agents_folder(tmp_path):
     session = scenarios.Session(scenarios.JUDGE, ("O1",), 0, False)
-    cmd, cwd, expect = scenarios.session_command("claude", session, "P", tmp_path / "c", tmp_path, "RULES", "BRIEF")
+    cmd, cwd, expect = scenarios.session_command("claude", session, tmp_path / "c", tmp_path, "RULES", "BRIEF")
     read_only, others = scenarios.server_tools()
     # In the agent's folder, so the paths in its answers resolve; its own added, where its server writes (round 2, R1).
     assert cwd == tmp_path / "mcp_output" / "outcome-O1"
@@ -1235,8 +1243,8 @@ def run_command(tmp_path, monkeypatch):
     monkeypatch.setattr(scenarios, "prepare_stage", lambda port, case: seen["prepared"].append((port, case.id)))
     monkeypatch.setattr(scenarios, "run_play", lambda port, seconds: seen["played"].append((port, seconds)))
 
-    def run_session(cmd, transcript, plugin_dir, watch, cwd, env, expect=None):
-        seen["sessions"].append({"watch": watch, "cwd": cwd, "cmd": cmd, "expect": expect})
+    def run_session(cmd, transcript, plugin_dir, watch, cwd, env, expect=None, prompt=""):
+        seen["sessions"].append({"watch": watch, "cwd": cwd, "cmd": cmd, "expect": expect, "prompt": prompt})
         rows = table("1.1 | t | PASS | n", "1.2 | t | PASS | n", "27.1 | t | PASS | n", "O4 | t | PASS | n")
         return outcome(rows, skills=["omniverse-mcp:scene"], started="s", ended="e", tokens={"output_tokens": 5})
 
@@ -1310,6 +1318,8 @@ def test_a_run_with_an_outcome_prepares_plays_and_records_it(run_command):
     agent, judge, _ = seen["sessions"]
     assert agent["cwd"] == judge["cwd"] == run_dir / "mcp_output" / "outcome-O4"
     assert "--restricted" in agent["cmd"] and agent["expect"] == scenarios.Expect(plugin=True)
+    assert agent["prompt"].startswith("When I press play, the box in my scene falls straight through the floor.")
+    assert judge["prompt"].startswith("You judge outcome O4")
     assert judge["expect"].tools is not None
     assert {r["id"]: r["status"] for r in record["rows"]} == {"O4": "PASS", "27.1": "PASS"}
     assert "## Outcomes" in (run_dir / "results.md").read_text(encoding="utf-8")
