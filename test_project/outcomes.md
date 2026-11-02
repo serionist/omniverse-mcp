@@ -156,19 +156,22 @@ stage = omni.usd.get_context().get_stage()
 UsdGeom.SetStageMetersPerUnit(stage, 1.0)
 
 
-def box(path, size, at):
+def box(path, size, at, colour):
+    # Colours of their own, so a view from above tells the top from the floor and the book from the top.
     made = UsdGeom.Cube.Define(stage, path)
     made.CreateSizeAttr(1.0)
+    made.CreateDisplayColorAttr([Gf.Vec3f(*colour)])
     UsdGeom.XformCommonAPI(made).SetTranslate(Gf.Vec3d(*at))
     UsdGeom.XformCommonAPI(made).SetScale(Gf.Vec3f(*size))
 
 
-box("/World/Floor", (6.0, 0.02, 6.0), (0.0, -0.01, 0.0))
+box("/World/Floor", (6.0, 0.02, 6.0), (0.0, -0.01, 0.0), (0.25, 0.25, 0.25))
 UsdGeom.Xform.Define(stage, "/World/Table")
-box("/World/Table/Top", (1.2, 0.05, 0.8), (0.0, 0.75, 0.0))
+wood = (0.55, 0.35, 0.18)
+box("/World/Table/Top", (1.2, 0.05, 0.8), (0.0, 0.75, 0.0), wood)
 for i, (x, z) in enumerate([(-0.55, -0.35), (0.55, -0.35), (-0.55, 0.35), (0.55, 0.35)]):
-    box(f"/World/Table/Leg{i}", (0.05, 0.725, 0.05), (x, 0.3625, z))
-box("/World/Table/Book", (0.2, 0.04, 0.3), (0.35, 0.795, 0.15))
+    box(f"/World/Table/Leg{i}", (0.05, 0.725, 0.05), (x, 0.3625, z), wood)
+box("/World/Table/Book", (0.2, 0.04, 0.3), (0.35, 0.795, 0.15), (0.1, 0.25, 0.75))
 UsdLux.DomeLight.Define(stage, "/World/Sky").CreateIntensityAttr(1000.0)
 sun = UsdLux.DistantLight.Define(stage, "/World/Sun")
 sun.CreateIntensityAttr(3000.0)
@@ -179,8 +182,8 @@ Ask: Show me the table at /World/Table from above and from the side.
 
 Verify:
 - The answer gives at least two captures of the table, lit
-- One looks down on it: the top's rectangle, with the book near one corner, and the legs hidden under it or only at
-  its corners
+- One looks down on it: the top's wood-coloured rectangle, with the blue book near one corner, and the legs hidden
+  under it or only at its corners
 - One looks at it from the side, from about the top's height or below: the legs stand on the floor under the top
 - The table is whole and near the middle of each
 

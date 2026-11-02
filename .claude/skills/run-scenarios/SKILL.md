@@ -33,9 +33,10 @@ chooses its own tools, then a judge with the read-only tools checks what it did.
      maintainer's word.
 3. **Run:** `uv run tools/scenarios.py run --phases <phases>`, with `--outcomes` as scoped, the same `--port` and any
    override the maintainer gave `check`, and `--budget` or `--model` as asked. The phases take about 25 minutes and
-   $9 with `claude-opus-5-5`, summed from two partial runs in the scenario-skill plan's step 9; the six outcomes
-   OUTCOME_COST. Start it in the background where the client can, else give the maintainer the command for a
-   terminal of their own. It prints each session as it ends, then the run's folder.
+   $9 with `claude-opus-5-5`, summed from two partial runs in the scenario-skill plan's step 9; the six outcomes about
+   4 minutes and $1.50 to $1.80 more, from two runs in the outcome plan's step 8. Start it in the background where
+   the client can, else give the maintainer the command for a terminal of their own. It prints each session as it
+   ends, then the run's folder.
 4. **Compare:** `uv run tools/scenarios.py compare` sets the newest run against the earlier ones; before a release,
    `--against <the last release's tag>` sets it against the run made on that release's tree, from a clean tree on
    its PR's final head, or `--against <its folder>`, which that release's PR names, when the tag's tree differs.

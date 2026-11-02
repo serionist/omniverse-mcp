@@ -152,6 +152,10 @@ Each outcome is three steps, four with a `Play:` line:
      allowed list is stopped, as a tester with a foreign server is today; read-only is then checked, not only asked.
      An agent whose first event lacks the run's plugin is stopped too, since `--restricted` is new to the testers.
 
+**The prompt by stdin** (found in step 8): every session, a phase's too, reads its prompt from stdin, as `claude -p`
+does when given none. The first outcome run stopped at O2's judge with `[WinError 206]`: its prompt, with the agent's
+calls and answers, made a command line longer than the 32,767 characters Windows allows.
+
 **The `Calls:` check:** the runner counts the agent's `mcp__omniverse__` calls. `execute_script` where the line says
 none caps the judge's PASS at WARN, and the notes gain `Calls: execute_script 2, where the line says none`. A FAIL
 stays a FAIL (Q3).
