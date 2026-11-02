@@ -19,7 +19,7 @@ project. Their `allowed-tools` lines are Claude Code's, and other clients ignore
 | Skill | When |
 |---|---|
 | [setup](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/setup/SKILL.md) | installing the Kit extension, connecting, a tool that cannot reach Kit |
-| [scene](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/scene/SKILL.md) | looking at a stage, placing and checking prims, lighting and black captures |
+| [scene](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/scene/SKILL.md) | looking at a stage, placing and checking prims, lighting and black captures, a sweep of many shots |
 | [geometry](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/geometry/SKILL.md) | face counts, comparing prims and variants, variant sets, flattening and exports |
 | [simulate](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/simulate/SKILL.md) | physics, robots, forces, recording a run, measuring the frame rate |
 | [script](https://github.com/serionist/omniverse-mcp/blob/main/plugin/skills/script/SKILL.md) | `execute_script`, long work as a job (`run_script_job`, `get_job`, `cancel_job`), and the traps of Kit's Python |
