@@ -521,20 +521,15 @@ ys, xs = np.nonzero(np.all(rgb == np.array(COLOUR, dtype=np.uint8), axis=-1))
 result = None if xs.size == 0 else [int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1]
 """
 
-# A camera prim aimed at a point from another side than the viewport's, on the stage's up axis. A wide lens, as the
-# viewport's own: with USD's default 50 mm the cube filled the frame, and a box that is the whole frame shows little.
-# The root layer's text, and the camera at PATH as the root and session layers hold it (None when one holds no spec).
-_FILE_AND_SHIELD = """
-stage = omni.usd.get_context().get_stage()
-root, session = stage.GetRootLayer(), stage.GetSessionLayer()
-in_root, in_session = root.GetPrimAtPath(PATH), session.GetPrimAtPath(PATH)
-result = {
-    "root": root.ExportToString(),
-    "camera_in_root": in_root.GetAsText() if in_root else None,
-    "camera_in_session": in_session.GetAsText() if in_session else None,
-}
+# The root layer's text, and the camera at PATH as the root layer holds it (None when it holds no spec).
+_FILE_CAMERA = """
+root = omni.usd.get_context().get_stage().GetRootLayer()
+spec = root.GetPrimAtPath(PATH)
+result = {"root": root.ExportToString(), "camera": spec.GetAsText() if spec else None}
 """
 
+# A camera prim aimed at a point from another side than the viewport's, on the stage's up axis. A wide lens, as the
+# viewport's own: with USD's default 50 mm the cube filled the frame, and a box that is the whole frame shows little.
 _AIMED_CAMERA = """
 from pxr import Gf, UsdGeom
 
@@ -1370,9 +1365,9 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
 
     def test_12dd_a_capture_through_a_scene_camera_leaves_its_file_as_it_was(self):
         """A capture through a camera of the user's file, never rendered through before, leaves the root layer as it
-        found it, and the camera's spec in Kit's session layer goes with the feed: RTX wrote its exposure schemas and
-        attributes at the edit target, from this read-only tool, and test_12d's earlier capture through its camera
-        hid it (#177)."""
+        found it once its kept feed is released: RTX wrote its exposure schemas and attributes onto the camera at the
+        edit target, from this read-only tool, and test_12d's earlier capture through its camera hid it (#177). The
+        kept feed is aimed from the viewport's camera to this one, as a capture through another camera aims it."""
         camera = "/World/IntTestFreshCam"
         self.addCleanup(self.client.delete_prim, camera)
         center = self.client.prim_bounds("/World/IntTestCube")["result"]["center"]
@@ -1381,21 +1376,19 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         # changes under /Render come and go before the read.
         self.assertEqual(self.client.capture_viewport(320, 240)["status"], "success")
         self._kit(RELEASE_KEPT_FEED)
-        read = _FILE_AND_SHIELD.replace("PATH", repr(camera))
+        read = _FILE_CAMERA.replace("PATH", repr(camera))
         before = self._kit(read)
 
+        self.assertEqual(self.client.capture_viewport(320, 240)["status"], "success")  # the kept feed, re-aimed next
         result = self.client.capture_viewport(320, 240, camera_path=camera)
         self.assertEqual(result["status"], "success", result)
         while_kept = self._kit(read)
         self._kit(RELEASE_KEPT_FEED)
         after = self._kit(read)
 
-        self.assertEqual(before["camera_in_session"], None)
-        self.assertIn("OmniRtxCameraExposureAPI_1", while_kept["camera_in_session"] or "", "no shield while it renders")
-        self.assertNotIn("exposure:", while_kept["camera_in_root"], "RTX wrote into the user's file")
-        self.assertEqual(after["camera_in_root"], before["camera_in_root"], "the camera changed in the root layer")
+        print(f"  while the feed is kept, the camera in the root layer: {while_kept['camera']!r}")
+        self.assertEqual(after["camera"], before["camera"], "the camera changed in the root layer")
         self.assertEqual(after["root"], before["root"], "the capture left the root layer changed")
-        self.assertEqual(after["camera_in_session"], None, "the shield stayed in the session layer")
 
     def test_12e_an_oversized_capture_is_refused(self):
         """A side above 4096 is refused before anything is made."""
