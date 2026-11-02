@@ -14,6 +14,7 @@ from omniverse_mcp.kit_extension import carried_version, install_advice
 from ._annotations import EDITS, READS, tool
 from ._bridge import bridge_call
 from ._params import PrimPath
+from .misc import job_line
 
 if TYPE_CHECKING:
     from omniverse_mcp.server import Helpers
@@ -257,7 +258,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         fps is the timeline's time codes per second, not a render rate: get_performance measures the frame rate. When
         the two versions differ, the answer names the command that installs the matching extension; while a recording
-        runs whose frames stopped early, it says why. sim_control changes the state.
+        runs whose frames stopped early, it says why; while a job run_script_job started runs, it names it.
+        sim_control changes the state.
         """
         resp = bridge_call(client.sim_state)
         r = resp["result"]
@@ -280,6 +282,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         ]
         if r.get("recording_note"):
             lines.append(f"recording_note = {r['recording_note']}")
+        if r.get("job"):
+            lines.append(f"job = {job_line(r['job'])}")
         if extension != carried:
             lines.append(
                 f"note = the Kit extension is {extension} and this server's is {carried}: install the server's, "

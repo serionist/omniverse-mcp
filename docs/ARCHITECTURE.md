@@ -58,7 +58,7 @@ passes it through `inspect.cleandoc`; `tests/test_contract.py` fails on a descri
 | `simulation.py` | Sim control, state, physics properties, apply force, raycast, debug draw |
 | `recording.py` | Recording: start, stop, get frame |
 | `usd_advanced.py` | Mesh stats with the face count tree, flatten, export, variants, compare, material paths |
-| `misc.py` | execute_script, manage_extensions, get_logs |
+| `misc.py` | execute_script, run_script_job, get_job, cancel_job, manage_extensions, get_logs |
 
 ### Output management
 
@@ -68,9 +68,10 @@ absolute path (`Helpers.rel`).
 
 - **Images:** the bridge sends each capture as base64 PNG, and the server writes it to `captures/`.
   `capture_viewport(include_image=True)` also returns it inline as `ImageContent`.
-- **Long text:** an answer over 1,000 characters goes to `responses/`. `get_mesh_stats` and `get_robot_info` write
-  only their long part there (`Helpers.write_response`), the tree, or the Joints list and the joint states that
-  don't fit, and keep the rest inline: the totals, or the counts and the joint states that fit.
+- **Long text:** an answer over 1,000 characters goes to `responses/`. `get_mesh_stats`, `get_robot_info` and
+  `get_job` write only their long part there (`Helpers.write_response`), the tree, the Joints list and the joint
+  states that don't fit, or a job's lines, output, traceback and long result, and keep the rest inline: the totals,
+  the counts and the joint states that fit, or the job's state, time, last line, count of lines and error.
 - **Scene dumps and recordings:** Kit writes them itself, to the path the server passes, so with Kit on another
   machine they land on that machine. Each recording gets a timestamped folder.
 
@@ -130,8 +131,8 @@ extension come from one release. `omniverse-mcp extension install` (`src/omniver
 | File | Purpose |
 |------|---------|
 | `ovmcp/bridge/extension.py` | Kit lifecycle: makes the token, starts the core's HTTP server with the routes |
-| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake, and the Kit app's name, versions and OS), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `capture.py` (the capture path's waits, each bounded by time, a call's bookkeeping, the frame-size limit, 4096 a side, for start_recording, capture_viewport and inspect_prim, Path Tracing's settle frames, and segmentation's colours), `png.py` (the PNG writer), `logs.py` (Kit's log file read into the log ring, and its query), `force.py` (apply_force's request, its refusals and the point it pushes at; from the stage's joints, the articulation a body is a link of and the fixed joint that holds it to the world; for the push through PhysX's tensor API, which the handler takes while `/physics/suppressReadback` is on: the physics scene's step length, an impulse as one step's force, and the centre of mass from the tensor API's rows), `framing.py`, `isolation.py`, `lighting.py`, `collision.py` (set_physics_properties' collision: the shapes PhysX collides and the refusals for the rest, the rigid body a collider moves with, a moving Mesh's convex hull, and the echo), `material.py` (set_material's OmniPBR, named by its MDL source; set_physics_properties' physics material: its path, a child of the prim, and its refusals; the values a body has, and what the material it binds copies from the one it replaces; one walk of the stage's bindings, for the other prims a write changes and the older shared material it deletes once nothing binds it), `robot.py` (whether create_robot was given a file or a name, its prim's name; the articulation root whose joint states get_robot_info reads), `metrics.py` (a referenced file's up axis and units brought to the stage's, for create_robot and create_prim: the turn that stands a file of another up axis upright, and the scale and the converted values that bring a file of other units to the stage's), `usd_files.py` (where a USD file a tool is given loads from: a URL, a file on Kit's machine, Isaac Sim's asset library), `stage_open.py` (open_scene's checks before Kit closes the open stage, its sequence, its limits and its answer; new_scene's up axis and units, checked before Kit discards the open stage), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `recording.py` (start_recording's request, the camera check, which updates take a frame and its number, and deleting a camera feed's render product from every layer), `serial.py`, `layers.py` (the files the open stage has loaded, which flatten_usd and export_prim_as_file refuse to write, the layers Kit holds that they read again from disk, and the open stage without Kit's session layer, which they flatten), `xform.py` (every transform the bridge writes, into a prim's own xform ops, refused when it couldn't show, and a camera's aim, in the layer that holds its ops: Kit's session layer for Kit's own cameras), `deletion.py` (whether delete_prim can take a prim off the stage, from its composition arcs, and why not), `variants.py` (a prim's variant sets and the layer holding each selection; set_variant_selection's and compare_prims' switch in one layer, the session layer by default, refused whole before anything is written, and its snapshot, which puts that layer back field by field; the session layer's selections save_scene leaves out), `usd.py` (typed forms of pxr calls the stubs get wrong) |
-| `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, scene_open, simulation, recording, robot, debug_draw, misc, usd_advanced, logging) with shared utilities in `_utils.py` (among them `enable_extension` and the capture to a file, `capture_file_png`, with `capture_feed_png` on it), `variants.py` (the viewport's refresh after a variant switch: with Fabric Scene Delegate on before Kit 110, the switched prims made inactive in the session layer for some updates, and that layer put back in a `finally`), `camera_feed.py` (a camera rendered at a size in a texture of its own, for a recording or a capture, with a capture's segmentation and its release, and the capture feed kept between calls with the viewport lock, lent to a recording at its size) and `_mcp_bridge.py` |
+| `ovmcp/core/` | Kit-free core, unit-tested on usd-core and numpy without Kit, typed in strict mode; import-linter keeps `omni`, `carb`, `isaacsim` and `ovmcp.bridge` out of it: `http.py` (HTTP server, token and browser checks, routing), `token.py` (the token file), `protocol.py` (the handshake, and the Kit app's name, versions and OS), `formatter.py` (the prim-block text), `bounds.py` (world boxes and their outline on screen), `capture.py` (the capture path's waits, each bounded by time, a call's bookkeeping, the frame-size limit, 4096 a side, for start_recording, capture_viewport and inspect_prim, Path Tracing's settle frames, and segmentation's colours), `png.py` (the PNG writer), `logs.py` (Kit's log file read into the log ring, and its query), `force.py` (apply_force's request, its refusals and the point it pushes at; from the stage's joints, the articulation a body is a link of and the fixed joint that holds it to the world; for the push through PhysX's tensor API, which the handler takes while `/physics/suppressReadback` is on: the physics scene's step length, an impulse as one step's force, and the centre of mass from the tensor API's rows), `framing.py`, `isolation.py`, `lighting.py`, `collision.py` (set_physics_properties' collision: the shapes PhysX collides and the refusals for the rest, the rigid body a collider moves with, a moving Mesh's convex hull, and the echo), `material.py` (set_material's OmniPBR, named by its MDL source; set_physics_properties' physics material: its path, a child of the prim, and its refusals; the values a body has, and what the material it binds copies from the one it replaces; one walk of the stage's bindings, for the other prims a write changes and the older shared material it deletes once nothing binds it), `robot.py` (whether create_robot was given a file or a name, its prim's name; the articulation root whose joint states get_robot_info reads), `metrics.py` (a referenced file's up axis and units brought to the stage's, for create_robot and create_prim: the turn that stands a file of another up axis upright, and the scale and the converted values that bring a file of other units to the stage's), `usd_files.py` (where a USD file a tool is given loads from: a URL, a file on Kit's machine, Isaac Sim's asset library), `stage_open.py` (open_scene's checks before Kit closes the open stage, its sequence, its limits and its answer; new_scene's up axis and units, checked before Kit discards the open stage), `extensions.py` (whether an extension the bridge needs is on, can be turned on, or is absent), `debug_draw.py` (draw_debug's shapes as segments, its colours, and the book of drawings still due), `recording.py` (start_recording's request, the camera check, which updates take a frame and its number, and deleting a camera feed's render product from every layer), `serial.py`, `layers.py` (the files the open stage has loaded, which flatten_usd and export_prim_as_file refuse to write, the layers Kit holds that they read again from disk, and the open stage without Kit's session layer, which they flatten), `xform.py` (every transform the bridge writes, into a prim's own xform ops, refused when it couldn't show, and a camera's aim, in the layer that holds its ops: Kit's session layer for Kit's own cameras), `deletion.py` (whether delete_prim can take a prim off the stage, from its composition arcs, and why not), `variants.py` (a prim's variant sets and the layer holding each selection; set_variant_selection's and compare_prims' switch in one layer, the session layer by default, refused whole before anything is written, and its snapshot, which puts that layer back field by field; the session layer's selections save_scene leaves out), `script.py` (a script compiled for /execute and a job, told awaiting or plain, and run as a function of its namespace), `output.py` (the router over sys.stdout and sys.stderr that sends a task's prints to its call's or its job's sink), `jobs.py` (the job board: one job at a time, its states, lines, cancel, wait and shutdown), `usd.py` (typed forms of pxr calls the stubs get wrong) |
+| `ovmcp/bridge/handlers/` | Handler package: split into focused modules (camera, scene, scene_open, simulation, recording, robot, debug_draw, misc, jobs, usd_advanced, logging) with shared utilities in `_utils.py` (among them `enable_extension` and the capture to a file, `capture_file_png`, with `capture_feed_png` on it), `variants.py` (the viewport's refresh after a variant switch: with Fabric Scene Delegate on before Kit 110, the switched prims made inactive in the session layer for some updates, and that layer put back in a `finally`), `camera_feed.py` (a camera rendered at a size in a texture of its own, for a recording or a capture, with a capture's segmentation and its release, and the capture feed kept between calls with the viewport lock, lent to a recording at its size) and `_mcp_bridge.py` |
 | `config/extension.toml` | Extension metadata and default settings |
 
 ### HTTP Server
@@ -140,7 +141,7 @@ The extension runs an asyncio HTTP server on the application's event loop (same 
 
 ### The bridge token
 
-`/execute` runs any Python inside the app, so the bridge answers only a client that holds its token.
+`/execute` and `/jobs/script` run any Python inside the app, so the bridge answers only a client that holds its token.
 
 | Step | What happens |
 |---|---|
@@ -186,6 +187,9 @@ the install command; a new route leaves `PROTOCOL` alone, so the other tools go 
 ```
 /health              -> handle_health
 /execute             -> handle_execute
+/jobs/script         -> handle_job_script
+/jobs/get            -> handle_job_get
+/jobs/cancel         -> handle_job_cancel
 /scene/tree          -> handle_scene_tree
 /scene/dump          -> handle_scene_dump
 /scene/prim          -> handle_prim_properties
@@ -288,7 +292,18 @@ The format is implemented in `ovmcp/core/formatter.py` with functions for:
 
 1. The HTTP server runs on the Omniverse application's asyncio event loop
 2. Handlers use `await omni.kit.app.get_app().next_update_async()` to sync with the main thread before accessing USD/PhysX state
-3. Script execution (`execute_script`) runs `exec()` directly on the main thread with stdout/stderr captured via `io.StringIO`. It must run on the main thread because USD/Omniverse APIs are not thread-safe. If the code contains `await` expressions, it is automatically wrapped in an async function and awaited, allowing scripts to call async `mcp.*` methods while still running on the main thread's event loop
+3. A script, `execute_script`'s or a job's, runs on the main thread, on its handler's or its job's own task, since USD
+   and Omniverse APIs are not thread-safe. `ovmcp/core/script.py` compiles it once with
+   `ast.PyCF_ALLOW_TOP_LEVEL_AWAIT`, as the standard library's asyncio REPL does, and runs its code as a function of
+   the script's namespace, awaited when the compiler made it a coroutine: a script that awaits, `await mcp.*` among
+   them, gives Kit's loop back at each `await`. Its lines keep their numbers, and a multi-line string stays whole. A
+   top-level `return`, which the compiler refuses there, still runs, inside a coroutine function built from the
+   script's own syntax tree. Its prints go to its call's or its job's sink through `ovmcp/core/output.py`: one router
+   over `sys.stdout` and `sys.stderr`, a context variable naming the sink of the task printing, so what another
+   handler, call or job prints meanwhile stays out of it, and it reads as no terminal, so no library writes colour
+   codes into it. A thread, or a task with no sink, prints to the stream beneath, Kit's console; a sink closes when
+   its call ends, so a task a script left running prints there too. A script that replaces `sys.stdout` or
+   `sys.stderr` gets the router back at its call's end, as the old swap put Kit's stream back
 4. A capture waits for its feed's frames, then its file, and a settle for the viewport's frames, each wait bounded by time (`ovmcp/core/capture.py`): `asyncio.wait_for` and polls on the same loop, no thread, so a camera or a viewport that renders nothing fails the call rather than hanging it. A viewport frame wait observes Kit's `NEW_FRAME` event through omni.usd's `next_frame_async`, as an immediate observer, which Kit 110's own code says may fire on the renderer thread with async rendering. Isaac Sim's headless Python app renders synchronously (`asyncRendering = false`); its GUI renders asynchronously whenever the simulation is stopped or paused, since `isaacsim.core.throttling` (`enable_async = true` in `isaacsim.exp.full.kit`) turns async rendering on at startup and a few updates after each stop or pause, and off on play. On Isaac Sim 6.2 headless with async rendering turned on the same way, every `NEW_FRAME`, immediate or deferred, and every `DRAWABLE_CHANGED` came on the main thread (#57); the GUI itself, and other Kit apps such as USD Composer, are untested
 5. The bridge hands Kit's logging no Python callback. Kit runs one on whichever thread logs, and a physics worker that
    logged waited for the GIL that the main thread held while it waited for the worker, so Kit hung
@@ -347,7 +362,43 @@ await mcp.set_camera([5, 3, 5], target=[0, 0, 0])
 result = bounds["result"]["center"]
 ```
 
-**Async detection**: The execute handler tries to `compile()` the code. If it fails with SyntaxError (due to top-level `await`), it wraps the code in `async def __mcp_exec__():` and awaits it. This means sync scripts work exactly as before, and async scripts "just work" when they use `await`.
+**Async detection**: the compiler's own flag (`inspect.CO_COROUTINE` on the code `ovmcp/core/script.py` compiles with
+top-level `await` allowed) says whether a script awaits; one that does is awaited on the handler's task, so `await`
+"just works" and the script's lines keep their numbers ([Threading Model](#threading-model)). A job's script gets the
+same names.
+
+## Jobs
+
+A job is long work that runs on Kit's loop as a task of its own (`ovmcp/core/jobs.py`, `handlers/jobs.py`), so Kit
+renders, physics steps and other requests are answered between its `await`s, and it outlives the request that
+started it (#158). `run_script_job` starts a script as one; #157's capture sweep is to be another kind, through the
+same board and routes.
+
+- **Start:** `/jobs/script` takes `code` or `file`, a `.py` on Kit's machine read as bytes and compiled with its path,
+  so its encoding follows Python's source rules and its tracebacks show its lines. A script that never awaits at
+  its top level is refused before it starts: its loops would hold the main thread from its start to its end, whatever
+  ran it, and a coroutine it only defines or schedules would run where no route reaches it. The job starts
+  with `asyncio.ensure_future`, and the route answers its id, `j1` and on, at once. One job at a time: a second start
+  is refused, naming the one running.
+- **States,** as an MCP task's: `working`; `cancelling`, from a cancel until the job's own cleanup has returned, which
+  holds the slot, so a sweep that puts the stage back finishes first; `completed`, `failed`, `cancelled`, with a
+  status message. The last job is kept, for `/jobs/get`, until the next starts.
+- **Lines:** what the job's task, and the tasks it starts, print is its progress (`ovmcp/core/output.py`): both
+  streams in order, the last 200 kept with a count of all, a line redrawn with a carriage return as its latest
+  state. Each `/jobs/get` gives the lines since the last read, and
+  once the job ends, each stream's last 200 lines and the result in its kind's shape (a script's `return_value`), or
+  the error and traceback.
+- **`/jobs/get`'s `wait`,** up to 100 s, under the server's 120 s for a call, returns early only on the job's end or a
+  change of its state: new lines alone don't end it.
+- **Cancel:** `/jobs/cancel` calls `task.cancel(reason)`, so the job's code gets `CancelledError` with the reason at its
+  next `await` and its cleanup can tell a user's cancel from a stage change. A second cancel cancels again, for code
+  whose bare `except:` swallowed the first.
+- **The stage,** for a job started with `watch_stage`: cancelled with the reason when the stage's id changes or the
+  stage begins to close, read on each update as a recording's frames are, which also catches a stage opened from
+  Kit's menu or a script. A script job doesn't watch: a bake may open stages itself.
+- **What a job can't do:** a script that awaits once and then loops, or calls Isaac Sim's `world.step()`, holds the
+  main thread as a blocking `/execute` does, and `/jobs/get` runs on the same loop, so nothing reads the job until it
+  ends. Kit's restart ends a job.
 
 ## Recording System
 
@@ -598,7 +649,10 @@ stage waits 1 s, until a read gets data, so `capture_viewport` doesn't pay 5 s o
   the viewport's: captures render through feeds of their own and turn instance segmentation on for each feed ([Viewport
   Capture](#viewport-capture)), so the viewport's own sensor, which copied its instance ids to the host every frame, is
   left off (#76)
-- **on_shutdown**: Stops any active recording, cancelling its frames and dropping its camera feed, and drops the debug
+- **on_shutdown**: Cancels a running job, drops its stage watch and calls its teardown, and refuses any start after it,
+  so a start in flight during a reload can't leave a job no route reaches; takes the output router off `sys.stdout`
+  and `sys.stderr`, so Kit's own restore at exit finds its interceptor and the next start installs a router of its
+  own, not one over this; stops any active recording, cancelling its frames and dropping its camera feed, and drops the debug
   drawing observer and its book (deleting and clearing nothing: the stage may be tearing down; a recording's
   render product stays on a stage that outlives the extension); tears the kept capture feed down with no update
   between its steps, deleting its render product while a stage is open ([Viewport Capture](#viewport-capture)); clears

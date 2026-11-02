@@ -362,3 +362,15 @@ def test_sim_state_answers_the_kit_app_the_extension_kept(simulation, kit, monke
     assert r["status"] == "success", r
     assert {key: r["result"][key] for key in facts} == facts
     assert r["result"]["state"] == "playing"
+
+
+# ---- /sim/state names a running job, as it names a recording (#158) ----
+
+
+def test_sim_state_names_a_running_job_and_nothing_without_one(simulation, kit):
+    assert "job" not in asyncio.run(simulation.handle_sim_state({}))["result"]
+
+    kit.job = {"id": "j3", "kind": "script", "state": "working", "elapsed": 252.0}
+    r = asyncio.run(simulation.handle_sim_state({}))
+
+    assert r["result"]["job"] == kit.job

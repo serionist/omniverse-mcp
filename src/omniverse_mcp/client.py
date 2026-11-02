@@ -296,6 +296,29 @@ class BridgeClient:
     def execute(self, code: str) -> dict[str, Any]:
         return self.request("/execute", {"code": code})
 
+    # ----- Jobs: a script now, #157's sweep later, read and cancelled through the same routes -----
+
+    def job_script(self, code: str = "", file: str = "") -> dict[str, Any]:
+        body: dict[str, Any] = {}
+        if code:
+            body["code"] = code
+        if file:
+            body["file"] = file
+        return self.request("/jobs/script", body)
+
+    def job_get(self, job_id: str = "", wait: float = 0) -> dict[str, Any]:
+        """A job, the running or the last one when job_id is empty; the bridge waits up to `wait` seconds for its end
+        or a change of its state, which stays under this client's timeout while `wait` is at most 100."""
+        body: dict[str, Any] = {}
+        if job_id:
+            body["job_id"] = job_id
+        if wait:
+            body["wait"] = wait
+        return self.request("/jobs/get", body)
+
+    def job_cancel(self, job_id: str) -> dict[str, Any]:
+        return self.request("/jobs/cancel", {"job_id": job_id})
+
     # ----- Scene endpoints -----
 
     def scene_tree(

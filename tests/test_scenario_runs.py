@@ -818,14 +818,22 @@ def real_outcomes():
 
 
 def test_the_real_outcomes_parse_with_no_problem(real_outcomes):
-    assert [c.id for c in real_outcomes.cases] == ["O1", "O2", "O3", "O4", "O5", "O6"]
+    assert [c.id for c in real_outcomes.cases] == ["O1", "O2", "O3", "O4", "O5", "O6", "O7"]
     by_id = {c.id: c for c in real_outcomes.cases}
     assert (by_id["O1"].given, by_id["O1"].play, by_id["O1"].calls) == ("", 0.0, "no execute_script")
     assert (by_id["O2"].play, by_id["O2"].calls) == (2.0, "any")
     assert by_id["O4"].play == 2.0
     assert "def mesh(" in by_id["O3"].given
     # The physics outcomes make their own scene: a play on Kit's preference alone may not simulate (round 2, R2).
-    assert all('UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")' in by_id[i].given for i in ("O2", "O4"))
+    assert all('UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")' in by_id[i].given for i in ("O2", "O4", "O7"))
+    # Work past an execute_script call's 120 s, which a job runs (#158). The settle before the judge stops the timeline,
+    # which puts every crate back where it hung: the runner's play drops those released (review G1).
+    assert (by_id["O7"].play, by_id["O7"].calls) == (3.0, "no execute_script")
+    assert "get_job()" in by_id["O7"].verify
+
+
+def test_the_outcomes_header_names_the_job_as_o7_s_path(real_outcomes):
+    assert "O7, `run_script_job`" in " ".join(real_outcomes.header.split())
 
 
 SMALL_OUTCOMES = """# Outcomes
@@ -938,8 +946,8 @@ def test_phases_none_runs_the_outcomes_alone(suite):
 
 def test_the_server_tools_split_by_their_read_only_hint():
     read_only, others = scenarios.server_tools()
-    assert len(read_only) == 11
-    assert "mcp__omniverse__get_prim_bounds" in read_only
+    assert len(read_only) == 12
+    assert {"mcp__omniverse__get_prim_bounds", "mcp__omniverse__get_job"} <= set(read_only)
     assert "mcp__omniverse__get_performance" in read_only  # what it lifts, it puts back (#156)
     assert {"mcp__omniverse__execute_script", "mcp__omniverse__sim_control"} <= set(others)
     assert not set(read_only) & set(others)
@@ -1027,6 +1035,22 @@ def test_the_judges_prompt_holds_the_request_the_verify_lines_and_what_the_agent
     assert f"- {files[0].as_posix()}" in text
     assert "one row, for O1" in text
     assert "The timeline is stopped" in scenarios.judge_prompt(_case(), outcome(), [], 8212)
+
+
+def test_the_judge_gets_a_job_s_script_longer_than_other_calls_arguments():
+    # A judge confirms a job's order and timing from its code (#158), which ran past 600 characters in O7's run.
+    script = json.dumps({"code": "await step()\n" * 400})
+    agent = outcome("Done.")
+    agent.calls = [
+        {"name": "run_script_job", "input": script, "answer": "Job j1 started"},
+        {"name": "execute_script", "input": script, "answer": ""},
+    ]
+
+    text = scenarios.judge_prompt(_case(), agent, [], 8212)
+
+    assert f"1. run_script_job {script[:4000]} [... {len(script) - 4000} more characters]" in text
+    assert f"2. execute_script {script[:600]} [... {len(script) - 600} more characters]" in text
+    assert "a run_script_job's arguments to 4000" in text
 
 
 def test_prepare_stage_makes_a_new_stage_lit_by_its_own_lights_then_runs_the_given(kit):
@@ -1383,8 +1407,8 @@ def test_phases_none_alone_runs_every_outcome(run_command):
     assert scenarios.main(["run", "--phases", "none"]) == 0
     (run_dir,) = [p for p in runs.iterdir() if p.is_dir()]
     record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
-    assert record["outcomes"] == "O1,O2,O3,O4,O5,O6"
-    assert [p for _, p in seen["prepared"]] == ["O1", "O2", "O3", "O4", "O5", "O6"]
+    assert record["outcomes"] == "O1,O2,O3,O4,O5,O6,O7"
+    assert [p for _, p in seen["prepared"]] == ["O1", "O2", "O3", "O4", "O5", "O6", "O7"]
 
 
 def test_a_run_with_an_outcome_prepares_plays_and_records_it(run_command):

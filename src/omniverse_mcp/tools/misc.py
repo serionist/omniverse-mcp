@@ -1,4 +1,4 @@
-"""Miscellaneous tools (execute_script, manage_extensions, get_logs)."""
+"""Miscellaneous tools (execute_script, the script jobs, manage_extensions, get_logs)."""
 
 import json
 import re
@@ -10,8 +10,8 @@ from pydantic import Field
 
 from omniverse_mcp.client import BridgeClient
 
-from ._annotations import READS, RUNS, tool
-from ._bridge import bridge_call
+from ._annotations import EDITS, READS, RUNS, tool
+from ._bridge import TRACEBACK_LINES, bridge_call
 
 if TYPE_CHECKING:
     from omniverse_mcp.server import Helpers
@@ -51,6 +51,100 @@ def _around(msg: str, start: int, end: int) -> str:
     return f"{'...' if left > line_start else ''}{msg[left:right].strip()}{'...' if right < line_end else ''}"
 
 
+def duration(seconds: float) -> str:
+    """`12.3s`, `4m 12s` or `1h 2m 3s`: a job's time as get_job and get_sim_state give it."""
+    seconds = max(float(seconds), 0.0)
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, whole = divmod(int(seconds), 60)
+    if minutes < 60:
+        return f"{minutes}m {whole}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes}m {whole}s"
+
+
+def job_line(job: dict[str, Any]) -> str:
+    """A running job as get_sim_state names it: `j3 (script, working, 4m 12s)`."""
+    return f"{job['id']} ({job['kind']}, {job['state']}, {duration(job['elapsed'])})"
+
+
+# How long a job's result may be, as JSON, and stay in get_job's inline summary; a longer one goes to the file.
+SHORT_RESULT = 300
+
+
+def _stream(name: str, text: str, count: int) -> list[str]:
+    """A stream of an ended job, saying when only its last lines were kept."""
+    if not text:
+        return []
+    kept = text.count("\n")
+    cut = f" (the last {kept} of {count} lines)" if count > kept else ""
+    return [f"{name}{cut}:", text.rstrip("\n")]
+
+
+def _job_answer(r: dict[str, Any], h: "Helpers") -> str:
+    """get_job's answer. Its summary stays inline: the job's state and time, its last line and how many it printed, a
+    short result, its error. The long part, the lines since the last read while it runs, or what it printed, its
+    traceback and a long result once it ends, joins the summary when the whole fits, else goes to a file the answer
+    names, as get_mesh_stats and get_robot_info write theirs: a reader always sees the state."""
+    head = [f"job = {r['id']} ({r['kind']})"]
+    if r.get("label"):
+        head.append(f"label = {r['label']}")
+    head += [f"state = {r['state']}", f"elapsed = {duration(r['elapsed'])}"]
+    if r.get("cancelling") is not None:
+        head.append(
+            f"cancelling = for {duration(r['cancelling'])}, its cleanup running: a job whose code caught the cancel "
+            "runs on until cancel_job cancels it again"
+        )
+    if r.get("message") and r["state"] != "cancelling":
+        head.append(f"message = {r['message']}")
+    if r.get("last"):
+        head.append(f"last = {r['last']}")
+    body: list[str] = []
+    holds: list[str] = []  # what the long part holds, for the line naming its file
+    total = r.get("lines_total", 0)
+    output = r.get("output")
+    if output is None:
+        new, shown = r["lines_new"], r["lines"]
+        if not new:
+            head.append(f"lines = {total} printed, none since the last read")
+        else:
+            cut = f", the last {len(shown)} shown" if len(shown) < new else ""
+            head.append(f"lines = {total} printed, {new} since the last read{cut}:")
+            body += [f"  {line}" for line in shown]
+            holds.append("the lines since the last read")
+    else:
+        head.append(f"lines = {total} printed")
+        if r["state"] == "completed":
+            result: dict[str, Any] = r.get("result") or {}
+            script = r["kind"] == "script"
+            value = result.get("return_value") if script else result
+            if value is None:
+                head.append("Return value: none")
+            else:
+                text = json.dumps(value, indent=2)
+                shown_as = ["Return value:" if script else "Result:", text]
+                if len(text) <= SHORT_RESULT:
+                    head += shown_as
+                else:
+                    body += shown_as
+                    holds.append("its return value" if script else "its result")
+        elif r["state"] == "failed":
+            head.append(f"error = {r.get('error', '')}")
+            traceback = str(r.get("traceback", "")).strip()
+            if traceback:
+                body += ["Traceback (its last lines):", *traceback.splitlines()[-TRACEBACK_LINES:]]
+                holds.append("its traceback")
+        printed = _stream("Stdout", output.get("stdout", ""), output.get("stdout_lines", 0))
+        printed += _stream("Stderr", output.get("stderr", ""), output.get("stderr_lines", 0))
+        if printed:
+            body += printed
+            holds.append("what the job printed")
+    whole = "\n".join(head + body)
+    if not body or h.fits(whole):
+        return whole
+    return "\n".join([*head, h.write_response("\n".join(body), "job", " and ".join(holds))])
+
+
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @tool(mcp, RUNS)
     def execute_script(
@@ -61,7 +155,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         Prefer a tool that does the job: it checks its input and bounds its waits. The script has omni, carb, Usd,
         UsdGeom, UsdLux, UsdPhysics, Sdf, Gf and mcp. Assign to 'result' to return JSON-serialisable data (anything else
         comes back as its str); stdout and stderr come back too, and an exception as an error with the traceback's last
-        lines. A script that blocks freezes Kit: the call gives up after 120 s, and the script runs on.
+        lines. A script that blocks freezes Kit: the call gives up after 120 s, and the script runs on. For work that
+        may outlast 120 s, such as settling many objects under physics, use run_script_job: it runs as a job while Kit
+        renders and other tools answer, and get_job reads its progress and result.
 
         `mcp` calls the tools' handlers from the script, each returning a dict with "status" and "result". Await them,
         which makes the script async: `bounds = await mcp.prim_bounds("/World/Cube")`, then
@@ -84,6 +180,81 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             parts.append(f"Return value:\n{json.dumps(r['return_value'], indent=2)}")
         text = "\n".join(parts) or "Script executed successfully (no output)"
         return h.text_response(text, "script")
+
+    @tool(mcp, RUNS)
+    def run_script_job(
+        code: Annotated[str, Field(description="Python to run as the job; give this or file")] = "",
+        file: Annotated[
+            str, Field(description="A .py file on the Kit app's machine to run as the job, read there; or give code")
+        ] = "",
+    ) -> str:
+        """Start a long Python script inside the Kit app as a job, and answer its id at once: for work that may
+        outlast execute_script's 120 s, such as dropping and settling many objects under physics one after another.
+
+        The job runs on Kit's main thread between Kit's updates, so Kit renders and other tools answer while it runs.
+        It must await once a step: `await omni.kit.app.get_app().next_update_async()` lets one update pass, physics
+        stepping while the timeline plays. A script that never awaits at its top level is refused, since its loops
+        would hold Kit from its start to its end; a coroutine the script only defines or schedules doesn't count: await
+        it at the top level, `await main()`. One that awaits once and then loops, or calls Isaac Sim's world.step(),
+        holds Kit too, and no tool can read or cancel it until it ends. It has execute_script's names (omni, carb, Usd,
+        UsdGeom, UsdLux, UsdPhysics, Sdf, Gf, mcp); assign to result to return data. Print a line a step: the lines are
+        the progress get_job shows. Read it with get_job(id, wait=60), cancel it with cancel_job. One job runs at a
+        time, and the last one is kept until the next starts.
+        """
+        if bool(code.strip()) == bool(file.strip()):
+            raise ToolError("Give the script as code or as file, one of them")
+        resp = bridge_call(client.job_script, code, file.strip())
+        r = resp["result"]
+        return f'Job {r["id"]} started ({r["kind"]}); read it with get_job("{r["id"]}")'
+
+    @tool(mcp, READS)
+    def get_job(
+        job_id: Annotated[
+            str, Field(description="The id run_script_job answered, such as j3; the running or last job when empty")
+        ] = "",
+        wait: Annotated[
+            float,
+            Field(
+                ge=0,
+                le=100,
+                description=(
+                    "Seconds to wait for the job to end or change state, at most 100; new lines don't end it, and "
+                    "other calls through this server wait meanwhile"
+                ),
+            ),
+        ] = 0,
+    ) -> str:
+        """Read a job run_script_job started: its state, how long it has run, its last line and the lines it printed
+        since the last read; once it has ended, its result, or its error and traceback, and what it printed, each
+        stream's last 200 lines.
+
+        States: working; cancelling, while its cleanup runs after a cancel; completed; failed; cancelled. With wait,
+        the call returns when the job ends or changes state, or after that many seconds, so a long job is waited for
+        without a call every few seconds. With no job_id it reads the running job or the last one, so a job is found
+        again after the conversation was compacted. Reading changes nothing in Kit.
+        """
+        resp = bridge_call(client.job_get, job_id.strip(), wait)
+        return _job_answer(resp["result"], h)
+
+    @tool(mcp, EDITS)
+    def cancel_job(
+        job_id: Annotated[
+            str, Field(min_length=1, description="The job to cancel, as run_script_job answered it, such as j3")
+        ],
+    ) -> str:
+        """Cancel a job run_script_job started, at its next await. It reads cancelling until its own cleanup, its
+        finally blocks, has run, then cancelled: get_job(job_id, wait=10) reads it. A job whose code caught the cancel,
+        as a bare except does, runs on: call cancel_job again. A job that has ended is left as it is.
+        """
+        resp = bridge_call(client.job_cancel, job_id.strip())
+        r = resp["result"]
+        if r["was"] not in ("working", "cancelling"):
+            return f"Job {r['id']} had already ended ({r['state']}): nothing to cancel"
+        again = " again" if r["was"] == "cancelling" else ""
+        return (
+            f"Job {r['id']} cancelled{again} at its next await: it reads cancelling until its cleanup has run; read it "
+            f'with get_job("{r["id"]}", wait=10)'
+        )
 
     @tool(mcp, RUNS)
     def manage_extensions(

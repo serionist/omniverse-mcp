@@ -17,6 +17,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from omniverse_mcp import kit_extension
 from omniverse_mcp.client import BridgeClient, KitSilentError
 from omniverse_mcp.server import create_server
+from omniverse_mcp.tools.misc import duration
 from omniverse_mcp.tools.simulation import _unit
 
 from .mock_bridge import MockIsaacServer
@@ -659,6 +660,49 @@ CASES = [
         {"stdout": "hi\n", "stderr": "", "return_value": 2},
         {"code": "print('hi'); result = 2"},
         ("Stdout:\nhi", "Return value:\n2"),
+    ),
+    # Jobs (#158)
+    Case(
+        "run_script_job",
+        {"code": "await bake()"},
+        "/jobs/script",
+        {"id": "j3", "kind": "script", "label": "await bake()"},
+        {"code": "await bake()"},
+        ('Job j3 started (script); read it with get_job("j3")',),
+    ),
+    Case(
+        "get_job",
+        {"job_id": "j3", "wait": 60},
+        "/jobs/get",
+        {
+            "id": "j3",
+            "kind": "script",
+            "label": "D:/bakes/bake.py",
+            "state": "working",
+            "message": "",
+            "elapsed": 252.4,
+            "lines": ["36 of 150 stacks settled", "37 of 150 stacks settled"],
+            "lines_new": 2,
+            "lines_total": 37,
+            "last": "37 of 150 stacks settled",
+        },
+        {"job_id": "j3", "wait": 60},
+        (
+            "job = j3 (script)\nlabel = D:/bakes/bake.py\nstate = working\nelapsed = 4m 12s\n"
+            "last = 37 of 150 stacks settled\n"
+            "lines = 37 printed, 2 since the last read:\n  36 of 150 stacks settled\n  37 of 150 stacks settled",
+        ),
+    ),
+    Case(
+        "cancel_job",
+        {"job_id": "j3"},
+        "/jobs/cancel",
+        {"id": "j3", "kind": "script", "state": "cancelling", "was": "working", "message": "cancel_job was called"},
+        {"job_id": "j3"},
+        (
+            "Job j3 cancelled at its next await: it reads cancelling until its cleanup has run; read it with "
+            'get_job("j3", wait=10)',
+        ),
     ),
 ]
 
@@ -2594,3 +2638,221 @@ def test_a_tiny_or_huge_direction_is_still_scaled_to_length_1(scale: float):
 def test_a_direction_with_no_finite_length_is_refused(direction: list[float]):
     with pytest.raises(ToolError, match="direction"):
         _unit(direction)
+
+
+# ----- jobs (#158) -----
+
+
+def _job(state: str, **fields: Any) -> dict[str, Any]:
+    """/jobs/get's answer for a script job of 37 lines, all read."""
+    return {
+        "id": "j3",
+        "kind": "script",
+        "label": "bake.py",
+        "state": state,
+        "message": "",
+        "elapsed": 612.0,
+        "lines": [],
+        "lines_new": 0,
+        "lines_total": 37,
+        "last": "37 of 150 stacks settled",
+        **fields,
+    }
+
+
+def _no_output() -> dict[str, Any]:
+    return {"stdout": "", "stdout_lines": 0, "stderr": "", "stderr_lines": 0}
+
+
+def _job_file(line: str, tmp_path: Path) -> str:
+    """The one job file the answer's line names, read."""
+    (path,) = (tmp_path / "responses").glob("job_*.txt")
+    assert path.name in line
+    return path.read_text(encoding="utf-8")
+
+
+def _job_text(bridge: MockIsaacServer, tmp_path: Path, answer: dict[str, Any]) -> str:
+    bridge.set_response("/jobs/get", {"status": "success", "result": answer})
+    erred, text, _calls = _call(bridge, tmp_path, "get_job", {})
+    assert not erred, text
+    return text
+
+
+def test_get_job_says_when_there_is_nothing_new_and_when_lines_were_cut(bridge: MockIsaacServer, tmp_path: Path):
+    assert "lines = 37 printed, none since the last read" in _job_text(bridge, tmp_path, _job("working"))
+    cut = _job("working", lines=["x"] * 200, lines_new=312, lines_total=512)
+    assert "lines = 512 printed, 312 since the last read, the last 200 shown:" in _job_text(bridge, tmp_path, cut)
+
+
+def test_get_job_gives_a_finished_script_s_return_value_and_its_kept_output(bridge: MockIsaacServer, tmp_path: Path):
+    stdout = "".join(f"stack {i}\n" for i in range(312, 512))
+    answer = _job(
+        "completed",
+        result={"return_value": {"settled": 150}},
+        output={"stdout": stdout, "stdout_lines": 512, "stderr": "a warning\n", "stderr_lines": 1},
+    )
+    text = _job_text(bridge, tmp_path, answer)
+    # Over 1,000 characters: the summary inline, what the job printed in a file. The whole answer in a file left a
+    # reader with no state at all (#158's live run).
+    summary, wrote = text.rsplit("\n", 1)
+    assert summary == (
+        "job = j3 (script)\nlabel = bake.py\nstate = completed\nelapsed = 10m 12s\nlast = 37 of 150 stacks settled\n"
+        'lines = 37 printed\nReturn value:\n{\n  "settled": 150\n}'
+    )
+    assert wrote.startswith("Wrote what the job printed (")
+    written = _job_file(wrote, tmp_path)
+    assert written.startswith("Stdout (the last 200 of 512 lines):\nstack 312\n")
+    assert written.endswith("stack 511\nStderr:\na warning")
+
+
+def test_get_job_keeps_a_running_job_s_summary_inline_and_writes_its_new_lines(bridge: MockIsaacServer, tmp_path: Path):
+    shown = [f"stack {i} of 512 settled, its pose read and baked into the scene" for i in range(312, 512)]
+    answer = _job("working", lines=shown, lines_new=312, lines_total=512, last=shown[-1])
+
+    text = _job_text(bridge, tmp_path, answer)
+
+    summary, wrote = text.rsplit("\n", 1)
+    assert summary.endswith(
+        f"state = working\nelapsed = 10m 12s\nlast = {shown[-1]}\n"
+        "lines = 512 printed, 312 since the last read, the last 200 shown:"
+    )
+    assert wrote.startswith("Wrote the lines since the last read (")
+    assert _job_file(wrote, tmp_path) == "\n".join(f"  {line}" for line in shown)
+
+
+def test_get_job_keeps_a_failed_job_s_error_inline_and_writes_its_traceback_and_output(
+    bridge: MockIsaacServer, tmp_path: Path
+):
+    stdout = "".join(f"stack {i} settled\n" for i in range(150))
+    answer = _job(
+        "failed",
+        error="stack 150 fell over",
+        traceback='Traceback (most recent call last):\n  File "bake.py", line 9\nValueError: stack 150 fell over\n',
+        output={"stdout": stdout, "stdout_lines": 150, "stderr": "", "stderr_lines": 0},
+    )
+
+    text = _job_text(bridge, tmp_path, answer)
+
+    assert "state = failed" in text
+    assert "lines = 37 printed\nerror = stack 150 fell over\nWrote its traceback and what the job printed (" in text
+    written = _job_file(text.rsplit("\n", 1)[1], tmp_path)
+    assert written.startswith('Traceback (its last lines):\nTraceback (most recent call last):\n  File "bake.py"')
+    assert written.endswith("stack 149 settled")
+
+
+def test_get_job_writes_a_long_return_value_with_what_the_job_printed(bridge: MockIsaacServer, tmp_path: Path):
+    poses = {f"/World/Crates/Crate_{i:03d}": [0.0, 0.15, 0.6 * i] for i in range(40)}
+    answer = _job("completed", result={"return_value": poses}, output=_no_output())
+
+    text = _job_text(bridge, tmp_path, answer)
+
+    assert "lines = 37 printed\nWrote its return value (" in text
+    assert _job_file(text.rsplit("\n", 1)[1], tmp_path).startswith('Return value:\n{\n  "/World/Crates/Crate_000"')
+
+
+def test_get_job_gives_a_failed_job_s_error_and_the_last_lines_of_its_traceback(
+    bridge: MockIsaacServer, tmp_path: Path
+):
+    traceback = "Traceback (most recent call last):\n" + "".join(f'  File "x", line {i}\n' for i in range(9))
+    answer = _job(
+        "failed",
+        error="stack 3 fell over",
+        traceback=traceback + "ValueError: stack 3 fell over\n",
+        output={**_no_output(), "stdout": "1 of 150\n", "stdout_lines": 1},
+    )
+    text = _job_text(bridge, tmp_path, answer)
+    assert "state = failed" in text
+    assert "error = stack 3 fell over\nTraceback (its last lines):\n" in text
+    assert '  File "x", line 4\n' not in text
+    assert '  File "x", line 8\nValueError: stack 3 fell over\nStdout:\n1 of 150' in text
+
+
+def test_get_job_says_why_a_job_was_cancelled_and_how_long_one_has_been_cancelling(
+    bridge: MockIsaacServer, tmp_path: Path
+):
+    cancelled = _job("cancelled", message="the stage changed", output=_no_output())
+    text = _job_text(bridge, tmp_path, cancelled)
+    assert "state = cancelled\nelapsed = 10m 12s\nmessage = the stage changed" in text
+    cancelling = _job("cancelling", message="cancel_job was called", cancelling=75.0)
+    text = _job_text(bridge, tmp_path, cancelling)
+    assert "cancelling = for 1m 15s, its cleanup running" in text
+    assert "until cancel_job cancels it again" in text
+    assert "message =" not in text
+
+
+def test_get_job_gives_another_kind_s_result_whole(bridge: MockIsaacServer, tmp_path: Path):
+    sweep = _job("completed", kind="sweep", result={"manifest": "shots/manifest.json"}, output=_no_output())
+    assert 'Result:\n{\n  "manifest": "shots/manifest.json"\n}' in _job_text(bridge, tmp_path, sweep)
+
+
+def test_get_job_names_no_return_value_a_script_didn_t_set(bridge: MockIsaacServer, tmp_path: Path):
+    done = _job("completed", result={"return_value": None}, output=_no_output())
+    assert "Return value: none" in _job_text(bridge, tmp_path, done)
+
+
+@pytest.mark.parametrize("args", [{}, {"code": "  "}, {"code": "await x", "file": "bake.py"}])
+def test_run_script_job_needs_one_of_code_and_file_before_any_request(
+    args: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path
+):
+    erred, text, calls = _call(bridge, tmp_path, "run_script_job", args)
+    assert erred
+    assert "Give the script as code or as file, one of them" in text
+    assert calls == []
+
+
+def test_run_script_job_sends_a_file_alone(bridge: MockIsaacServer, tmp_path: Path):
+    bridge.set_response("/jobs/script", {"status": "success", "result": {"id": "j1", "kind": "script"}})
+    erred, _text, calls = _call(bridge, tmp_path, "run_script_job", {"file": " D:/bakes/bake.py "})
+    assert not erred
+    assert calls == [("/jobs/script", {"file": "D:/bakes/bake.py"})]
+
+
+def test_run_script_job_passes_on_the_refusal_of_a_script_that_never_awaits(bridge: MockIsaacServer, tmp_path: Path):
+    refusal = "This script never awaits, so it would hold Kit's main thread from its start to its end"
+    bridge.set_response("/jobs/script", {"status": "error", "error": refusal})
+    erred, text, _calls = _call(bridge, tmp_path, "run_script_job", {"code": "for i in range(9): pass"})
+    assert erred
+    assert refusal in text
+
+
+@pytest.mark.parametrize(
+    ("was", "says"),
+    [
+        ("cancelling", "Job j3 cancelled again at its next await"),
+        ("completed", "Job j3 had already ended (completed): nothing to cancel"),
+    ],
+)
+def test_cancel_job_says_a_second_cancel_and_an_ended_job(was: str, says: str, bridge: MockIsaacServer, tmp_path: Path):
+    answer = {"id": "j3", "kind": "script", "state": was, "was": was, "message": ""}
+    bridge.set_response("/jobs/cancel", {"status": "success", "result": answer})
+    erred, text, _calls = _call(bridge, tmp_path, "cancel_job", {"job_id": "j3"})
+    assert not erred
+    assert text.startswith(says)
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "field"),
+    [("get_job", {"wait": 101}, "wait"), ("get_job", {"wait": -1}, "wait"), ("cancel_job", {}, "job_id")],
+)
+def test_a_wait_past_100_s_or_a_cancel_without_an_id_is_refused_before_any_request(
+    tool: str, args: dict[str, Any], field: str, bridge: MockIsaacServer, tmp_path: Path
+):
+    erred, text, calls = _call(bridge, tmp_path, tool, args)
+    assert erred
+    assert field in text
+    assert calls == []
+
+
+def test_get_sim_state_names_a_running_job(bridge: MockIsaacServer, tmp_path: Path):
+    job = {"id": "j3", "kind": "script", "state": "working", "elapsed": 252.4}
+    case = Case(
+        "get_sim_state", {}, "/sim/state", {"state": "playing", "job": job}, {}, ("job = j3 (script, working, 4m 12s)",)
+    )
+    _check(case, bridge, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("seconds", "said"), [(0.04, "0.0s"), (12.34, "12.3s"), (59.99, "60.0s"), (252.4, "4m 12s"), (3723, "1h 2m 3s")]
+)
+def test_a_job_s_time_reads_in_seconds_minutes_and_hours(seconds: float, said: str):
+    assert duration(seconds) == said

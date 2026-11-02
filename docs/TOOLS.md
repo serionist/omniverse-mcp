@@ -3,8 +3,8 @@
 Reference for every tool the MCP server provides.
 
 - **Where answers go:** a text answer over 1,000 characters is written to `mcp_output/responses/` and the tool
-  returns its path; `get_mesh_stats` and `get_robot_info` write only their long part there, the tree, or the Joints
-  list and the joint states that don't fit, and keep the rest inline. Images go to `mcp_output/captures/`, recordings to `mcp_output/recordings/`, and
+  returns its path; `get_mesh_stats`, `get_robot_info` and `get_job` write only their long part there, the tree, the
+  Joints list and the joint states that don't fit, or a job's lines and output, and keep the rest inline. Images go to `mcp_output/captures/`, recordings to `mcp_output/recordings/`, and
   `get_scene_tree`'s dump, with properties or a filter, to `mcp_output/scene_dump.txt`, which the next dump replaces.
   A file under the server's working folder is given by its relative path, any other by its absolute path. Open them
   with your client's file tool.
@@ -35,16 +35,17 @@ Reference for every tool the MCP server provides.
 | open a USD file as the stage, or start an empty one | `open_scene`, `new_scene` |
 | find out why something failed | `get_logs` |
 | do anything else in Kit's Python | `execute_script`; `manage_extensions` for Kit's extensions |
+| run a script that takes minutes, and watch or cancel it | `run_script_job`, `get_job`, `cancel_job` |
 
 Each tool tells the client what it does to the Kit app, as MCP tool annotations. A client may use them to ask before
 it runs one; they are hints, never security (the bridge's token is what keeps others out).
 
 | Hints | What they mean | Tools |
 |---|---|---|
-| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs and while it is kept for the next capture or recording, up to 30 s after, and leaves Kit's unsaved-edits flag set; the bridge's saves and Kit's own Save leave it out of the file; `get_performance` lifts Kit's frame-rate limiter while it measures, and puts it back) | `get_scene_tree`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_performance`, `get_recording_frame`, `raycast`, `get_logs` |
-| not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `set_prim_attribute`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `inspect_prim`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug` |
+| read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs and while it is kept for the next capture or recording, up to 30 s after, and leaves Kit's unsaved-edits flag set; the bridge's saves and Kit's own Save leave it out of the file; `get_performance` lifts Kit's frame-rate limiter while it measures, and puts it back) | `get_scene_tree`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_performance`, `get_recording_frame`, `raycast`, `get_logs`, `get_job` |
+| not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `set_prim_attribute`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `inspect_prim`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug`, `cancel_job` |
 | destructive | Deletes or overwrites prims, the whole stage, or USD files on disk | `delete_prim`, `save_scene`, `open_scene`, `new_scene`, `flatten_usd`, `export_prim_as_file`, `update_material_paths` |
-| destructive, open world | Runs Python or loads extensions inside the Kit app: anything can happen | `execute_script`, `manage_extensions` |
+| destructive, open world | Runs Python or loads extensions inside the Kit app: anything can happen | `execute_script`, `run_script_job`, `manage_extensions` |
 
 `set_physics_properties` deletes one prim of its own: the physics material an extension of 0.3.0 or older gave the
 prim, once no prim binds it and after its values have moved into the prim's own. Nothing is lost, so it stays not
@@ -67,7 +68,7 @@ A value out of a parameter's range, or not one of its choices, is refused before
 - [Debug Tools](#debug-tools) (1 tool)
 - [Extension Tools](#extension-tools) (1 tool)
 - [Logging Tools](#logging-tools) (1 tool)
-- [Script Execution](#script-execution) (1 tool)
+- [Script Execution](#script-execution) (4 tools)
 - [MCP Resources](#mcp-resources)
 
 ---
@@ -1076,6 +1077,8 @@ Get the current simulation state. No parameters.
   (the three read `unknown` with an extension of 0.3.0 or older: a bug report then asks the user, Help > About)
 - `extension_version`, `server_version` - the Kit extension's release, from the bridge's handshake, and this server's
 - `recording_note` - only while a recording runs whose frames stopped early: why
+- `job` - only while a job [`run_script_job`](#run_script_job) started runs: its id, kind, state and time, as
+  `j3 (script, working, 4m 12s)`
 - `note` - only when the bridge's release differs from the server's: the command that installs the matching one
 
 **When to use:** Always call this first to understand the environment (especially up axis and whether physics is running).
@@ -1569,7 +1572,11 @@ Set `result = <value>` to return JSON-serialisable data to the AI assistant; any
 stdout and stderr come back too, and an exception as an error with the traceback's last lines. The script runs on
 Kit's main thread, so one that blocks freezes Kit: the call gives up after 120 s, and the script runs on. Kit then
 answers nothing, `/health` included, so the call fails with "Kit at ... stopped answering", and every later call fails
-the same way in 5 s until the script ends and Kit answers again.
+the same way in 5 s until the script ends and Kit answers again. Work that may outlast 120 s, such as settling many
+objects under physics, belongs in a job: [`run_script_job`](#run_script_job).
+
+A script's output and its traceback are its own: what another call or a job prints meanwhile stays out of it, and a
+traceback's line numbers are the script's, as `File "<string>", line 3`.
 
 **Example (sync):**
 ```python
@@ -1611,6 +1618,94 @@ Each method returns the full handler response dict with `"status"` and `"result"
 **When to use:** Complex operations not covered by other tools - custom physics queries, batch operations, accessing APIs that don't have dedicated tools. Use async `mcp.*` methods when you need to chain multiple MCP operations in a single script (e.g., capture viewport, analyse, reposition, recapture).
 
 **Fallback strategy:** Every MCP tool in this server can be replicated via `execute_script` using the Omniverse Python API directly. If any tool returns an error, you can fall back to writing the equivalent Python code. Use Context7 (`isaac-sim/isaacsim`) or the [NVIDIA Omniverse docs](https://docs.omniverse.nvidia.com/) to look up the correct API rather than guessing.
+
+---
+
+### `run_script_job`
+
+Start a long Python script inside the Kit app as a job, and answer its id at once, such as
+`Job j3 started (script); read it with get_job("j3")`: for work that may outlast `execute_script`'s 120 s, such as
+dropping and settling many objects under physics one after another.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `code` | string | `""` | Python to run as the job |
+| `file` | string | `""` | A `.py` file on the Kit app's machine, read there, so a long script needn't pass through the conversation |
+
+Give one of `code` and `file`. The script has `execute_script`'s names (`omni`, `carb`, `Usd`, `UsdGeom`, `UsdLux`,
+`UsdPhysics`, `Sdf`, `Gf`, `mcp`); `result = <value>` is its return value. A file is read as Python reads a source
+file, its encoding included, and its tracebacks name its path and lines.
+
+- **Where it runs:** on Kit's main thread, as a task of Kit's loop, between Kit's updates: Kit renders, physics steps
+  and other tools answer while it runs.
+- **It must await,** once a step: `await omni.kit.app.get_app().next_update_async()` lets one update pass, physics
+  stepping while the timeline plays. A script that never awaits at its top level is refused before it starts, since
+  its loops would hold Kit from its start to its end; a coroutine the script only defines or schedules doesn't count:
+  await it at the top level, `await main()`. One that awaits once and then loops, or calls Isaac Sim's `world.step()`, holds Kit too:
+  no tool, `get_job` included, can read or cancel it until it ends; `get_job` then gives its result as usual.
+- **Progress:** each line it prints is progress `get_job` shows, both streams in order, the last 200 kept; a line
+  redrawn with a carriage return, as a progress bar is, reads as its latest state.
+- **One at a time:** a second start is refused, naming the job running. The last job is kept, for `get_job`, until
+  the next starts; Kit's restart ends a job.
+- **The stage:** a script job runs on through a stage change, since a script may open stages itself. Let a job run
+  alone: a tool that changes the stage while it runs changes it under the job.
+
+```python
+# Drop each stack in turn and keep where it settles. STACKS: the stacks' prim paths, set above.
+import omni.kit.app
+import omni.timeline
+
+app = omni.kit.app.get_app()
+timeline = omni.timeline.get_timeline_interface()
+poses = {}
+for i, path in enumerate(STACKS):
+    timeline.play()
+    for _ in range(180):  # about 3 s of simulation at 60 updates a second
+        await app.next_update_async()
+    timeline.pause()
+    poses[path] = (await mcp.prim_bounds(path))["result"]["center"]
+    print(f"{i + 1} of {len(STACKS)} stacks settled")
+result = poses
+```
+
+---
+
+### `get_job`
+
+Read a job `run_script_job` started. Reading changes nothing in Kit.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `job_id` | string | `""` | The job's id, such as `j3`; the running job, or the last one, when empty |
+| `wait` | float | `0` | Seconds to wait, 0 to 100, for the job to end or change state; other calls through this server wait meanwhile |
+
+**Returns:** `job`, `state`, `elapsed`, `last` (the last line it printed) and, while it runs, the lines it printed
+since the last read, with the count of all (`lines = 37 printed, 2 since the last read:`), the last 200 when more
+came. Once it ends: a script's return value, or its `error` and the traceback's last lines, and what it printed, each
+stream's last 200 lines, saying so when there were more. Over 1,000 characters, the summary stays inline (the state,
+the time, the last line, the count of lines, a short return value, the error) and the rest goes to a file the answer
+names.
+
+- **States,** as an MCP task's: `working`; `cancelling`, after a cancel while its own cleanup runs, with how long;
+  `completed`; `failed`; `cancelled`, with why in `message` (`cancel_job was called`, `the extension shut down`).
+- **`wait`** returns early only when the job ends or changes state, not on a new line, so a job that prints a line a
+  step can be waited on without a call every few seconds. It stays under the server's 120 s for a call.
+- **No `job_id`** reads the running or last job, so an agent whose conversation was compacted finds it again.
+
+---
+
+### `cancel_job`
+
+Cancel a job at its next `await`.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `job_id` | string | required | The job to cancel, such as `j3` |
+
+The job reads `cancelling`, and holds the one slot, until its own cleanup (its `finally` blocks) has run, then
+`cancelled`; `get_job(job_id, wait=10)` reads it. Its code gets `asyncio.CancelledError` with the reason as its
+message. A script whose bare `except:` caught the cancel runs on: `cancel_job` again cancels again, and `get_job` says
+how long it has been cancelling. A job that has ended is left as it is.
 
 ---
 

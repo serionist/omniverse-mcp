@@ -49,5 +49,6 @@ Every request needs the bridge token; requests from web pages are refused. See t
 
 ## Endpoints
 
-The routes cover scene editing, robots, simulation, viewport capture, physics, geometry, USD files and variants. See
+The routes cover scene editing, robots, simulation, viewport capture, physics, geometry, USD files and variants,
+scripts, and long scripts run as jobs while Kit renders. See
 [docs/ARCHITECTURE.md](https://github.com/serionist/omniverse-mcp/blob/main/docs/ARCHITECTURE.md) for the list.

@@ -70,6 +70,9 @@ PLUGIN_NAME = "omniverse-mcp"
 # ANSWER_KEPT characters while a session runs.
 ANSWER_CHARS = 600
 ANSWER_KEPT = 4000
+# A call's arguments as a judge's prompt quotes them: ANSWER_CHARS, but a job's script longer, since a judge confirms
+# a job's order and timing from its code (#158).
+ARGUMENT_CHARS = {"run_script_job": 4000}
 # The runner's play before a judge (an outcome's Play: line): a wall-clock limit of PLAY_TIMES its seconds plus
 # PLAY_SLACK, read every PLAY_EVERY seconds.
 PLAY_TIMES = 4
@@ -476,11 +479,12 @@ def judge_prompt(case: OutcomeCase, agent: Outcome, files: Sequence[Path], port:
         "",
         case.verify,
         "",
-        f"The assistant's calls, in order, each answer cut to {ANSWER_CHARS} characters:",
+        f"The assistant's calls, in order, each one's arguments and answer cut to {ANSWER_CHARS} characters, "
+        f"a run_script_job's arguments to {ARGUMENT_CHARS['run_script_job']}:",
         "",
     ]
     for n, call in enumerate(agent.calls, 1):
-        lines.append(f"{n}. {call['name']} {_cut(call['input'], ANSWER_CHARS)}")
+        lines.append(f"{n}. {call['name']} {_cut(call['input'], ARGUMENT_CHARS.get(call['name'], ANSWER_CHARS))}")
         lines.append(f"   -> {_cut(call['answer'], ANSWER_CHARS)}" if call["answer"] else "   -> (no answer came)")
     if not agent.calls:
         lines.append("none")

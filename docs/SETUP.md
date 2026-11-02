@@ -64,8 +64,8 @@ inline either way.
 
 **Allowing tools without prompts in Claude Code:** the plugin's tools are `mcp__plugin_omniverse-mcp_omniverse__<tool>`,
 and a server added by hand gives `mcp__omniverse__<tool>`. Add the read-only ones to `permissions.allow` in
-`.claude/settings.json`; the [tool reference](TOOLS.md) lists which those are. Keep `execute_script` and
-`manage_extensions` asking: they run code inside Kit.
+`.claude/settings.json`; the [tool reference](TOOLS.md) lists which those are. Keep `execute_script`,
+`run_script_job` and `manage_extensions` asking: they run code inside Kit.
 
 ## From Kit's community registry
 

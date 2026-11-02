@@ -107,6 +107,8 @@ def test_every_tool_and_parameter_is_described(listed):
         ("get_performance", "a stopped timeline gives no physics numbers"),
         # fps is no render rate, and the tool that measures one is named (#156).
         ("get_sim_state", "get_performance measures the frame rate"),
+        # A script that only defines or schedules its coroutine is refused, and the agent learns why first (#158).
+        ("run_script_job", "a coroutine the script only defines or schedules doesn't count: await it at the top level"),
     ],
 )
 def test_a_description_says_what_the_tool_now_does(listed, tool: str, says: str):

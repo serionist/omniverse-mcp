@@ -16,7 +16,8 @@ Each outcome's fields, in this order:
   `set_material`, and `viewport_light` (a light rig or the camera light) or a light whose intensity
   `set_prim_attribute` sets; O3, `get_mesh_stats`; O4, `get_prim_properties`, then `set_physics_properties` with
   `collision=True` (or a friction or restitution, which adds the collider too); O5, `inspect_prim` or `set_camera`
-  with `capture_viewport`; O6, `get_logs`.
+  with `capture_viewport`; O6, `get_logs`; O7, `run_script_job` with a script that awaits each update, then `get_job`
+  until it ends, work that outlasts the 120 s an `execute_script` call gets (#158).
 - **Play:** `none`, or seconds: after the agent, the runner plays the simulation that long and pauses it, so the
   judge reads where physics put things.
 
@@ -218,3 +219,49 @@ Verify:
 Calls: no execute_script
 
 Play: none
+
+## O7: Release the Crates One at a Time
+
+Given:
+
+```python
+import omni.usd
+from pxr import Gf, UsdGeom, UsdPhysics
+
+stage = omni.usd.get_context().get_stage()
+UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")
+floor = UsdGeom.Cube.Define(stage, "/World/Floor")
+floor.CreateSizeAttr(1.0)
+UsdGeom.XformCommonAPI(floor).SetTranslate(Gf.Vec3d(0.0, 0.0, -0.05))
+UsdGeom.XformCommonAPI(floor).SetScale(Gf.Vec3f(12.0, 10.0, 0.1))
+UsdPhysics.CollisionAPI.Apply(floor.GetPrim())
+UsdGeom.Xform.Define(stage, "/World/Crates")
+for i in range(150):
+    # 15 rows of 10, 0.6 m apart, each held 1 m up by a crane: a kinematic body stays where it is put.
+    crate = UsdGeom.Cube.Define(stage, f"/World/Crates/Crate_{i:03d}")
+    crate.CreateSizeAttr(0.3)
+    UsdGeom.XformCommonAPI(crate).SetTranslate(Gf.Vec3d(-2.7 + 0.6 * (i % 10), -4.2 + 0.6 * (i // 10), 1.0))
+    UsdPhysics.CollisionAPI.Apply(crate.GetPrim())
+    UsdPhysics.RigidBodyAPI.Apply(crate.GetPrim()).CreateKinematicEnabledAttr(True)
+```
+
+Ask: The 150 crates under /World/Crates hang 1 m above the floor, held by a crane. Release them one at a time,
+Crate_000 first, letting each fall and settle for 3 seconds of simulation before you release the next, and tell me
+where they came to rest.
+
+Verify:
+- No crate under `/World/Crates` is held any more: none has `physics:kinematicEnabled` true
+  (`get_scene_tree` of `/World/Crates` with `include_properties` writes every crate's values to one file)
+- After the runner's play, each crate rests on the floor: its bottom (`get_prim_bounds`) within 1 cm of the floor's
+  top, at 0, and its centre within 5 cm in X and Y of where it hung, Crate_i at x = -2.7 + 0.6 (i mod 10),
+  y = -4.2 + 0.6 (i div 10); check at least Crate_000, Crate_074 and Crate_149. The runner stops the timeline before
+  the judge, which puts every crate back where it hung, then plays 3 s, which drops each crate that was released
+- The crates were released one at a time, in order, each after the one before had 3 s of simulation: from the
+  assistant's calls, where a job's code is cut to 4,000 characters, and from what the job printed, which `get_job()`
+  gives once it has finished, each stream's last 200 lines. Some 450 s of simulation in all, minutes at any speed
+  Kit runs, more than one `execute_script` call's 120 s
+- The answer says where they came to rest: on the floor under where each hung, as a list, a range or a summary
+
+Calls: no execute_script
+
+Play: 3 s
