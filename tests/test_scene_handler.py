@@ -751,6 +751,16 @@ def test_prim_properties_json_gives_the_applied_schemas_and_a_bindings_target(sc
     assert "<unreadable>" not in props.values()
 
 
+def test_prim_properties_json_gives_the_extent_a_resized_cube_computes(scene, kit):
+    # create_prim's Cube authors no extent; the JSON gave the schema's ±1 beside size = 0.5 (#163).
+    UsdGeom.Cube.Define(kit.stage, "/World/Small").CreateSizeAttr(0.5)
+
+    r = _run(scene, "handle_prim_properties", prim_path="/World/Small")
+
+    assert r["status"] == "success", r
+    assert r["result"]["properties"]["extent"] == "[(-0.25, -0.25, -0.25), (0.25, 0.25, 0.25)]"
+
+
 def test_scene_tree_json_with_properties_gives_a_relationships_targets(scene, kit):
     _bound_cube(kit.stage)
 

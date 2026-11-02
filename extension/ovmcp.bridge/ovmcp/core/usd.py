@@ -16,6 +16,8 @@
 - Matrix4d.Factor is typed as a bare tuple; its first item says whether the matrix could be factored.
 - PrimCompositionQuery.GetCompositionArcs is typed with a class pxr doesn't have (CompositionArc at run time), whose
   GetIntroducingLayer is None for the root arc; a Pcp node's layerStack is untyped.
+- Boundable.ComputeExtentFromPlugins is typed as always giving a box; it gives None for a shape it can't size (a Mesh
+  without points, a type with no plugin).
 """
 
 from collections.abc import Callable, Sequence, Sized
@@ -61,6 +63,12 @@ def has_api(prim: Usd.Prim, schema: type) -> bool:
 def children(prim: Usd.Prim) -> list[Usd.Prim]:
     """The prim's children as GetChildren gives them: active, loaded, defined and not abstract, in order."""
     return [prim.GetChild(name) for name in prim.GetChildrenNames()]
+
+
+def plugin_extent(prim: Usd.Prim) -> object:
+    """The box prim's extent plugin computes at the default time, as Hydra and get_prim_bounds use it when the prim
+    authors none, or None when the plugin can't size it."""
+    return cast("object", UsdGeom.Boundable.ComputeExtentFromPlugins(UsdGeom.Boundable(prim), Usd.TimeCode.Default()))
 
 
 def prim_spec(layer: Sdf.Layer, path: Sdf.Path) -> Sdf.PrimSpec | None:

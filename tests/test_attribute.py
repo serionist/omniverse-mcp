@@ -357,6 +357,16 @@ def test_a_shape_without_an_authored_extent_keeps_none(stage):
     assert _size(sphere.GetPrim()) == [6.0, 6.0, 6.0]
 
 
+def test_an_unauthored_extent_written_gives_the_computed_box_as_before(stage):
+    # The prim block shows the box a resized cube computes; the answer's "was" read the schema's ±1 (#163).
+    cube = UsdGeom.Cube.Define(stage, "/World/Small")
+    cube.CreateSizeAttr(0.5)
+
+    written = set_attribute(cube.GetPrim(), "extent", [[-0.25, -0.25, -0.25], [0.25, 0.25, 0.25]])
+
+    assert shown(written.before) == shown(written.after)
+
+
 def test_a_mesh_with_no_points_keeps_its_extent(stage):
     mesh = UsdGeom.Mesh.Define(stage, "/World/Empty")
     mesh.CreateExtentAttr([(-1, -1, -1), (1, 1, 1)])

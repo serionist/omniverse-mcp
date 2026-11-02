@@ -7,7 +7,7 @@ visibility, save/new, mesh stats, and face count tree.
 
 import math
 import os
-from typing import Any
+from typing import Any, cast
 
 import omni.kit.app
 import omni.usd
@@ -17,7 +17,13 @@ from ovmcp.core import layers
 from ovmcp.core.attribute import set_attribute, shown
 from ovmcp.core.bounds import world_bbox
 from ovmcp.core.deletion import why_kept
-from ovmcp.core.formatter import format_prim_block, format_scene_dump, format_scene_tree, relationship_targets
+from ovmcp.core.formatter import (
+    attribute_value,
+    format_prim_block,
+    format_scene_dump,
+    format_scene_tree,
+    relationship_targets,
+)
 from ovmcp.core.material import ensure_material, set_surface
 from ovmcp.core.metrics import Brought, StepError, bring_to_stage, not_brought
 from ovmcp.core.usd import prim_spec
@@ -139,13 +145,18 @@ async def handle_scene_dump(body: dict) -> dict:
 
 
 def _json_properties(prim: Usd.Prim) -> dict[str, Any]:
-    """Each property's value for the JSON forms: an attribute's as _serialize_value gives it, null when unset; a
-    relationship's target paths, [] when it has none, where both read <unreadable> before (#149)."""
+    """Each property's value for the JSON forms: an attribute's as _serialize_value gives it, null when unset, and a
+    shape's unauthored extent the box it computes, as the text gives it (#163); a relationship's target paths, [] when
+    it has none, where both read <unreadable> before (#149)."""
     props: dict[str, Any] = {}
     for prop in prim.GetProperties():
         try:
             targets = relationship_targets(prop)
-            props[prop.GetName()] = targets if targets is not None else _serialize_value(prop.Get())
+            # A prim's properties are its relationships, which have targets, and its attributes.
+            if targets is not None:
+                props[prop.GetName()] = targets
+            else:
+                props[prop.GetName()] = _serialize_value(attribute_value(cast("Usd.Attribute", prop))[0])
         except Exception:
             props[prop.GetName()] = "<unreadable>"
     return props

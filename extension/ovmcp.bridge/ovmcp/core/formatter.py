@@ -20,7 +20,7 @@ from typing import cast
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 
 from .bounds import center_and_size, world_bbox
-from .usd import Vec, children, has_api, is_a, rotation_of
+from .usd import Vec, children, has_api, is_a, plugin_extent, rotation_of
 
 
 def _join(v: Vec, n: int) -> str:
@@ -71,6 +71,22 @@ def relationship_targets(prop: Usd.Property) -> list[str] | None:
     if not isinstance(prop, Usd.Relationship):
         return None
     return [str(path) for path in prop.GetTargets()]
+
+
+COMPUTED = " (computed: none authored)"
+
+
+def attribute_value(attr: Usd.Attribute) -> tuple[object, bool]:
+    """An attribute's value as a reader should see it, and whether it was computed. A shape's `extent` that the prim
+    doesn't author reads as its schema's fallback, a Cube's ±1 whatever its size, where Hydra and get_prim_bounds use
+    the box the shape computes; that box is given instead (#163). Every other attribute is its value, None when
+    unset."""
+    prim = attr.GetPrim()
+    if attr.GetName() == "extent" and not attr.HasAuthoredValue() and is_a(prim, UsdGeom.Boundable):
+        box = plugin_extent(prim)
+        if box is not None:
+            return box, True
+    return attr.Get(), False
 
 
 def format_prim_block(
@@ -159,9 +175,9 @@ def format_prim_block(
                     lines.append(f"{name} = {format_value(targets)}")
                 continue
             try:
-                val = prop.Get()
+                val, computed = attribute_value(prop)
                 if val is not None:
-                    lines.append(f"{name} = {format_value(val)}")
+                    lines.append(f"{name} = {format_value(val)}{COMPUTED if computed else ''}")
             except Exception:
                 lines.append(f"{name} = <unreadable>")
 
@@ -249,9 +265,9 @@ def format_scene_tree(
                 if not isinstance(prop, Usd.Attribute):
                     continue
                 try:
-                    val = prop.Get()
+                    val, computed = attribute_value(prop)
                     if val is not None:
-                        block.append(f"{prop.GetName()} = {format_value(val)}")
+                        block.append(f"{prop.GetName()} = {format_value(val)}{COMPUTED if computed else ''}")
                 except Exception:
                     pass
         below = children(prim)

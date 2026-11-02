@@ -5,6 +5,7 @@ from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics, UsdShade
 
 from ovmcp.core import formatter
 from ovmcp.core.formatter import (
+    attribute_value,
     format_frame_state,
     format_prim_block,
     format_scene_dump,
@@ -262,6 +263,50 @@ def test_a_frame_with_properties_lists_api_schemas_and_targets(stage):
 
     assert "api_schemas = []" in lines
     assert "material:binding = /World/Looks/M" in lines
+
+
+def test_an_unauthored_extent_is_the_box_the_shape_computes_not_the_schemas_fallback(stage):
+    # create_prim's Cube authors no extent: the line read the fallback, ±1, beside size = 0.5, and an outcome's judge
+    # saw a 2 m cube that get_prim_bounds measured at 0.5 m (#163).
+    cube = UsdGeom.Cube.Define(stage, "/World/Small")
+    cube.CreateSizeAttr(0.5)
+    ball = UsdGeom.Sphere.Define(stage, "/World/Big")
+    ball.CreateRadiusAttr(3.0)
+
+    small = format_prim_block(cube.GetPrim()).splitlines()
+    big = format_prim_block(ball.GetPrim()).splitlines()
+
+    assert "extent = [(-0.25, -0.25, -0.25), (0.25, 0.25, 0.25)] (computed: none authored)" in small
+    assert "extent = [(-3, -3, -3), (3, 3, 3)] (computed: none authored)" in big
+
+
+def test_an_authored_extent_is_shown_as_it_is(stage):
+    cube = UsdGeom.Cube.Define(stage, "/World/Small")
+    cube.CreateSizeAttr(0.5)
+    cube.CreateExtentAttr([(-1, -1, -1), (1, 1, 1)])  # stale, but authored: what the file says
+
+    assert "extent = [(-1, -1, -1), (1, 1, 1)]" in format_prim_block(cube.GetPrim()).splitlines()
+
+
+def test_attribute_value_computes_only_an_unauthored_extent(stage):
+    cube = stage.GetPrimAtPath("/World/Cube")
+
+    assert attribute_value(cube.GetAttribute("size")) == (2.0, False)
+    value, computed = attribute_value(cube.GetAttribute("extent"))
+    assert computed
+    assert format_value(value) == "[(-1, -1, -1), (1, 1, 1)]"
+    # A prim with an extent attribute that isn't a shape has nothing to compute it from.
+    odd = stage.DefinePrim("/World/Odd")
+    attr = odd.CreateAttribute("extent", Sdf.ValueTypeNames.Float3Array)
+    assert attribute_value(attr) == (None, False)
+
+
+def test_a_scene_tree_with_properties_gives_the_computed_extent(stage):
+    UsdGeom.Cube.Define(stage, "/World/Small").CreateSizeAttr(0.5)
+
+    text, _ = format_scene_tree(stage, "/World/Small", 0, include_properties=True)
+
+    assert "extent = [(-0.25, -0.25, -0.25), (0.25, 0.25, 0.25)] (computed: none authored)" in text.splitlines()
 
 
 def test_a_property_filter_keeps_matching_names(stage):

@@ -970,6 +970,29 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertFalse(erred, text)
         self.assertIn("rot = 0.9239, 0.0000, 0.3827, 0.0000", text)
 
+    def test_08e_get_prim_properties_gives_a_resized_cubes_computed_extent(self):
+        """create_prim's Cube authors no extent, so its prim block printed the schema's ±1 beside size = 0.5 while
+        get_prim_bounds measured 0.5 m (#163): the block gives the box the size computes, marked as computed."""
+        path = "/World/IntTestExtent"
+        self.addCleanup(self.client.delete_prim, path)
+        self.assertEqual(self.client.create_prim(path, "Cube")["status"], "success")
+        resized = self.client.execute(
+            "from pxr import UsdGeom\n"
+            f"cube = UsdGeom.Cube(omni.usd.get_context().get_stage().GetPrimAtPath({path!r}))\n"
+            "cube.GetSizeAttr().Set(0.5)\n"
+            "result = cube.GetExtentAttr().HasAuthoredValue()"
+        )
+        self.assertEqual(resized["status"], "success", resized)
+        self.assertFalse(resized["result"]["return_value"], "Kit's Cube authors an extent now: the case is gone")
+
+        erred, text = call_tool("get_prim_properties", {"prim_path": path}, self._output_folder())
+
+        self.assertFalse(erred, text)
+        self.assertIn("extent = [(-0.25, -0.25, -0.25), (0.25, 0.25, 0.25)] (computed: none authored)", text)
+        dimensions = self.client.prim_bounds(path)["result"]["dimensions"]
+        for side in dimensions:
+            self.assertAlmostEqual(side, 0.5, places=4)
+
     def test_08d_get_prim_properties_lists_applied_schemas_and_a_bindings_target(self):
         """A material binding read <unreadable> and no schema was listed, so an agent read them with execute_script
         (#149): a cube given a material and a friction lists both schemas and its binding's target, in the text and the

@@ -14,8 +14,8 @@ from typing import cast
 from pxr import Gf, Sdf, Tf, Usd, UsdGeom
 
 from .deletion import instance_of
-from .formatter import format_value
-from .usd import attribute_spec, is_a, prim_spec, spec_has_arcs
+from .formatter import attribute_value, format_value
+from .usd import attribute_spec, is_a, plugin_extent, prim_spec, spec_has_arcs
 from .xform import write_blocker
 
 _DEFAULT = Usd.TimeCode.Default()
@@ -297,10 +297,6 @@ def _holds(spec: Sdf.PrimSpec, session: set[str]) -> bool:
 # ----- the write -----
 
 
-def _plugin_extent(prim: Usd.Prim) -> object:
-    return UsdGeom.Boundable.ComputeExtentFromPlugins(UsdGeom.Boundable(prim), _DEFAULT)
-
-
 def _same_box(a: object, b: object) -> bool:
     first = [list(cast("Iterable[float]", corner)) for corner in cast("Iterable[object]", a)]
     second = [list(cast("Iterable[float]", corner)) for corner in cast("Iterable[object]", b)]
@@ -360,8 +356,9 @@ def set_attribute(prim: Usd.Prim, name: str, value: object, layer: Sdf.Layer | N
     extent_attr = boundable.GetExtentAttr() if boundable is not None else None
     # An unauthored extent USD computes from the size itself; only an authored one can go stale.
     track = extent_attr is not None and name != "extent" and extent_attr.HasAuthoredValue()
-    box_before = _plugin_extent(prim) if track else None
-    before = attr.Get()
+    box_before = plugin_extent(prim) if track else None
+    # As the prim block shows it: an unauthored extent is the box the shape computes, not the schema's ±1 (#163).
+    before = attribute_value(attr)[0]
     undo = _Undo(target, prim.GetPath(), name)
     with Usd.EditContext(stage, Usd.EditTarget(target)):
         if not attr.Set(converted):
@@ -369,7 +366,7 @@ def set_attribute(prim: Usd.Prim, name: str, value: object, layer: Sdf.Layer | N
             raise ValueError(f"USD refused {converted!r} for {prim.GetPath()}'s {name}; nothing was written")
     extent = None
     if track and extent_attr is not None:
-        box_after = _plugin_extent(prim)
+        box_after = plugin_extent(prim)
         if box_before is not None and box_after is not None and not _same_box(box_before, box_after):
             blocked = write_blocker(prim, extent_attr, target)
             if blocked:
