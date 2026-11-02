@@ -56,6 +56,10 @@ Read at `4576d87`.
 | F9 | 16.9 tells the tester to SKIP and call nothing: switching to `omni.debugdraw` needs `choose_backend`, an `ovmcp.*` import the rules forbid, and `test_16_09` covers it | `test_project/scenarios.md:590-594` |
 | F10 | Claude Code 2.1.316 has `--add-dir`, `--allowedTools`, `--disallowedTools`, `--session-id` and `--resume` (which needs session persistence) | `claude --help` |
 | F11 | The scenario-skill plan's step 9 saw two testers judge the same answers differently (15.1 to 15.3) | `docs/plans/2026-11-01-scenario-skill.md`, step 9 |
+| F12 | `--restricted` confines the file tools to the working folders, `--add-dir` ones included; a bare `Read` allow otherwise reaches any path, `outcomes.md` among them | `claude --help` |
+| F13 | An answer over 1,000 characters goes to a file in the server's output folder, and a capture is a file unless `include_image` | `src/omniverse_mcp/server.py:46`, `:144-157`; `handlers/camera.py:148-150` |
+| F14 | The viewport's lighting mode is a Kit setting, not the stage's; `new_scene()` leaves it as it was | `handlers/camera.py:164`, `:180` |
+| F15 | `run_sessions` calls `settle` before every session; `sim_control("stop")` is `timeline.stop()`, and the suite relies on a stop putting a body back where play found it, where a pause keeps it; `sim_control` is not read-only | `tools/scenarios.py:948-950`; `handlers/simulation.py:65-71`; `scenarios.md:182`, `:198`; `tests/test_scenarios.py:1927`; `mcp-tools.json` |
 
 ## Design
 
@@ -77,24 +81,31 @@ Verify:
 - A capture in the answer shows the red cube on the ground, lit: not black
 
 Calls: no execute_script
+
+Play: none
 ````
 
 - **Given:** `none`, or a fenced `python` block the runner sends through `/execute` after `new_scene()`, to build what
-  the request starts from (a scene with a fault, meshes with known counts). The agent never sees it.
+  the request starts from (a scene with a fault, meshes with known counts). The agent never sees it. The parser
+  compiles it with `ast.PyCF_ALLOW_TOP_LEVEL_AWAIT`, as the bridge runs it, so an `await` in it is no error.
 - **Ask:** the request, one paragraph, in a user's words: what they want, never which tool.
 - **Verify:** what the judge checks, each a fact about the stage or the answer, never a prim path the agent chose.
-- **Calls:** `any`, or `no execute_script`, `at most <n>`, or both, comma-separated. The runner checks it (below).
+- **Calls:** `any`, or `no execute_script`. The runner checks it (below). A call limit waits for an outcome that
+  needs one.
+- **Play:** `none`, or `<n> s`: after the agent, the runner plays the simulation that long and pauses, so the judge
+  reads where physics put things (Q2). The judge can't play: `sim_control` isn't read-only, and a stopped stage has
+  every body back where play found it (F15).
 
 The six (Q6):
 
 | ID | Ask, in short | What it measures |
 |---|---|---|
 | O1 | a red 50 cm cube on a ground plane, and a picture | `create_prim`, `set_material`, placing on a ground, and lighting a stage that has none (F6) before the capture |
-| O2 | make the ball fall onto the ground and say how long it takes to land (Given: a 0.2 m sphere 2 m up and a ground, no physics) | `set_physics_properties`, then timing by a tracked recording or steps; Verify: about 0.62 s, within 0.1 s, and the ball resting on the ground |
+| O2 | make the ball fall onto the ground and say how long it takes to land (Given: a 0.2 m sphere 2 m up and a ground, no physics; Play: 2 s) | `set_physics_properties`, then timing by a tracked recording or steps; Verify: the ball has a rigid body and a collider, the ground a collider; after the runner's play the ball's bottom is within 1 cm of the ground's top; the answer says about 0.62 s, within 0.1 s |
 | O3 | which part under `/World/Machine` has the most triangles, and how many the machine has (Given: meshes of known counts in three groups) | `get_mesh_stats` over the tree; Verify: the right part and the exact total |
-| O4 | my cube falls through the floor when I press play: find out why and fix it (Given: a floor without a collider, a cube with one and a rigid body) | reading physics properties, then `set_physics_properties`; Verify: the floor collides, the cube rests on it after 2 s of play, the answer names the missing collider |
+| O4 | my cube falls through the floor when I press play: find out why and fix it (Given: a floor without a collider, a cube with one and a rigid body; Play: 2 s) | reading physics properties, then `set_physics_properties`; Verify: the floor has a collider, collision on; after the runner's play the cube's bottom is within 1 cm of the floor's top; the answer names the missing collider |
 | O5 | show me `/World/Table` from above and from the side (Given: a table of boxes, lit) | `inspect_prim` or `set_camera` with captures; Verify: two captures, one looking down, one from the side, the table centred in each |
-| O6 | did anything report an error in the last minute, and what (Given: a `carb.log_error` line and a warning) | `get_logs`; Verify: the answer quotes the error and doesn't call the warning an error |
+| O6 | what errors Kit has logged most recently, and what they say (Given: a `carb.log_error` line and a warning, each with a marker of the run's own) | `get_logs`; Verify: the answer quotes the Given's error, and doesn't call its warning an error; naming an older error as well, such as 24.6's in a full run, is no fault, since `get_logs` gives no times |
 
 Every `Calls:` line is `no execute_script` except O2's, `any`: timing a fall without code is possible through a
 tracked recording, but a user's agent that steps with code isn't wrong.
@@ -105,23 +116,37 @@ tracked recording, but a user's agent that steps with code isn't wrong.
 with `--phases` runs none unless `--outcomes` names them (Q4). `--phases none` runs outcomes alone. They come after
 the scripted halves and before the cleanup, which `plan` keeps last.
 
-Each outcome is three steps:
+Each outcome is three steps, four with a `Play:` line:
 
-1. **Prepare,** by the runner through `BridgeClient`, after `settle`: `new_scene()`, then the Given code with
-   `execute`. A refusal or an error makes the row NOT RUN with what Kit said, and no session starts.
-2. **The agent,** session `outcome-O1`: the tester's command line (F3), with `test_project/assistant.md` appended in
-   place of the tester's rules, and the Ask as its prompt, alone. Its skill loads and every `mcp__omniverse__` call,
-   name, input and answer, are read from its stream as today (F4).
-3. **The judge,** session `judge-O1`, on the stage the agent left: `test_project/AGENTS.md` as today, its new judging
+1. **Prepare,** by the runner through `BridgeClient`, after `settle`: `new_scene()`, the viewport's lighting set to
+   `stage` with `viewport_light("set", mode="stage")` (the mode is a Kit setting, which `new_scene()` leaves as an
+   earlier phase or outcome set it), then the Given code with `execute`. A refusal or an error makes the row NOT RUN
+   with what Kit said, and no session starts.
+2. **The agent,** session `outcome-O1`: the tester's command line (F3) with `--restricted`, which confines `Read`,
+   `Grep` and `Glob` to its working folder, its own `mcp_output/outcome-O1/`: `outcomes.md`, the judging rules and
+   earlier runs' judges stay out of its reach. `test_project/assistant.md` is appended in place of the tester's rules,
+   and the Ask is its prompt, alone. Its skill loads and every `mcp__omniverse__` call, name, input and answer, are
+   read from its stream as today (F4).
+3. **Play,** with a `Play:` line, by the runner through `BridgeClient`: `settle` (a stop puts bodies back where the
+   agent's own play found them, and ends a recording it left), then `sim_control("play")`, `sim_state` read until its
+   `time` has moved on by the line's seconds, within a wall-clock limit of four times that plus 10 s, then
+   `sim_control("pause")`. The same play every run, whatever the agent did. A play that doesn't get there makes the
+   row NOT RUN with what `sim_state` said, and the judge doesn't start.
+4. **The judge,** session `judge-O1`. Without a `Play:` line it starts after `settle`, as every session does, on the
+   stage the agent authored; with one, it starts with no `settle`, on the paused stage, and the next session's
+   `settle` stops it. `test_project/AGENTS.md` as today, its new judging
    section included; built-in tools `Read,Grep,Glob` (no `Skill`); `--allowedTools` the ten read-only tools (F7),
    read from `tests/fixtures/mcp-tools.json` so a new read-only tool joins on its own; `--disallowedTools` the rest,
-   so it can't call them even by mistake. Its working folder is the agent's `mcp_output/outcome-O1/`, so `Read`
-   reaches the agent's captures; its own server writes to `mcp_output/judge-O1/`. Its prompt: the Ask, the Verify
-   lines, the agent's calls in order, each with its input and the first 600 characters of its answer, the agent's last
-   message, and the capture files the agent's server wrote. It answers the usual one-row table.
+   so it can't call them even by mistake. Its working folder is its own server's output folder,
+   `mcp_output/judge-O1/`, where its long answers and captures land (an answer over 1,000 characters goes to a file),
+   with `--restricted` and `--add-dir` the agent's folder, so `Read` reaches both and nothing else. Its prompt: the
+   Ask, the Verify lines, the agent's calls in order, each with its input and the first 600 characters of its answer,
+   the agent's last message, and the files the agent's server wrote. It answers the usual one-row table.
+   - **The init check per kind:** a judge whose first event lists a tool outside `Read`, `Grep`, `Glob` and its
+     allowed list is stopped, as a tester with a foreign server is today; read-only is then checked, not only asked.
 
-**The `Calls:` check:** the runner counts the agent's calls. Over a limit, or `execute_script` where the line says
-none, caps the judge's PASS at WARN, and the notes gain `Calls: execute_script 2, where the line says none`. A FAIL
+**The `Calls:` check:** the runner counts the agent's `mcp__omniverse__` calls. `execute_script` where the line says
+none caps the judge's PASS at WARN, and the notes gain `Calls: execute_script 2, where the line says none`. A FAIL
 stays a FAIL (Q3).
 
 **The brief, `test_project/assistant.md`:** you help a user with their Kit app through the Omniverse MCP; nobody
@@ -131,8 +156,8 @@ ends the run for every later session, and the file rules. It says nothing about 
 
 **The record:** `SessionRecord` gains `calls`, the agent's tool names in order. `results.md` gains an `## Outcomes`
 table, `| ID | Skills loaded | Calls | Status |`, the calls as `create_prim, set_material x2, ... (9 calls, 0
-execute_script)`. `compare` leaves judge sessions out of its skill counts, which measure what an agent reaches for;
-`_id_key` sorts `O<n>` after every phase.
+execute_script)`. `compare` leaves judge sessions out of its skill counts and its "none in N of M sessions", which
+measure what an agent reaches for; `_id_key` sorts `O<n>` after every phase.
 
 ### 16.9
 
@@ -148,6 +173,7 @@ regression appears.
 | The agent judges itself, its session resumed with the Verify lines | No | `--resume` needs session persistence, which the runner turns off so run folders don't become projects (F3, F10); and an agent grades its own path kindly |
 | The runner checks each outcome in Python | Only the `Calls:` line | A capture that "shows a red cube, lit" needs eyes; Python asserts in every outcome would make it a pytest suite |
 | The judge with every tool | No | It could fix what it judges; the read-only hint already marks what is safe (F7) |
+| The judge plays the simulation itself, `sim_control` allowed by name | No (Q2) | An exception to the read-only rule, and the judge would choose when and how long to play, one more source of variance; the runner's play is the same every run |
 
 ## Compatibility
 
@@ -159,13 +185,13 @@ None for users: test tooling only, no one-way door. A run folder made before thi
 | # | Step | Proved by |
 |---|---|---|
 | 1 | This plan, reviewed and approved | the Plan review section |
-| 2 | Parse `outcomes.md`: `Outcome(id, title, given, ask, verify, calls)`; problems named: a missing Ask or Verify, an unknown `Calls:` word, Given code that doesn't compile | `test_scenario_runs.py`: the real file parses with no problem; each malformed form named |
+| 2 | Parse `outcomes.md`: `Outcome(id, title, given, ask, verify, calls, play)`; problems named: a missing Ask or Verify, an unknown `Calls:` word, a `Play:` that isn't `none` or seconds, Given code that doesn't compile | `test_scenario_runs.py`: the real file parses with no problem; each malformed form named |
 | 3 | `--outcomes` and `plan`: outcome sessions after the halves, before the cleanup; `--phases` alone runs none; `--phases none` | `test_scenario_runs.py`: the session lists |
-| 4 | Prepare, the agent's prompt and command, the judge's prompt and command | tests: the agent's prompt holds the Ask and nothing of Verify, Calls or Given; the judge's command allows exactly the read-only tools and no `Skill`; its working folder is the agent's |
-| 5 | The calls record and the `Calls:` check; a failed Given | tests on recorded streams: counts, the cap at WARN, FAIL kept; a Given error gives NOT RUN and starts no session |
+| 4 | Prepare, the agent's prompt and command, the judge's prompt and command, the init check per kind | tests: Prepare's calls in order; the agent's prompt holds the Ask and nothing of Verify, Calls or Given, and its command is `--restricted` with no `--add-dir`; the judge's command allows exactly the read-only tools and no `Skill`, works in its own folder and adds the agent's; a judge init event with a tool outside its list stops it |
+| 5 | The calls record and the `Calls:` check; a failed Given; Play and the judge's settle | tests on recorded streams: counts, the cap at WARN, FAIL kept; a Given error gives NOT RUN and starts no session; with a fake client, a `Play:` outcome settles, plays, waits for the time, pauses, and starts the judge with no settle, one without settles before the judge, and a play that never gets there gives NOT RUN |
 | 6 | `results.md`'s Outcomes table; `compare` without judge skill loads; `_id_key` | tests |
 | 7 | `outcomes.md`, `assistant.md`, the judge section; 16.9 out | the real-file test of step 2; the dry run prints both prompts |
-| 8 | Live: `--phases none --outcomes all` twice on my Kit at 8212, then `--phases 16` once; each Given checked to build what its Verify lines assume | the runs' `results.md`, quoted in the PR with both runs' statuses side by side |
+| 8 | Live: each Given and Prepare checked first by hand on my Kit at 8212 (O1's stage captures black, O4's cube falls through), then `--phases none --outcomes all` twice, then `--phases 16` once; the agent's transcripts show no `Read` outside its folder | the runs' `results.md`, quoted in the PR with both runs' statuses side by side |
 | 9 | Docs, then `finish-work`: the gate in full, `review-code` | the review record |
 
 ## Tests
@@ -195,8 +221,56 @@ None for users: test tooling only, no one-way door. A run folder made before thi
 | An agent asks the user a question and stops | The brief says nobody answers; a session that ends without acting gets a FAIL from its judge, with the question in the notes |
 | Given code hangs Kit | It is ours, short, and reviewed; `settle`'s and `execute`'s timeouts end the run there, as a hung session does |
 | Cost: twelve more sessions in a full run | Measured in step 8 and written into `run-scenarios`; `--outcomes none` leaves them out |
-| The judge's prompt grows with long answers | Each answer is cut to 600 characters; the transcript keeps them whole |
+| The judge's prompt grows with long answers | Each answer is cut to 600 characters; the transcript keeps them whole, and the agent's answer files are in reach of the judge's `Read` |
+| The agent's working folder is inside the repo, so Claude Code's git status gives it recent commit subjects | Accepted: a subject may name this feature, never a Verify line; `--restricted` keeps the files themselves out of reach |
+| `--restricted` changes something else the tester relied on, such as the plugin's skills | Step 8: the agent's init event and skill loads are checked as today's testers' are |
+| After the runner's play, `get_prim_bounds` reads USD, so a Kit app that doesn't write physics back to USD would show bodies where they started | Accepted: Isaac Sim 6.2 writes them back, as 5.3's gravity check shows; step 8 runs there |
 
 ## Plan review
 
-Not reviewed yet.
+### Round 1
+
+**How:** one fresh reviewer on Claude Opus 5.5, every lens, 2026-11-02, at `190d2e0`; P1 went to a fresh refuter,
+which confirmed it as major and proposed the fix taken. **Verdict:** needs-fixes. **Now:** every finding fixed in the
+plan; a second round reads the edits.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P1 | major | O2's and O4's Verify lines ask where a body rests after play, which a read-only judge can't see: `sim_control` isn't read-only, `run_sessions` settles before every session, and a stop puts bodies back where play found them (F15). A correct fix that the agent never played would be judged WARN or FAIL, and the row would depend on the agent's path | fixed: a `Play:` line, by which the runner settles, plays a set time and pauses after the agent; the judge then starts with no settle; O2's and O4's Verify lines restated as facts of that paused stage and of the stopped one; step 5's tests (Q2) |
+| P2 | minor | The agent's bare `Read`, `Grep` and `Glob` reach any path: `outcomes.md` and earlier runs' judge transcripts are a few folders up from its working folder | fixed: the agent runs `--restricted` (F12), its file tools confined to its own folder; step 4 tests the command, step 8 the transcripts |
+| P3 | minor | The judge works in the agent's folder while its own long answers and captures go to `judge-O1/`, out of its `Read`'s reach (F13) | fixed: the judge works in its own folder, `--restricted` with `--add-dir` the agent's |
+| P4 | minor | O6 asked about "the last minute", which `get_logs` can't tell: no time filter, no times, and in a full run 24.6's error sits in the same buffer | fixed: O6 asks for the most recent errors; Verify names the Given's error, and an older one named too is no fault |
+| P5 | minor | The lighting mode is a Kit setting that `new_scene()` leaves as it was (F14), so O1 could start lit by an earlier phase, measuring nothing | fixed: Prepare sets the mode to `stage`; step 8 checks O1's stage captures black first |
+
+**Refuted:**
+- **O4 needs `execute_script` to add a collider:** `set_physics_properties` with a friction or restitution adds the
+  collision API when it's missing (`handlers/simulation.py:159-161`).
+- **A ground plane needs code:** `create_prim` takes any USD type (`handlers/scene.py:174`).
+- **O3 can't give per-part triangles:** each mesh block lists `triangles`, and a group's is their sum.
+- **The judge can change the stage:** no `Skill`, `dontAsk` with only the read-only tools allowed, the rest
+  disallowed; `capture_viewport` renders in a feed of its own.
+- **The judging section reaches the agent through `CLAUDE.md`:** `--setting-sources ""` loads no instruction file.
+- **16.9's removal reads as a regression:** `compare` walks only the newest run's rows.
+- **Given code that hangs ends the run:** the Risks row covers it: the client's timeouts, then `settle` halts the run.
+
+**Owner calls:**
+
+| # | Question | Recommendation | Answer |
+|---|---|---|---|
+| Q1 | Outcomes in their own `test_project/outcomes.md`, IDs `O1` on, or as phases of `scenarios.md`? | Their own file: a phase's tester gets its Verify lines (F2), the cleanup must stay last (F1), and an outcome needs its own stage, prompt and rules | |
+| Q2 | How a physics outcome is judged (P1): the runner plays a set time and pauses before a read-only judge; the judge may call `sim_control`; or only the stopped stage's facts and the agent's answers count? | The runner plays: the judge stays read-only, and every run plays the same | |
+| Q3 | An agent that breaks its `Calls:` line: PASS capped at WARN (FAIL kept), set to FAIL, or only shown in `results.md`? | Cap at WARN: `compare` then shows when a description change sends agents to code, without calling the outcome wrong | |
+| Q4 | Outcomes in every full run, and in a run with `--phases` only when `--outcomes` names them? | Yes: a release's run then measures them; partial runs stay as cheap as today | |
+| Q5 | 16.9: delete its heading and put one sentence in Phase 16's note, or keep the row? | Delete: the issue asks for no standing SKIP, and `test_16_09` covers it | |
+| Q6 | These six outcomes (O1 to O6), as now written? | Yes | |
+| Q7 | The agent's brief keeps the tester's `execute_script` rules (no waits, no `ovmcp.*` imports)? | Keep: a script that holds Kit's main thread ends the run for every later session | |
+| Q8 | The judge on the same model as the agent (one `--model` for both)? | Yes, one flag | |
+
+**Improvements:**
+
+| # | Improvement | Answer |
+|---|---|---|
+| I1 | `at most <n>` had no outcome using it | taken: `Calls:` is `any` or `no execute_script`, counting `mcp__omniverse__` calls |
+| I2 | Compile Given code with `ast.PyCF_ALLOW_TOP_LEVEL_AWAIT`, as the bridge runs it | taken |
+| I3 | An init check per session kind, so the judge's read-only tools are checked, not only asked for | taken: step 4 |
+| I4 | `compare`'s session count without a skill load leaves judges out too | taken |
