@@ -17,9 +17,13 @@ from omniverse_mcp.client import BridgeClient
 from omniverse_mcp.kit_extension import install_advice
 from omniverse_mcp.server import INSTRUCTIONS, Helpers, create_server
 
+from .conftest import REPO_ROOT
 from .mock_bridge import MockIsaacServer
 
-PLUGIN_SKILLS = Path(__file__).resolve().parents[1] / "plugin" / "skills"
+PLUGIN_SKILLS = REPO_ROOT / "plugin" / "skills"
+# The plugin's skills that aren't workflows: setup connects, report-bug files reports. Every other one is a workflow
+# the instructions name, so a new one fails the test until they do.
+NOT_WORKFLOWS = {"setup", "report-bug"}
 
 HANDSHAKE = {"status": "success", "result": {"protocol": 1, "extension_version": "1.0.0"}}
 NO_LOGS = {"status": "success", "result": {"entries": [], "count": 0, "total_captured": 0, "buffer_size": 2000}}
@@ -314,8 +318,11 @@ def test_an_image_that_wont_decode_is_a_tool_error(tmp_path):
 
 def test_the_instructions_point_at_the_plugins_skills_by_the_names_it_has():
     # Agents given a user's request loaded a skill one time in six while the instructions didn't name them (#152).
-    named = ("scene", "simulate", "geometry", "script")
-    for name in named:
-        assert f"{name} (" in INSTRUCTIONS, name
+    workflows = sorted(p.parent.name for p in PLUGIN_SKILLS.glob("*/SKILL.md"))
+    workflows = [name for name in workflows if name not in NOT_WORKFLOWS]
+    assert workflows, "no workflow skills found"
+    for name in workflows:
+        assert f"{name} (" in INSTRUCTIONS, f"the instructions don't name the plugin's {name} skill"
+    for name in ("scene", "simulate", "geometry", "script"):
         assert (PLUGIN_SKILLS / name / "SKILL.md").is_file(), f"the instructions name a skill the plugin lacks: {name}"
     assert "With the omniverse-mcp plugin" in INSTRUCTIONS  # a client without it isn't told to load what it can't
