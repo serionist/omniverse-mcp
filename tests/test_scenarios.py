@@ -2445,6 +2445,8 @@ class TestScenarios(PhysicsChecks):
         self.assertEqual(stop["status"], "success", stop)
         self._wait_for_line_count(start, timeout=5.0)
         time.sleep(0.5)  # the render products' watch deletes them once the opened stage is open
+        # The watch ran on the update observer: the recording's render product, carried over by the open, is gone.
+        self.assertEqual(self._run_in_kit(RENDER_PRODUCT, PATH=r["result"]["render_product"]), [False, [], False])
         marker = f"scenario 17.8 {time.time_ns()}"
         self.assertEqual(self.c.execute(f'import carb\ncarb.log_info("{marker}")')["status"], "success")
         # Kit's notices are Info: a log file that leaves Info out would pass this test with the notices still made.

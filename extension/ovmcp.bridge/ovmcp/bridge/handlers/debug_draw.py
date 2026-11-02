@@ -119,7 +119,7 @@ def _stage_open() -> bool:
 
 
 def _drop_if_off() -> None:
-    """Forgets the backend, the book and the subscription while the backend's extension is off, drawing and clearing
+    """Forgets the backend, the book and the observer while the backend's extension is off, drawing and clearing
     nothing: an extension that is off has no interface to call. The next draw_debug chooses a backend again."""
     backend = _drawings.backend
     if backend is not None and not omni.kit.app.get_app().get_extension_manager().is_extension_enabled(backend.name):
@@ -208,7 +208,7 @@ def _on_update() -> None:
 
 
 def stop_drawing() -> None:
-    """Drops the subscription, the book and the backend, and clears nothing. At shutdown the stage and renderer may be
+    """Drops the observer, the book and the backend, and clears nothing. At shutdown the stage and renderer may be
     tearing down, when a clear crashed Kit before isaacsim.util.debug_draw 3.2.8."""
     _drawings.sub = None
     _drawings.book.reset()
