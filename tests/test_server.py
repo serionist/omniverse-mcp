@@ -15,9 +15,11 @@ from mcp import Client, MCPError
 
 from omniverse_mcp.client import BridgeClient
 from omniverse_mcp.kit_extension import install_advice
-from omniverse_mcp.server import Helpers, create_server
+from omniverse_mcp.server import INSTRUCTIONS, Helpers, create_server
 
 from .mock_bridge import MockIsaacServer
+
+PLUGIN_SKILLS = Path(__file__).resolve().parents[1] / "plugin" / "skills"
 
 HANDSHAKE = {"status": "success", "result": {"protocol": 1, "extension_version": "1.0.0"}}
 NO_LOGS = {"status": "success", "result": {"entries": [], "count": 0, "total_captured": 0, "buffer_size": 2000}}
@@ -308,3 +310,12 @@ def test_an_image_that_wont_decode_is_a_tool_error(tmp_path):
 
     with pytest.raises(ToolError, match="Failed to decode image data"):
         Helpers(str(tmp_path)).save_png("abc")
+
+
+def test_the_instructions_point_at_the_plugins_skills_by_the_names_it_has():
+    # Agents given a user's request loaded a skill one time in six while the instructions didn't name them (#152).
+    named = ("scene", "simulate", "geometry", "script")
+    for name in named:
+        assert f"{name} (" in INSTRUCTIONS, name
+        assert (PLUGIN_SKILLS / name / "SKILL.md").is_file(), f"the instructions name a skill the plugin lacks: {name}"
+    assert "With the omniverse-mcp plugin" in INSTRUCTIONS  # a client without it isn't told to load what it can't

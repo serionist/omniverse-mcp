@@ -15,6 +15,9 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   gains an `api_schemas` list and gives each relationship as its list of targets, `[]` for one with none.
   The change is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit; until then
   `get_prim_properties` warns (#149).
+- **The server's instructions point at the plugin's skills:** with the plugin, an agent is asked to load the skill for
+  the work (`scene`, `simulate`, `geometry` or `script`) before it changes the stage. Agents given a request alone
+  had loaded one about one time in six (#152).
 
 ### Fixed
 
