@@ -113,10 +113,19 @@ def _physics_line(p: dict[str, Any]) -> str:
 
 
 def _memory_line(m: dict[str, Any]) -> str:
-    used, budget = m.get("used_bytes"), m.get("budget_bytes")
+    """Hydra's use of device 0, and its total: the device's dedicated video memory, or Hydra's budget where it gives
+    no such figure, each said by name."""
+    used, total = m.get("used_bytes"), m.get("total_bytes")
     if used is None:
         return f"gpu_memory = not given by Hydra for {m.get('device', 'device 0')}"
-    of = f" of a {budget / GIB:.1f} GiB budget" if budget is not None else ""
+    of = ""
+    if total is not None:
+        dedicated = m.get("total_kind") == "dedicated"
+        of = (
+            f" of {total / GIB:.1f} GiB of dedicated video memory"
+            if dedicated
+            else f" of a {total / GIB:.1f} GiB budget"
+        )
     return f"gpu_memory = {used / GIB:.1f} GiB used{of} (Hydra's figures for device 0, {m.get('device', 'unknown')})"
 
 
@@ -157,18 +166,22 @@ def _conditions_line(c: dict[str, Any]) -> str:
     machine.append(str(c.get("timeline", "unknown")))
     if c.get("headless") is not None:
         machine.append("headless" if c["headless"] else "with a window")
-    if c.get("fixed_time_stepping") is True and c.get("time_codes_per_second"):
-        machine.append(f"fixed time steps of 1/{float(c['time_codes_per_second']):g} s")
+    if c.get("fixed_time_stepping") is True:
+        rate = c.get("time_codes_per_second")
+        machine.append(f"fixed time steps of 1/{float(rate):g} s" if rate else "fixed time steps")
     elif c.get("fixed_time_stepping") is False:
         machine.append("time steps by the wall clock")
-    if not c.get("rate_limit_lifted"):
-        limiter = "rate limit not set, so left as it was"
-    elif c.get("rate_limit"):
+    # The extension lifts only a limiter that is on, and leaves one off or not set as it is.
+    if c.get("rate_limit_lifted"):
         frequency = c.get("rate_limit_frequency")
         at = f" at {frequency:g} Hz" if isinstance(frequency, int | float) else ""
         limiter = f"rate limit lifted for the measurement (it was on{at})"
-    else:
+    elif c.get("rate_limit") is False:
         limiter = "rate limit off"
+    elif c.get("rate_limit") is None:
+        limiter = "rate limit not set, so left as it was"
+    else:
+        limiter = f"rate limit {c['rate_limit']!r}, left as it was"
     throttling = [
         f"async rendering {_on_off(c.get('async_rendering'))}",
         f"eco mode {_on_off(c.get('eco_mode'))}",
@@ -242,9 +255,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         time, the up axis, meters_per_unit, the prim count; the Kit app, its version, Kit's version and the OS Kit
         runs on; and the versions of the Kit extension and this server.
 
-        fps is the timeline's time codes per second, not a render rate. When the two versions differ, the answer names
-        the command that installs the matching extension; while a recording runs whose frames stopped early, it says
-        why. sim_control changes the state.
+        fps is the timeline's time codes per second, not a render rate: get_performance measures the frame rate. When
+        the two versions differ, the answer names the command that installs the matching extension; while a recording
+        runs whose frames stopped early, it says why. sim_control changes the state.
         """
         resp = bridge_call(client.sim_state)
         r = resp["result"]
@@ -297,7 +310,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         Use it to check a frame-rate target, such as 15 FPS with a robot's sensors on, and to see what each cut of the
         scene gains. Play the simulation first, with the sensors on, so physics and rendering run as they will; a
-        stopped timeline gives no physics lines. Measure alone: a capture called meanwhile waits for the measurement,
+        stopped timeline gives no physics numbers. Measure alone: a capture called meanwhile waits for the measurement,
         and any other call's work counts in its frames. It waits for the stage to finish loading, and stops at 90 s,
         answering what it measured.
 

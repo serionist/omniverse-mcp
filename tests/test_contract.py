@@ -94,6 +94,14 @@ def test_every_tool_and_parameter_is_described(listed):
         # An agent reading this knows the frame it gets without asking, and how to ask for another (#159).
         ("new_scene", "Z-up in metres when left out"),
         ("new_scene", 'up_axis="Y"'),
+        # What a measurement does to the Kit app and when its numbers mean something, before an agent calls it (#156).
+        ("get_performance", "Kit's frame-rate limiter is lifted and put back after"),
+        ("get_performance", "The render a capture keeps for the next one is released first"),
+        ("get_performance", "Measure alone"),
+        ("get_performance", "The numbers are this machine's and GPU's"),
+        ("get_performance", "a stopped timeline gives no physics numbers"),
+        # fps is no render rate, and the tool that measures one is named (#156).
+        ("get_sim_state", "get_performance measures the frame rate"),
     ],
 )
 def test_a_description_says_what_the_tool_now_does(listed, tool: str, says: str):

@@ -310,8 +310,9 @@ The format is implemented in `ovmcp/core/formatter.py` with functions for:
    profile stats, which PhysX's benchmarks interface sends with the step at -10, come before the update's own call:
    the measurement counts the steps of the updates whose intervals it keeps. Their callback only adds numbers up, as
    point 5 asks of one Kit may call from another thread. It lifts Kit's frame-rate limiter
-   (`/app/runLoops/main/rateLimitEnabled`) while it measures and puts it back in a `finally`, and holds the viewport
-   lock with the kept capture feed released (`without_kept_feed`), since a kept feed renders every update
+   (`/app/runLoops/main/rateLimitEnabled`) while it measures, when it is on, and puts it back in a `finally`, and
+   holds the viewport lock with the kept capture feed released (`without_kept_feed`), since a kept feed renders every
+   update; the call's 90 s count from the call, so a wait for that lock is said as such when it spends them
 
 This means all handler code runs on the main thread - there are no threading issues with USD access, but long-running handlers will block the simulation for the duration of their execution.
 

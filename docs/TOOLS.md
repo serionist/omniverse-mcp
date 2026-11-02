@@ -1012,7 +1012,7 @@ Get the current simulation state. No parameters.
 - `state` - `playing`, `paused`, or `stopped`
 - `up_axis` - `Y` or `Z`
 - `time` - Elapsed simulation time in seconds
-- `fps` - the timeline's time codes per second, not the render rate
+- `fps` - the timeline's time codes per second, not the render rate: `get_performance` measures that
 - `prim_count` - Total number of prims in the scene
 - `meters_per_unit` - Stage scale factor
 - `kit_app` - the Kit app and its version, such as `Isaac-Sim Python 6.2.0`
@@ -1047,20 +1047,22 @@ conditions two answers are compared by.
 - **The limiter:** Kit's frame-rate limiter (`/app/runLoops/main/rateLimitEnabled`) is lifted for the measurement and
   put back after, whatever happens, so a light stage reads its own speed, not the cap. A playing stage with fixed time
   steps runs faster than real time meanwhile, and a robot driven from outside falls behind its commands for those
-  seconds. A Kit app that doesn't set the limiter is left as it is.
+  seconds. A limiter already off, or one the Kit app doesn't set, is left as it is.
 - **The frames:** it waits until the stage has finished loading, lets `warmup` updates pass, then times `frames` + 1
   updates and drops the first interval, with the GPU time and the physics steps of that update.
-- **The bound:** it stops at 90 s, under the server's 120 s, and answers what it measured, with a note giving the
-  frames it got; a measurement whose 90 s went to loading or the warm-up has no statistics, and says so.
+- **The bound:** it stops at 90 s from the call, under the server's 120 s, and answers what it measured, with a
+  note giving the frames it got; a measurement whose 90 s went to waiting for a capture to let the viewport go,
+  to loading or to the warm-up has no statistics, and says which.
 
-**Returns,** one line each, the number a target reads first:
+**Returns,** one line each, the number a target reads first; here a playing stage of 120 frames at 44.6 ms,
+5.35 s, whose fixed time steps of 1/60 s carry 2 of the scene's 1/120 s physics steps each:
 
 ```
 app = 22.4 FPS (frame time mean 44.6 ms, p50 43.9, p95 51.2, worst 63.0) over 120 frames after 30
 settled = first half 44.9 ms, second half 44.3 ms
 gpu_render = mean 31.2 ms, p95 36.0
-physics = 120 steps a simulated second, 5.4 steps a frame, 6.1 ms a step (32.9 ms a frame); simulated 10.80 s in 10.70 s (1.01 of real time)
-gpu_memory = 14.2 GiB used of a 47.8 GiB budget (Hydra's figures for device 0, NVIDIA RTX 6000 Pro)
+physics = 120 steps a simulated second, 2.0 steps a frame, 6.1 ms a step (12.2 ms a frame); simulated 2.00 s in 5.35 s (0.37 of real time)
+gpu_memory = 14.2 GiB used of 48.0 GiB of dedicated video memory (Hydra's figures for device 0, NVIDIA RTX 6000 Pro)
 stage = 18342 prims, 2210 meshes, 9120 instances of 41 prototypes, 50000 point instances in 2 point instancers
 render_products = 6: 2 lidars at 1024x1024, 4 cameras at 1280x720
 conditions = NVIDIA RTX 6000 Pro, Isaac-Sim Python 6.2.0 (Kit 110.4.0), renderer rtx (RaytracedLighting), playing, headless, fixed time steps of 1/60 s; rate limit lifted for the measurement (it was on at 60 Hz); async rendering off, eco mode off
@@ -1072,22 +1074,25 @@ conditions = NVIDIA RTX 6000 Pro, Isaac-Sim Python 6.2.0 (Kit 110.4.0), renderer
 - `gpu_render` - Hydra's GPU profiler: the time of a frame's top-level render passes, averaged over the GPUs
 - `physics` - only while the timeline plays: the physics scene's steps a simulated second, the steps an app update
   carries, PhysX's time a step and a frame, and the time simulated, counted from the steps, against the real time
-- `gpu_memory` - Hydra's `get_device_info()` for device 0: its use and its budget, in GiB (2^30 bytes). Other apps on
-  the same GPU may count in them
+- `gpu_memory` - Hydra's `get_device_info()` for device 0: its use, and the device's dedicated video memory, or
+  Hydra's budget where it gives no such figure, the line saying which; in GiB (2^30 bytes). Other apps on the same
+  GPU may count in them
 - `stage` - the prims the stage traverses, its meshes, its instances and the prototypes they share, and its point
   instancers' instances; an instance's inside isn't counted
 - `render_products` - each camera, lidar or other sensor rendering every update, by kind and size, the viewport's own
   included
 - `conditions` - the GPU, the Kit app and Kit's version, the renderer and its mode, the timeline's state, headless or
-  with a window, fixed time steps or the wall clock, the limiter as it was before the call, and what Isaac Sim's
-  throttling turns on and off around play and stop: async rendering, eco mode and the renderer's sleeps when not 0
+  with a window, fixed time steps or the wall clock, the limiter as it was before the call (lifted, off, or not
+  set), and what Isaac Sim's throttling turns on and off around play and stop: async rendering, eco mode and the
+  renderer's sleeps when not 0
 - `note` - each thing that could move the numbers: the halves more than 10% apart ("not settled": measure again), eco
   mode on while the timeline is stopped or paused (RTX may stop rendering a still stage, so it reads faster than the
-  scene plays), a recording running (its camera renders every update), the time running out
+  scene plays), a recording running (its camera renders every update), the time running out, and where
 
-A number the Kit app can't give says so on its line: `gpu_render = not available in this app` in a Kit app without
-`omni.hydra.engine.stats`, or when Hydra's profiler is off and every frame reads 0; `physics = not measured: the
-timeline is stopped, ...` while it doesn't play. Physics comes from `omni.physics.core`'s benchmarks interface, or
+A number the Kit app can't give says so on its line: `gpu_render = not available in this app: it has no
+omni.hydra.engine.stats` in a Kit app without that extension; `gpu_render = Hydra's GPU profiler gave no times: it
+may be off in this app` when every frame reads 0; `physics = not measured: the timeline is stopped, ...` while it
+doesn't play. Physics comes from `omni.physics.core`'s benchmarks interface, or
 `omni.physx`'s where that is missing (Isaac Sim 5.x).
 
 **When to use:** to check a frame-rate target, such as 15 FPS with a robot's sensors on, and to see what each cut of
