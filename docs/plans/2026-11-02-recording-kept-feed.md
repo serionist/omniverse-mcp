@@ -1,9 +1,9 @@
 ---
 title: Record through the kept capture feed, so a recording sets up no new RTX view
 issue: "#141"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-11-02
 ---
 
 # Record through the kept capture feed, so a recording sets up no new RTX view
@@ -57,6 +57,8 @@ Two functions beside `kept_feed` and `put_back`, for a user of the feed that hol
 - **`let_go_now(feed)`:** `_tear_down_at_once`, public: segmentation off if on, the feed dropped, its graphs freed if
   it ever had any, its render product deleted now or from the next open stage. For what can't await: frames stopping
   early on an update, and shutdown.
+- **`kept_feed`'s failed `aim`** tears the feed down with `let_go_now` too, where it used `discard`: the kept feed may
+  hold a capture's segmentation graphs (round 1's improvement, taken).
 - **`forget()`** also marks the module shut down (`_kept.closed`), so a stop whose frames were still being awaited
   when the extension shut down tears its feed down rather than keeping it on a timer that nothing would cancel, with
   its stage observers made again (round 1's P2).
@@ -135,7 +137,8 @@ stop; this extension with an older server: the line says deleted at stop. Both a
    that raises tears the feed down; after `forget`, it raises. `hand_back` healthy into an empty slot keeps it and
    starts the timer; with another feed kept, the stage changed or closing, the feed dropped, or in doubt, releases it
    in `release`'s order; with `_viewport` held, releases without waiting; after `forget`, tears down at once and
-   observes no stage event. `let_go_now` of a segmented feed frees its graphs and deletes its render product.
+   observes no stage event. `let_go_now` of a segmented feed frees its graphs and deletes its render product, and so
+   does `kept_feed` when a segmented kept feed's `aim` raises.
 2. **`recording.py`:** the handler through `lend`, `hand_back` and `let_go_now`. `tests/test_recording_handler.py`'s
    fake `camera_feed` module offers them: the start lends at the camera and size and waits the first frame, then 20
    plus the settle frames; stop hands back healthy; a frame that raised hands back in doubt; frames stopping early
@@ -248,4 +251,4 @@ stop; this extension with an older server: the line says deleted at stop. Both a
 | `test_26_06`'s frame 0 check: a camera switch has no ghost; name the switch's checks | taken |
 | The settle's cost: 20 frames at K6's 113 a second is about 0.18 s, not 0.13 | taken |
 | "Takes `_viewport` when free": a capture queued for the lock goes first | taken: the wording and the Risks row say so |
-| `kept_feed`'s own failed `aim` discards a feed that may hold segmentation graphs; `let_go_now` there too | asked |
+| `kept_feed`'s own failed `aim` discards a feed that may hold segmentation graphs; `let_go_now` there too | taken (the maintainer, 2026-11-02): Design and step 1 |
