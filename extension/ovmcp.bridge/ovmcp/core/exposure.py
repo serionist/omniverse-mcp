@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 from pxr import Sdf, Usd
 
-from .usd import is_explicit, list_op_items, prim_spec, remove_child_spec
+from .usd import expired, is_explicit, list_op_items, prim_spec, remove_child_spec
 
 SCHEMAS = ("OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1")
 ATTRIBUTES = ("exposure:fStop", "exposure:responsivity", "exposure:time")
@@ -130,7 +130,13 @@ class Marks:
         prim = stage.GetPrimAtPath(camera_path)
         if not prim.IsValid() or prim.IsInstanceProxy() or not bare(prim):
             return None
-        self._taken[key] = _Taken(mark(layer, camera_path))
+        noted = mark(layer, camera_path)
+        # A parent another camera's mark found absent may hold RTX's over for that camera by now: whichever of the two
+        # is put back last removes it (round 2, M2: a stereo pair under one head).
+        for (where, _path), other in self._taken.items():
+            if where == key[0]:
+                noted.absent += [p for p in other.mark.absent if noted.path.HasPrefix(p) and p not in noted.absent]
+        self._taken[key] = _Taken(noted)
         return key
 
     def let_go(self, key: tuple[str, Sdf.Path], layers: list[Sdf.Layer]) -> None:
@@ -143,7 +149,10 @@ class Marks:
         if taken.feeds > 0:
             return
         del self._taken[key]
-        if any(layer.identifier == key[0] for layer in layers):
+        # The layer itself, not its name: a stage opened again, or a new anonymous one, can reuse the identifier of a
+        # layer already freed, whose handle then raises (round 2, M1).
+        held = taken.mark.layer
+        if not expired(held) and any(layer == held for layer in layers):
             taken.mark.restore()
 
     def feeds(self, key: tuple[str, Sdf.Path]) -> int:

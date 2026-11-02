@@ -265,7 +265,11 @@ class CameraFeed:
         layers = list(stage.GetLayerStack(includeSessionLayers=True)) if stage is not None else []
         marks, self._marks = self._marks, []
         for key in marks:
-            exposure.MARKS.let_go(key, layers)
+            # Each on its own: one that fails leaves the rest to be put back (round 2, M1).
+            try:
+                exposure.MARKS.let_go(key, layers)
+            except _RELEASE_ERRORS as e:
+                carb.log_warn(f"[MCP Bridge] Couldn't put back what RTX wrote onto {key[1]}: {e}")
 
 
 class _Leftovers:

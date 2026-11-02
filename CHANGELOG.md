@@ -87,8 +87,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   layer, so `capture_viewport(camera_path=...)`, a read-only tool, and `start_recording(camera_path=...)` changed the
   user's file and the next save kept it. The bridge now notes what the file held of each camera before a feed first
   renders through it, and puts that back when the feed's render goes, as it already deletes the render itself: when
-  the kept capture render is released, a recording stops, or before a save writes the file. The fix is in the Kit
-  extension: run `uvx omniverse-mcp extension install`, then restart Kit (#177).
+  the kept capture render is released, before a save writes the file, or when a recording stops (a save during a
+  recording keeps its camera's, as it keeps its render). A value set on those three attributes while the render is
+  kept goes with it. The fix is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit
+  (#177).
 - **A save no longer fails when Kit frees a layer mid-check:** `save_scene`, `open_scene` and the exports pass over a
   layer freed while they walk Kit's layers, as they did since #85, now in the form Python 3.11 met it as, where they
   raised `AttributeError`. The fix is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart

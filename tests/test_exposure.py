@@ -1,6 +1,8 @@
 """RTX's exposure writes put back (#177) on usd-core: a camera's mark, taken before RTX writes onto it at the edit
 target, puts the layer back exactly, and the marks count the feeds through each camera."""
 
+import gc
+
 import pytest
 from pxr import Sdf, Usd, UsdGeom
 
@@ -191,3 +193,53 @@ def test_forget_drops_every_mark_unwritten(stage):
     marks.let_go(key, list(stage.GetLayerStack(includeSessionLayers=True)))
 
     assert _texts(stage) == written
+
+
+@pytest.mark.parametrize("first", ["left", "right"])
+def test_a_parent_two_marked_cameras_share_goes_whichever_is_put_back_last(first):
+    # A stereo pair under a head the root layer has no spec for: RTX's over for the head stayed when the cameras were
+    # put back in one order (code review round 2, M2).
+    asset = Usd.Stage.CreateInMemory()
+    UsdGeom.Camera.Define(asset, "/Robot/Head/cam_left")
+    UsdGeom.Camera.Define(asset, "/Robot/Head/cam_right")
+    stage = Usd.Stage.CreateInMemory()
+    stage.DefinePrim("/World/Robot").GetReferences().AddReference(asset.GetRootLayer().identifier, "/Robot")
+    texts = _texts(stage)
+    layers = list(stage.GetLayerStack(includeSessionLayers=True))
+    marks = Marks()
+
+    left = marks.take(stage, "/World/Robot/Head/cam_left")
+    rtx_writes(stage, "/World/Robot/Head/cam_left")
+    right = marks.take(stage, "/World/Robot/Head/cam_right")
+    rtx_writes(stage, "/World/Robot/Head/cam_right")
+    assert left is not None
+    assert right is not None
+    for key in (left, right) if first == "left" else (right, left):
+        marks.let_go(key, layers)
+
+    assert _texts(stage) == texts
+
+
+def test_a_mark_on_a_file_opened_again_is_dropped_without_an_error(tmp_path):
+    # open_scene of the same file within the kept render's 30 s: the old root layer is freed and the new one has its
+    # identifier, so a match by name put the mark back through a dead handle, which raised (code review round 2, M1).
+    path = tmp_path / "scene.usda"
+    made = Usd.Stage.CreateNew(str(path))
+    UsdGeom.Camera.Define(made, CAMERA)
+    made.Save()
+    del made
+    marks = Marks()
+    stage = Usd.Stage.Open(str(path))
+    key = marks.take(stage, CAMERA)
+    assert key is not None
+    rtx_writes(stage, CAMERA)
+    del stage
+    gc.collect()
+    reopened = Usd.Stage.Open(str(path))
+    assert reopened.GetRootLayer().identifier == key[0]
+    texts = _texts(reopened)
+
+    marks.let_go(key, list(reopened.GetLayerStack(includeSessionLayers=True)))
+
+    assert marks.feeds(key) == 0
+    assert _texts(reopened) == texts

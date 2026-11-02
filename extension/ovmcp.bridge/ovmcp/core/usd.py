@@ -84,6 +84,11 @@ def relationship_spec(layer: Sdf.Layer, path: Sdf.Path) -> Sdf.RelationshipSpec 
     return layer.GetRelationshipAtPath(path)
 
 
+def expired(layer: Sdf.Layer) -> bool:
+    """Whether the layer a handle names was freed."""
+    return bool(cast("Any", layer).expired)
+
+
 def is_explicit(op: Sdf.TokenListOp) -> bool:
     return bool(cast("Any", op).isExplicit)
 
