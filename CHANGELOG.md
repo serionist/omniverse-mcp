@@ -30,11 +30,11 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   app, given as code or as a `.py` file on Kit's machine, and answers its id at once; the job runs between Kit's
   updates, so Kit renders and other tools answer while it does. `get_job` reads its state, its time and the lines it
   printed since the last read, and once it ends its result or error, waiting up to 100 s for its end; `cancel_job`
-  cancels it at its next `await`. Work that outlasted the 120 s a call gets, such as settling 150 stacks under
-  physics one by one, had to be cut into calls. A script that never awaits at its top level is refused, since its
-  loops would hold Kit throughout; one job runs at a time, and `get_sim_state` names it. `execute_script`'s description points at the job
-  for long work, and its answers change in two small ways: a traceback's line numbers are the script's own, one
-  fewer than before for a script that awaits, and what other calls print while it awaits stays out of its output.
+  cancels it at its next `await`. Work that outlasted the 120 s a call gets, such as settling 150 stacks under physics
+  one by one, had to be cut into calls. A script that never awaits at its top level is refused, since its loops would
+  hold Kit throughout; one job runs at a time, and `get_sim_state` names it. `execute_script`'s description points at
+  the job for long work, and its answers change in two small ways: a traceback's line numbers are the script's own,
+  one fewer than before for a script that awaits, and what other calls print while it awaits stays out of its output.
   The jobs are in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit (#158).
 - **`set_physics_properties` makes a collider by name, a change to the tool contract:** `collision=true` makes the
   prim a static collider (the Collision API, with no rigid body or physics material), such as a floor something should
