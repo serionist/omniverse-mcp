@@ -642,6 +642,10 @@ class TestBridgeClient(unittest.TestCase):
     def test_new_scene(self):
         r = self.client.new_scene()
         self.assertEqual(r["status"], "success")
+        # Both, always: an extension given neither makes the Y-up stage a server older than #159 asked for.
+        self.assertEqual(self.mock.requests[-1], ("POST", "/scene/new", {"up_axis": "Z", "meters_per_unit": 1.0}))
+        self.client.new_scene("Y", 0.01)
+        self.assertEqual(self.mock.requests[-1], ("POST", "/scene/new", {"up_axis": "Y", "meters_per_unit": 0.01}))
 
     def test_open_scene(self):
         r = self.client.open_scene("C:/Scenes/room.usda")

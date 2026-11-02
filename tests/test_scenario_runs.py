@@ -150,14 +150,15 @@ def test_a_prompt_holds_the_header_the_phase_its_needs_and_the_answer_asked(suit
     assert "swap each vector's Y and Z" in text  # the header, with its axis rule (I8)
     assert "## Phase 5: Simulation & Physics" in text
     assert "2.1 PASS, 4.5 FAIL" in text
-    assert "new_scene() before anything else" not in text
+    assert "before anything else" not in text
     assert "one row for each of 5.1, 5.2, 5.3" in text
 
 
 def test_a_prompt_fills_in_the_run_folder_and_starts_a_stage_when_first(suite, tmp_path):
     sessions = scenarios.plan(suite, {17})
     text = scenarios.prompt(suite, sessions[0], {}, tmp_path, 8212)
-    assert "new_scene() before anything else" in text
+    # The scenarios' vectors are written for Y-up, and new_scene() alone makes a Z-up stage (#159).
+    assert 'call new_scene(up_axis="Y") before anything else' in text
     assert f'"{tmp_path.as_posix()}/kit/mcp_test_scene.usd"' in text
     assert "<run>/kit" not in text.split("The scenarios' header:")[1].split("Run this phase:")[1]
 
@@ -1031,7 +1032,7 @@ def test_prepare_stage_makes_a_new_stage_lit_by_its_own_lights_then_runs_the_giv
     scenarios.prepare_stage(kit.port, _case(given="print(1)\n"))
     asked = [(path, body) for _, path, body in kit.requests if path != "/bridge"]  # the client's handshake
     assert asked == [
-        ("/scene/new", {}),
+        ("/scene/new", {"up_axis": "Z", "meters_per_unit": 1.0}),  # the frame a user's agent gets
         ("/viewport/light", {"action": "set", "mode": "stage"}),  # an earlier session's lighting stays out (P5)
         ("/execute", {"code": "print(1)\n"}),
     ]

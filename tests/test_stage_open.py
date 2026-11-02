@@ -433,6 +433,38 @@ def test_kit_s_own_values_pass_through(kit):
     assert result["recording_note"] == kit.note
 
 
+# ----- new_scene's frame (#159) -----
+
+
+@pytest.mark.parametrize(
+    ("kit_frame", "asked"),
+    [(("Y", 0.01), ("Z", 1.0)), (("Z", 1.0), ("Y", 0.01))],
+    ids=["Z-up in metres on a centimetre app's stage", "Y-up in centimetres on Isaac Sim's"],
+)
+def test_set_frame_writes_the_up_axis_and_units_describe_reads_back(kit_frame, asked):
+    stage = Usd.Stage.CreateInMemory()
+    UsdGeom.SetStageUpAxis(stage, kit_frame[0])
+    UsdGeom.SetStageMetersPerUnit(stage, kit_frame[1])
+
+    stage_open.set_frame(stage, *asked)
+
+    read = stage_open.describe(stage)
+    assert (read["up_axis"], read["meters_per_unit"]) == asked
+    assert read["up_axis_authored"] and read["meters_per_unit_authored"]
+
+
+def test_set_frame_without_units_leaves_the_app_s():
+    # What an older server's call gets: Y-up, in whatever units Kit's new stage came with.
+    stage = Usd.Stage.CreateInMemory()
+    UsdGeom.SetStageUpAxis(stage, "Z")
+    UsdGeom.SetStageMetersPerUnit(stage, 1.0)
+
+    stage_open.set_frame(stage, "Y", None)
+
+    read = stage_open.describe(stage)
+    assert (read["up_axis"], read["meters_per_unit"]) == ("Y", 1.0)
+
+
 def test_the_open_and_its_checks_end_before_the_server_gives_up():
     # The bridge sends nothing until the handler returns; 20 s are left for the updates, the prim count and the reply.
     client_timeout = inspect.signature(BridgeClient.__init__).parameters["timeout"].default

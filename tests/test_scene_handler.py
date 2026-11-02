@@ -6,6 +6,7 @@ beside it, as tests/test_camera_handler.py and tests/test_camera_feed.py load th
 
 import asyncio
 import importlib.util
+import math
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -32,17 +33,27 @@ async def _nothing(*_args: Any, **_kwargs: Any) -> None:
 
 
 class FakeKit:
-    """The stage the handlers read through omni.usd."""
+    """The stage the handlers read through omni.usd. A new stage comes in new_frame, Isaac Sim's Z-up in metres
+    unless a test sets another app's, and new_stages counts them."""
 
     def __init__(self) -> None:
         self.stage = Usd.Stage.CreateInMemory()
         UsdGeom.Xform.Define(self.stage, "/World")
+        self.new_frame = ("Z", 1.0)
+        self.new_stages = 0
+
+    async def new_stage_async(self) -> tuple[bool, str]:
+        self.new_stages += 1
+        self.stage = Usd.Stage.CreateInMemory()
+        UsdGeom.SetStageUpAxis(self.stage, self.new_frame[0])
+        UsdGeom.SetStageMetersPerUnit(self.stage, self.new_frame[1])
+        return True, ""
 
 
 def load_handler(name: str, kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
     """handlers/<name>.py with Kit faked, its relative imports read from the handlers folder."""
     settings = SimpleNamespace(get=lambda _key: None, set=lambda *_a: None, set_bool=lambda *_a: None)
-    context = SimpleNamespace(get_stage=lambda: kit.stage, get_stage_id=lambda: 1)
+    context = SimpleNamespace(get_stage=lambda: kit.stage, get_stage_id=lambda: 1, new_stage_async=kit.new_stage_async)
     kit_app = _module("omni.kit.app", get_app=lambda: SimpleNamespace(next_update_async=_nothing))
     omni_kit = _module("omni.kit", app=kit_app)
     usd = _module("omni.usd", get_context=lambda: context)
@@ -839,6 +850,70 @@ def test_set_attribute_refuses_with_nothing_written(scene, kit, body, says):
     assert r["status"] == "error"
     assert says in r["error"]
     assert kit.stage.GetRootLayer().ExportToString() == before
+
+
+# ---- /scene/new (#159) ----
+
+
+def _new(handler: Any, body: dict[str, Any]) -> dict[str, Any]:
+    return asyncio.run(handler.handle_new_scene(body))
+
+
+def _frame(stage: Usd.Stage) -> tuple[str, float]:
+    return str(UsdGeom.GetStageUpAxis(stage)), float(UsdGeom.GetStageMetersPerUnit(stage))
+
+
+@pytest.mark.parametrize(
+    ("kit_frame", "asked"),
+    [(("Y", 0.01), ("Z", 1.0)), (("Z", 1.0), ("Y", 0.01))],
+    ids=["Z-up in metres in a centimetre app", "Y-up in centimetres in Isaac Sim"],
+)
+def test_new_scene_makes_the_frame_asked_and_answers_it_as_read_back(scene, kit, kit_frame, asked):
+    kit.new_frame = kit_frame
+
+    r = _new(scene, {"up_axis": asked[0], "meters_per_unit": asked[1]})
+
+    assert r["status"] == "success", r
+    assert _frame(kit.stage) == asked
+    assert kit.stage.GetDefaultPrim().GetPath() == Sdf.Path("/World")
+    # The answer is what the stage holds after set_frame: without it, every new_scene would warn of an older extension.
+    assert (r["result"]["up_axis"], r["result"]["meters_per_unit"]) == asked
+
+
+def test_new_scene_from_an_older_server_makes_today_s_y_up_stage_in_kit_s_units(scene, kit):
+    # A server from before #159 sends {} and says "(Y-up)".
+    r = _new(scene, {})
+
+    assert r["status"] == "success", r
+    assert _frame(kit.stage) == ("Y", 1.0)
+    assert (r["result"]["up_axis"], r["result"]["meters_per_unit"]) == ("Y", 1.0)
+
+
+@pytest.mark.parametrize(
+    ("body", "says"),
+    [
+        ({"up_axis": "X", "meters_per_unit": 1.0}, "up_axis must be Z or Y, not 'X'"),
+        ({"up_axis": "z", "meters_per_unit": 1.0}, "up_axis must be Z or Y, not 'z'"),
+        ({"up_axis": "Z", "meters_per_unit": 0}, "meters_per_unit must be a number above 0"),
+        ({"up_axis": "Z", "meters_per_unit": -1.0}, "not -1.0"),
+        ({"up_axis": "Z", "meters_per_unit": "1"}, "not '1'"),
+        ({"up_axis": "Z", "meters_per_unit": True}, "not True"),
+        ({"up_axis": "Z", "meters_per_unit": None}, "not None"),
+        ({"up_axis": "Z", "meters_per_unit": math.inf}, "not inf"),
+    ],
+)
+def test_new_scene_refuses_a_frame_it_can_t_make_before_the_stage_goes(scene, kit, body, says):
+    UsdGeom.Cube.Define(kit.stage, "/World/Kept")
+    before = kit.stage
+
+    r = _new(scene, body)
+
+    assert r["status"] == "error"
+    assert says in r["error"]
+    assert "the open stage stays" in r["error"]
+    assert kit.new_stages == 0
+    assert kit.stage is before
+    assert kit.stage.GetPrimAtPath("/World/Kept").IsValid()
 
 
 # ---- set_material ----

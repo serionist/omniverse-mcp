@@ -181,7 +181,14 @@ CASES = [
         {"file_path": "C:/Scenes/room.usda"},
         ("Opened C:/Scenes/room.usda\nup_axis = Z\nmeters_per_unit = 1.0\ndefault_prim = /World\nprim_count = 14",),
     ),
-    Case("new_scene", {}, "/scene/new", {}, {}, ("New scene created",)),
+    Case(
+        "new_scene",
+        {},
+        "/scene/new",
+        {"message": "New scene created", "default_prim": "/World", "up_axis": "Z", "meters_per_unit": 1.0},
+        {"up_axis": "Z", "meters_per_unit": 1.0},
+        ("New scene created with /World root prim\nup_axis = Z\nmeters_per_unit = 1.0",),
+    ),
     # Geometry and USD
     Case(
         "get_mesh_stats",
@@ -2186,6 +2193,41 @@ def test_get_prim_properties_warns_when_the_extension_lists_no_schemas(
     assert text.startswith("[/World/Cube]")
     assert ("WARNING: This Kit extension, older than the server, lists no applied API schemas" in text) is warns
     assert ("extension install" in text) is warns
+
+
+def test_new_scene_sends_the_frame_asked_and_gives_the_one_read_back(bridge: MockIsaacServer, tmp_path: Path):
+    answer = {"message": "New scene created", "default_prim": "/World", "up_axis": "Y", "meters_per_unit": 0.01}
+    bridge.set_response("/scene/new", {"status": "success", "result": answer})
+
+    erred, text, calls = _call(bridge, tmp_path, "new_scene", {"up_axis": "Y", "meters_per_unit": 0.01})
+
+    assert not erred, text
+    assert calls == [("/scene/new", {"up_axis": "Y", "meters_per_unit": 0.01})]
+    assert text == "New scene created with /World root prim\nup_axis = Y\nmeters_per_unit = 0.01"
+
+
+def test_new_scene_warns_when_an_older_extension_made_its_own_y_up_stage(bridge: MockIsaacServer, tmp_path: Path):
+    # An extension from before #159 ignores both keys and answers no frame, and the plugin updates the server first:
+    # without the warning, an agent would place things along Z on a Y-up stage.
+    bridge.set_response("/scene/new", {"status": "success", "result": {"message": "New scene created"}})
+
+    erred, text, _calls = _call(bridge, tmp_path, "new_scene", {})
+
+    assert not erred, text
+    assert text.startswith("New scene created with /World root prim\nWARNING: This Kit extension, older than the")
+    assert "server, made a Y-up stage in Kit's units" in text
+    assert "up_axis = " not in text
+    assert f"Install this server's, {kit_extension.install_advice()}." in text
+
+
+@pytest.mark.parametrize("args", [{"up_axis": "X"}, {"meters_per_unit": 0}, {"meters_per_unit": -0.01}])
+def test_new_scene_refuses_a_frame_it_can_t_make_before_the_bridge(
+    args: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path
+):
+    erred, _text, calls = _call(bridge, tmp_path, "new_scene", args)
+
+    assert erred
+    assert calls == []
 
 
 def test_set_material_says_its_opacity_when_it_is_1(bridge: MockIsaacServer, tmp_path: Path):

@@ -10,9 +10,9 @@ Status values: **PASS** | **FAIL** | **WARN** | **SKIP**
 > them. Phase 27 ends every run.
 > A path that starts `<run>/` lies in the run's folder, which a run fills in.
 > Phases 18 to 21 and 27 have no twin in `tests/test_scenarios.py`.
-> Vectors below are written for a Y-up stage, which `new_scene` makes. On a Z-up stage (`get_sim_state`'s `up_axis`;
-> Isaac Sim's own new stage is Z-up), swap each vector's Y and Z, so heights stay along the up axis and the ground
-> stays a floor.
+> Vectors below are written for a Y-up stage, which `new_scene(up_axis="Y")` makes; `new_scene()` alone makes a Z-up
+> one in metres. On a Z-up stage (`get_sim_state`'s `up_axis`; Isaac Sim's own new stage is Z-up),
+> swap each vector's Y and Z, so heights stay along the up axis and the ground stays a floor.
 
 ---
 
@@ -600,13 +600,15 @@ Needs: none
 ### 17.2 Create New Scene
 - `new_scene()`
 - Verify: `get_scene_tree` shows minimal default prims (just /World or similar)
-- Note: this wipes all prims from Phases 2-16. Phases 18+ create their own.
+- Verify: the answer and `get_sim_state` both give `up_axis` Z and `meters_per_unit` 1.0, the default frame
+- Note: this wipes all prims from Phases 2-16. Phases 18+ create their own. 17.3 onwards make Y-up stages again.
 
 ### 17.3 A New Stage Forgets the Old One's Drawings
 - The line count and Kit's clock, from one short `execute_script`:
   `from isaacsim.util.debug_draw import _debug_draw; import time; result = [_debug_draw.acquire_debug_draw_interface().get_num_lines(), round(time.monotonic(), 2)]`
-- Read it; `draw_debug("line", ..., duration=30)`, then `new_scene()`, then `draw_debug("sphere", ..., duration=10)`;
-  then read it again, a call at a time, until the sphere's 10 s are up, and once more after that
+- Read it; `draw_debug("line", ..., duration=30)`, then `new_scene(up_axis="Y")`, then
+  `draw_debug("sphere", ..., duration=10)`; then read it again, a call at a time, until the sphere's 10 s are up,
+  and once more after that
 - Verify: the first read after the sphere is the sphere's 3 alone, and once the sphere's 10 s are up the count is
   back where it started, at that read and the next: the old stage's line never comes back
 
@@ -621,14 +623,14 @@ Needs: none
 - Clean up: `delete_prim("/World/SegmentationCube")`
 
 ### 17.5 A New Stage Stops a Recording
-- `start_recording(fps=10, width=320, height=240)`, then `new_scene()`, then `stop_recording()`
+- `start_recording(fps=10, width=320, height=240)`, then `new_scene(up_axis="Y")`, then `stop_recording()`
 - Verify: no frames after the new stage, a `Note:` saying the stage began to close, and the `render_product`
   `start_recording` named not on the new stage
 
 ### 17.6 Segmentation After Captures and a New Stage
 - `create_prim("/World/SegmentedCaptureCube", "Cube", ...)`, `set_camera(prim_path=...)` on it, and two
   `capture_viewport(320, 240)`
-- `new_scene()`, the cube again, and a third capture
+- `new_scene(up_axis="Y")`, the cube again, and a third capture
 - Verify: each capture's segmentation has the cube in its legend, and `get_logs(search="Py_Graph")` finds nothing
   since the first: each capture freed its segmentation graphs, so `omni.syntheticdata` tripped on none at the new
   stage (#51)

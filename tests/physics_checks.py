@@ -87,7 +87,8 @@ class PhysicsChecks(unittest.TestCase):
 
     def _up_axis(self) -> int:
         """The stage's up axis as the bridge reads it now: 1 for Y, 2 for Z. Never assumed: Isaac Sim opens a Z-up
-        stage, and 17.2's new_scene leaves a Y-up one to the next run, so a first run and a later one differ (#6)."""
+        stage, and 17.6's new_scene(up_axis="Y") leaves a Y-up one to the next run, so a first run and a later one
+        differ (#6, #159)."""
         r = self.c.sim_state()
         self.assertEqual(r["status"], "success", r)
         up = r["result"]["up_axis"]

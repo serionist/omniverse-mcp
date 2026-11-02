@@ -21,7 +21,7 @@ The Kit extension's two, which Kit's Extensions window and Kit's community regis
 
 **The scene**, built through the MCP tools:
 
-- `new_scene`, then `execute_script` for a Z-up stage with a dome light (intensity 380) and a distant light (1700,
+- `new_scene`, Z-up in metres, then `execute_script` for a dome light (intensity 380) and a distant light (1700,
   rotated -40, 25, 30);
 - `create_prim("/World/Workcell", "Xform")`, and under it:
   - `create_prim("/World/Workcell/Table", "Cube", position=[0.15, 0, 0.36], scale=[0.55, 0.42, 0.36])`;

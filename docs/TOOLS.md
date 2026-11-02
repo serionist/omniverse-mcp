@@ -438,14 +438,29 @@ A recording that stopped gives its `recording_note`, as `get_sim_state` does.
 
 ### `new_scene`
 
-Discard the open scene, unsaved changes too, and start an empty one with a `/World` prim. The new stage is Y-up.
-`create_robot` stands Isaac Sim's Z-up robots upright on it, but Isaac Sim's other assets and its stages are Z-up:
-for robot work, open a Z-up stage with `open_scene` or set the axis with
-`execute_script` (`UsdGeom.SetStageUpAxis(omni.usd.get_context().get_stage(), UsdGeom.Tokens.z)`) before adding
-anything. Call `save_scene` first to keep the old stage. The new stage has no file, so `save_scene` needs a `file_path`
-for it. A recording that runs stops taking frames, and `draw_debug`'s drawings go.
+Discard the open scene, unsaved changes too, and start an empty one in the up axis and units asked for, with a
+`/World` Xform as its default prim. Call `save_scene` first to keep the old stage. The new stage has no file, so
+`save_scene` needs a `file_path` for it. A recording that runs stops taking frames, and `draw_debug`'s drawings go.
 
-No parameters.
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `up_axis` | `"Z"` or `"Y"` | `"Z"` | The stage's up axis |
+| `meters_per_unit` | float, above 0 | `1.0` | The stage's metres per unit: `1.0` for metres, `0.01` for centimetres |
+
+- **Z-up in metres when left out:** the frame of Isaac Sim's own new stage (File > New), its robots, SimReady assets
+  and most robotics scenes. `create_robot` and `create_prim` turn and scale a referenced file to any stage's frame,
+  but a script, a payload or physics written for those assets don't. `up_axis="Y"` makes a Y-up stage, as USD
+  Composer's are; the call sets the frame whatever the Kit app's own setting for new stages.
+- **Refused, with the open stage kept:** an `up_axis` other than Z or Y, or a `meters_per_unit` that isn't a number
+  above 0.
+- **The viewport's camera:** Kit turns its own cameras to the new up axis, but places them for the units of the
+  app's own new stages, so a stage in other units (metres in USD Composer, which starts stages in centimetres) can
+  open with the camera far off: place it with `set_camera`.
+- **An extension older than the server** ignores both and makes a Y-up stage in Kit's units: the answer warns, with
+  the command that installs this release's extension; then restart Kit.
+
+**Returns:** `New scene created with /World root prim`, then `up_axis` and `meters_per_unit` as the stage reads them
+back, as `open_scene` and `get_sim_state` give them.
 
 ---
 

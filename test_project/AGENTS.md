@@ -5,8 +5,8 @@ Kit app of the run's own. These rules hold for every session; the prompt gives y
 
 ## A session
 
-1. **Run the prompt's scenarios,** in order, with the calls they name. A session that starts a new stage calls
-   `new_scene()` first.
+1. **Run the prompt's scenarios,** in order, with the calls they name. A session that starts a new stage first calls
+   `new_scene` as its prompt names it, with the frame the scenarios are written for.
 2. **Load the plugin's skill** for the work when one fits (`omniverse-mcp:scene`, `geometry`, `simulate`, `script`),
    as a user's agent would.
 3. **Judge each scenario** by its **Verify** lines: read what came back, open the image when the check is about what a
