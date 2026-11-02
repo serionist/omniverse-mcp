@@ -294,7 +294,7 @@ def test_attribute_value_computes_only_an_unauthored_extent(stage):
     assert attribute_value(cube.GetAttribute("size")) == (2.0, False)
     value, computed = attribute_value(cube.GetAttribute("extent"))
     assert computed
-    assert [tuple(corner) for corner in value] == [(-1, -1, -1), (1, 1, 1)]
+    assert format_value(value) == "[(-1, -1, -1), (1, 1, 1)]"
     # A prim with an extent attribute that isn't a shape has nothing to compute it from.
     odd = stage.DefinePrim("/World/Odd")
     attr = odd.CreateAttribute("extent", Sdf.ValueTypeNames.Float3Array)

@@ -83,7 +83,10 @@ def attribute_value(attr: Usd.Attribute) -> tuple[object, bool]:
     unset."""
     prim = attr.GetPrim()
     if attr.GetName() == "extent" and not attr.HasAuthoredValue() and is_a(prim, UsdGeom.Boundable):
-        box = UsdGeom.Boundable.ComputeExtentFromPlugins(UsdGeom.Boundable(prim), Usd.TimeCode.Default())
+        # The stubs type it as never None, but a shape without a plugin, or one it can't size, gives None.
+        box = cast(
+            "object", UsdGeom.Boundable.ComputeExtentFromPlugins(UsdGeom.Boundable(prim), Usd.TimeCode.Default())
+        )
         if box is not None:
             return box, True
     return attr.Get(), False

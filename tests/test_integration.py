@@ -992,7 +992,6 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         dimensions = self.client.prim_bounds(path)["result"]["dimensions"]
         for side in dimensions:
             self.assertAlmostEqual(side, 0.5, places=4)
-        self._pass()
 
     def test_08d_get_prim_properties_lists_applied_schemas_and_a_bindings_target(self):
         """A material binding read <unreadable> and no schema was listed, so an agent read them with execute_script
