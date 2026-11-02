@@ -118,6 +118,13 @@ def test_a_time_code_and_an_asset_take_a_number_and_a_string(stage):
         (Sdf.ValueTypeNames.FloatArray, ["a"], "takes a number"),
         (Sdf.ValueTypeNames.Matrix4d, [[1, 0, 0, 0]] * 4, "which this tool doesn't set"),
         (Sdf.ValueTypeNames.Opaque, 1, "which this tool doesn't set"),
+        # Each of these raised something other than ValueError, a 500 with a traceback (code review, F3).
+        (Sdf.ValueTypeNames.Double, 10**400, "takes a finite number, got an integer of 401 digits"),
+        (Sdf.ValueTypeNames.Half, 10**400, "takes a finite number"),
+        (Sdf.ValueTypeNames.Asset, "textures/wood.png\n", "without control characters"),
+        (Sdf.ValueTypeNames.Asset, "a\tb.png", "without control characters"),
+        (Sdf.ValueTypeNames.String, "bad \ud800 text", "UTF-8 text"),
+        (Sdf.ValueTypeNames.Token, "\udfff", "UTF-8 text"),
     ],
 )
 def test_a_value_that_doesn_t_fit_is_refused_with_nothing_written(stage, type_name, given, says):
@@ -212,6 +219,7 @@ def test_a_prototype_s_prim_is_refused_rather_than_raising(stage):
         ("", "name must be an attribute's name"),
         ("bad name", "name must be an attribute's name"),
         ("material:binding", "is a relationship, not an attribute: set_material binds a prim's material"),
+        ("physics:body0", "is a relationship, not an attribute: this tool sets attributes only"),
         ("xformOp:translate", "isn't set here: set_prim_transform"),
         ("xformOpOrder", "isn't set here: set_prim_transform"),
         ("visibility", "isn't set here: set_visibility"),
@@ -221,6 +229,7 @@ def test_a_name_another_tool_owns_or_that_isn_t_an_attribute_is_refused(stage, n
     cube = UsdGeom.Cube.Define(stage, "/World/Cube")
     cube.AddTranslateOp().Set(Gf.Vec3d(1, 0, 0))
     UsdShade.MaterialBindingAPI.Apply(cube.GetPrim()).Bind(UsdShade.Material.Define(stage, "/World/Looks/Red"))
+    cube.GetPrim().CreateRelationship("physics:body0").AddTarget("/World/Other")
     before = stage.GetRootLayer().ExportToString()
 
     with pytest.raises(ValueError, match=says):
@@ -292,6 +301,24 @@ def test_a_light_rig_s_light_is_written_in_the_session_layer_not_the_user_s_file
     assert written.layer.identifier == stage.GetSessionLayer().identifier
     assert key.GetAttribute("inputs:intensity").Get() == 1200
     assert not stage.GetRootLayer().GetPrimAtPath("/OmniKit_Viewport_LightRig")
+
+
+def test_a_stray_bare_session_over_on_a_user_s_prim_doesn_t_send_its_write_to_the_session_layer(stage):
+    # A bare over with no arc says nothing of who defines the prim; the session layer would lose the write on save.
+    asset = Sdf.Layer.CreateAnonymous("robot.usda")
+    held = Usd.Stage.Open(asset)
+    UsdGeom.Xform.Define(held, "/Robot")
+    UsdLux.SphereLight.Define(held, "/Robot/Lamp")
+    stage.DefinePrim("/World/Robot").GetReferences().AddReference(asset.identifier, "/Robot")
+    # OverridePrim writes nothing on a prim that exists; this writes the bare overs a stray edit would leave.
+    Sdf.CreatePrimInLayer(stage.GetSessionLayer(), "/World/Robot/Lamp")
+    lamp = stage.GetPrimAtPath("/World/Robot/Lamp")
+    assert stage.GetSessionLayer().GetPrimAtPath("/World/Robot/Lamp").specifier == Sdf.SpecifierOver
+
+    written = set_attribute(lamp, "inputs:intensity", 30)
+
+    assert written.layer.identifier == stage.GetRootLayer().identifier
+    assert lamp.GetAttribute("inputs:intensity").Get() == 30.0
 
 
 # ----- the extent -----
@@ -376,6 +403,8 @@ def test_a_colour_on_a_mesh_whose_extent_is_animated_is_set(stage):
     asset = Sdf.Layer.CreateAnonymous("cache.usda")
     held = Usd.Stage.Open(asset)
     mesh = UsdGeom.Mesh.Define(held, "/Cache")
+    # A default beside the samples, so the box is computed before and after and found the same (code review, F1).
+    mesh.CreatePointsAttr().Set([(0, 0, 0), (1, 0, 0), (0, 1, 0)])
     for t in (1.0, 2.0):
         mesh.CreatePointsAttr().Set([(0, 0, 0), (t, 0, 0), (0, t, 0)], t)
         mesh.CreateExtentAttr().Set([(0, 0, 0), (t, t, 0)], t)
@@ -387,6 +416,18 @@ def test_a_colour_on_a_mesh_whose_extent_is_animated_is_set(stage):
     set_attribute(prim, "primvars:displayColor", [[1, 0, 0]])
 
     assert UsdGeom.Mesh(prim).GetDisplayColorAttr().Get() == Vt.Vec3fArray([(1, 0, 0)])
+
+
+def test_a_colour_on_a_sphere_whose_extent_the_session_layer_holds_is_set(stage):
+    # Its box stays as it was, so the extent a stronger layer holds never comes into it (code review, F1).
+    ball = _kit_sphere(stage)
+    with Usd.EditContext(stage, stage.GetSessionLayer()):
+        UsdGeom.Sphere(ball).GetExtentAttr().Set([(-1, -1, -1), (1, 1, 1)])
+
+    written = set_attribute(ball, "primvars:displayColor", [[0, 0, 1]])
+
+    assert written.extent is None
+    assert UsdGeom.Sphere(ball).GetDisplayColorAttr().Get() == Vt.Vec3fArray([(0, 0, 1)])
 
 
 # ----- the answer -----
@@ -409,3 +450,16 @@ def test_shown_writes_values_as_get_prim_properties_does():
     assert shown(Gf.Vec2i(1, -2)) == "1, -2"
     assert shown(Vt.FloatArray()) == "[]"
     assert shown(Vt.TokenArray(["a", "b"])) == "a, b"
+    # A double vector and a half quaternion as format_value writes theirs (code review, F2).
+    assert shown(Gf.Vec3d(1, 2, 3)) == "1.0000, 2.0000, 3.0000"
+    assert shown(Gf.Vec4d(1, 0, 0, 1)) == "1.0000, 0.0000, 0.0000, 1.0000"
+    assert shown(Vt.Vec3dArray([(1, 2, 3)])) == "(1.0000, 2.0000, 3.0000)"
+    assert shown(Vt.QuathArray([Gf.Quath(1, Gf.Vec3h(0, 0, 0))])) == "(1.0000, 0.0000, 0.0000, 0.0000)"
+
+
+def test_a_colour_of_doubles_is_shown_as_get_prim_properties_shows_it(stage):
+    attr = _custom(stage, Sdf.ValueTypeNames.Color3d)
+
+    written = set_attribute(attr.GetPrim(), "my:value", [1, 0, 0])
+
+    assert shown(written.after) == "1.0000, 0.0000, 0.0000"

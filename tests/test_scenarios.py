@@ -2905,7 +2905,9 @@ class TestScenarios(PhysicsChecks):
         lighting_mode = cap["result"].get("lighting_mode", "")
         self.assertEqual(lighting_mode, "off")
         # Kit's grid keeps the image from being all black: the warning is the lighting's, through the server (#105).
-        erred, text = call_tool("capture_viewport", {"width": 160, "height": 120}, tempfile.mkdtemp(prefix="ovmcp-"))
+        folder = tempfile.mkdtemp(prefix="ovmcp-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        erred, text = call_tool("capture_viewport", {"width": 160, "height": 120}, folder)
         self.assertFalse(erred, text)
         self.assertIn("Lighting mode is 'off'", text)
         print(f"  Lighting off: is_black={is_black}, mode={lighting_mode}")
@@ -2917,6 +2919,7 @@ class TestScenarios(PhysicsChecks):
         self.assertEqual(self.c.create_prim(path, "DistantLight")["status"], "success")
         self.addCleanup(self.c.delete_prim, path)
         folder = tempfile.mkdtemp(prefix="ovmcp-")
+        self.addCleanup(shutil.rmtree, folder, True)
 
         erred, text = call_tool(
             "set_prim_attribute", {"prim_path": path, "name": "inputs:intensity", "value": 3000}, folder

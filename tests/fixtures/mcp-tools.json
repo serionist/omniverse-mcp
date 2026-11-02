@@ -1470,7 +1470,25 @@
                 "type": "string"
               },
               {
-                "items": {},
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "items": {
+                        "type": "number"
+                      },
+                      "type": "array"
+                    }
+                  ]
+                },
                 "type": "array"
               }
             ]

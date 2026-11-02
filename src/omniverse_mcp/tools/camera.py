@@ -124,7 +124,7 @@ def _rig_line(mode: str, has_scene_lights: bool) -> str:
     return (
         f"The light rig '{mode}' lights the viewport with lights of its own, which aren't the stage's: in mode "
         "'stage', or in another app, the stage's surfaces render black. create_prim (DistantLight, DomeLight) lights "
-        "the stage itself."
+        "the stage itself, then set_prim_attribute for its intensity: a DistantLight comes at 50,000."
     )
 
 
@@ -440,7 +440,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         "stage" (the stage's own lights), "camera" (a light that follows the camera), "off", or a light rig such as
         "Default", "Colored Lights" or "Grey Studio"; rigs need Kit's lighting menu, omni.kit.viewport.menubar.lighting,
         and a mode not on offer is an error. "set_camera_light" is the older switch, turning the camera light on or off
-        with enabled. To add a light to the stage itself, use create_prim (DistantLight, DomeLight).
+        with enabled. To add a light to the stage itself, use create_prim (DistantLight, DomeLight), then
+        set_prim_attribute for its intensity: a DistantLight comes at 50,000, which washes a capture out.
         """
         resp = bridge_call(client.viewport_light, action, enabled, mode=mode)
 

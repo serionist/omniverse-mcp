@@ -616,12 +616,11 @@ def test_the_tool_calls_its_route_and_reads_the_answer(case: Case, bridge: MockI
     _check(case, bridge, tmp_path)
 
 
-def test_set_prim_attribute_gives_the_extent_it_moved_and_a_token_s_note(bridge: MockIsaacServer, tmp_path: Path):
-    # A list value goes as given; the extension converts it (#151).
+def test_set_prim_attribute_gives_the_extent_it_moved(bridge: MockIsaacServer, tmp_path: Path):
     text = _check(
         Case(
             "set_prim_attribute",
-            {"prim_path": "/World/Ball", "name": "radius", "value": [5]},
+            {"prim_path": "/World/Ball", "name": "radius", "value": 5},
             "/scene/attribute",
             {
                 "prim_path": "/World/Ball",
@@ -631,19 +630,75 @@ def test_set_prim_attribute_gives_the_extent_it_moved_and_a_token_s_note(bridge:
                 "after": "5",
                 "layer": "the stage's root layer",
                 "extent": "(-5.0000, -5.0000, -5.0000), (5.0000, 5.0000, 5.0000)",
-                "note": "sdf isn't among physics:approximation's allowed tokens (none, convexHull); written as given",
             },
-            {"prim_path": "/World/Ball", "name": "radius", "value": [5]},
+            {"prim_path": "/World/Ball", "name": "radius", "value": 5},
             (
                 "extent updated to (-5.0000, -5.0000, -5.0000), (5.0000, 5.0000, 5.0000), so get_prim_bounds gives "
                 "the new size",
-                "note: sdf isn't among",
             ),
         ),
         bridge,
         tmp_path,
     )
     assert text.splitlines()[1] == "radius = 5 (double; was 1)"
+
+
+def test_set_prim_attribute_sends_a_colour_list_and_gives_a_token_s_note(bridge: MockIsaacServer, tmp_path: Path):
+    _check(
+        Case(
+            "set_prim_attribute",
+            {"prim_path": "/World/Cube", "name": "primvars:displayColor", "value": [[1, 0, 0]]},
+            "/scene/attribute",
+            {
+                "prim_path": "/World/Cube",
+                "name": "primvars:displayColor",
+                "type": "color3f[]",
+                "before": "null",
+                "after": "(1.0000, 0.0000, 0.0000)",
+                "layer": "the stage's root layer",
+            },
+            {"prim_path": "/World/Cube", "name": "primvars:displayColor", "value": [[1.0, 0.0, 0.0]]},
+            ("primvars:displayColor = (1.0000, 0.0000, 0.0000) (color3f[]; was null)",),
+        ),
+        bridge,
+        tmp_path,
+    )
+    _check(
+        Case(
+            "set_prim_attribute",
+            {"prim_path": "/World/Rock", "name": "physics:approximation", "value": "sdf"},
+            "/scene/attribute",
+            {
+                "prim_path": "/World/Rock",
+                "name": "physics:approximation",
+                "type": "token",
+                "before": "none",
+                "after": "sdf",
+                "layer": "the stage's root layer",
+                "note": "sdf isn't among physics:approximation's allowed tokens (none, convexHull); written as given",
+            },
+            {"prim_path": "/World/Rock", "name": "physics:approximation", "value": "sdf"},
+            ("note: sdf isn't among",),
+        ),
+        bridge,
+        tmp_path,
+    )
+
+
+@pytest.mark.parametrize(("value", "kind"), [(3000, int), (True, bool), (1.5, float), ("sdf", str)])
+def test_set_prim_attribute_keeps_the_value_s_json_type(bridge: MockIsaacServer, tmp_path: Path, value, kind):
+    # The extension refuses 1 for a bool and true for an int, so each type must survive the schema's union.
+    answer = {"prim_path": "/World/A", "name": "my:v", "type": "x", "before": "0", "after": "1", "layer": "root"}
+    bridge.set_response("/scene/attribute", {"status": "success", "result": answer})
+
+    erred, text, calls = _call(
+        bridge, tmp_path, "set_prim_attribute", {"prim_path": "/World/A", "name": "my:v", "value": value}
+    )
+
+    assert not erred, text
+    (body,) = [b for path, b in calls if path == "/scene/attribute"]
+    assert type(body["value"]) is kind
+    assert body["value"] == value
 
 
 def test_manage_extensions_enables_one(bridge: MockIsaacServer, tmp_path: Path):

@@ -11,11 +11,11 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import cast
 
-from pxr import Gf, Sdf, Usd, UsdGeom
+from pxr import Gf, Sdf, Tf, Usd, UsdGeom
 
 from .deletion import instance_of
 from .formatter import format_value
-from .usd import attribute_spec, is_a, prim_spec
+from .usd import attribute_spec, is_a, prim_spec, spec_has_arcs
 from .xform import write_blocker
 
 _DEFAULT = Usd.TimeCode.Default()
@@ -77,7 +77,9 @@ def attribute_refusal(prim: Usd.Prim, name: str) -> str | None:
     if not name or not Sdf.Path.IsValidNamespacedIdentifier(name):
         return f"name must be an attribute's name, such as inputs:intensity, got {name!r}"
     if prim.GetRelationship(name):
-        return f"{path}'s {name} is a relationship, not an attribute: set_material binds a prim's material"
+        if name.startswith("material:binding"):
+            return f"{path}'s {name} is a relationship, not an attribute: set_material binds a prim's material"
+        return f"{path}'s {name} is a relationship, not an attribute: this tool sets attributes only"
     if name in _OWNED:
         return f"{name} isn't set here: {_OWNED[name]}"
     if name.startswith("xformOp:"):
@@ -96,7 +98,11 @@ def _number(value: object, what: str, limit: float | None) -> float:
     """value as a finite float within limit, which the type would store as infinity past it."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{what} takes a number, got {value!r}")
-    number = float(value)
+    try:
+        number = float(value)
+    except OverflowError:
+        # A JSON integer of hundreds of digits: past what a double holds, so no type here can store it.
+        raise ValueError(f"{what} takes a finite number, got an integer of {len(str(value))} digits") from None
     if not math.isfinite(number):
         raise ValueError(f"{what} takes a finite number, got {value!r}")
     if limit is not None and abs(number) > limit:
@@ -118,7 +124,21 @@ def _whole(value: object, what: str, low: int, high: int) -> int:
 def _text(value: object, what: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{what} takes a string, got {value!r}")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        # A lone surrogate, which USD would raise on writing rather than refuse.
+        raise ValueError(f"{what} takes a string of UTF-8 text, got {value!r}") from None
     return value
+
+
+def _asset(value: object, what: str) -> Sdf.AssetPath:
+    text = _text(value, what)
+    try:
+        return Sdf.AssetPath(text)
+    except Tf.ErrorException:
+        # USD refuses a control character, such as a newline or a tab, in an asset path.
+        raise ValueError(f"{what} takes a path or URL without control characters, got {value!r}") from None
 
 
 def _bool(value: object, what: str) -> bool:
@@ -160,7 +180,7 @@ _SCALARS: dict[object, Convert] = {
     _T.TimeCode.type: lambda v, w: Sdf.TimeCode(_double(v, w)),
     _T.String.type: _text,
     _T.Token.type: _text,
-    _T.Asset.type: lambda v, w: Sdf.AssetPath(_text(v, w)),
+    _T.Asset.type: _asset,
 }
 # Each vector type: its Gf class, its length and what each component is.
 _COMPONENTS: dict[str, tuple[str, Convert]] = {
@@ -254,11 +274,24 @@ def target_layer(prim: Usd.Prim) -> Sdf.Layer:
     session: set[str] = set(ids[: ids.index(root)]) if root in ids else set()
     current: Usd.Prim | None = prim
     while current and not current.IsPseudoRoot():
-        holders = {spec.layer.identifier for spec in current.GetPrimStack() if spec.layer.identifier in ids}
+        holders = {
+            spec.layer.identifier
+            for spec in current.GetPrimStack()
+            if spec.layer.identifier in ids and _holds(spec, session)
+        }
         if holders:
             return stage.GetSessionLayer() if holders <= session else edit
         current = current.GetParent()
     return edit
+
+
+def _holds(spec: Sdf.PrimSpec, session: set[str]) -> bool:
+    """Whether spec says who holds its prim: any spec in the stage's own layers but a bare over in a session layer,
+    one with no arc, which a stray edit leaves on a user's prim and which would otherwise send its writes to the session
+    layer, lost on save. Kit's cameras (a def) and a rig's over, which references the rig's file, still count."""
+    if spec.layer.identifier not in session or spec.specifier != Sdf.SpecifierOver:
+        return True
+    return spec_has_arcs(spec)
 
 
 # ----- the write -----
@@ -362,9 +395,17 @@ def _is_array(value: object) -> bool:
     return kind.__module__ in ("pxr.Vt", "pxr.Sdf") and kind.__name__.endswith("Array")
 
 
+# The vectors format_value writes itself, 4 places a component; a half or int one it would write as Gf prints it.
+_FORMATTED_VECTORS = (Gf.Vec2f, Gf.Vec3f, Gf.Vec4f, Gf.Vec2d, Gf.Vec3d, Gf.Vec4d)
+
+
 def _one(value: object) -> str:
-    """One value as format_value writes it, a half or int vector too, which it would write as Gf prints it."""
-    if isinstance(value, _VECTOR_TYPES) and not isinstance(value, (Gf.Vec2f, Gf.Vec3f, Gf.Vec4f, Gf.Vec2d)):
+    """One value as format_value writes it: a half or int vector too, and a half quaternion, real then imaginary, as
+    it writes a float or double one."""
+    if isinstance(value, Gf.Quath):
+        imaginary = ", ".join(f"{float(x):.4f}" for x in cast("Iterable[float]", value.GetImaginary()))
+        return f"{float(value.GetReal()):.4f}, {imaginary}"
+    if isinstance(value, _VECTOR_TYPES) and not isinstance(value, _FORMATTED_VECTORS):
         return ", ".join(format_value(float(x)) for x in cast("Iterable[float]", value))
     return format_value(value)
 
