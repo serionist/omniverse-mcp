@@ -109,6 +109,12 @@ def test_every_tool_and_parameter_is_described(listed):
         ("get_sim_state", "get_performance measures the frame rate"),
         # A script that only defines or schedules its coroutine is refused, and the agent learns why first (#158).
         ("run_script_job", "a coroutine the script only defines or schedules doesn't count: await it at the top level"),
+        # An agent reading these takes many pictures in one call, rereads them from a manifest, and knows what a time
+        # repeats and what it doesn't (#157).
+        ("capture_sweep", "A sweep's manifest.json given as shots_file takes the same shots again"),
+        ("capture_sweep", "stop the timeline (sim_control) for shots of them that repeat"),
+        ("capture_sweep", "every layer, the timeline and the selections are as they were, after cancel_job too"),
+        ("get_job", "A sweep's result is one line"),
     ],
 )
 def test_a_description_says_what_the_tool_now_does(listed, tool: str, says: str):

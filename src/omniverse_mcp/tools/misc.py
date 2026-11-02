@@ -12,6 +12,7 @@ from omniverse_mcp.client import BridgeClient
 
 from ._annotations import EDITS, READS, RUNS, tool
 from ._bridge import TRACEBACK_LINES, bridge_call
+from .sweep import sweep_line
 
 if TYPE_CHECKING:
     from omniverse_mcp.server import Helpers
@@ -118,7 +119,10 @@ def _job_answer(r: dict[str, Any], h: "Helpers") -> str:
             result: dict[str, Any] = r.get("result") or {}
             script = r["kind"] == "script"
             value = result.get("return_value") if script else result
-            if value is None:
+            if r["kind"] == "sweep" and "folder" in result:
+                # One line, where 400 shots' entries would fill the context: the manifest holds them.
+                head.append(f"Result: {sweep_line(result, h)}")
+            elif value is None:
                 head.append("Return value: none")
             else:
                 text = json.dumps(value, indent=2)
@@ -210,7 +214,11 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @tool(mcp, READS)
     def get_job(
         job_id: Annotated[
-            str, Field(description="The id run_script_job answered, such as j3; the running or last job when empty")
+            str,
+            Field(
+                description="The id run_script_job or capture_sweep answered, such as j3; the running or last job "
+                "when empty"
+            ),
         ] = "",
         wait: Annotated[
             float,
@@ -224,9 +232,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             ),
         ] = 0,
     ) -> str:
-        """Read a job run_script_job started: its state, how long it has run, its last line and the lines it printed
-        since the last read; once it has ended, its result, or its error and traceback, and what it printed, each
-        stream's last 200 lines.
+        """Read a job run_script_job or capture_sweep started: its state, how long it has run, its last line and the
+        lines it printed since the last read; once it has ended, its result, or its error and traceback, and what it
+        printed, each stream's last 200 lines. A sweep's result is one line: its folder, and the shots that came out
+        black or failed; its message says which shot it is on, and its last line, whatever its end, says what it took.
 
         States: working; cancelling, while its cleanup runs after a cancel; completed; failed; cancelled. With wait,
         the call returns when the job ends or changes state, or after that many seconds, so a long job is waited for
@@ -239,12 +248,17 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @tool(mcp, EDITS)
     def cancel_job(
         job_id: Annotated[
-            str, Field(min_length=1, description="The job to cancel, as run_script_job answered it, such as j3")
+            str,
+            Field(
+                min_length=1,
+                description="The job to cancel, as run_script_job or capture_sweep answered it, such as j3",
+            ),
         ],
     ) -> str:
-        """Cancel a job run_script_job started, at its next await. It reads cancelling until its own cleanup, its
-        finally blocks, has run, then cancelled: get_job(job_id, wait=10) reads it. A job whose code caught the cancel,
-        as a bare except does, runs on: call cancel_job again. A job that has ended is left as it is.
+        """Cancel a job run_script_job or capture_sweep started, at its next await. It reads cancelling until its own
+        cleanup, its finally blocks, has run, then cancelled: get_job(job_id, wait=10) reads it. A job whose code caught
+        the cancel, as a bare except does, runs on: call cancel_job again. A sweep puts the stage back and keeps the
+        shots it took, in its manifest. A job that has ended is left as it is.
         """
         resp = bridge_call(client.job_cancel, job_id.strip())
         r = resp["result"]
