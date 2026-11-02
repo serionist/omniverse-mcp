@@ -2,8 +2,12 @@
 run test_project/scenarios.md's phases, each in a headless Claude Code tester of its own, and compare a run's rows
 with earlier runs'. The run-scenarios skill calls it.
 
+test_project/outcomes.md's outcomes (#146, docs/plans/2026-11-02-outcome-scenarios.md) run after the phases: an agent
+gets a user's request alone, on a stage the runner prepared, and a read-only judge checks what it did.
+
     uv run tools/scenarios.py check [--port N]
-    uv run tools/scenarios.py run [--phases 15,18-21] [--port N] [--budget USD] [--model M] [--dry-run]
+    uv run tools/scenarios.py run [--phases 15,18-21|none] [--outcomes all|none|O1,O3] [--port N] [--budget USD]
+        [--model M] [--dry-run]
     uv run tools/scenarios.py compare [RUN] [--against RUN_OR_TAG]
 
 Unlike the gate, it imports the server's client, so it needs `uv sync` (write-skill, step 5).
@@ -12,6 +16,7 @@ Unlike the gate, it imports the server's client, so it needs `uv sync` (write-sk
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -40,6 +45,10 @@ ROOT = Path(__file__).resolve().parents[1]
 TEST_PROJECT = ROOT / "test_project"
 SCENARIOS = TEST_PROJECT / "scenarios.md"
 TESTER_RULES = TEST_PROJECT / "AGENTS.md"
+OUTCOMES = TEST_PROJECT / "outcomes.md"
+# What an outcome's agent is told in place of the tester's rules: nothing about tests, Verify lines or tools.
+AGENT_BRIEF = TEST_PROJECT / "assistant.md"
+TOOL_CONTRACT = ROOT / "tests" / "fixtures" / "mcp-tools.json"
 PLUGIN = ROOT / "plugin"
 BRIDGE = "extension/ovmcp.bridge"
 
@@ -54,7 +63,18 @@ NOT_RUN = "NOT RUN"
 # plugin's own server, so the server is the run's (the plan's step 2, S1).
 SERVER = "omniverse"
 BUILTIN_TOOLS = ("Read", "Grep", "Glob", "Skill")
+# A judge's built-in tools: it loads no skill, and its file tools reach only its folders (--restricted).
+JUDGE_TOOLS = ("Read", "Grep", "Glob")
 PLUGIN_NAME = "omniverse-mcp"
+# Each of the agent's answers as a judge's prompt quotes it; the transcript keeps them whole. An answer is kept up to
+# ANSWER_KEPT characters while a session runs.
+ANSWER_CHARS = 600
+ANSWER_KEPT = 4000
+# The runner's play before a judge (an outcome's Play: line): a wall-clock limit of PLAY_TIMES its seconds plus
+# PLAY_SLACK, read every PLAY_EVERY seconds.
+PLAY_TIMES = 4
+PLAY_SLACK = 10.0
+PLAY_EVERY = 0.25
 # The /health watch (#54): probes as conftest's, and a stop only after a silence longer than the server's 120 s call
 # limit plus one probe, counted from the first probe that got no answer, since a long handler holds /health back too.
 PROBE_SECONDS = 20.0
@@ -200,26 +220,138 @@ def suite_problems(suite: Suite) -> list[str]:
     return problems
 
 
+# ----- outcomes.md -----
+
+OUTCOME = re.compile(r"^## (O\d+): (.+)$", re.MULTILINE)
+FIELD = re.compile(r"^(Given|Ask|Verify|Calls|Play):[ \t]*(.*)$", re.MULTILINE)
+FENCE = re.compile(r"^```python\n(.*?)^```$", re.MULTILINE | re.DOTALL)
+FIELDS = ("Given", "Ask", "Verify", "Calls", "Play")
+CALLS = ("any", "no execute_script")
+NO_SCRIPT = "execute_script"
+PLAY = re.compile(r"^(\d+(?:\.\d+)?) s$")
+
+
+@dataclass(frozen=True)
+class OutcomeCase:
+    id: str  # "O1"
+    title: str
+    given: str  # Python the runner sends through /execute after new_scene(); "" for none
+    ask: str  # the request, all the agent gets
+    verify: str  # what the judge checks
+    calls: str  # one of CALLS
+    play: float  # the runner's seconds of play before the judge; 0 for none
+
+
+@dataclass(frozen=True)
+class Outcomes:
+    header: str
+    cases: tuple[OutcomeCase, ...]
+
+    def case(self, case_id: str) -> OutcomeCase | None:
+        return next((c for c in self.cases if c.id == case_id), None)
+
+
+def parse_outcomes(text: str) -> tuple[Outcomes, list[str]]:
+    """outcomes.md: the header, and each `## O<n>: Title` with its five fields; with what is wrong in any of them."""
+    heads = list(OUTCOME.finditer(text))
+    first = heads[0].start() if heads else len(text)
+    header = _trim(text[:first].split("\n", 1)[1] if "\n" in text[:first] else "")
+    cases: list[OutcomeCase] = []
+    problems: list[str] = []
+    for i, head in enumerate(heads):
+        section = _trim(text[head.end() : heads[i + 1].start() if i + 1 < len(heads) else len(text)])
+        cid = head.group(1)
+        where = f"outcomes.md, {cid}"
+        # A field line inside Given's code is code, not a field.
+        fenced = [(m.start(), m.end()) for m in FENCE.finditer(section)]
+        marks = [m for m in FIELD.finditer(section) if not any(a <= m.start() < b for a, b in fenced)]
+        values: dict[str, str] = {}
+        for j, mark in enumerate(marks):
+            name = mark.group(1)
+            end = marks[j + 1].start() if j + 1 < len(marks) else len(section)
+            if name in values:
+                problems.append(f"{where}: `{name}:` appears twice")
+            values[name] = (mark.group(2) + section[mark.end() : end]).strip()
+        missing = [f for f in FIELDS if f not in values]
+        if missing:
+            problems.append(f"{where}: no {', '.join(f'`{f}:`' for f in missing)} line")
+            continue
+        given = ""
+        if values["Given"] != "none":
+            code = FENCE.search(values["Given"] + "\n")
+            if code is None:
+                problems.append(f"{where}: `Given:` is `none` or a fenced python block")
+            else:
+                given = code.group(1)
+                try:
+                    # As the bridge runs it: a top-level await is no error.
+                    compile(given, f"{where} Given", "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
+                except SyntaxError as e:
+                    problems.append(f"{where}: its Given doesn't compile: {e}")
+        if values["Calls"] not in CALLS:
+            problems.append(f"{where}: `Calls:` is one of {', '.join(CALLS)}, not {values['Calls']!r}")
+        play = 0.0
+        if values["Play"] != "none":
+            seconds = PLAY.match(values["Play"])
+            if seconds is None or float(seconds.group(1)) <= 0:
+                problems.append(f"{where}: `Play:` is `none` or seconds such as `2 s`, not {values['Play']!r}")
+            else:
+                play = float(seconds.group(1))
+        for name in ("Ask", "Verify"):
+            if not values[name] or values[name] == "none":
+                problems.append(f"{where}: its `{name}:` is empty")
+        cases.append(
+            OutcomeCase(cid, head.group(2).strip(), given, values["Ask"], values["Verify"], values["Calls"], play)
+        )
+    ids = [c.id for c in cases]
+    if len(set(ids)) != len(ids):
+        problems.append("outcomes.md: an outcome ID appears twice")
+    return Outcomes(header, tuple(cases)), problems
+
+
+def outcomes_asked(value: str | None, phases_given: bool, outcomes: Outcomes) -> list[str]:
+    """`all`, `none` or `O1,O3`; when left out, every outcome in a run of every phase and none in a run of some."""
+    known = [c.id for c in outcomes.cases]
+    if value is None:
+        return [] if phases_given else known
+    value = value.strip()
+    if value in ("all", "none"):
+        return known if value == "all" else []
+    asked = [part.strip() for part in value.split(",")]
+    unknown = [part for part in asked if part not in known]
+    if unknown:
+        raise ValueError(f"--outcomes: {', '.join(unknown)} isn't an outcome outcomes.md has (all, none or O1,O3)")
+    return [cid for cid in known if cid in asked]
+
+
 # ----- which sessions a run holds -----
+
+
+AGENT, JUDGE = "outcome", "judge"
 
 
 @dataclass(frozen=True)
 class Session:
-    kind: str  # "phase", or "setup": the needed scenarios a later phase in the run uses
+    # "phase"; "setup": the needed scenarios a later phase in the run uses; AGENT: an outcome's agent; JUDGE: its judge
+    kind: str
     ids: tuple[str, ...]
-    phase: int  # the phase it runs, or for setup the phase it comes before
+    phase: int  # the phase it runs, or for setup the phase it comes before; 0 for an outcome's sessions
     new_stage: bool  # the first session of a half: new_scene() first
 
     @property
     def label(self) -> str:
+        if self.kind in (AGENT, JUDGE):
+            return f"{self.kind}-{self.ids[0]}"
         return f"{self.kind}-{self.phase:02d}"
 
 
 def phases_asked(value: str | None, suite: Suite) -> set[int]:
-    """`15`, `15-16` or `18-21,24`; every phase when empty."""
+    """`15`, `15-16` or `18-21,24`; every phase when empty; none for `none`, a run of outcomes alone."""
     known = {p.number for p in suite.phases}
     if not value:
         return known
+    if value.strip() == "none":
+        return set()
     asked: set[int] = set()
     for part in value.split(","):
         bounds = part.strip().split("-")
@@ -233,10 +365,10 @@ def phases_asked(value: str | None, suite: Suite) -> set[int]:
     return asked
 
 
-def plan(suite: Suite, asked: Iterable[int]) -> list[Session]:
+def plan(suite: Suite, asked: Iterable[int], outcomes: Sequence[str] = ()) -> list[Session]:
     """The run's sessions: each half asked starts on a new stage; in it the needed scenarios the run lacks and the
-    asked phases go in ID order, each group of needed ones just before the first asked phase after them; the cleanup
-    phase ends the run."""
+    asked phases go in ID order, each group of needed ones just before the first asked phase after them; then each
+    outcome asked, its agent and its judge, on a stage the runner prepares; the cleanup phase ends the run."""
     cleanup = suite.cleanup
     wanted = set(asked) - {cleanup}
     sessions: list[Session] = []
@@ -264,6 +396,8 @@ def plan(suite: Suite, asked: Iterable[int]) -> list[Session]:
                 sessions.append(Session("setup", group, number, len(sessions) == start))
             ids = tuple(s.id for s in suite.phase(number).scenarios)
             sessions.append(Session("phase", ids, number, len(sessions) == start))
+    for case_id in outcomes:
+        sessions += [Session(AGENT, (case_id,), 0, False), Session(JUDGE, (case_id,), 0, False)]
     sessions.append(Session("phase", tuple(s.id for s in suite.phase(cleanup).scenarios), cleanup, False))
     return sessions
 
@@ -314,6 +448,75 @@ def prompt(suite: Suite, session: Session, statuses: Mapping[str, str], run_dir:
         "what you saw, with its numbers, and name the capture under mcp_output/ for a FAIL or WARN.",
     ]
     return "\n".join(lines)
+
+
+def _cut(text: str, limit: int) -> str:
+    return text if len(text) <= limit else f"{text[:limit]} [... {len(text) - limit} more characters]"
+
+
+def judge_prompt(case: OutcomeCase, agent: Outcome, files: Sequence[Path], port: int) -> str:
+    """The text an outcome's judge gets: the request, the Verify lines, what the agent called and answered, its last
+    message and the files its server wrote, by absolute path, and how to answer."""
+    played = (
+        f"The runner then played the simulation for {case.play:g} s and paused it: the stage is as physics left it."
+        if case.play
+        else "The timeline is stopped: the stage is as the assistant left it, with any play it ran stopped."
+    )
+    lines = [
+        f"You judge outcome {case.id} of the Omniverse MCP's scenario suite. The Kit app is at port {port}. An "
+        "assistant was given a user's request, below, and acted on the Kit app with the MCP's tools. It never saw the "
+        f"Verify lines: judge what it did against them, as the judging rules say. {played}",
+        "",
+        "The request:",
+        "",
+        case.ask,
+        "",
+        "Verify:",
+        "",
+        case.verify,
+        "",
+        f"The assistant's calls, in order, each answer cut to {ANSWER_CHARS} characters:",
+        "",
+    ]
+    for n, call in enumerate(agent.calls, 1):
+        lines.append(f"{n}. {call['name']} {_cut(call['input'], ANSWER_CHARS)}")
+        lines.append(f"   -> {_cut(call['answer'], ANSWER_CHARS)}" if call["answer"] else "   -> (no answer came)")
+    if not agent.calls:
+        lines.append("none")
+    if agent.stopped:
+        lines += ["", f"The runner stopped the assistant: {agent.stopped}."]
+    lines += ["", "The assistant's last message:", "", agent.text.strip() or "(none)", ""]
+    lines += ["The files the assistant's server wrote, which your Read reaches:", ""]
+    lines += [f"- {path.as_posix()}" for path in files] or ["none"]
+    lines += [
+        "",
+        "End your last message with your row as one Markdown table with the columns | ID | Test | Status | Notes |: "
+        f"one row, for {case.id}. Status is PASS, FAIL, WARN or SKIP. Notes say what you checked, with its numbers, "
+        "and name the capture for a FAIL or WARN.",
+    ]
+    return "\n".join(lines)
+
+
+def calls_note(case: OutcomeCase, names: Sequence[str]) -> str:
+    """What breaks the outcome's Calls: line, or ""."""
+    scripts = sum(1 for name in names if name == NO_SCRIPT)
+    if case.calls == "no execute_script" and scripts:
+        return f"Calls: execute_script {scripts}, where the line says none"
+    return ""
+
+
+def summarise_calls(names: Sequence[str]) -> str:
+    """`create_prim, set_material x2, capture_viewport (4 calls, 0 execute_script)`: repeats in a row counted once."""
+    if not names:
+        return "none"
+    runs: list[list[Any]] = []
+    for name in names:
+        if runs and runs[-1][0] == name:
+            runs[-1][1] += 1
+        else:
+            runs.append([name, 1])
+    order = ", ".join(name if n == 1 else f"{name} x{n}" for name, n in runs)
+    return f"{order} ({len(names)} calls, {sum(1 for n in names if n == NO_SCRIPT)} execute_script)"
 
 
 @dataclass
@@ -419,20 +622,31 @@ def skill_names(checkout: Path = ROOT) -> list[str]:
 
 def tester_command(
     claude: str,
-    text: str,
     config: Path,
     rules: str,
     budget_left: float | None = None,
     model: str | None = None,
     checkout: Path = ROOT,
+    *,
+    tools: Sequence[str] = BUILTIN_TOOLS,
+    allowed: Sequence[str] | None = None,
+    disallowed: Sequence[str] = (),
+    restricted: bool = False,
+    add_dirs: Sequence[Path] = (),
 ) -> list[str]:
     """The tester's command line, as step 2 found it works: only the run's server, no settings source, the tester's
-    rules appended, no shell, web or writes, every omniverse tool and the plugin's skills allowed, the rest refused."""
+    rules appended, no shell, web or writes, every omniverse tool and the plugin's skills allowed, the rest refused.
+
+    The prompt goes to its stdin, not the command line: a judge's, with the agent's calls and answers, passed Windows'
+    32,767 characters for a command line in the first outcome run. An outcome's sessions narrow it: `restricted`
+    confines the file tools to the working folder and `add_dirs`; a judge gets its own `tools`, `allowed` and
+    `disallowed` lists."""
     skills = [f"Skill({PLUGIN_NAME}:{name})" for name in skill_names(checkout)]
+    if allowed is None:
+        allowed = [f"mcp__{SERVER}", "Read", "Grep", "Glob", *skills]
     cmd = [
         claude,
         "-p",
-        text,
         "--plugin-dir",
         str(config / "plugin"),
         "--strict-mcp-config",
@@ -443,21 +657,23 @@ def tester_command(
         "--append-system-prompt",
         rules,
         "--tools",
-        ",".join(BUILTIN_TOOLS),
+        ",".join(tools),
         "--permission-mode",
         "dontAsk",
         "--allowedTools",
-        f"mcp__{SERVER}",
-        "Read",
-        "Grep",
-        "Glob",
-        *skills,
+        *allowed,
         "--output-format",
         "stream-json",
         "--verbose",
         # Each session's working folder would otherwise become a project of its own in ~/.claude/projects.
         "--no-session-persistence",
     ]
+    if disallowed:
+        cmd += ["--disallowedTools", *disallowed]
+    if restricted:
+        cmd.append("--restricted")
+    for folder in add_dirs:
+        cmd += ["--add-dir", str(folder)]
     if budget_left is not None:
         cmd += ["--max-budget-usd", f"{budget_left:.2f}"]
     if model:
@@ -468,6 +684,16 @@ def tester_command(
 def tester_env() -> dict[str, str]:
     """The tester's environment: the maintainer's auto-memory stays out (step 2, S4)."""
     return {**os.environ, "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
+
+
+def server_tools(contract: Path = TOOL_CONTRACT) -> tuple[list[str], list[str]]:
+    """The server's tools as Claude Code names them, read-only first by the contract's readOnlyHint, then the rest: a
+    judge gets the first and is refused the second, so a new read-only tool joins it on its own."""
+    tools = json.loads(contract.read_text(encoding="utf-8"))["tools"]
+    names = {name: bool((tool.get("annotations") or {}).get("readOnlyHint")) for name, tool in tools.items()}
+    read_only = [f"mcp__{SERVER}__{name}" for name, ro in sorted(names.items()) if ro]
+    others = [f"mcp__{SERVER}__{name}" for name, ro in sorted(names.items()) if not ro]
+    return read_only, others
 
 
 # ----- check -----
@@ -676,10 +902,19 @@ def health_probe(port: int) -> Callable[[], bool]:
     return probe
 
 
-def init_problems(event: Mapping[str, Any], plugin_dir: Path) -> list[str]:
+@dataclass(frozen=True)
+class Expect:
+    """What a session's init event must show beyond every tester's rules: a judge's exact tools, an agent's plugin."""
+
+    tools: frozenset[str] | None = None  # every tool it may list; None: the built-ins and any of the run's server's
+    plugin: bool = False  # the run's plugin must be there: --restricted is new to the testers
+
+
+def init_problems(event: Mapping[str, Any], plugin_dir: Path, expect: Expect | None = None) -> list[str]:
     """What the session's first event shows that a tester must not have: a server other than the run's, the run's
     not connected, a tool outside the command's list, a plugin other than the run's copy and Claude Code's built-in
-    ones, or a memory path."""
+    ones, or a memory path; and what `expect` asks for that it lacks."""
+    expect = expect or Expect()
     problems = []
     servers = list(event.get("mcp_servers") or [])
     names = [str(s.get("name")) for s in servers]
@@ -688,14 +923,24 @@ def init_problems(event: Mapping[str, Any], plugin_dir: Path) -> list[str]:
     elif servers[0].get("status") != "connected":
         problems.append(f"the {SERVER!r} server is {servers[0].get('status')!r}, not connected")
     tools = [str(t) for t in event.get("tools") or []]
-    foreign = [t for t in tools if t not in BUILTIN_TOOLS and not t.startswith(f"mcp__{SERVER}__")]
+    if expect.tools is not None:
+        foreign = [t for t in tools if t not in expect.tools]
+    else:
+        foreign = [t for t in tools if t not in BUILTIN_TOOLS and not t.startswith(f"mcp__{SERVER}__")]
     if foreign:
         problems.append(f"tools outside the run's list: {', '.join(foreign)}")
     ours = os.path.normcase(plugin_dir.resolve())
+    found = False
     for plugin in event.get("plugins") or []:
         path = str(plugin.get("path", ""))
-        if path != "builtin" and os.path.normcase(Path(path).resolve()) != ours:
+        if path == "builtin":
+            continue
+        if os.path.normcase(Path(path).resolve()) != ours:
             problems.append(f"a plugin other than the run's: {plugin.get('name')} from {path}")
+        else:
+            found = True
+    if expect.plugin and not found:
+        problems.append(f"no {PLUGIN_NAME} plugin from the run's copy, so none of its skills")
     if event.get("memory_paths"):
         problems.append(f"a memory path: {event.get('memory_paths')}")
     return problems
@@ -721,6 +966,14 @@ class Outcome:
     timed_out: list[str] = field(default_factory=list)  # the tool calls whose answer was a timeout
     init_seen: bool = False
     skill_calls: dict[str, str] = field(default_factory=dict)  # the Skill calls awaiting their result, by id
+    # The run's server's calls in order, each {"name", "input", "answer"}, the name without its prefix: an outcome's
+    # judge reads them, and the Calls: check counts them.
+    calls: list[dict[str, str]] = field(default_factory=list)
+    call_at: dict[str, int] = field(default_factory=dict)  # each server call's place in `calls`, by id
+
+    @property
+    def call_names(self) -> list[str]:
+        return [call["name"] for call in self.calls]
 
 
 def _named(tools: Iterable[str]) -> str:
@@ -756,10 +1009,13 @@ def run_session(
     cwd: Path = TEST_PROJECT,
     env: Mapping[str, str] | None = None,
     clock: Callable[[], float] = time.monotonic,
+    expect: Expect | None = None,
+    prompt: str = "",
 ) -> Outcome:
-    """Run one tester, keep its stream in the transcript, and read what it did: its model, skill loads, cost and last
-    message. Stop it at once on a bad init event, after `limit` seconds, or when the watch says Kit hangs; whatever
-    ends this function, an interrupt or an error included, ends the tester and its server too."""
+    """Run one tester on `prompt`, sent to its stdin, keep its stream in the transcript, and read what it did: its
+    model, skill loads, cost and last message. Stop it at once on a bad init event, after `limit` seconds, or when the
+    watch says Kit hangs; whatever ends this function, an interrupt or an error included, ends the tester and its
+    server too."""
     outcome = Outcome(started=datetime.now().isoformat(timespec="seconds"))
     started = clock()
     proc = subprocess.Popen(  # noqa: S603 - an argument list the script builds itself; nothing goes through a shell
@@ -768,12 +1024,23 @@ def run_session(
         env=dict(env) if env is not None else None,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        stdin=subprocess.DEVNULL,
+        stdin=subprocess.PIPE,
         encoding="utf-8",
         errors="replace",
         start_new_session=os.name != "nt",
     )
     lines: queue.Queue[str | None] = queue.Queue()
+
+    def feed() -> None:
+        # In a thread of its own: a prompt longer than the pipe holds waits for the tester to read it.
+        try:
+            if proc.stdin is not None:
+                with proc.stdin:
+                    proc.stdin.write(prompt)
+        except OSError:
+            pass  # the tester ended first; its exit and stream say why
+
+    threading.Thread(target=feed, daemon=True).start()
 
     def pump() -> None:
         if proc.stdout is not None:
@@ -802,7 +1069,7 @@ def run_session(
                     break
                 if line:
                     out.write(line)
-                    last_text = _read_event(line, outcome, plugin_dir) or last_text
+                    last_text = _read_event(line, outcome, plugin_dir, expect) or last_text
                 reason = ""
                 if outcome.stopped:
                     reason = outcome.stopped
@@ -831,7 +1098,15 @@ def run_session(
     return outcome
 
 
-def _read_event(line: str, outcome: Outcome, plugin_dir: Path) -> str:
+def _answer_text(content: Any) -> str:
+    """A tool result's text, its images left out: a string, or a list of parts."""
+    if isinstance(content, str):
+        return content
+    parts = content if isinstance(content, list) else []
+    return "\n".join(str(p.get("text", "")) for p in parts if isinstance(p, dict) and p.get("type") == "text")
+
+
+def _read_event(line: str, outcome: Outcome, plugin_dir: Path, expect: Expect | None = None) -> str:
     """Note what one stream event says in the outcome; the assistant's text, if it holds some."""
     try:
         event = json.loads(line)
@@ -841,7 +1116,7 @@ def _read_event(line: str, outcome: Outcome, plugin_dir: Path) -> str:
     if kind == "system" and event.get("subtype") == "init":
         outcome.init_seen = True
         outcome.model = str(event.get("model", ""))
-        problems = init_problems(event, plugin_dir)
+        problems = init_problems(event, plugin_dir, expect)
         if problems:
             outcome.stopped = "the session's init event: " + "; ".join(problems)
             outcome.init_failed = True
@@ -854,9 +1129,14 @@ def _read_event(line: str, outcome: Outcome, plugin_dir: Path) -> str:
         for part in (event.get("message") or {}).get("content") or []:
             if part.get("type") == "tool_use":
                 call = str(part.get("id", ""))
-                outcome.in_flight[call] = str(part.get("name", ""))
-                if part.get("name") == "Skill":
+                name = str(part.get("name", ""))
+                outcome.in_flight[call] = name
+                if name == "Skill":
                     outcome.skill_calls[call] = str((part.get("input") or {}).get("skill", ""))
+                elif name.startswith(f"mcp__{SERVER}__"):
+                    outcome.call_at[call] = len(outcome.calls)
+                    given = json.dumps(part.get("input") or {}, ensure_ascii=False)
+                    outcome.calls.append({"name": name.removeprefix(f"mcp__{SERVER}__"), "input": given, "answer": ""})
             elif part.get("type") == "text":
                 texts.append(str(part.get("text", "")))
         return "\n".join(texts)
@@ -867,6 +1147,10 @@ def _read_event(line: str, outcome: Outcome, plugin_dir: Path) -> str:
                 call = str(part.get("tool_use_id", ""))
                 name = outcome.in_flight.pop(call, "")
                 skill = outcome.skill_calls.pop(call, "")
+                if call in outcome.call_at:
+                    said = _answer_text(part.get("content"))
+                    said = f"error: {said}" if part.get("is_error") else said
+                    outcome.calls[outcome.call_at.pop(call)]["answer"] = said[:ANSWER_KEPT]
                 if part.get("is_error"):
                     if "timed out" in json.dumps(part.get("content")):
                         outcome.timed_out.append(name)
@@ -904,9 +1188,19 @@ class SessionRecord:
     seconds: float = 0.0
     skills: list[str] = field(default_factory=list)
     stopped: str = ""
+    calls: list[str] = field(default_factory=list)  # an outcome's agent: the run's server's calls, in order
 
 
 Launch = Callable[[Session, str, float | None], Outcome]
+
+
+class PlayError(BridgeError):
+    """The runner's play didn't reach its seconds: Kit answered, but the simulation's time didn't move that far."""
+
+
+def written_files(folder: Path) -> list[Path]:
+    """The files a session's server wrote, by absolute path: the judge's Read reaches them by these."""
+    return sorted(p.resolve() for p in folder.rglob("*") if p.is_file()) if folder.is_dir() else []
 
 
 def run_sessions(
@@ -919,53 +1213,92 @@ def run_sessions(
     budget: float | None = None,
     records: list[SessionRecord] | None = None,
     rows: list[Row] | None = None,
+    outcomes: Outcomes | None = None,
+    prepare: Callable[[OutcomeCase], None] | None = None,
+    play: Callable[[float], None] | None = None,
 ) -> tuple[list[SessionRecord], list[Row]]:
     """Run the sessions in order, each told its needed scenarios' status so far; stop starting them once Kit hangs, a
     session's init check fails (it would in every session), or the budget is spent. Each session's last message
     becomes its phase file, and its table its rows. `records` and `rows` fill as it goes, so a run cut short still
-    has them."""
+    has them.
+
+    An outcome is two sessions. Before its agent the runner prepares the stage (`prepare`); before its judge, after
+    the settle, it plays (`play`) when the outcome has a Play: line. The judge gives the outcome's row, a PASS capped
+    at WARN when the agent broke its Calls: line. An error Kit answers there makes that outcome NOT RUN; no answer
+    halts the run, as a settle's does."""
     statuses: dict[str, str] = {}
     records = [] if records is None else records
     rows = [] if rows is None else rows
     spent = 0.0
     halt = ""
     unknown: list[str] = []  # the sessions whose cost is unknown, counted at their whole allowance
+    agents: dict[str, tuple[Outcome, list[Path]]] = {}  # each outcome's agent and the files its server wrote
+    refused: dict[str, str] = {}  # the outcomes whose stage Kit refused to prepare or play, and why
+
+    def title(sid: str) -> str:
+        case = outcomes.case(sid) if outcomes else None
+        scenario = suite.scenario(sid)
+        return case.title if case else scenario.title if scenario else ""
 
     def not_run(session: Session, note: str) -> None:
+        if session.kind == AGENT:
+            return  # its judge gives the outcome's row
         for sid in session.ids:
-            scenario = suite.scenario(sid)
-            row = Row(sid, scenario.title if scenario else "", NOT_RUN, note, session.label, session.kind == "setup")
+            row = Row(sid, title(sid), NOT_RUN, note, session.label, session.kind == "setup")
             statuses[sid] = row.status
             rows.append(row)
 
     for index, session in enumerate(sessions):
         record = SessionRecord(session.label, session.kind, session.phase, list(session.ids), session.new_stage)
         records.append(record)
+        case = outcomes.case(session.ids[0]) if outcomes and session.kind in (AGENT, JUDGE) else None
         left = None if budget is None else budget - spent
         if not halt and left is not None and left <= 0:
             known = f"the budget of ${budget:.2f} is spent"
             halt = f"the budget may be spent: {', '.join(unknown)}'s cost is unknown" if unknown else known
-        if not halt:
-            try:
-                settle()
-            except (OSError, BridgeError) as e:
-                halt = f"Kit didn't answer between sessions: {e}"
-        if halt:
-            record.stopped = f"not run: {halt}"
+        why = ""
+        outcome: Outcome | None = None
+        try:
+            if not halt:
+                try:
+                    settle()
+                except (OSError, BridgeError) as e:
+                    halt = f"Kit didn't answer between sessions: {e}"
+            why = refused.get(case.id, "") if case else ""
+            if not halt and case and not why:
+                try:
+                    if session.kind == AGENT and prepare is not None:
+                        prepare(case)
+                    elif session.kind == JUDGE and case.play and play is not None:
+                        play(case.play)
+                except BridgeError as e:
+                    why = f"preparing its stage: {e}" if session.kind == AGENT else f"the runner's play: {e}"
+                    refused[case.id] = why
+                except OSError as e:
+                    halt = f"Kit didn't answer: {e}"
+            if not (halt or why):
+                if case and session.kind == AGENT:
+                    text = case.ask
+                elif case:
+                    text = judge_prompt(case, *agents[case.id], port)
+                else:
+                    text = prompt(suite, session, statuses, run_dir, port)
+                outcome = launch(session, text, left)
+        except BaseException:
+            # An interrupt or an error, in the runner's own steps too (a play can take 18 s): the record says so,
+            # rather than reading as a run that finished.
+            record.stopped, record.cost_known = "cut short", False
+            not_run(session, "the run was cut short")
+            for later in sessions[index + 1 :]:
+                skipped = SessionRecord(later.label, later.kind, later.phase, list(later.ids), later.new_stage)
+                skipped.stopped = "not run: the run was cut short"
+                records.append(skipped)
+                not_run(later, "the run was cut short")
+            raise
+        if outcome is None:
+            record.stopped = f"not run: {halt or why}"
             found: dict[str, Row] = {}
         else:
-            try:
-                outcome = launch(session, prompt(suite, session, statuses, run_dir, port), left)
-            except BaseException:
-                # An interrupt or an error: the record says so, rather than reading as a run that finished.
-                record.stopped, record.cost_known = "cut short", False
-                not_run(session, "the run was cut short")
-                for later in sessions[index + 1 :]:
-                    skipped = SessionRecord(later.label, later.kind, later.phase, list(later.ids), later.new_stage)
-                    skipped.stopped = "not run: the run was cut short"
-                    records.append(skipped)
-                    not_run(later, "the run was cut short")
-                raise
             # A stopped tester sends no result event: count what it was allowed to spend, so --budget stays a cap.
             spent += outcome.cost if outcome.cost_known else (left or 0.0)
             if not outcome.cost_known:
@@ -979,11 +1312,19 @@ def run_sessions(
             heading = f"# {session.label}: {', '.join(session.ids)}"
             (run_dir / f"{session.label}.md").write_text(f"{heading}\n\n{outcome.text}\n", encoding="utf-8")
             found = rows_from(outcome.text, session.ids)
+            if case and session.kind == AGENT:
+                record.calls = outcome.call_names
+                agents[case.id] = (outcome, written_files(session_output(run_dir, session)))
+            elif case and case.id in found:
+                note = calls_note(case, agents[case.id][0].call_names)
+                row = found[case.id]
+                if note:
+                    row.status = "WARN" if row.status == "PASS" else row.status
+                    row.notes = f"{row.notes}; {note}" if row.notes else note
+        if session.kind == AGENT:
+            continue  # its judge gives the outcome's row
         for sid in session.ids:
-            scenario = suite.scenario(sid)
-            row = found.get(sid) or Row(
-                sid, scenario.title if scenario else "", NOT_RUN, record.stopped or "no row came"
-            )
+            row = found.get(sid) or Row(sid, title(sid), NOT_RUN, record.stopped or "no row came")
             row.session, row.setup = session.label, session.kind == "setup"
             statuses[sid] = row.status
             rows.append(row)
@@ -1006,6 +1347,7 @@ def results_md(record: Mapping[str, Any]) -> str:
         ("Stage at the start", f"{kit.get('stage', '?')}, {kit.get('prim_count', '?')} prims"),
         ("Tester", f"{record.get('client', '')}, model {', '.join(record.get('models') or []) or '?'}"),
         ("Phases asked", record.get("phases", "")),
+        ("Outcomes asked", record.get("outcomes", "none")),
         ("Took", f"{record.get('seconds', 0) / 60:.0f} min, ${record.get('cost', 0):.2f}{_unknown_cost(record)}"),
     ]
     out = [f"# Scenario run {record.get('name', '')}", "", "| Field | Value |", "|---|---|"]
@@ -1018,6 +1360,16 @@ def results_md(record: Mapping[str, Any]) -> str:
     for r in rows:
         notes = ("setup: " if r.get("setup") else "") + r["notes"]
         out.append(f"| {r['id']} | {_cell(r['test'])} | {r['status']} | {_cell(notes)} |")
+    agents = [s for s in record.get("sessions") or [] if s.get("kind") == AGENT]
+    if agents:
+        status = {r["id"]: r["status"] for r in rows}
+        out += ["", "## Outcomes", "", "| ID | Skills loaded | Calls | Status |", "|---|---|---|---|"]
+        for s in agents:
+            (case_id,) = s["ids"]
+            skills = ", ".join(s.get("skills") or []) or "none"
+            ran = not str(s.get("stopped", "")).startswith("not run")
+            calls = summarise_calls(s.get("calls") or []) if ran else "not run"
+            out.append(f"| {case_id} | {skills} | {_cell(calls)} | {status.get(case_id, NOT_RUN)} |")
     issues = [r for r in rows if r["status"] in ("FAIL", "WARN", NOT_RUN)]
     out += ["", "## Issues", ""]
     out += [f"- **{r['status']} {r['id']}** {r['test']}: {r['notes']}" for r in issues] or ["None."]
@@ -1035,6 +1387,9 @@ def _cell(text: str) -> str:
 
 
 def _id_key(sid: str) -> tuple[int, int]:
+    """`N.M` by its numbers; an outcome's `O<n>` after every phase, in its number's order."""
+    if re.fullmatch(r"O\d+", sid):
+        return (10_000, int(sid[1:]))
     major, _, minor = sid.split("-", maxsplit=1)[0].partition(".")
     return (int(major), int(minor)) if major.isdigit() and minor.isdigit() else (0, 0)
 
@@ -1110,7 +1465,12 @@ def compare(
         report[kind].append(entry)
     report["counts"] = Counter(r["status"] for r in newest.get("rows") or [])
     report["models"] = sorted(models - set(_models(newest)))
-    ran = [s for s in newest.get("sessions") or [] if not str(s.get("stopped", "")).startswith("not run")]
+    # What an agent reaches for: a judge loads no skill, so it would only swell "none in N of M".
+    ran = [
+        s
+        for s in newest.get("sessions") or []
+        if not str(s.get("stopped", "")).startswith("not run") and s.get("kind") != JUDGE
+    ]
     report["skills"] = Counter(skill for s in ran for skill in s.get("skills") or [])
     report["sessions"] = len(ran)
     report["without_skill"] = sum(1 for s in ran if not s.get("skills"))
@@ -1194,30 +1554,128 @@ def settle(port: int, connect: Callable[[int], BridgeClient] = connect) -> None:
         client.close()
 
 
+def prepare_stage(port: int, case: OutcomeCase, connect: Callable[[int], BridgeClient] = connect) -> None:
+    """An outcome's stage before its agent: a new one; lit by the stage's own lights alone, since the lighting mode
+    is Kit's setting, which new_scene() leaves as an earlier session set it; then the Given code. An error Kit answers
+    raises BridgeError, and no answer OSError."""
+    client = connect(port)
+    try:
+        answer(client.new_scene())
+        answer(client.viewport_light("set", mode="stage"))
+        if case.given:
+            answer(client.execute(case.given))
+    finally:
+        client.close()
+
+
+def run_play(
+    port: int,
+    seconds: float,
+    connect: Callable[[int], BridgeClient] = connect,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> None:
+    """The runner's play before a judge, after the settle: play until the simulation's time has moved on by
+    `seconds`, then pause, so the judge reads where physics put things, the same every run. PlayError when the time
+    doesn't get there within PLAY_TIMES the seconds plus PLAY_SLACK; it pauses either way."""
+    client = connect(port)
+    try:
+        answer(client.sim_control("play"))
+        limit = PLAY_TIMES * seconds + PLAY_SLACK
+        moved = 0.0
+        try:
+            # Inside the try: a read that fails after the play still pauses.
+            start = float(answer(client.sim_state()).get("sim_time") or 0.0)
+            began = clock()
+            while clock() - began < limit:
+                moved = float(answer(client.sim_state()).get("sim_time") or 0.0) - start
+                if moved >= seconds:
+                    return
+                sleep(PLAY_EVERY)
+        finally:
+            answer(client.sim_control("pause"))
+        raise PlayError(f"the simulation's time moved {moved:.2f} s of {seconds:g} s in {limit:.0f} s")
+    finally:
+        client.close()
+
+
+def session_command(
+    claude: str,
+    session: Session,
+    config: Path,
+    run_dir: Path,
+    rules: str,
+    brief: str,
+    left: float | None = None,
+    model: str | None = None,
+    checkout: Path = ROOT,
+) -> tuple[list[str], Path, Expect | None]:
+    """A session's command line, its working folder and what its init event must show.
+
+    A phase's tester works in its own folder. An outcome's agent too, with the brief for rules and its file tools
+    confined there, so outcomes.md and the judges' files stay out of its reach. A judge works in its agent's folder,
+    where the paths in the agent's answers resolve, and adds its own, where its server writes; it has the read-only
+    tools alone, the rest refused."""
+    output = session_output(run_dir, session)
+    if session.kind == AGENT:
+        cmd = tester_command(claude, config, brief, left, model, checkout, restricted=True)
+        return cmd, output, Expect(plugin=True)
+    if session.kind == JUDGE:
+        read_only, others = server_tools(checkout / TOOL_CONTRACT.relative_to(ROOT))
+        cmd = tester_command(
+            claude,
+            config,
+            rules,
+            left,
+            model,
+            checkout,
+            tools=JUDGE_TOOLS,
+            allowed=[*JUDGE_TOOLS, *read_only],
+            disallowed=others,
+            restricted=True,
+            add_dirs=[output],
+        )
+        agent = session_output(run_dir, Session(AGENT, session.ids, session.phase, False))
+        return cmd, agent, Expect(tools=frozenset([*JUDGE_TOOLS, *read_only]))
+    return tester_command(claude, config, rules, left, model, checkout), output, None
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     suite = parse(SCENARIOS.read_text(encoding="utf-8"))
     problems = suite_problems(suite)
+    outcomes, outcome_problems = parse_outcomes(OUTCOMES.read_text(encoding="utf-8"))
+    problems += outcome_problems
     if problems:
         print("\n".join(problems))
         return 2
     try:
         asked = phases_asked(args.phases, suite)
+        # `--phases none` asks for no phase, so it runs the outcomes, as a run without --phases does.
+        cases = outcomes_asked(args.outcomes, bool(args.phases) and args.phases.strip() != "none", outcomes)
     except ValueError as e:
         print(e)
         return 2
-    sessions = plan(suite, asked)
+    sessions = plan(suite, asked, cases)
     rules = TESTER_RULES.read_text(encoding="utf-8")
+    brief = AGENT_BRIEF.read_text(encoding="utf-8")
     runs = runs_root()
     if args.dry_run:
         run_dir = runs / "<stamp>"
         for session in sessions:
             print(f"=== {session.label}: {', '.join(session.ids)}{' (new stage)' if session.new_stage else ''}")
-            print(prompt(suite, session, {}, run_dir, args.port))
-        cmd = tester_command(
-            "claude", "<prompt>", Path("<config>"), "<test_project/AGENTS.md>", args.budget, args.model
-        )
-        print("=== each session runs with CLAUDE_CODE_DISABLE_AUTO_MEMORY=1, in its own folder, mcp_output/<session>/:")
-        print(subprocess.list2cmdline(cmd))
+            case = outcomes.case(session.ids[0]) if session.kind in (AGENT, JUDGE) else None
+            if case and session.kind == AGENT:
+                print(f"(the runner prepares the stage{', runs its Given' if case.given else ''})\n{case.ask}")
+            elif case:
+                played = f"; the runner plays {case.play:g} s first" if case.play else ""
+                print(f"(the request, these Verify lines, then the agent's calls and files{played})\n{case.verify}")
+            else:
+                print(prompt(suite, session, {}, run_dir, args.port))
+        print("=== each session runs with CLAUDE_CODE_DISABLE_AUTO_MEMORY=1; a judge works in its agent's folder:")
+        for kind, ids in (("phase", ("1.1",)), (AGENT, ("O1",)), (JUDGE, ("O1",))):
+            sample = Session(kind, ids, 1, False)
+            cmd, _, _ = session_command("claude", sample, Path("<config>"), run_dir, "<rules>", "<brief>")
+            print(f"{kind}: {subprocess.list2cmdline(cmd)}")
         return 0
     claude = claude_executable()
     problems, kit = check(
@@ -1238,6 +1696,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         "kit": asdict(kit),
         "client": f"Claude Code {version}",
         "phases": args.phases or "all",
+        "outcomes": ",".join(cases) or "none",
         "budget": args.budget,
     }
     (run_dir / "kit").mkdir(parents=True)
@@ -1250,13 +1709,15 @@ def cmd_run(args: argparse.Namespace) -> int:
         output.mkdir(parents=True, exist_ok=True)
         try:
             write_config(config, args.port, output)
-            cmd = tester_command(claude, text, config, rules, left, args.model)
+            cmd, cwd, expect = session_command(claude, session, config, run_dir, rules, brief, left, args.model)
             print(f"{session.label}: {', '.join(session.ids)}", flush=True)
             # A watch of its own: a silence that ended with the last session isn't this one's.
             watch = HealthWatch(health_probe(args.port))
             transcript = run_dir / f"transcript-{session.label}.jsonl"
-            # The session's own folder as its working folder, away from test_project/ and earlier runs' verdicts.
-            outcome = run_session(cmd, transcript, config / "plugin", watch, cwd=output, env=tester_env())
+            # A folder of the run's own as its working folder, away from test_project/ and earlier runs' verdicts.
+            outcome = run_session(
+                cmd, transcript, config / "plugin", watch, cwd=cwd, env=tester_env(), expect=expect, prompt=text
+            )
         finally:
             shutil.rmtree(config, ignore_errors=True)
         skills = ", ".join(outcome.skills) or "none"
@@ -1272,7 +1733,20 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 1
     began = time.monotonic()
     try:
-        run_sessions(suite, sessions, run_dir, args.port, launch, lambda: settle(args.port), args.budget, records, rows)
+        run_sessions(
+            suite,
+            sessions,
+            run_dir,
+            args.port,
+            launch,
+            lambda: settle(args.port),
+            args.budget,
+            records,
+            rows,
+            outcomes=outcomes,
+            prepare=lambda case: prepare_stage(args.port, case),
+            play=lambda seconds: run_play(args.port, seconds),
+        )
     finally:
         # Also on an interrupt or an error: the lock goes, and the sessions that ran are written down.
         lock.unlink(missing_ok=True)
@@ -1327,7 +1801,11 @@ def main(argv: list[str] | None = None) -> int:
             "--any-bridge", action="store_true", help="drive a bridge whose files differ from this checkout's"
         )
     run = sub.choices["run"]
-    run.add_argument("--phases", help="15, 15-16 or 18-21,24; every phase when left out")
+    run.add_argument("--phases", help="15, 15-16 or 18-21,24; every phase when left out; none for outcomes alone")
+    run.add_argument(
+        "--outcomes",
+        help="all, none or O1,O3 (test_project/outcomes.md); all when --phases is left out or none, else none",
+    )
     run.add_argument("--budget", type=float, help="the run's total in USD; each session gets what remains")
     run.add_argument("--model", help="the tester's model; Claude Code's default when left out")
     run.add_argument("--dry-run", action="store_true", help="print the sessions, their prompts and the command line")
