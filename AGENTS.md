@@ -54,7 +54,7 @@ PowerShell unless a PowerShell form stands beside it.
 | once per clone | `uv sync`, then `uv run tools/setup.py` (hooks, `git blame`, skill links) |
 | tests | `uv run pytest`; with coverage, `uv run coverage run -m pytest`, then `uv run coverage report` |
 | lint, format, types, imports | `uv run ruff check .`, `uv run ruff format --check .`, `uv run basedpyright`, `uv run lint-imports` |
-| the gate | `uv run tools/gate.py quick` (lock, lint, format, types, imports, the coverage floor, AGENTS.md, skills, the plugin, attribution, secrets); `full` adds pytest under coverage, and the floor; `text --file -` checks a PR's title and description: no attribution, and the issue named |
+| the gate | `uv run tools/gate.py quick` (lock, lint, format, types, imports, the coverage floor, AGENTS.md, skills, plans, the plugin, attribution, secrets); `full` adds pytest under coverage, and the floor; `text --file -` checks a PR's title and description: no attribution, and the issue named |
 | the tool contract | `uv run tools/golden.py` after a deliberate change to a tool's name, parameters, bounds or hints, with its CHANGELOG line |
 | live suites | `OMNIVERSE_MCP_SIM=1 uv run pytest tests/test_integration.py tests/test_scenarios.py`; PowerShell: `$env:OMNIVERSE_MCP_SIM = "1"`, then `uv run pytest ...`; the AI scenarios: `uv run tools/scenarios.py run` |
 
@@ -71,15 +71,15 @@ PowerShell unless a PowerShell form stands beside it.
 ## How a change lands
 
 1. **An issue** for every change, a typo included: the PR names it, and `PR text` checks that.
-2. **A plan** in `docs/plans/` for non-trivial work (`docs/plans/README.md` says when), reviewed with `review-plan`
-   until approved, then approved by the maintainer.
-3. **A branch** `<issue>-<slug>` from `origin/main`, the plan its first commit.
+2. **A branch** `<issue>-<slug>` from `origin/main`.
+3. **A plan** in `docs/plans/` for non-trivial work (`docs/plans/README.md` says when), the branch's first commit,
+   fitted with `fit-plan` and reviewed with `review-plan` until approved, then approved by the maintainer.
 4. **The code,** with its tests and docs in the same change.
 5. **finish-work:** `uv run tools/gate.py full`, `review-code` until clean, a PR.
 6. **The maintainer,** @serionist, squash-merges; merging is the approval. `main` takes PRs only.
 
-The skills in `.claude/skills/` run this loop: `start-work` (1 to 3), `review-plan`, `review-code`, `finish-work`
-(5); `write-skill` writes or fixes a skill, and `run-scenarios` runs the AI scenarios on a Kit app of its own.
+The skills in `.claude/skills/` run this loop: `start-work` (1 to 3), `fit-plan`, `review-plan`, `review-code`,
+`finish-work` (5); `write-skill` writes or fixes a skill; `run-scenarios` runs the AI scenarios on a Kit app of its own.
 
 ## Writing
 
