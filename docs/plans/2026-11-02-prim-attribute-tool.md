@@ -84,10 +84,11 @@ written to the stage's root layer
 The description says: use it for an attribute no other tool sets (a light's intensity or colour, a camera's focal
 length, a shape's size or radius, a display colour); `set_prim_transform`, `set_visibility`, `set_material` and
 `set_physics_properties` for theirs; the attribute must exist on the prim (`get_prim_properties` lists them, a
-schema's included); the value is converted to its type, a token must be one of its allowed ones; refused, with
-nothing written: a relationship, an xform op, `visibility`, an animated attribute, one a stronger layer holds, a prim
-inside an instance, an inactive prim. A `DistantLight` comes at 50,000 (UsdLux's sunlight); a few thousand suits a
-viewport capture.
+schema's included); the value is converted to its type, and a token outside its allowed ones is written with a
+note naming them; a change that alters a shape's box updates its authored `extent`, so `get_prim_bounds` follows;
+refused, with nothing written: a relationship, an xform op, `visibility`, an animated attribute, one a stronger layer
+holds, a size change whose `extent` another layer or an animation holds, a prim inside an instance or a prototype, an
+inactive prim. A `DistantLight` comes at 50,000 (UsdLux's sunlight); a few thousand suits a viewport capture.
 
 ### The core, `ovmcp/core/attribute.py`
 
@@ -97,8 +98,9 @@ Kit-free, tested on usd-core:
   the instance, as F8's do), or a prototype's (`IsInPrototype`: USD raises on a write there, which would otherwise
   come back as a traceback); an empty name; the name a relationship ("set_material binds materials"); an xform op or
   `xformOpOrder` ("set_prim_transform"); `visibility` ("set_visibility"); no such attribute, naming the prim's
-  closest names first (`difflib.get_close_matches`), then others up to 12, so `intensity` leads to
-  `inputs:intensity`, which a `DistantLight`'s first 12 names in order (ten `collection:*`) don't reach.
+  closest names first, then others up to 12: `difflib.get_close_matches` on the whole name and on the part after its
+  last namespace, so `intensity` leads to `inputs:intensity` and `color` or `colour` to `inputs:color`, which a
+  `DistantLight`'s first 12 names in order (ten `collection:*`) don't reach.
 - **`convert(attr, value) -> object`:** by the type name's scalar type and `isArray` (F5); `ValueError` with the type
   and the value when it doesn't fit:
 
@@ -119,25 +121,32 @@ Kit-free, tested on usd-core:
   with `write_transform` (made public as `write_blocker` in `core/xform.py`); writes the default value in the layer
   inside `Usd.EditContext`; reads it back, so the answer shows what USD stored (a float rounds);
   `Written(name, type_name, before, after, layer, note, extent)`.
-- **The extent (F13 to F15):** when the prim is a `UsdGeom.Boundable` whose `extent` has an authored value and the name
-  isn't `extent` itself, a write could leave its box stale, so `get_prim_bounds` would report the old size. Before
-  anything is written, `write_blocker` checks `extent` too: held by a stronger layer or time-sampled, the call is
-  refused, naming `extent`, since a default written here would fix the box at the default time only. After the write,
-  `ComputeExtentFromPlugins` at the default time; when it differs from the extent USD gives, it is written in the same
-  layer, and the answer adds `extent updated to ...`. It runs for any attribute, not a list of size names, so a
-  Cylinder's `axis`, a Points prim's `widths` and a light's radius are covered. An unauthored extent is left alone: USD
-  computes the box from the size. `None` from the plugins writes nothing, and the answer says the extent was left. The layer is the edit target's, except for a prim that only
-  Kit's session layer defines, such as its own cameras (`/OmniverseKit_Persp`) and a viewport light rig's lights:
-  those go to the session layer, as `aim` writes Kit's cameras through `camera_layer`, so a write the root layer would
-  lose under the session layer's opinion lands, and a rig's change never enters the user's file.
+- **The layer:** the edit target's, unless the prim, or its nearest ancestor with a spec in the stage's own layers, is
+  held by Kit's session layer alone: Kit's own cameras (`/OmniverseKit_Persp`, a spec in the session layer) and a
+  viewport light rig's lights (an over in the session layer that references the rig's file, `core/lighting.py`). Those
+  are written to the session layer, so a write the root layer would lose under the session layer's opinion lands, and
+  a rig's change never enters the user's file. Everything else takes the edit target and F7's check, so a user's
+  stronger sublayer is still refused.
+- **The extent (F13 to F15):** a write could leave a shape's authored `extent` stale, so `get_prim_bounds` would report
+  the old size. For a `UsdGeom.Boundable` whose `extent` has an authored value, and a name other than `extent`:
+  `ComputeExtentFromPlugins` at the default time before the write and after it. Only when the two differ did the write
+  change the box; then `write_blocker` checks `extent` in the same layer, and either the new extent is written there,
+  the answer adding `extent updated to ...`, or, held by a stronger layer or time-sampled, the attribute's write is
+  undone and the call refused, naming `extent`. Undone exactly: the attribute's own value put back when the layer had
+  one, else its spec removed under `Sdf.CleanupEnabler`, which also drops the overs the write made
+  (`Usd.Attribute.Clear` would leave a typed spec behind). A write that leaves the box as it was, such as a colour on a
+  point-cached mesh whose extent is animated, never touches `extent` and isn't refused for it. An unauthored extent is
+  left alone, as USD computes the box from the size; `None` from the plugins, before or after, leaves it too.
 
 ### The handler
 
 `handle_set_attribute(body)`: `await _next_update()`, then the prim looked up, as `handle_delete_prim` does, so it
 is the stage as it stands after the update; `set_attribute` on Kit's main thread; a refusal or `ValueError` answers
 `{"status": "error"}` with nothing written; success answers the `Written` fields, the values as `format_value` writes
-them, so the answer reads as `get_prim_properties`' block does and an array is its first 8 values and its length,
-never megabytes of a scanned mesh's colours; the layer through `layer_name`; the note, when there is one.
+them, so the answer reads as `get_prim_properties`' block does; a Vt array goes to `format_value` as a list, which it
+shortens to its first 8 values and its length (it would `str()` a Vt array whole: 100,000 colours are 1.5 million
+characters), so a scanned mesh's colours never come back inline; the layer through `layer_name`; the note, when there
+is one.
 
 ### Alternatives
 
@@ -175,7 +184,7 @@ never megabytes of a scanned mesh's colours; the layer through `layer_name`; the
 |---|---|---|
 | 1 | This plan, reviewed and approved | the Plan review section |
 | 2 | `write_blocker` made public in `core/xform.py`, `write_transform` unchanged | `tests/test_xform.py` as it is |
-| 3 | `core/attribute.py`: `attribute_refusal`, `convert`, `set_attribute` | `tests/test_attribute.py` on usd-core: a Sphere with its extent authored as Kit's prim lists author it, its radius set, gets the new extent and `get_prim_bounds`' box; a Cylinder's `axis` the same; a Sphere with none keeps none; an extent in a stronger layer or time-sampled refused, with nothing written; a Mesh with no points keeps its extent, said; each row of the type table, both ways; NaN inside a vector and inside an array; a `float` and a `half` overflow; a token outside its allowed ones written with the note; each refusal, a prototype's prim and an empty or malformed name among them; the closest names first; a stronger layer and time samples refused; a session-layer-only prim written to the session layer; the value read back; nothing written on a refusal |
+| 3 | `core/attribute.py`: `attribute_refusal`, `convert`, `set_attribute` | `tests/test_attribute.py` on usd-core: a Sphere with its extent authored as Kit's prim lists author it, its radius set, gets the new extent and `get_prim_bounds`' box; a Cylinder's `axis` the same; a Sphere with none keeps none; an extent in a stronger layer or time-sampled refused, with nothing written; a Mesh with no points keeps its extent, said; each row of the type table, both ways; NaN inside a vector and inside an array; a `float` and a `half` overflow; a token outside its allowed ones written with the note; each refusal, a prototype's prim and an empty or malformed name among them; the closest names first; a stronger layer and time samples refused; a session-layer-only prim written to the session layer, and a light in a rig-like over that references a file written there too; a colour set on a mesh whose extent is animated succeeds, and a radius on a sphere whose extent a stronger layer holds is refused with the layer left exactly as it was; `color` leading to `inputs:color`; an answer for more than 8 array elements shortened; the value read back; nothing written on a refusal |
 | 4 | The handler, the route, the client method, the tool | `tests/test_scene_handler.py` (the fake Kit's usd-core stage), `tests/test_client.py`, `tests/test_tools.py` (the route, the body, the answer), `tests/test_contract.py` after `golden.py` |
 | 5 | Docs and the skill | the contract test's heading check; the gate |
 | 6 | Live: a case in `tests/test_integration.py` (a `DistantLight`'s intensity set and read back with `get_prim_properties`, a token outside its allowed ones written with its note, an xform op refused; a Sphere made with Kit's own create-prim command, which authors its extent (`create_prim` doesn't, F14), its radius set and its `get_prim_bounds` box grown); both live suites on Z-up and Y-up stages; a scripted scenario in Phase 23 and its twin in `tests/test_scenarios.py`; the O1 outcome, `uv run tools/scenarios.py run --phases none --outcomes O1`, twice | the PR quotes them |
@@ -211,7 +220,7 @@ never megabytes of a scanned mesh's colours; the layer through `layer_name`; the
 | A write in a layer a stronger one outranks changes nothing | Refused before writing, by F7's check, naming both layers |
 | A physics attribute set while the simulation plays may not reach PhysX until it stops | Named in the description; the answer shows the authored value |
 | A very large array in one call | Accepted: the bridge's request size limit already bounds it |
-| A prim whose `extent` is time-sampled or held by a stronger layer can't be given a size here | Accepted: refused, naming `extent`; few prims have it, and a write that left the box wrong would be worse |
+| A prim whose `extent` is time-sampled or held by a stronger layer can't be given a size here | Accepted: a write that would change its box is refused, naming `extent`, and undone; any other attribute of it is set as usual; few prims have one, and a box left wrong would be worse |
 | A prototype's size changed under a PointInstancer | Not measured; the prototype's own extent is kept by the same rule, and the instancer's extent is left as it is |
 | An attribute another tool owns, written here, leaves that tool's state behind (a material input bypassing `set_material`'s defaults) | Accepted for shader inputs, which `set_material` doesn't own whole; refused for xform ops and `visibility`, which have rules of their own |
 
@@ -257,3 +266,29 @@ as amended by P2, and leaves Q7 to the maintainer. **The one-way door** needs th
 | I2 | Look the prim up after `_next_update`, as `handle_delete_prim` does | taken |
 | I3 | The answer's values through `format_value`, as `get_prim_properties` writes them | taken (P6) |
 | I4 | Tests for NaN in a vector and an array, a float overflow, an empty or malformed name | taken |
+
+### Round 2
+
+**How:** one fresh reviewer on Claude Opus 5.5, 2026-11-02, at `03ad895`, reading round 1's fixes, with usd-core
+measurements. **Verdict:** approved once the four minors below are fixed, which this round does; no blocker or major,
+so no round 3. **Now:** only the owner calls and the one-way door's agreement remain.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| R1 | minor | The extent check ran for any attribute, so a colour on a point-cached mesh whose extent is animated, or on a sphere whose extent a stronger layer holds, was refused; and it rewrote an extent the write hadn't changed | fixed: `extent` is touched only when the plugins' box before and after the write differ; then a blocked extent undoes the write exactly (`Sdf.CleanupEnabler`) and refuses; step 3 tests both |
+| R2 | minor | "A prim that only Kit's session layer defines" missed a light rig's lights, whose prims come from the rig's file through an over in the session layer, so their writes would still land in the user's root layer | fixed: the rule is the prim's or its nearest spec-holding ancestor's, held by the session layer alone; step 3 tests a rig-like over |
+| R3 | minor | `format_value` shortens only lists and tuples, so a Vt array still came back whole (P6 unfixed) | fixed: a Vt array goes to it as a list; step 3 tests more than 8 elements |
+| R4 | minor | The description still said a token must be one of its allowed ones, against Q7, and left out the extent and prototype rules | fixed |
+
+**Refuted:** the two writes' order leaving half a change (both checks come before both writes, and an out-of-schema
+token or mismatched `widths` gives `None` from the plugins rather than an error); `_blocker` missing a case for
+`extent` (it covers stronger layers and samples in any layer); I2's order (`handle_delete_prim` updates, then looks
+up); P4's numbers (a half's largest finite value is 65,504); a negative radius (an inverted extent, an empty box,
+under the accepted risk); a PointInstancer's extent (deferred openly).
+
+**Improvements:**
+
+| # | Improvement | Answer |
+|---|---|---|
+| I5 | Close matches on the part after the namespace too: `color`, `colour`, `angle`, `fov` found nothing | taken |
+| I6 | The layer sentence covers every write, so it leaves the extent bullet for a bullet of its own | taken |
