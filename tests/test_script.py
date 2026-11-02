@@ -107,6 +107,18 @@ def test_a_returning_script_that_awaits_is_awaited():
     assert namespace["result"] == "late"
 
 
+def test_a_returning_script_s_own_functions_keep_their_returns_and_awaits():
+    code = (
+        "def double(x):\n    return 2 * x\n"
+        "async def later():\n    await asyncio.sleep(0)\n    return 1\n"
+        "return double(4)"
+    )
+    compiled = script.compile_script(code)
+
+    assert (compiled.returns, compiled.awaits) == (True, False)
+    assert _run(code)["result"] == 8
+
+
 @pytest.mark.parametrize("code", ["x = = 1", "def f(:\n    return 1", "class A:\n    return 1"])
 def test_a_real_syntax_error_is_raised(code: str):
     with pytest.raises(SyntaxError):

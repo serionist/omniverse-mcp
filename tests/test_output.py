@@ -3,6 +3,7 @@ sink, and the rest to the stream beneath as before; it passes the stream's other
 StreamInterceptor does, and comes off at shutdown (round 1, P1)."""
 
 import asyncio
+import copy
 import io
 import sys
 import threading
@@ -190,3 +191,13 @@ def test_a_router_under_another_stream_passes_everything_on_after_uninstall(stre
     asyncio.run(main())
     assert printed.text(output.STDOUT) == ""
     assert out.getvalue() == "through"
+
+
+def test_a_router_copies_without_an_endless_lookup(streams):
+    out, _ = streams()
+    output.install()
+
+    copied = copy.copy(sys.stdout)
+
+    assert isinstance(copied, output.Router)
+    assert copied.beneath is out
