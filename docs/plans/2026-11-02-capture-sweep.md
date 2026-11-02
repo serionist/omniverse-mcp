@@ -1,9 +1,9 @@
 ---
 title: Add capture_sweep, which captures a list of shots with their own cameras, selections and times as a job, to the tool contract
 issue: "#157"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist (delegated to the author, 2026-11-02)
+approved_at: 2026-11-02
 ---
 
 # Add capture_sweep, which captures a list of shots with their own cameras, selections and times as a job, to the tool contract
@@ -61,9 +61,9 @@ comparing two sweeps; shots of several sizes in one sweep (one size, one feed); 
 - **#155's switch** (`docs/plans/2026-11-02-variant-layer.md`): `switch(stage, {prim: {set: name}}, "session")`
   returns a `Snapshot` of what it wrote over.
 - **A recording's way of rendering many frames** (`handlers/recording.py`, `camera_feed.py`) (fit I2): the feed is
-  lent (`camera_feed.lend`) at the start and handed back (`hand_back(feed, stage_id, healthy)`) in the `finally`, so the
-  viewport lock is taken only to start, a capture made during a sweep gets a feed of its own as during a recording, a
-  save between shots doesn't release it, and no new RTX view is set up per shot (#114); each shot goes through
+  lent (`camera_feed.lend`) at the start and handed back (`hand_back(feed, stage_id, healthy)`) in the `finally`, so a
+  save between shots doesn't release it and no new RTX view is set up per shot (#114); the viewport lock is held for
+  each shot alone (round 1, I9; round 2, P14), not for the whole sweep; each shot goes through
   `_capture_frame`, 20 of the feed's frames after its camera is set (#57), with `is_black`; a shot's `camera_path` is
   checked with `camera_error`; at shutdown the sweep lets the feed go with `let_go_now`, as `recording.shut_down`
   does.
@@ -74,13 +74,17 @@ comparing two sweeps; shots of several sizes in one sweep (one size, one feed); 
 - **`ovmcp/core/sweep.py`** (Kit-free): `Shot` and `read_shots(body)` checking every shot before anything changes (a
   pose given one way, intrinsics above zero, apertures whose ratio fits width over height within 1%, refused with the
   aperture that would fit (fit I6), a time a number, selections as names), up to 2,000 shots, a manifest's shots read
-  back as shots; `DEFAULT_LENS(width, height)`, the lens a shot without intrinsics gets on every shot, never the
+  back as shots, where a `camera_path` shot is read back as the pose, lens and clipping range it rendered with, which
+  the manifest records, so a twin on another scene takes the same view without the other scene having that camera
+  (round 2, P15); `DEFAULT_LENS(width, height)`, the lens a shot without intrinsics gets on every shot, never the
   previous shot's: focal length 18.147 mm (Kit's own camera's) with apertures fitted to the image, horizontal 20.955
   mm, so a shot's picture never depends on its place in the list (round 1, P4); `pose(shot, up_axis)` giving the
-  camera's eye and target from a yaw and pitch about the stage's up axis; `changes(start, previous, shot)`, the
-  selections to write between two shots, where a set a shot doesn't name goes back to its starting session value
-  (absent, blocked, or a name an earlier call wrote), not to a clear, so a selection made before the sweep holds for
-  every shot that doesn't name its set (round 1, P1); a run of shots in one state switches nothing; `manifest(...)`;
+  camera's eye and target from a yaw and pitch about the stage's up axis; `changes(start, written, shot)`, the
+  selections to write before a shot, against `written`, the selections last written (never the last shot asked for,
+  so after a refused shot nothing it asked for counts as shown; round 2, P13), where a set a shot doesn't name goes
+  back to its starting session value (absent, blocked, or a name an earlier call wrote), not to a clear, so a
+  selection made before the sweep holds for every shot that doesn't name its set (round 1, P1); a run of shots in one
+  state switches nothing; `manifest(...)`;
   `file_name(index, shot)`; `folder_name(name)` refusing a name that isn't one plain folder name (no `..`, no
   separator).
 - **`handlers/sweep.py`:** `handle_sweep_start(body)` (`/jobs/sweep`) takes the output root and the name apart, as a
@@ -97,9 +101,12 @@ comparing two sweeps; shots of several sizes in one sweep (one size, one feed); 
     camera's ops in the root layer (round 1, P3), so no file changes;
   - for each shot, holding the viewport lock (`_viewport`) for the shot alone, so a capture or `inspect_prim` called
     meanwhile runs between shots, never inside one (round 1, I9): writes the selections that change through `switch`,
-    keeping every snapshot it returns, with #155's refresh when it is needed; after a shot that switched, waits,
-    bounded, until the stage has finished loading (`get_stage_loading_status()`), since a variant that brings payloads,
-    materials or textures captured mid-load differs from its twin (fit I5); with a time, sets the timeline to it,
+    keeping every snapshot it returns, with #155's refresh when it is needed, and a revert to a blocked starting value
+    through #155's `usd.select(spec, set, "")`, which writes a block where `switch` would clear (round 2, P11); after a
+    shot that switched, waits, bounded at 20 s, until the stage has finished loading (`get_stage_loading_status()`),
+    since a variant that brings payloads, materials or textures captured mid-load differs from its twin (fit I5); a
+    shot past its bound is recorded as such and taken anyway, and the lock is never held past 30 s, so a capture
+    queued behind a shot keeps most of its 80 s (round 2, P14); with a time, sets the timeline to it,
     pausing a playing timeline and leaving a stopped one stopped (round 1, I11); without one, puts the timeline back to
     its state at the start; for a `camera_path` shot, checks the camera with `camera_error` after the shot's switch
     (which may have removed it, and a missing camera renders white), renders through it as it is, writing nothing to
@@ -110,10 +117,12 @@ comparing two sweeps; shots of several sizes in one sweep (one size, one feed); 
   - progress: the job's status message says `shot 37 of 400`, and a line is printed every 25 shots and at each failed
     one, so a `get_job` read carries a few lines, not hundreds (round 1, I8); the manifest is rewritten every 25 shots,
     so a hang (#162) still leaves an index of the files taken (round 1, I7);
-  - in a `finally`: restores every snapshot it kept, last first, so every selection any shot wrote is back exactly;
-    when the job was cancelled because the stage changed (#158's reason), leaves the new stage's timeline and its
-    cameras alone (round 1, P7); otherwise puts the timeline's state and time back and deletes its camera; hands the
-    feed back; writes the manifest of the shots done, file names relative to the folder; and prints the summary line
+  - in a `finally`, each step on its own so one that raises can't stop the rest, as recording's `_end` does (round 2,
+    P12): restores every snapshot it kept, last first, so every selection any shot wrote is back exactly, except when
+    the job was cancelled because the stage changed (#158's reason), whose layers are gone with their stage, and then
+    also leaves the new stage's timeline and its cameras alone (round 1, P7); otherwise puts the timeline's state and
+    time back and deletes its camera; hands the feed back; writes the manifest of the shots done, file names relative
+    to the folder, with the camera's clipping range; and prints the summary line
     (`37 of 400 shots in .../sweeps/site_a/ (manifest.json); cancelled`), which #158's lines carry in every end state
     (round 1, P6).
 - **The manifest** also records the sweep's lighting mode and render settings (the renderer, path tracing's samples
@@ -184,8 +193,8 @@ advice.
 ## Docs
 
 `docs/TOOLS.md` (the tool, `shots_file`, the manifest, `get_job` for a sweep, and line 7's output folder layout,
-which gains `sweeps/`), `docs/ARCHITECTURE.md` (the route, the core and handler lists, and the lend section, which
-gains a second borrower), `AGENTS.md`'s `ovmcp/core` row (`sweep.py`), `docs/SETUP.md` (a remote Kit writes sweeps on
+which gains `sweeps/`), `docs/ARCHITECTURE.md` (the route, the core and handler lists, the lend section, which
+gains a second borrower, and line 74's list of what Kit writes itself, which gains sweeps; round 2, P10), `AGENTS.md`'s `ovmcp/core` row (`sweep.py`), `docs/SETUP.md` (a remote Kit writes sweeps on
 its own machine, as recordings), `README.md`'s list and count, the `scene` skill (a sweep for a scene's check,
 Replicator agents), `CHANGELOG.md` (Added) (round 1, P10).
 
@@ -264,3 +273,30 @@ round. **Now:** every finding fixed in the plan, I7 to I11 taken.
 
 **Not covered:** everything that needs a live Kit (the near-plane cut, a stopped-to-paused move's effect on PhysX or
 agents); on Kit 107, only that the APIs exist.
+
+### Round 2
+
+**How:** one fresh general-purpose agent on Claude Opus 5.5, 2026-11-02, read only, on `cfe2248..c92ac8a` and the
+round 1 findings, running #155's `variants.py` from its branch in memory on usd-core 26.11. **Verdict:** approved: P1
+to P10 fixed (P1, P7 and P10 with the remainders below), five new minors, all fixed. **Now:** the plan approved on the
+maintainer's delegation.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P11 | minor | A blocked starting value can't be written back through `switch`, which treats `""` as a clear (measured: start blocked, shot 2 showed the file's `day`); rare, since a session block comes only from a script or Isaac Sim's assembler | fixed: a revert to a block goes through #155's block helper |
+| P12 | minor | After a stage-change cancel, the `finally` restored snapshots whose layers had gone with their stage; `restore()` raises, and the rest of the `finally` (handing the feed back, the manifest, the summary) never ran | fixed: no restore on that reason, and each step of the `finally` on its own, as recording's `_end` does |
+| P13 | minor | `changes` against the last shot asked for: after a refused shot, a next shot sharing a selection with it skipped writing it and captured the older state under the new label | fixed: against the selections last written |
+| P14 | minor | One line still said the lock is taken only to start; and the loading wait had no number, so a capture queued behind a shot could pass the server's 120 s | fixed: the lock per shot throughout; the wait bounded at 20 s and the lock never held past 30 s |
+| P15 | minor | A `camera_path` shot read back from a manifest was undefined: the path or the pose rendered | fixed: the pose, lens and clipping range it rendered with, which the manifest records |
+
+Also from round 1's remainders: the clipping range now in the manifest (P2), and `ARCHITECTURE.md`'s list of what Kit
+writes itself in Docs (P10).
+
+**Refuted:**
+- **The per-shot lock blocks `hand_back`:** `hand_back` checks the lock and releases the feed rather than keeping it,
+  as long as the shot's lock closes before the `finally`.
+- **Progress in the status message hides the cancel reason:** the board rewrites the message with the reason at cancel
+  and at the end.
+- **P2's units:** Isaac Sim's setting is in metres; the plan converts it.
+
+**Improvements:** none beyond the fixes.
