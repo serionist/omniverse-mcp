@@ -1280,9 +1280,9 @@ Get the latest entries of the Kit app's log, by level, channel or text.
   at each end cut. A callstack, such as Kit's deprecation warnings, often matches only in a later frame.
 
 ```
-  [INFO ] carb: `get_update_event_stream` is deprecated. Use Events 2.0. Callstack:   File "...\asyncio\events.py", line 88, in _run
+  [INFO ] carb: `get_stage_event_stream` is deprecated. Use Events 2.0. Callstack:   File "...\asyncio\events.py", line 88, in _run
     self._context.run(self._ ... (+695 characters)
-    matched: File "c:/users/ada/kit/exts/omniverse-mcp/extension/ovmcp.bridge/ovmcp/bridge/handlers/camera_feed.py", line 161, in add
+    matched: File "c:/users/ada/kit/exts/my.scene.tools/my/scene/tools/watch.py", line 42, in on_startup
 ```
 
 **How it works:** each call reads what Kit added to its log file since the last, from where the file ended when the

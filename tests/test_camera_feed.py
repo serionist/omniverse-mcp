@@ -4,7 +4,8 @@ product deleted from the stage open now or the next one (#25). The capture feed 
 size set in place, its timer, the stage's closing and Kit's save, and shutdown (#114).
 
 handlers/camera_feed.py and handlers/_utils.py are loaded from their files with Kit's modules faked in sys.modules, as
-tests/test_debug_draw_handler.py loads its handler; the Kit-free core and pxr (usd-core) are the real ones.
+tests/test_debug_draw_handler.py loads its handler, camera_feed.py into a fake package beside the real _updates.py; the
+Kit-free core and pxr (usd-core) are the real ones.
 """
 
 import asyncio
@@ -19,9 +20,8 @@ from pxr import Usd
 
 from ovmcp.core import capture
 
-from .conftest import EXTENSION_ROOT
+from .conftest import HANDLERS, FakeUpdates, load_updates
 
-HANDLERS = EXTENSION_ROOT / "ovmcp" / "bridge" / "handlers"
 OPENED, CLOSING = "OPENED", "CLOSING"
 PRODUCT_PREFIX = "/Render/OmniverseKit/HydraTextures/"
 DRAWABLE_CHANGED = "omni.kit.hydra_texture:drawable_changed"
@@ -107,7 +107,7 @@ class FakeDelegate:
 
 
 class FakeKit:
-    """Kit as the feed sees it: the texture factory, the drawable events in either form, the update stream, the
+    """Kit as the feed sees it: the texture factory, the drawable events in either form, the update event (#122), the
     stage's state and the stage."""
 
     def __init__(self, events_2: bool = True) -> None:
@@ -116,9 +116,11 @@ class FakeKit:
         self.created: list[tuple[Any, ...]] = []
         self.give_none = False
         self.observers: list[dict[str, Any]] = []
-        self.update_subscriptions: list[Any] = []
+        self.updates = FakeUpdates()
         self.stage_state = OPENED
         self.stage = Usd.Stage.CreateInMemory()
+        # What Kit does at the start of each update, before the update event's observers: a test's frame, say, as Kit
+        # announces a frame before them (#122's P1).
         self.on_update: Any = None
         # What happened, in order, across the texture, omni.syntheticdata and the app's updates.
         self.log: list[Any] = []
@@ -141,14 +143,11 @@ class FakeKit:
             raise self.sensor_error
         self.log.append(("disable", view.render_product_path, sensor_types))
 
-    def observe_event(self, **kwargs: Any) -> tuple[str, str]:
+    def observe_event(self, **kwargs: Any) -> Any:
+        if kwargs["event_name"] == FakeUpdates.APP["GLOBAL_EVENT_UPDATE"]:
+            return self.updates.observe_event(**kwargs)
         self.observers.append(kwargs)
         return ("observer", kwargs["observer_name"])
-
-    def subscribe_update(self, fn: Any, name: str = "") -> tuple[str, str]:
-        self.update_subscriptions.append((fn, name))
-        self.on_update = fn
-        return ("update subscription", name)
 
     def frame(self, result_handle: int) -> None:
         """Kit delivers a frame of the newest texture, in the form this Kit has."""
@@ -187,16 +186,16 @@ def _fake_kit(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> None:
         kit.log.append("update")
         if kit.on_update is not None:
             kit.on_update(None)
+        kit.updates.update()
 
-    stream = SimpleNamespace(create_subscription_to_pop=kit.subscribe_update)
-    app = SimpleNamespace(next_update_async=next_update_async, get_update_event_stream=lambda: stream)
+    app = SimpleNamespace(next_update_async=next_update_async)
     context = SimpleNamespace(
         get_stage_state=lambda: kit.stage_state,
         get_stage=lambda: kit.stage,
         get_stage_id=lambda: kit.stage_id,
         stage_event_name=lambda event: f"stage event {event}",
     )
-    kit_app = _module("omni.kit.app", get_app=lambda: app)
+    kit_app = _module("omni.kit.app", get_app=lambda: app, **FakeUpdates.APP)
     texture_module = _module("omni.kit.hydra_texture", create_hydra_texture=kit.create_hydra_texture)
     viewport_capture = _module("omni.kit.widget.viewport.capture", FileCapture=FakeDelegate)
     events: dict[str, object] = {"EVENT_TYPE_DRAWABLE_CHANGED": 11183105052706112355}
@@ -233,9 +232,12 @@ def _fake_kit(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> None:
         "omni.hydratexture": hydratexture,
         "omni.syntheticdata": syntheticdata,
         "omni.usd": usd,
+        # The feed's package, holding the real helper it observes Kit's update event through.
+        "handlers_under_test": _module("handlers_under_test", __path__=[]),
     }
     for name, module in fakes.items():
         monkeypatch.setitem(sys.modules, name, module)
+    monkeypatch.setitem(sys.modules, "handlers_under_test._updates", load_updates())
 
 
 @pytest.fixture(params=[True, False], ids=["kit110", "kit107"])
@@ -246,7 +248,7 @@ def kit(request: pytest.FixtureRequest) -> FakeKit:
 @pytest.fixture
 def feeds(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
     _fake_kit(kit, monkeypatch)
-    return _load("camera_feed_under_test", HANDLERS / "camera_feed.py")
+    return _load("handlers_under_test.camera_feed", HANDLERS / "camera_feed.py")
 
 
 def test_a_feed_renders_its_camera_at_its_size_in_a_texture_of_its_own(feeds, kit):
@@ -345,22 +347,23 @@ def test_a_discarded_feed_s_render_product_goes_from_the_open_stage_at_once(feed
     feeds.discard(feed)
     assert kit.textures[-1].updates == [False]
     assert not kit.stage.GetPrimAtPath(feed.render_product_path)
-    assert kit.update_subscriptions == []
+    assert kit.updates.observers == []
 
 
 def test_a_render_product_waits_for_an_open_stage_then_goes_from_that_one(feeds, kit):
     feed = feeds.CameraFeed("/World/RecCam", 320, 240)
     kit.stage_state = CLOSING
     feeds.discard(feed)
-    assert len(kit.update_subscriptions) == 1
-    kit.on_update(None)  # still closing: nothing is touched
+    assert kit.updates.names == ["ovmcp.bridge camera feed leftovers"]
+    kit.updates.update()  # still closing: nothing is touched
     # A new stage opens; Kit has carried the render product over to it (#25's E13).
     kit.stage = Usd.Stage.CreateInMemory()
     _with_product(kit, feed.render_product_path)
     kit.stage_state = OPENED
-    kit.on_update(None)
+    kit.updates.update()
     assert not kit.stage.GetPrimAtPath(feed.render_product_path)
     assert feeds._leftovers.subscription is None
+    assert kit.updates.observers == []  # dropped from inside its own call
 
 
 def test_a_render_product_is_removed_from_a_stage_only_while_it_is_open(feeds, kit):
@@ -381,6 +384,7 @@ def test_forget_deletes_nothing_and_stops_looking(feeds, kit):
     feeds.forget()
     assert feeds._leftovers.feeds == []
     assert feeds._leftovers.subscription is None
+    assert kit.updates.observers == []
 
 
 def test_a_feed_reads_as_a_viewport_does_to_omni_syntheticdata(feeds, kit):
@@ -476,7 +480,7 @@ def test_with_the_stage_closed_the_sensor_is_left_alone_and_the_feed_still_goes(
     kit.stage = Usd.Stage.CreateInMemory()
     _with_product(kit, feed.render_product_path)
     kit.stage_state = OPENED
-    kit.on_update(None)
+    kit.updates.update()
     assert not kit.stage.GetPrimAtPath(feed.render_product_path)
 
 
@@ -508,7 +512,7 @@ def test_a_feed_released_while_the_stage_changes_goes_from_the_next_open_stage(f
     kit.stage = Usd.Stage.CreateInMemory()
     _with_product(kit, feed.render_product_path)
     kit.stage_state = OPENED
-    kit.on_update(None)
+    kit.updates.update()
     assert not kit.stage.GetPrimAtPath(feed.render_product_path)
 
 
@@ -695,11 +699,13 @@ def test_a_closing_stage_drops_the_kept_feed_and_deletes_it_from_the_next_stage(
     kit.stage_event("closing")
     assert feeds._kept.feed is None
     assert kit.log == [("updates", False)]  # dropped at once, nothing edited on a closing stage
+    # Its render product waits for the next stage under Kit's update event, not the deprecated stream (#122).
+    assert kit.updates.names == ["ovmcp.bridge camera feed leftovers"]
     # The new stage carries the render product over (#25's E13); it goes once that stage is open.
     kit.stage, kit.stage_id = Usd.Stage.CreateInMemory(), 2
     _with_product(kit, feed.render_product_path)
     kit.stage_state = OPENED
-    kit.on_update(None)
+    kit.updates.update()
     assert not kit.stage.GetPrimAtPath(feed.render_product_path)
 
 

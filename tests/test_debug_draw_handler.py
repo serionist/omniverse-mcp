@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from .conftest import EXTENSION_ROOT
+from .conftest import EXTENSION_ROOT, FakeUpdates, load_updates
 
 HANDLER = EXTENSION_ROOT / "ovmcp" / "bridge" / "handlers" / "debug_draw.py"
 ISAAC, OMNI = "isaacsim.util.debug_draw", "omni.debugdraw"
@@ -39,7 +39,7 @@ class FakeInterface:
 
 class FakeKit:
     """What the handler reads of Kit: which extensions are on, the stage, the clock, the interface each extension
-    gives now (a new one after it is turned off and on again), and how many update subscriptions were made."""
+    gives now (a new one after it is turned off and on again), and its update event (#122)."""
 
     def __init__(self) -> None:
         self.enabled = {ISAAC: True, OMNI: True}
@@ -48,11 +48,7 @@ class FakeKit:
         self.now = 0.0
         self.isaac = FakeInterface()
         self.omni: FakeInterface | None = FakeInterface()
-        self.subscriptions = 0
-
-    def subscribe(self, _callback: Any, name: str) -> SimpleNamespace:
-        self.subscriptions += 1
-        return SimpleNamespace(name=name)
+        self.updates = FakeUpdates()
 
 
 def _module(name: str, **attrs: Any) -> ModuleType:
@@ -69,10 +65,10 @@ def kit() -> FakeKit:
 @pytest.fixture
 def handler(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
     manager = SimpleNamespace(is_extension_enabled=lambda name: kit.enabled.get(name, False))
-    stream = SimpleNamespace(create_subscription_to_pop=kit.subscribe)
-    app = SimpleNamespace(get_extension_manager=lambda: manager, get_update_event_stream=lambda: stream)
+    app = SimpleNamespace(get_extension_manager=lambda: manager)
     context = SimpleNamespace(get_stage_state=lambda: kit.stage_state, get_stage_id=lambda: kit.stage_id)
-    kit_app = _module("omni.kit.app", get_app=lambda: app)
+    kit_app = _module("omni.kit.app", get_app=lambda: app, **FakeUpdates.APP)
+    dispatcher = _module("carb.eventdispatcher", get_eventdispatcher=lambda: kit.updates)
     omni_kit = _module("omni.kit", app=kit_app)
     usd = _module("omni.usd", get_context=lambda: context, StageState=SimpleNamespace(OPENED=OPENED, CLOSING=CLOSING))
     simplex = _module("omni.debugdraw._debugDraw", SimplexPoint=SimpleNamespace)
@@ -80,7 +76,8 @@ def handler(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
     isaac = _module(ISAAC, _debug_draw=SimpleNamespace(acquire_debug_draw_interface=lambda: kit.isaac))
     util = _module("isaacsim.util", debug_draw=isaac)
     fakes = {
-        "carb": _module("carb", Float3=lambda *v: tuple(v)),
+        "carb": _module("carb", Float3=lambda *v: tuple(v), eventdispatcher=dispatcher),
+        "carb.eventdispatcher": dispatcher,
         "omni": _module("omni", kit=omni_kit, usd=usd, debugdraw=debugdraw),
         "omni.kit": omni_kit,
         "omni.kit.app": kit_app,
@@ -98,6 +95,7 @@ def handler(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
     }
     for name, module in fakes.items():
         monkeypatch.setitem(sys.modules, name, module)
+    monkeypatch.setitem(sys.modules, "handlers_under_test._updates", load_updates())
     spec = importlib.util.spec_from_file_location("handlers_under_test.debug_draw", HANDLER)
     assert spec is not None
     assert spec.loader is not None
@@ -111,10 +109,9 @@ def _draw(handler: Any, **body: Any) -> dict[str, Any]:
     return asyncio.run(handler.handle_draw_debug(body))
 
 
-def _update(handler: Any) -> None:
-    """One Kit update: the subscription's callback runs while the handler holds one."""
-    if handler._drawings.sub is not None:
-        handler._on_update(None)
+def _update(kit: FakeKit) -> None:
+    """One Kit update: the handler's observer of it runs while the handler holds one."""
+    kit.updates.update()
 
 
 LINE = {"type": "line", "start": [0, 0, 0], "end": [1, 0, 0]}
@@ -134,25 +131,28 @@ def test_a_line_is_drawn_at_once_and_cleared_after_its_duration(handler, kit):
         },
     }
     assert kit.isaac.calls == [("draw_lines", [(0, 0, 0)], [(1, 0, 0)], [RED], [WIDTH])]
+    # One observer of Kit's update event while the drawing shows (#122).
+    assert kit.updates.names == ["ovmcp.bridge debug draw"]
     kit.now = 0.9
-    _update(handler)
+    _update(kit)
     assert len(kit.isaac.calls) == 1
     kit.now = 1.0
-    _update(handler)
+    _update(kit)
     assert kit.isaac.calls[1:] == [("clear_lines",)]
     assert handler._drawings.sub is None
+    assert kit.updates.observers == []  # dropped from inside its own call
 
 
 def test_when_one_drawing_goes_the_rest_are_drawn_again(handler, kit):
     _draw(handler, **LINE, duration=3.0)
     _draw(handler, **SPHERE, duration=1.0)
-    assert kit.subscriptions == 1
+    assert kit.updates.made == 1
     kit.now = 1.0
-    _update(handler)
+    _update(kit)
     # The clear takes all four lines; the line is drawn again in the same update.
     assert kit.isaac.calls[2:] == [("clear_lines",), ("draw_lines", [(0, 0, 0)], [(1, 0, 0)], [RED], [WIDTH])]
     kit.now = 3.0
-    _update(handler)
+    _update(kit)
     assert kit.isaac.calls[4:] == [("clear_lines",)]
     assert handler._drawings.sub is None
 
@@ -163,7 +163,7 @@ def test_an_extension_turned_off_and_on_again_is_drawn_with_through_its_new_inte
     kit.isaac = FakeInterface()  # off and on again through manage_extensions: the old interface released
     _draw(handler, **SPHERE, duration=1.0)
     kit.now = 1.0
-    _update(handler)
+    _update(kit)
     assert kit.isaac.calls == [
         ("draw_lines", SPHERE_STARTS, SPHERE_ENDS, [GREEN] * 3, [WIDTH] * 3),
         ("clear_lines",),
@@ -176,7 +176,7 @@ def test_while_the_extension_is_off_nothing_is_drawn_or_cleared(handler, kit):
     _draw(handler, **LINE, duration=1.0)
     kit.enabled[ISAAC] = False
     kit.now = 2.0
-    _update(handler)
+    _update(kit)
     assert len(kit.isaac.calls) == 1
     assert handler._drawings.sub is None
     assert handler._drawings.backend is None
@@ -190,8 +190,8 @@ def test_while_the_extension_is_off_nothing_is_drawn_or_cleared(handler, kit):
 def test_omni_debugdraw_draws_every_update_through_the_interface_it_holds_now(handler, kit):
     kit.enabled[ISAAC] = False
     assert _draw(handler, **LINE, duration=1.0)["result"]["backend"] == OMNI
-    _update(handler)
-    _update(handler)
+    _update(kit)
+    _update(kit)
     assert [call[0] for call in kit.omni.calls] == ["draw_lines", "draw_lines"]
     points = kit.omni.calls[0][1]
     assert [(p.position, p.color, p.width) for p in points] == [
@@ -199,12 +199,12 @@ def test_omni_debugdraw_draws_every_update_through_the_interface_it_holds_now(ha
         ((1.0, 0.0, 0.0), 0xFFFF0000, WIDTH),
     ]
     kit.omni = None  # none held for a moment: nothing drawn, nothing raised
-    _update(handler)
+    _update(kit)
     kit.omni = FakeInterface()  # off and on again: the new one draws
-    _update(handler)
+    _update(kit)
     assert [call[0] for call in kit.omni.calls] == ["draw_lines"]
     kit.now = 1.0
-    _update(handler)
+    _update(kit)
     assert len(kit.omni.calls) == 1
     assert handler._drawings.sub is None
 
@@ -215,18 +215,18 @@ def test_no_drawing_while_the_stage_opens_or_closes(handler, kit):
     assert r["status"] == "error"
     assert "No stage is open" in r["error"]
     assert kit.isaac.calls == []
-    assert kit.subscriptions == 0
+    assert kit.updates.made == 0
 
 
 def test_a_clear_owed_while_the_stage_closes_waits_until_it_is_open(handler, kit):
     _draw(handler, **LINE, duration=1.0)
     kit.stage_state = CLOSING
     kit.now = 2.0
-    _update(handler)
+    _update(kit)
     assert len(kit.isaac.calls) == 1  # no clear while the stage tears down
     assert handler._drawings.sub is not None
     kit.stage_state = OPENED
-    _update(handler)
+    _update(kit)
     assert kit.isaac.calls[1:] == [("clear_lines",)]
     assert handler._drawings.sub is None
 
@@ -234,7 +234,7 @@ def test_a_clear_owed_while_the_stage_closes_waits_until_it_is_open(handler, kit
 def test_a_new_stage_never_gets_the_old_ones_drawing_back(handler, kit):
     _draw(handler, **LINE, duration=30.0)
     kit.stage_id = 2  # new_scene
-    _update(handler)
+    _update(kit)
     assert kit.isaac.calls[1:] == [("clear_lines",)]  # cleared, and nothing drawn again
     assert handler._drawings.sub is None
 

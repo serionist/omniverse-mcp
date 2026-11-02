@@ -2,11 +2,13 @@
 (ovmcp.core) and the gate, hooks and setup scripts."""
 
 import asyncio
+import importlib.util
 import os
 import sys
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any
+from types import ModuleType, SimpleNamespace
+from typing import Any, ClassVar
 
 import pytest
 from mcp import Client
@@ -249,6 +251,66 @@ def call_tool(tool: str, args: dict[str, Any], output_dir: str | Path) -> tuple[
     finally:
         bridge.close()
     return bool(result.is_error), "\n".join(getattr(c, "text", "") for c in result.content)
+
+
+HANDLERS = EXTENSION_ROOT / "ovmcp" / "bridge" / "handlers"
+
+
+class FakeUpdates:
+    """Kit's update event as the handlers observe it through handlers/_updates.py (#122), for a handler test's fake
+    Kit: `observe_event` as carb.eventdispatcher's, and APP, the names it reads from omni.kit.app.
+
+    An observer stays until its guard is reset or collected, as Kit's ObserverGuard; `update()` calls the observers in
+    their order, those of one order as they were made, and skips one dropped meanwhile, from inside its own call too, as
+    Kit did on Isaac Sim 6.2 (#122's P3).
+    """
+
+    APP: ClassVar[dict[str, Any]] = {"GLOBAL_EVENT_UPDATE": "update", "UPDATE_ORDER_UNSPECIFIED": 0}
+
+    def __init__(self) -> None:
+        self.observers: list[SimpleNamespace] = []
+        self.made = 0
+
+    def observe_event(
+        self, *, order: int, event_name: str, on_event: Callable[[Any], None], observer_name: str
+    ) -> "_FakeGuard":
+        observer = SimpleNamespace(order=order, event_name=event_name, on_event=on_event, name=observer_name)
+        self.observers.append(observer)
+        self.made += 1
+        return _FakeGuard(self, observer)
+
+    @property
+    def names(self) -> list[str]:
+        return [observer.name for observer in self.observers]
+
+    def update(self) -> None:
+        event = SimpleNamespace(event_name=self.APP["GLOBAL_EVENT_UPDATE"], payload={"dt": 1 / 60})
+        for observer in sorted(self.observers, key=lambda o: o.order):
+            if observer.event_name == event.event_name and any(o is observer for o in self.observers):
+                observer.on_event(event)
+
+
+class _FakeGuard:
+    def __init__(self, updates: FakeUpdates, observer: SimpleNamespace) -> None:
+        self._updates = updates
+        self._observer = observer
+
+    def reset(self) -> None:
+        self._updates.observers = [o for o in self._updates.observers if o is not self._observer]
+
+    def __del__(self) -> None:
+        self.reset()
+
+
+def load_updates() -> ModuleType:
+    """handlers/_updates.py from its file as handlers_under_test._updates, for a handler test to put in sys.modules once
+    its fake carb.eventdispatcher and omni.kit.app are there, so the handler's relative import finds the real helper."""
+    spec = importlib.util.spec_from_file_location("handlers_under_test._updates", HANDLERS / "_updates.py")
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 @pytest.fixture

@@ -14,7 +14,6 @@ import time
 from pathlib import Path
 
 import carb
-import omni.kit.app
 import omni.timeline
 import omni.usd
 
@@ -22,6 +21,7 @@ from ovmcp.core import capture
 from ovmcp.core.formatter import format_frame_state
 from ovmcp.core.recording import FrameClock, RecordingArgs, camera_error, recording_args
 
+from ._updates import on_update
 from ._utils import _get_active_camera_path, _get_stage, _settle_frames, capture_feed_png
 from .camera_feed import CameraFeed, discard, forget
 
@@ -169,11 +169,7 @@ async def _start(args: RecordingArgs) -> dict:
         discard(feed)
         raise
 
-    session.subscription = (
-        omni.kit.app.get_app()
-        .get_update_event_stream()
-        .create_subscription_to_pop(lambda _event: _on_update(session), name=f"mcp_recording_{session_id}")
-    )
+    session.subscription = on_update(f"recording {session_id}", lambda: _on_update(session))
     _state.session = session
     _state.last_folder = folder
     return {

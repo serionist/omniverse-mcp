@@ -27,6 +27,8 @@ from ovmcp.core import capture
 from ovmcp.core.recording import delete_render_product
 from ovmcp.core.serial import LazyLock
 
+from ._updates import on_update
+
 # What one step of a feed's release may raise, from Kit's bindings or omni.syntheticdata's Python, so that step fails
 # alone and the next ones still run.
 _RELEASE_ERRORS = (RuntimeError, ValueError, AttributeError, KeyError, TypeError)
@@ -211,8 +213,8 @@ class CameraFeed:
 
 
 class _Leftovers:
-    """Dropped feeds whose render products wait for an open stage to be deleted from, and the update subscription that
-    looks for one while any wait."""
+    """Dropped feeds whose render products wait for an open stage to be deleted from, and the guard of the update
+    observer that looks for one while any wait."""
 
     def __init__(self) -> None:
         self.feeds: list[CameraFeed] = []
@@ -222,10 +224,7 @@ class _Leftovers:
         self.feeds.append(feed)
         self.delete()
         if self.feeds and self.subscription is None:
-            stream = omni.kit.app.get_app().get_update_event_stream()
-            self.subscription = stream.create_subscription_to_pop(
-                lambda _event: self.delete(), name="ovmcp camera feed leftovers"
-            )
+            self.subscription = on_update("camera feed leftovers", self.delete)
 
     def delete(self) -> None:
         stage = omni.usd.get_context().get_stage()
