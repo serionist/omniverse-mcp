@@ -68,13 +68,8 @@ def job_line(job: dict[str, Any]) -> str:
     return f"{job['id']} ({job['kind']}, {job['state']}, {duration(job['elapsed'])})"
 
 
-def _new_lines(r: dict[str, Any]) -> list[str]:
-    """The lines a job printed since the last read, with the count of all, as get_job shows them while it runs."""
-    total, new, shown = r["lines_total"], r["lines_new"], r["lines"]
-    if not new:
-        return [f"lines = {total} printed, none since the last read"]
-    cut = f", the last {len(shown)} shown" if len(shown) < new else ""
-    return [f"lines = {total} printed, {new} since the last read{cut}:", *(f"  {line}" for line in shown)]
+# How long a job's result may be, as JSON, and stay in get_job's inline summary; a longer one goes to the file.
+SHORT_RESULT = 300
 
 
 def _stream(name: str, text: str, count: int) -> list[str]:
@@ -86,40 +81,68 @@ def _stream(name: str, text: str, count: int) -> list[str]:
     return [f"{name}{cut}:", text.rstrip("\n")]
 
 
-def _job_text(r: dict[str, Any]) -> str:
-    """get_job's answer: the job's state and time, its progress while it runs; once it ends, its result in its kind's
-    form, or its error, and what it printed."""
-    lines = [f"job = {r['id']} ({r['kind']})"]
+def _job_answer(r: dict[str, Any], h: "Helpers") -> str:
+    """get_job's answer. Its summary stays inline: the job's state and time, its last line and how many it printed, a
+    short result, its error. The long part, the lines since the last read while it runs, or what it printed, its
+    traceback and a long result once it ends, joins the summary when the whole fits, else goes to a file the answer
+    names, as get_mesh_stats and get_robot_info write theirs: a reader always sees the state."""
+    head = [f"job = {r['id']} ({r['kind']})"]
     if r.get("label"):
-        lines.append(f"label = {r['label']}")
-    lines += [f"state = {r['state']}", f"elapsed = {duration(r['elapsed'])}"]
+        head.append(f"label = {r['label']}")
+    head += [f"state = {r['state']}", f"elapsed = {duration(r['elapsed'])}"]
     if r.get("cancelling") is not None:
-        lines.append(
+        head.append(
             f"cancelling = for {duration(r['cancelling'])}, its cleanup running: a job whose code caught the cancel "
             "runs on until cancel_job cancels it again"
         )
     if r.get("message") and r["state"] != "cancelling":
-        lines.append(f"message = {r['message']}")
+        head.append(f"message = {r['message']}")
     if r.get("last"):
-        lines.append(f"last = {r['last']}")
+        head.append(f"last = {r['last']}")
+    body: list[str] = []
+    holds: list[str] = []  # what the long part holds, for the line naming its file
+    total = r.get("lines_total", 0)
     output = r.get("output")
     if output is None:
-        return "\n".join(lines + _new_lines(r))
-    if r["state"] == "completed":
-        result: dict[str, Any] = r.get("result") or {}
-        if r["kind"] == "script":
-            value = result.get("return_value")
-            lines += ["Return value:", json.dumps(value, indent=2)] if value is not None else ["Return value: none"]
+        new, shown = r["lines_new"], r["lines"]
+        if not new:
+            head.append(f"lines = {total} printed, none since the last read")
         else:
-            lines += ["Result:", json.dumps(result, indent=2)]
-    elif r["state"] == "failed":
-        lines.append(f"error = {r.get('error', '')}")
-        traceback = str(r.get("traceback", "")).strip()
-        if traceback:
-            lines += ["Traceback (its last lines):", *traceback.splitlines()[-TRACEBACK_LINES:]]
-    lines += _stream("Stdout", output.get("stdout", ""), output.get("stdout_lines", 0))
-    lines += _stream("Stderr", output.get("stderr", ""), output.get("stderr_lines", 0))
-    return "\n".join(lines)
+            cut = f", the last {len(shown)} shown" if len(shown) < new else ""
+            head.append(f"lines = {total} printed, {new} since the last read{cut}:")
+            body += [f"  {line}" for line in shown]
+            holds.append("the lines since the last read")
+    else:
+        head.append(f"lines = {total} printed")
+        if r["state"] == "completed":
+            result: dict[str, Any] = r.get("result") or {}
+            script = r["kind"] == "script"
+            value = result.get("return_value") if script else result
+            if value is None:
+                head.append("Return value: none")
+            else:
+                text = json.dumps(value, indent=2)
+                shown_as = ["Return value:" if script else "Result:", text]
+                if len(text) <= SHORT_RESULT:
+                    head += shown_as
+                else:
+                    body += shown_as
+                    holds.append("its return value" if script else "its result")
+        elif r["state"] == "failed":
+            head.append(f"error = {r.get('error', '')}")
+            traceback = str(r.get("traceback", "")).strip()
+            if traceback:
+                body += ["Traceback (its last lines):", *traceback.splitlines()[-TRACEBACK_LINES:]]
+                holds.append("its traceback")
+        printed = _stream("Stdout", output.get("stdout", ""), output.get("stdout_lines", 0))
+        printed += _stream("Stderr", output.get("stderr", ""), output.get("stderr_lines", 0))
+        if printed:
+            body += printed
+            holds.append("what the job printed")
+    whole = "\n".join(head + body)
+    if not body or h.fits(whole):
+        return whole
+    return "\n".join([*head, h.write_response("\n".join(body), "job", " and ".join(holds))])
 
 
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
@@ -211,7 +234,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         again after the conversation was compacted. Reading changes nothing in Kit.
         """
         resp = bridge_call(client.job_get, job_id.strip(), wait)
-        return h.text_response(_job_text(resp["result"]), "job")
+        return _job_answer(resp["result"], h)
 
     @tool(mcp, EDITS)
     def cancel_job(

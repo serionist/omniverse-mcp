@@ -3,8 +3,8 @@
 Reference for every tool the MCP server provides.
 
 - **Where answers go:** a text answer over 1,000 characters is written to `mcp_output/responses/` and the tool
-  returns its path; `get_mesh_stats` and `get_robot_info` write only their long part there, the tree, or the Joints
-  list and the joint states that don't fit, and keep the rest inline. Images go to `mcp_output/captures/`, recordings to `mcp_output/recordings/`, and
+  returns its path; `get_mesh_stats`, `get_robot_info` and `get_job` write only their long part there, the tree, the
+  Joints list and the joint states that don't fit, or a job's lines and output, and keep the rest inline. Images go to `mcp_output/captures/`, recordings to `mcp_output/recordings/`, and
   `get_scene_tree`'s dump, with properties or a filter, to `mcp_output/scene_dump.txt`, which the next dump replaces.
   A file under the server's working folder is given by its relative path, any other by its absolute path. Open them
   with your client's file tool.
@@ -1682,7 +1682,9 @@ Read a job `run_script_job` started. Reading changes nothing in Kit.
 **Returns:** `job`, `state`, `elapsed`, `last` (the last line it printed) and, while it runs, the lines it printed
 since the last read, with the count of all (`lines = 37 printed, 2 since the last read:`), the last 200 when more
 came. Once it ends: a script's return value, or its `error` and the traceback's last lines, and what it printed, each
-stream's last 200 lines, saying so when there were more.
+stream's last 200 lines, saying so when there were more. Over 1,000 characters, the summary stays inline (the state,
+the time, the last line, the count of lines, a short return value, the error) and the rest goes to a file the answer
+names.
 
 - **States,** as an MCP task's: `working`; `cancelling`, after a cancel while its own cleanup runs, with how long;
   `completed`; `failed`; `cancelled`, with why in `message` (`cancel_job was called`, `the extension shut down`).

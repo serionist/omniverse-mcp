@@ -68,9 +68,10 @@ absolute path (`Helpers.rel`).
 
 - **Images:** the bridge sends each capture as base64 PNG, and the server writes it to `captures/`.
   `capture_viewport(include_image=True)` also returns it inline as `ImageContent`.
-- **Long text:** an answer over 1,000 characters goes to `responses/`. `get_mesh_stats` and `get_robot_info` write
-  only their long part there (`Helpers.write_response`), the tree, or the Joints list and the joint states that
-  don't fit, and keep the rest inline: the totals, or the counts and the joint states that fit.
+- **Long text:** an answer over 1,000 characters goes to `responses/`. `get_mesh_stats`, `get_robot_info` and
+  `get_job` write only their long part there (`Helpers.write_response`), the tree, the Joints list and the joint
+  states that don't fit, or a job's lines, output, traceback and long result, and keep the rest inline: the totals,
+  the counts and the joint states that fit, or the job's state, time, last line, count of lines and error.
 - **Scene dumps and recordings:** Kit writes them itself, to the path the server passes, so with Kit on another
   machine they land on that machine. Each recording gets a timestamped folder.
 

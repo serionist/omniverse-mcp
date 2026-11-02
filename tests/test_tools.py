@@ -2664,6 +2664,13 @@ def _no_output() -> dict[str, Any]:
     return {"stdout": "", "stdout_lines": 0, "stderr": "", "stderr_lines": 0}
 
 
+def _job_file(line: str, tmp_path: Path) -> str:
+    """The one job file the answer's line names, read."""
+    (path,) = (tmp_path / "responses").glob("job_*.txt")
+    assert path.name in line
+    return path.read_text(encoding="utf-8")
+
+
 def _job_text(bridge: MockIsaacServer, tmp_path: Path, answer: dict[str, Any]) -> str:
     bridge.set_response("/jobs/get", {"status": "success", "result": answer})
     erred, text, _calls = _call(bridge, tmp_path, "get_job", {})
@@ -2685,14 +2692,62 @@ def test_get_job_gives_a_finished_script_s_return_value_and_its_kept_output(brid
         output={"stdout": stdout, "stdout_lines": 512, "stderr": "a warning\n", "stderr_lines": 1},
     )
     text = _job_text(bridge, tmp_path, answer)
-    # Over 1,000 characters: written to a file, which holds the whole answer.
-    assert text.startswith("Wrote job (")
-    written = Path(text.rsplit("-> ", 1)[1])
-    whole = (written if written.is_absolute() else Path.cwd() / written).read_text(encoding="utf-8")
-    assert 'Return value:\n{\n  "settled": 150\n}' in whole
-    assert "Stdout (the last 200 of 512 lines):\nstack 312\n" in whole
-    assert whole.endswith("stack 511\nStderr:\na warning")
-    assert "lines = " not in whole
+    # Over 1,000 characters: the summary inline, what the job printed in a file. The whole answer in a file left a
+    # reader with no state at all (#158's live run).
+    summary, wrote = text.rsplit("\n", 1)
+    assert summary == (
+        "job = j3 (script)\nlabel = bake.py\nstate = completed\nelapsed = 10m 12s\nlast = 37 of 150 stacks settled\n"
+        'lines = 37 printed\nReturn value:\n{\n  "settled": 150\n}'
+    )
+    assert wrote.startswith("Wrote what the job printed (")
+    written = _job_file(wrote, tmp_path)
+    assert written.startswith("Stdout (the last 200 of 512 lines):\nstack 312\n")
+    assert written.endswith("stack 511\nStderr:\na warning")
+
+
+def test_get_job_keeps_a_running_job_s_summary_inline_and_writes_its_new_lines(bridge: MockIsaacServer, tmp_path: Path):
+    shown = [f"stack {i} of 512 settled, its pose read and baked into the scene" for i in range(312, 512)]
+    answer = _job("working", lines=shown, lines_new=312, lines_total=512, last=shown[-1])
+
+    text = _job_text(bridge, tmp_path, answer)
+
+    summary, wrote = text.rsplit("\n", 1)
+    assert summary.endswith(
+        f"state = working\nelapsed = 10m 12s\nlast = {shown[-1]}\n"
+        "lines = 512 printed, 312 since the last read, the last 200 shown:"
+    )
+    assert wrote.startswith("Wrote the lines since the last read (")
+    assert _job_file(wrote, tmp_path) == "\n".join(f"  {line}" for line in shown)
+
+
+def test_get_job_keeps_a_failed_job_s_error_inline_and_writes_its_traceback_and_output(
+    bridge: MockIsaacServer, tmp_path: Path
+):
+    stdout = "".join(f"stack {i} settled\n" for i in range(150))
+    answer = _job(
+        "failed",
+        error="stack 150 fell over",
+        traceback='Traceback (most recent call last):\n  File "bake.py", line 9\nValueError: stack 150 fell over\n',
+        output={"stdout": stdout, "stdout_lines": 150, "stderr": "", "stderr_lines": 0},
+    )
+
+    text = _job_text(bridge, tmp_path, answer)
+
+    assert "state = failed" in text
+    assert "lines = 37 printed\nerror = stack 150 fell over\nWrote its traceback and what the job printed (" in text
+    written = _job_file(text.rsplit("\n", 1)[1], tmp_path)
+    assert written.startswith('Traceback (its last lines):\nTraceback (most recent call last):\n  File "bake.py"')
+    assert written.endswith("stack 149 settled")
+
+
+def test_get_job_writes_a_long_return_value_with_what_the_job_printed(bridge: MockIsaacServer, tmp_path: Path):
+    poses = {f"/World/Crates/Crate_{i:03d}": [0.0, 0.15, 0.6 * i] for i in range(40)}
+    answer = _job("completed", result={"return_value": poses}, output=_no_output())
+
+    text = _job_text(bridge, tmp_path, answer)
+
+    assert "lines = 37 printed\nWrote its return value (" in text
+    assert _job_file(text.rsplit("\n", 1)[1], tmp_path).startswith('Return value:\n{\n  "/World/Crates/Crate_000"')
 
 
 def test_get_job_gives_a_failed_job_s_error_and_the_last_lines_of_its_traceback(
