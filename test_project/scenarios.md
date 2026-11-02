@@ -579,7 +579,8 @@ script.
   `/Render/OmniverseKit/HydraTextures` with a short `execute_script`; `capture_viewport()` holds no red
 - `draw_debug("lines", ..., duration=10)` a red zigzag across the view, then `capture_viewport()`
 - Verify: the zigzag shows in the capture, and the render products, read again, are the ones read before the
-  captures: each capture's own render went with it (#51)
+  captures, plus at most one kept capture feed, `ovmcp_capture_<id>`, which goes 30 s after the last capture (#114);
+  a recording's render product, or a second capture feed's, fails it
 - Not judged here, so it leaves this row's status alone: a drawing captured at once, 5 times over, through
   `draw_debug`'s handler and `mcp.capture_viewport()` in one script. That needs an `ovmcp.*` import and five awaited
   captures, which the tester's rules forbid; pytest's `test_16_08` checks it, live
@@ -625,8 +626,8 @@ Needs: none
 
 ### 17.5 A New Stage Stops a Recording
 - `start_recording(fps=10, width=320, height=240)`, then `new_scene()`, then `stop_recording()`
-- Verify: no frames after the new stage, a `Note:` naming the stage, and the answer's `render_product` not on the
-  new stage
+- Verify: no frames after the new stage, a `Note:` saying the stage began to close, and the `render_product`
+  `start_recording` named not on the new stage
 
 ### 17.6 Segmentation After Captures and a New Stage
 - `create_prim("/World/SegmentedCaptureCube", "Cube", ...)`, `set_camera(prim_path=...)` on it, and two
@@ -640,8 +641,9 @@ Needs: none
 - `save_scene(file_path="<run>/kit/opened_scene.usda")`, then `start_recording(fps=10, width=320, height=240)` and
   `draw_debug("line", start=[0, 0, 0], end=[1, 0, 0], duration=30)`, then `open_scene("<run>/kit/opened_scene.usda")`, then
   `stop_recording()`
-- Verify: no frames after the open, a `Note:` naming the stage, the answer's `render_product` not on the opened
-  stage, the line gone within 5 s, and a capture of a cube with its segmentation on the opened stage
+- Verify: no frames after the open, a `Note:` saying the stage began to close, the `render_product`
+  `start_recording` named not on the opened stage, the line gone within 5 s, and a capture of a cube with its
+  segmentation on the opened stage
 
 ---
 
