@@ -115,7 +115,12 @@ def step_seconds(stage: Usd.Stage) -> Step:
     stage order, read by the attribute's name, as PhysxSchema is Kit's and this core imports only pxr. 60 steps a
     second when the scene leaves it unset or the stage has no scene, as PhysX defaults. A ValueError says why when the
     value is not a positive finite number."""
-    scene = _first_scene(stage)
+    return scene_step(_first_scene(stage))
+
+
+def scene_step(scene: Usd.Prim | None) -> Step:
+    """step_seconds of a physics scene already found, or of none: for a caller that walked the stage already, as
+    get_performance's survey does."""
     if scene is None:
         return Step(1.0 / DEFAULT_STEPS_PER_SECOND, None)
     path = str(scene.GetPath())

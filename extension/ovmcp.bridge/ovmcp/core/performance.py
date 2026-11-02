@@ -10,7 +10,7 @@ import math
 from collections.abc import Iterable, Mapping, Sequence
 from typing import NamedTuple, Protocol
 
-from pxr import Sdf, Tf, Usd, UsdGeom, UsdRender
+from pxr import Sdf, Tf, Usd, UsdGeom, UsdPhysics, UsdRender
 
 DEFAULT_FRAMES = 120
 DEFAULT_WARMUP = 30
@@ -131,8 +131,10 @@ def gpu_frame_ms(devices: Iterable[Iterable[Mapping[str, object]]]) -> float:
 
 
 def gpu_render(samples_ms: Sequence[float]) -> dict[str, object]:
-    """The gpu_render numbers, or why there are none: Hydra's profiler is off in some apps, and every frame then reads
-    0."""
+    """The gpu_render numbers, or why there are none: no frame was timed, or Hydra's profiler is off, as in some apps,
+    and every frame then reads 0."""
+    if not samples_ms:
+        return {"missing": "no frame was timed"}
     if not any(samples_ms):
         return {"missing": "Hydra's GPU profiler gave no times: it may be off in this app"}
     ordered = sorted(samples_ms)
@@ -140,16 +142,21 @@ def gpu_render(samples_ms: Sequence[float]) -> dict[str, object]:
 
 
 def gpu_memory(devices: Sequence[Mapping[str, object]]) -> dict[str, object]:
-    """Device 0's name, and the memory Hydra's get_device_info() says it uses and has as its budget, in bytes (None for
-    one it doesn't give), as Isaac Sim's memory recorder reads it; or why there is none."""
+    """Device 0's name, the memory Hydra's get_device_info() says it uses, as Isaac Sim's memory recorder reads it, and
+    the device's total: its dedicated video memory, else the budget Hydra gives, `total_kind` saying which. In bytes,
+    None for one Hydra doesn't give; or why there is none."""
     if not devices:
         return {"missing": "Hydra names no GPU device"}
     device = devices[0]
-    used, budget = _number(device.get("usage")), _number(device.get("budget"))
+    used = _number(device.get("usage"))
+    total, kind = _number(device.get("dedicated_video_memory")), "dedicated"
+    if total is None:
+        total, kind = _number(device.get("budget")), "budget"
     return {
         "device": str(device.get("description") or "unknown"),
         "used_bytes": int(used) if used is not None else None,
-        "budget_bytes": int(budget) if budget is not None else None,
+        "total_bytes": int(total) if total is not None else None,
+        "total_kind": kind if total is not None else None,
     }
 
 
@@ -205,10 +212,12 @@ def physics(step_ms: Sequence[float], frames: int, wall_seconds: float, step_sec
 
 class Survey(NamedTuple):
     """What the stage holds that costs frame time: its counts, and its render products, each one a camera, a lidar or
-    another sensor rendering every update."""
+    another sensor rendering every update; and its first physics scene, whose step the physics numbers take, found on
+    the same walk."""
 
     counts: dict[str, int]
     products: list[dict[str, object]]
+    scene: Usd.Prim | None
 
 
 def _sensor_kind(stage: Usd.Stage, product: UsdRender.Product) -> str:
@@ -237,16 +246,17 @@ def _resolution(product: UsdRender.Product) -> list[int] | None:
 def survey(stage: Usd.Stage) -> Survey:
     """One walk of the stage as it traverses, instance proxies left out: its prims, its meshes, its instances and the
     prototypes they share, its point instancers and their instances, which IsInstance doesn't count (#156's round 1,
-    I10), and its render products."""
+    I10), its render products, and its first physics scene in stage order."""
     counts: dict[str, int] = dict.fromkeys(
         ("prims", "meshes", "instances", "prototypes", "point_instancers", "point_instances"), 0
     )
     prototypes: set[Sdf.Path] = set()
     products: list[dict[str, object]] = []
     # Looked up once, not per prim: a site's stage holds a hundred thousand prims or more.
-    mesh, instancer, render_product = (
-        Tf.Type.Find(s) for s in (UsdGeom.Mesh, UsdGeom.PointInstancer, UsdRender.Product)
+    mesh, instancer, render_product, physics_scene = (
+        Tf.Type.Find(s) for s in (UsdGeom.Mesh, UsdGeom.PointInstancer, UsdRender.Product, UsdPhysics.Scene)
     )
+    scene: Usd.Prim | None = None
     for prim in stage.Traverse():
         counts["prims"] += 1
         if prim.IsA(mesh):
@@ -259,11 +269,13 @@ def survey(stage: Usd.Stage) -> Survey:
             products.append(
                 {"path": str(prim.GetPath()), "kind": _sensor_kind(stage, product), "resolution": _resolution(product)}
             )
+        elif scene is None and prim.IsA(physics_scene):
+            scene = prim
         if prim.IsInstance():
             counts["instances"] += 1
             prototypes.add(prim.GetPrototype().GetPath())
     counts["prototypes"] = len(prototypes)
-    return Survey(counts, products)
+    return Survey(counts, products, scene)
 
 
 # ---- the notes and the answer ----
@@ -284,6 +296,8 @@ def eco_note(eco_mode: object, timeline: object) -> str | None:
 def _ran_out(phase: str, args: PerformanceArgs, measured: int, seconds: float) -> str:
     """Where the call's time ran out, by the phase it was in."""
     spent = f"the {seconds:g} s this call may take ran out"
+    if phase == "waiting":
+        return f"{spent} while a capture, a save or another measurement held the viewport"
     if phase == "loading":
         return f"{spent} while the stage was still loading"
     if phase == "warming":
@@ -295,8 +309,10 @@ def _ran_out(phase: str, args: PerformanceArgs, measured: int, seconds: float) -
 
 def _not_settled(first: float, second: float) -> str:
     way = "above" if second > first else "below"
-    # A share of a first half that took no time at all would be a division by zero.
-    share = f"{abs(second - first) / first * 100:.0f}% " if first > 0 else ""
+    # Of the smaller half, as `settled` reads it, so the share shown is over 10% whenever the note is given. A half
+    # that took no time at all would be a division by zero.
+    smaller = min(first, second)
+    share = f"{abs(second - first) / smaller * 100:.0f}% " if smaller > 0 else ""
     return (
         f"not settled: the second half's mean frame time is {share}{way} the first's, as when a stage still loads "
         "textures, compiles shaders or warms caches; measure again"

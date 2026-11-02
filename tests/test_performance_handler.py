@@ -19,7 +19,7 @@ from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
-from pxr import Usd, UsdGeom
+from pxr import Sdf, Usd, UsdGeom, UsdPhysics
 
 from ovmcp.core import performance as core
 
@@ -74,8 +74,11 @@ class FakeBenchmarks:
         self.name = name
         self.callbacks: list[Any] = []
         self.subscribed = 0
+        self.refuses = False
 
     def subscribe_profile_stats_events(self, callback: Any) -> FakeSubscription:
+        if self.refuses:
+            raise RuntimeError("PhysX has no simulation to profile")
         self.subscribed += 1
         return FakeSubscription(self, callback)
 
@@ -90,15 +93,30 @@ class FakeHydra:
 
     def __init__(self, kit: "FakeKit") -> None:
         self.kit = kit
+        self.profiled = 0
+        # The call of the profiler that raises, the engine stats that won't make, the device info that raises.
+        self.profiler_fails_at: int | None = None
+        self.stats_fail = False
+        self.device_info_fails = False
 
     def engine_stats(self) -> Any:
         """HydraEngineStats(), whose profiler gives the update's GPU time."""
-        return SimpleNamespace(
-            get_gpu_profiler_result=lambda: [[{"name": "frame", "indent": 0, "duration": self.kit.gpu_ms}]]
-        )
+        if self.stats_fail:
+            raise RuntimeError("no Hydra engine is attached")
+        return SimpleNamespace(get_gpu_profiler_result=self._profile)
+
+    def _profile(self) -> list[list[dict[str, Any]]]:
+        self.profiled += 1
+        if self.profiled == self.profiler_fails_at:
+            raise RuntimeError("the profiler's containers were reset")
+        return [[{"name": "frame", "indent": 0, "duration": self.kit.gpu_ms}]]
 
     def get_device_info(self) -> list[dict[str, Any]]:
-        return [{"description": "Invented GPU", "usage": 2 << 30, "budget": 16 << 30}]
+        if self.device_info_fails:
+            raise RuntimeError("carb::graphics::Device was null for device: 0")
+        return [
+            {"description": "Invented GPU", "dedicated_video_memory": 16 << 30, "budget": 15 << 30, "usage": 2 << 30}
+        ]
 
 
 class FakeKit:
@@ -121,6 +139,14 @@ class FakeKit:
         self.hydra = FakeHydra(self)
         self.recording = False
         self.count = 0
+        # How long a capture or a save holds the viewport lock before the measurement gets it.
+        self.lock_seconds = 0.0
+        self.physics_interface_fails = False
+
+    def physics_interface(self) -> FakeBenchmarks:
+        if self.physics_interface_fails:
+            raise RuntimeError("omni.physics.core's interface isn't registered")
+        return self.physics
 
     def loading_status(self) -> tuple[str, int, int]:
         if self.loading_raises:
@@ -140,6 +166,7 @@ class FakeKit:
 
     @contextlib.asynccontextmanager
     async def without_kept_feed(self) -> AsyncIterator[None]:
+        await asyncio.sleep(self.lock_seconds)
         self.log.append("lock taken, kept feed released")
         try:
             yield
@@ -170,7 +197,7 @@ def handler(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
     usd = _module("omni.usd", get_context=lambda: context)
     omni_timeline = _module("omni.timeline", get_timeline_interface=lambda: timeline)
     omni_kit = _module("omni.kit", app=kit_app)
-    physics_core = _module("omni.physics.core", get_physics_benchmarks_interface=lambda: kit.physics)
+    physics_core = _module("omni.physics.core", get_physics_benchmarks_interface=kit.physics_interface)
     physx = _module("omni.physx", get_physx_benchmarks_interface=lambda: kit.physx)
     stats = _module(
         "omni.hydra.engine.stats",
@@ -286,7 +313,12 @@ def test_frames_and_one_updates_are_timed_and_the_first_interval_dropped(handler
     assert phys["wall_seconds"] == pytest.approx(0.1)
     # The stage has no physics scene: PhysX's 60 steps a second, so 4 steps simulate 1/15 s.
     assert phys["simulated_seconds"] == pytest.approx(4 / 60)
-    assert result["gpu_memory"] == {"device": "Invented GPU", "used_bytes": 2 << 30, "budget_bytes": 16 << 30}
+    assert result["gpu_memory"] == {
+        "device": "Invented GPU",
+        "used_bytes": 2 << 30,
+        "total_bytes": 16 << 30,
+        "total_kind": "dedicated",
+    }
     assert result["stage"]["meshes"] == 1
 
 
@@ -366,6 +398,27 @@ def test_the_limiter_is_lifted_inside_the_viewport_lock_and_put_back(handler, ki
     assert conditions["headless"] is True
     assert conditions["timeline"] == "playing"
     assert conditions["gpu"] == "Invented GPU"
+
+
+def test_a_measurement_that_waited_out_its_time_for_the_viewport_says_so(handler, kit, monkeypatch):
+    # The time limit counts from the call, so a capture holding the lock can spend it all.
+    monkeypatch.setattr(core, "CALL_SECONDS", 0.05)
+    kit.lock_seconds = 0.2
+    r = _run(handler, kit, {"frames": 2, "warmup": 0}, _steady(5))
+    assert r["status"] == "success", r
+    assert r["result"]["app_missing"] == (
+        "the 0.05 s this call may take ran out while a capture, a save or another measurement held the viewport"
+    )
+    assert kit.settings.values[LIMIT] is True
+
+
+def test_a_limiter_already_off_is_left_alone_and_not_called_lifted(handler, kit):
+    kit.settings.values[LIMIT] = False
+    r = _run(handler, kit, {"frames": 2, "warmup": 0}, _steady(10))
+    assert r["status"] == "success", r
+    assert [entry for entry in kit.log if isinstance(entry, tuple)] == []
+    assert r["result"]["conditions"]["rate_limit_lifted"] is False
+    assert r["result"]["conditions"]["rate_limit"] is False
 
 
 def test_a_limiter_kit_doesnt_set_is_left_alone(handler, kit):
@@ -459,3 +512,85 @@ def test_a_running_recording_is_named(handler, kit):
     r = _run(handler, kit, {"frames": 2, "warmup": 0}, _steady(10))
     assert r["status"] == "success", r
     assert core.RECORDING_NOTE in r["result"]["notes"]
+
+
+# ---- each reading that fails reads not available, and the rest come ----
+
+
+def test_a_profiler_that_fails_mid_measurement_drops_the_gpu_line_alone(handler, kit):
+    kit.hydra.profiler_fails_at = 3
+    r = _run(handler, kit, {"frames": 4, "warmup": 0}, _steady(10))
+    assert r["status"] == "success", r
+    result = r["result"]
+    assert result["gpu_render"] == {
+        "missing": "not available: Hydra's GPU profiler failed: the profiler's containers were reset"
+    }
+    assert result["measured_frames"] == 4
+    assert result["physics"]["steps"] == 4
+    assert result["gpu_memory"]["used_bytes"] == 2 << 30
+
+
+def test_a_physics_interface_that_wont_subscribe_drops_the_physics_line_alone(handler, kit):
+    kit.physics.refuses = True
+    r = _run(handler, kit, {"frames": 2, "warmup": 0}, _steady(10))
+    assert r["status"] == "success", r
+    assert r["result"]["physics"] == {
+        "missing": "not available: PhysX's benchmarks interface wouldn't subscribe: PhysX has no simulation to profile"
+    }
+    assert r["result"]["app"]["mean_ms"] == pytest.approx(10.0)
+
+
+def test_a_physics_interface_that_fails_to_come_drops_the_physics_line_alone(handler, kit):
+    kit.physics_interface_fails = True
+    r = _run(handler, kit, {"frames": 2, "warmup": 0}, _steady(10))
+    assert r["status"] == "success", r
+    assert r["result"]["physics"] == {
+        "missing": "not available: PhysX's benchmarks interface failed: omni.physics.core's interface isn't registered"
+    }
+    assert kit.physx.subscribed == 0
+    assert r["result"]["gpu_render"]["mean_ms"] == pytest.approx(5.0)
+
+
+def test_engine_stats_that_wont_make_drop_the_gpu_time_but_keep_the_memory(handler, kit):
+    kit.hydra.stats_fail = True
+    r = _run(handler, kit, {"frames": 2, "warmup": 0}, _steady(10))
+    assert r["status"] == "success", r
+    result = r["result"]
+    assert result["gpu_render"] == {
+        "missing": "not available: Hydra's engine stats failed: no Hydra engine is attached"
+    }
+    assert result["gpu_memory"]["device"] == "Invented GPU"
+    assert result["conditions"]["gpu"] == "Invented GPU"
+
+
+def test_device_info_that_fails_drops_the_memory_line_alone(handler, kit):
+    kit.hydra.device_info_fails = True
+    r = _run(handler, kit, {"frames": 2, "warmup": 0}, _steady(10))
+    assert r["status"] == "success", r
+    result = r["result"]
+    assert result["gpu_memory"] == {
+        "missing": "not available: Hydra's device info failed: carb::graphics::Device was null for device: 0"
+    }
+    assert result["conditions"]["gpu"] is None
+    assert result["gpu_render"]["mean_ms"] == pytest.approx(5.0)
+
+
+def test_a_physics_scene_whose_step_cant_be_used_drops_the_physics_line_alone(handler, kit):
+    scene = UsdPhysics.Scene.Define(kit.stage, "/World/PhysicsScene").GetPrim()
+    scene.CreateAttribute("physxScene:timeStepsPerSecond", Sdf.ValueTypeNames.Int).Set(0)
+    r = _run(handler, kit, {"frames": 2, "warmup": 0}, _steady(10))
+    assert r["status"] == "success", r
+    assert r["result"]["physics"] == {
+        "missing": "not measured: the physics scene's step can't be used: /World/PhysicsScene's "
+        "physxScene:timeStepsPerSecond is 0, not a positive number"
+    }
+
+
+def test_the_physics_step_is_the_first_scenes_the_survey_found(handler, kit):
+    scene = UsdPhysics.Scene.Define(kit.stage, "/World/PhysicsScene").GetPrim()
+    scene.CreateAttribute("physxScene:timeStepsPerSecond", Sdf.ValueTypeNames.Int).Set(120)
+    UsdPhysics.Scene.Define(kit.stage, "/World/Later")
+    r = _run(handler, kit, {"frames": 2, "warmup": 0}, _steady(10))
+    assert r["status"] == "success", r
+    assert r["result"]["physics"]["steps_per_second"] == pytest.approx(120.0)
+    assert r["result"]["physics"]["simulated_seconds"] == pytest.approx(2 / 120)

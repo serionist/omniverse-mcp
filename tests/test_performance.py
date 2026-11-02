@@ -6,7 +6,7 @@ answer with each number missing in turn."""
 from typing import Any, NamedTuple
 
 import pytest
-from pxr import Gf, Sdf, Usd, UsdGeom, UsdRender
+from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, UsdRender
 
 from ovmcp.core.performance import (
     PerformanceArgs,
@@ -125,18 +125,42 @@ def test_the_gpu_render_line_and_a_profiler_that_gave_nothing():
     times = gpu_render([10.0, 20.0, 30.0])
     assert times == {"mean_ms": 20.0, "p95_ms": 30.0}
     # Hydra's profiler is off in some apps, and every frame then reads 0.
-    assert "missing" in gpu_render([0.0, 0.0])
-    assert "missing" in gpu_render([])
+    assert gpu_render([0.0, 0.0]) == {"missing": "Hydra's GPU profiler gave no times: it may be off in this app"}
+    # No frame timed is no fault of the profiler's.
+    assert gpu_render([]) == {"missing": "no frame was timed"}
 
 
-def test_gpu_memory_is_hydras_usage_and_budget_for_device_0():
+def test_gpu_memory_is_hydras_usage_of_the_devices_dedicated_memory_for_device_0():
+    # The keys of omni.hydra.engine.stats' get_device_info() on Isaac Sim 6.2.
     devices = [
-        {"description": "NVIDIA RTX 6000 Pro", "usage": 3 << 30, "budget": 48 << 30, "device_index": 0},
+        {
+            "description": "NVIDIA RTX 6000 Pro",
+            "dedicated_video_memory": 48 << 30,
+            "dedicated_system_memory": 0,
+            "shared_system_memory": 32 << 30,
+            "budget": 47 << 30,
+            "usage": 3 << 30,
+        },
         {"description": "another", "usage": 1, "budget": 2},
     ]
-    assert gpu_memory(devices) == {"device": "NVIDIA RTX 6000 Pro", "used_bytes": 3 << 30, "budget_bytes": 48 << 30}
+    assert gpu_memory(devices) == {
+        "device": "NVIDIA RTX 6000 Pro",
+        "used_bytes": 3 << 30,
+        "total_bytes": 48 << 30,
+        "total_kind": "dedicated",
+    }
+
+
+def test_gpu_memory_falls_back_on_hydras_budget_and_says_so():
+    budget_only = gpu_memory([{"description": "x", "usage": 1 << 30, "budget": 8 << 30}])
+    assert budget_only == {"device": "x", "used_bytes": 1 << 30, "total_bytes": 8 << 30, "total_kind": "budget"}
+    assert gpu_memory([{"description": "x"}]) == {
+        "device": "x",
+        "used_bytes": None,
+        "total_bytes": None,
+        "total_kind": None,
+    }
     assert "missing" in gpu_memory([])
-    assert gpu_memory([{"description": "x"}]) == {"device": "x", "used_bytes": None, "budget_bytes": None}
 
 
 # ---- physics ----
@@ -203,7 +227,9 @@ def test_the_survey_counts_prims_meshes_instances_and_point_instances():
     pile = UsdGeom.PointInstancer.Define(stage, "/World/Pile")
     pile.CreateProtoIndicesAttr([0] * 500)
 
-    counts = survey(stage).counts
+    found = survey(stage)
+    counts = found.counts
+    assert found.scene is None
     # /Crate, its Box, /Pallet, its Board, /World, Ground, 3 crates, the pallet, the pile: an instance's inside isn't
     # traversed, and the prototypes the 4 instances share are 2.
     assert counts == {
@@ -241,6 +267,16 @@ def test_the_survey_names_each_render_product_with_its_kind_and_size():
         {"path": "/Render/Bare", "kind": "render product", "resolution": [2048, 1080]},
         {"path": "/Render/Blocked", "kind": "render product", "resolution": None},
     ]
+
+
+def test_the_survey_notes_the_first_physics_scene_so_the_stage_is_walked_once():
+    stage = Usd.Stage.CreateInMemory()
+    UsdGeom.Xform.Define(stage, "/World")
+    UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")
+    UsdPhysics.Scene.Define(stage, "/World/Second")
+    scene = survey(stage).scene
+    assert scene is not None
+    assert scene.GetPath() == "/World/PhysicsScene"
 
 
 # ---- the notes and the answer ----
@@ -319,6 +355,14 @@ def test_halves_that_drift_add_a_not_settled_note():
     assert note.endswith("measure again")
 
 
+def test_the_not_settled_share_is_of_the_smaller_half_as_settled_reads_it():
+    # 50.0 then 45.4 ms: 4.6 is 10.1% of 45.4, so not settled; of the first half it would read 9%, under the line.
+    r = _answer(samples_ms=[50.0, 50.0, 45.4, 45.4])
+    assert r["halves"]["settled"] is False
+    (note,) = r["notes"]
+    assert note.startswith("not settled: the second half's mean frame time is 10% below the first's")
+
+
 def test_a_first_half_that_took_no_time_still_gets_its_note():
     r = _answer(samples_ms=[0.0, 0.0, 5.0, 5.0])
     (note,) = r["notes"]
@@ -332,7 +376,15 @@ def test_zero_samples_are_answered_with_no_statistics():
     assert r["app_missing"] == "the 90 s this call may take ran out while the stage was still loading"
     assert "halves" not in r
     assert r["measured_frames"] == 0
-    assert "missing" in r["gpu_render"]
+    assert r["gpu_render"] == {"missing": "no frame was timed"}
+
+
+def test_time_spent_waiting_for_the_viewport_is_said():
+    # A capture, a save or another measurement held the viewport lock until the call's time was gone.
+    r = _answer(samples_ms=[], gpu_ms=[], ran_out="waiting")
+    assert r["app_missing"] == (
+        "the 90 s this call may take ran out while a capture, a save or another measurement held the viewport"
+    )
 
 
 def test_a_measurement_cut_short_says_how_many_frames_it_got():

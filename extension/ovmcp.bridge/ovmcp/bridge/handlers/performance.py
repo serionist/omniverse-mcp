@@ -22,7 +22,7 @@ import omni.usd
 
 from ovmcp.core import capture
 from ovmcp.core import performance as core
-from ovmcp.core.force import step_seconds
+from ovmcp.core.force import scene_step
 from ovmcp.core.performance import (
     PerformanceArgs,
     StepTally,
@@ -54,14 +54,16 @@ _clock = time.perf_counter
 
 
 class _Measurement:
-    """One measurement on Kit's updates, in phases: the stage loading, the warm-up, then the timed frames. The update
-    that ends the warm-up starts the clock; each of the next frames + 1 updates gives an interval, the GPU's time and,
-    from the second, the physics steps it carried, so the first, which Isaac Sim's recorder drops, can be dropped
-    with all it carried."""
+    """One measurement on Kit's updates, in phases: waiting for the viewport lock until its first update, the stage
+    loading, the warm-up, then the timed frames. The update that ends the warm-up starts the clock; each of the next
+    frames + 1 updates gives an interval, the GPU's time and, from the second, the physics steps it carried, so the
+    first, which Isaac Sim's recorder drops, can be dropped with all it carried."""
 
     def __init__(self, args: PerformanceArgs) -> None:
         self.args = args
-        self.phase = "loading"
+        # The call's time starts before the viewport lock is taken, which a capture, a save or another measurement may
+        # hold: until the first update the measurement observes, its time goes to that wait.
+        self.phase = "waiting"
         self.warmed = 0
         self.last = 0.0
         self.samples: list[float] = []
@@ -111,6 +113,8 @@ class _Measurement:
             self._finish(e)
 
     def _step(self, now: float) -> None:
+        if self.phase == "waiting":
+            self.phase = "loading"
         if self.phase == "loading":
             if still_loading(omni.usd.get_context().get_stage_loading_status()):
                 return
@@ -211,7 +215,8 @@ def _conditions(settings: Any, timeline: Any, state: str) -> dict[str, object]:
         "time_codes_per_second": timeline.get_time_codes_per_seconds(),
         "rate_limit": limit,
         "rate_limit_frequency": read(RATE_LIMIT_FREQUENCY),
-        "rate_limit_lifted": limit is not None,
+        # Only a limiter that is on is lifted: one off, or not set, is left as it is.
+        "rate_limit_lifted": limit is True,
         "async_rendering": read("/app/asyncRendering"),
         "eco_mode": read("/rtx/ecoMode/enabled"),
         "sleep_ms_on_focus": read("/app/renderer/sleepMsOnFocus"),
@@ -250,10 +255,10 @@ async def _measure(args: PerformanceArgs, budget: capture.Budget, seconds: float
         physics_missing = measurement.subscribe_physics()
     else:
         physics_missing = f"not measured: the timeline is {state}, so physics doesn't step; play it and measure again"
-    limit = conditions["rate_limit"]
+    lifted = conditions["rate_limit_lifted"] is True
     ran_out = None
     try:
-        if limit is not None:
+        if lifted:
             settings.set(RATE_LIMIT, False)
         measurement.start()
         try:
@@ -263,15 +268,17 @@ async def _measure(args: PerformanceArgs, budget: capture.Budget, seconds: float
             ran_out = measurement.phase
     finally:
         measurement.stop()
-        if limit is not None:
-            settings.set(RATE_LIMIT, limit)
+        if lifted:
+            settings.set(RATE_LIMIT, True)
 
     kept = measurement.samples[1:]
     wall_seconds = sum(kept) / 1000.0
     stage = _get_stage()
+    found = survey(stage)
     if physics_missing is None:
         try:
-            numbers = physics(measurement.tally.step_ms, len(kept), wall_seconds, step_seconds(stage).seconds)
+            # The survey's walk found the scene, so the stage isn't walked again for it.
+            numbers = physics(measurement.tally.step_ms, len(kept), wall_seconds, scene_step(found.scene).seconds)
         except ValueError as e:
             numbers = {"missing": f"not measured: the physics scene's step can't be used: {e}"}
     else:
@@ -285,7 +292,7 @@ async def _measure(args: PerformanceArgs, budget: capture.Budget, seconds: float
         gpu_missing=measurement.gpu_missing,
         physics=numbers,
         memory=memory,
-        survey=survey(stage),
+        survey=found,
         conditions=conditions,
         ran_out=ran_out,
         recording=recording,
