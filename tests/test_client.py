@@ -115,6 +115,10 @@ class TestBridgeClient(unittest.TestCase):
             "/scene/visibility", {"status": "success", "result": {"prim_path": "/World/Cube", "visible": False}}
         )
         cls.mock.set_response(
+            "/scene/attribute",
+            {"status": "success", "result": {"prim_path": "/World/Sun", "name": "inputs:intensity", "after": "3000"}},
+        )
+        cls.mock.set_response(
             "/scene/save", {"status": "success", "result": {"file_path": "/tmp/scene.usd", "action": "saved"}}
         )
         cls.mock.set_response("/scene/new", {"status": "success", "result": {"message": "New scene created"}})
@@ -621,6 +625,14 @@ class TestBridgeClient(unittest.TestCase):
         r = self.client.set_visibility("/World/Cube", visible=False)
         self.assertEqual(r["status"], "success")
         self.assertFalse(r["result"]["visible"])
+
+    def test_set_attribute_sends_the_name_and_the_value_as_given(self):
+        r = self.client.set_attribute("/World/Sun", "inputs:intensity", 3000)
+        self.assertEqual(r["result"]["after"], "3000")
+        self.assertEqual(
+            self.mock.requests[-1],
+            ("POST", "/scene/attribute", {"prim_path": "/World/Sun", "name": "inputs:intensity", "value": 3000}),
+        )
 
     def test_save_scene(self):
         r = self.client.save_scene("/tmp/scene.usd")

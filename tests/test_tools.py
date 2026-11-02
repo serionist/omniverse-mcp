@@ -138,6 +138,21 @@ CASES = [
         ("/World/Cube is now hidden",),
     ),
     Case(
+        "set_prim_attribute",
+        {"prim_path": "/World/Sun", "name": "inputs:intensity", "value": 3000},
+        "/scene/attribute",
+        {
+            "prim_path": "/World/Sun",
+            "name": "inputs:intensity",
+            "type": "float",
+            "before": "50000",
+            "after": "3000",
+            "layer": "the stage's root layer",
+        },
+        {"prim_path": "/World/Sun", "name": "inputs:intensity", "value": 3000},
+        ("[/World/Sun]\ninputs:intensity = 3000 (float; was 50000)\nwritten to the stage's root layer",),
+    ),
+    Case(
         "save_scene",
         {"file_path": "scene.usd"},
         "/scene/save",
@@ -599,6 +614,36 @@ def _check(case: Case, bridge: MockIsaacServer, tmp_path: Path) -> str:
 @pytest.mark.parametrize("case", CASES, ids=str)
 def test_the_tool_calls_its_route_and_reads_the_answer(case: Case, bridge: MockIsaacServer, tmp_path: Path):
     _check(case, bridge, tmp_path)
+
+
+def test_set_prim_attribute_gives_the_extent_it_moved_and_a_token_s_note(bridge: MockIsaacServer, tmp_path: Path):
+    # A list value goes as given; the extension converts it (#151).
+    text = _check(
+        Case(
+            "set_prim_attribute",
+            {"prim_path": "/World/Ball", "name": "radius", "value": [5]},
+            "/scene/attribute",
+            {
+                "prim_path": "/World/Ball",
+                "name": "radius",
+                "type": "double",
+                "before": "1",
+                "after": "5",
+                "layer": "the stage's root layer",
+                "extent": "(-5.0000, -5.0000, -5.0000), (5.0000, 5.0000, 5.0000)",
+                "note": "sdf isn't among physics:approximation's allowed tokens (none, convexHull); written as given",
+            },
+            {"prim_path": "/World/Ball", "name": "radius", "value": [5]},
+            (
+                "extent updated to (-5.0000, -5.0000, -5.0000), (5.0000, 5.0000, 5.0000), so get_prim_bounds gives "
+                "the new size",
+                "note: sdf isn't among",
+            ),
+        ),
+        bridge,
+        tmp_path,
+    )
+    assert text.splitlines()[1] == "radius = 5 (double; was 1)"
 
 
 def test_manage_extensions_enables_one(bridge: MockIsaacServer, tmp_path: Path):

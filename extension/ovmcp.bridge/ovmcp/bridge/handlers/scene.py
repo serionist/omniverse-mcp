@@ -14,6 +14,7 @@ import omni.usd
 from pxr import Sdf, Tf, Usd, UsdGeom, UsdPhysics, UsdShade
 
 from ovmcp.core import layers
+from ovmcp.core.attribute import set_attribute, shown
 from ovmcp.core.bounds import world_bbox
 from ovmcp.core.deletion import why_kept
 from ovmcp.core.formatter import format_prim_block, format_scene_dump, format_scene_tree, relationship_targets
@@ -558,6 +559,47 @@ async def handle_set_visibility(body: dict) -> dict:
         imageable.MakeInvisible()
 
     return {"status": "success", "result": {"prim_path": prim_path, "visible": visible}}
+
+
+# ---------------------------------------------------------------------------
+# /scene/attribute
+# ---------------------------------------------------------------------------
+
+
+async def handle_set_attribute(body: dict) -> dict:
+    """Set one attribute of a prim to a value given in JSON (#151): set_attribute converts and checks it, and refuses,
+    with nothing written, what wouldn't show."""
+    prim_path = body.get("prim_path", "")
+    name = body.get("name", "")
+    if not prim_path:
+        return {"status": "error", "error": "No prim_path provided"}
+    if "value" not in body:
+        return {"status": "error", "error": "No value provided"}
+
+    # The stage as it stands after the update, as handle_delete_prim looks it up.
+    await _next_update()
+    stage = _get_stage()
+    prim = stage.GetPrimAtPath(prim_path)
+    if not prim.IsValid():
+        return {"status": "error", "error": f"Prim not found: {prim_path}"}
+    try:
+        written = set_attribute(prim, name, body["value"])
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
+
+    result: dict[str, Any] = {
+        "prim_path": prim_path,
+        "name": written.name,
+        "type": written.type_name,
+        "before": shown(written.before),
+        "after": shown(written.after),
+        "layer": layer_name(stage, written.layer),
+    }
+    if written.note:
+        result["note"] = written.note
+    if written.extent is not None:
+        result["extent"] = shown(written.extent)
+    return {"status": "success", "result": result}
 
 
 # ---------------------------------------------------------------------------

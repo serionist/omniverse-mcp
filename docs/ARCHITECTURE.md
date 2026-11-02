@@ -196,6 +196,7 @@ the install command; a new route leaves `PROTOCOL` alone, so the other tools go 
 /scene/material      -> handle_set_material
 /scene/clone         -> handle_clone_prim
 /scene/visibility    -> handle_set_visibility
+/scene/attribute     -> handle_set_attribute
 /scene/save          -> handle_save_scene
 /scene/new           -> handle_new_scene
 /scene/open          -> handle_open_scene

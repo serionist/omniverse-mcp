@@ -308,6 +308,47 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         state = "visible" if r["visible"] else "hidden"
         return f"{r['prim_path']} is now {state}"
 
+    @tool(mcp, EDITS)
+    def set_prim_attribute(
+        prim_path: PrimPath,
+        name: Annotated[
+            str, Field(description='The attribute, as get_prim_properties names it, e.g. "inputs:intensity"')
+        ],
+        value: Annotated[
+            bool | int | float | str | list[Any],
+            Field(
+                description="Its new value in JSON: a number, true or false, a string or token, or a list for a "
+                "vector, colour or array, e.g. [1, 0, 0]"
+            ),
+        ],
+    ) -> str:
+        """Set one attribute of a prim, such as a light's intensity or colour, a camera's focal length, a shape's size
+        or radius, or a display colour.
+
+        Use it for an attribute no other tool sets; set_prim_transform, set_visibility, set_material and
+        set_physics_properties set theirs. The attribute must exist on the prim: get_prim_properties lists them, a
+        schema's included, and a name it lacks gets its closest names. The value is converted to the attribute's type,
+        within the type's range; a token outside its allowed ones is written, with a note naming them. A change that
+        alters a shape's box updates its authored extent, so get_prim_bounds follows. Refused, with nothing written: a
+        relationship, an xform op, visibility, an animated attribute, one a stronger layer holds, a size change whose
+        extent another layer or an animation holds, a prim inside an instance or a prototype, an inactive prim. It
+        writes where edits go, but Kit's own cameras and a viewport light rig's lights in Kit's session layer, which
+        save_scene doesn't keep. A physics value set while the simulation plays may reach PhysX only once it stops. A
+        DistantLight comes at an intensity of 50,000, UsdLux's sunlight; a few thousand suits a viewport capture. The
+        answer gives the value before and after, and the layer written.
+        """
+        r = bridge_call(client.set_attribute, prim_path, name, value)["result"]
+        lines = [
+            f"[{r['prim_path']}]",
+            f"{r['name']} = {r['after']} ({r['type']}; was {r['before']})",
+            f"written to {r['layer']}",
+        ]
+        if r.get("extent"):
+            lines.append(f"extent updated to {r['extent']}, so get_prim_bounds gives the new size")
+        if r.get("note"):
+            lines.append(f"note: {r['note']}")
+        return "\n".join(lines)
+
     @tool(mcp, DESTROYS)
     def save_scene(
         file_path: Annotated[

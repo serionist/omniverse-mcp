@@ -3,6 +3,7 @@ it doesn't fit, the prim can't take it or another tool owns the name; written wh
 prims in the session layer; and a shape's authored extent kept in step with its size, so its box stays right."""
 
 import math
+from typing import cast
 
 import pytest
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdShade, Vt
@@ -155,7 +156,8 @@ def test_the_value_is_read_back_as_usd_stored_it(stage):
 
     assert written.before == 50000  # UsdLux's fallback for a DistantLight (F1)
     assert written.after == light.GetAttribute("inputs:intensity").Get()
-    assert written.after != 0.1 and math.isclose(written.after, 0.1, rel_tol=1e-6)  # a float rounds
+    after = cast("float", written.after)
+    assert after != 0.1 and math.isclose(after, 0.1, rel_tol=1e-6)  # a float rounds
     assert written.layer.identifier == stage.GetRootLayer().identifier
 
 

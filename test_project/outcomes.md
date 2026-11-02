@@ -13,9 +13,10 @@ Each outcome's fields, in this order:
 - **Verify:** what the judge checks, each a fact about the stage, a capture or the answer.
 - **Calls:** `any`, or `no execute_script`: an agent that calls `execute_script` anyway gets WARN at best. The tool
   path each such line expects, for reading a standing WARN as the agent's choice or a missing tool: O1, `create_prim`,
-  `set_material` and `viewport_light` (a light rig or the camera light; no tool sets a stage light's intensity); O3,
-  `get_mesh_stats`; O4, `get_prim_properties`, then `set_physics_properties` with `collision=True` (or a friction or
-  restitution, which adds the collider too); O5, `inspect_prim` or `set_camera` with `capture_viewport`; O6, `get_logs`.
+  `set_material`, and `viewport_light` (a light rig or the camera light) or a light whose intensity
+  `set_prim_attribute` sets; O3, `get_mesh_stats`; O4, `get_prim_properties`, then `set_physics_properties` with
+  `collision=True` (or a friction or restitution, which adds the collider too); O5, `inspect_prim` or `set_camera`
+  with `capture_viewport`; O6, `get_logs`.
 - **Play:** `none`, or seconds: after the agent, the runner plays the simulation that long and pauses it, so the
   judge reads where physics put things.
 

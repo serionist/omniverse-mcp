@@ -12,7 +12,7 @@ from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
-from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
+from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics, UsdShade
 
 from ovmcp.core.usd import floats
 
@@ -768,6 +768,67 @@ def test_prim_properties_text_lists_the_schemas_and_the_target(scene, kit):
     lines = r["result"]["text"].splitlines()
     assert "api_schemas = MaterialBindingAPI, PhysicsCollisionAPI" in lines
     assert "material:binding = /World/Looks/Mat" in lines
+
+
+# ---- /scene/attribute ----
+
+
+def _set(handler: Any, body: dict[str, Any]) -> dict[str, Any]:
+    """/scene/attribute's body has a name of its own, which _run's keyword would take."""
+    return asyncio.run(handler.handle_set_attribute(body))
+
+
+def test_set_attribute_answers_the_value_before_and_after_and_the_layer(scene, kit):
+    UsdLux.DistantLight.Define(kit.stage, "/World/Sun")
+
+    r = _set(scene, {"prim_path": "/World/Sun", "name": "inputs:intensity", "value": 3000})
+
+    assert r["status"] == "success", r
+    assert r["result"] == {
+        "prim_path": "/World/Sun",
+        "name": "inputs:intensity",
+        "type": "float",
+        "before": "50000",
+        "after": "3000",
+        "layer": "the stage's root layer",
+    }
+    assert kit.stage.GetPrimAtPath("/World/Sun").GetAttribute("inputs:intensity").Get() == 3000.0
+
+
+def test_set_attribute_gives_the_extent_it_moved_and_a_token_s_note(scene, kit):
+    ball = UsdGeom.Sphere.Define(kit.stage, "/World/Ball")
+    ball.CreateRadiusAttr(1.0)
+    ball.CreateExtentAttr([(-1, -1, -1), (1, 1, 1)])
+    UsdGeom.Camera.Define(kit.stage, "/World/Cam")
+
+    grown = _set(scene, {"prim_path": "/World/Ball", "name": "radius", "value": 5})
+    turned = _set(scene, {"prim_path": "/World/Cam", "name": "projection", "value": "fisheye"})
+
+    assert grown["result"]["extent"] == "(-5.0000, -5.0000, -5.0000), (5.0000, 5.0000, 5.0000)"
+    assert "note" not in grown["result"]
+    assert turned["result"]["note"].startswith("fisheye isn't among projection's allowed tokens")
+    assert "extent" not in turned["result"]
+
+
+@pytest.mark.parametrize(
+    ("body", "says"),
+    [
+        ({"name": "radius", "value": 1}, "No prim_path provided"),
+        ({"prim_path": "/World/Ball", "name": "radius"}, "No value provided"),
+        ({"prim_path": "/World/Nothing", "name": "radius", "value": 1}, "Prim not found: /World/Nothing"),
+        ({"prim_path": "/World/Ball", "name": "radius", "value": "big"}, "radius (double) takes a number"),
+        ({"prim_path": "/World/Ball", "name": "xformOp:translate", "value": [1, 2, 3]}, "set_prim_transform"),
+    ],
+)
+def test_set_attribute_refuses_with_nothing_written(scene, kit, body, says):
+    UsdGeom.Sphere.Define(kit.stage, "/World/Ball")
+    before = kit.stage.GetRootLayer().ExportToString()
+
+    r = _set(scene, body)
+
+    assert r["status"] == "error"
+    assert says in r["error"]
+    assert kit.stage.GetRootLayer().ExportToString() == before
 
 
 # ---- set_material ----

@@ -14,6 +14,12 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   a convex hull. A collider came only through a friction or restitution before. The fix is in the Kit extension too:
   run `uvx omniverse-mcp extension install`, then restart Kit; an older extension leaves collision unset, and the
   answer warns (#150).
+- **`set_prim_attribute`,** a new tool in the tool contract: sets one attribute of a prim, such as a light's
+  intensity or colour, a camera's focal length or a shape's radius, its value converted to the attribute's type and
+  checked against it. A change that alters a shape's box updates its authored extent, so `get_prim_bounds` follows;
+  what wouldn't show (a stronger layer's value, time samples, a prim inside an instance) is refused with nothing
+  written. Until now an agent set these with `execute_script`. The tool is in the Kit extension: run
+  `uvx omniverse-mcp extension install`, then restart Kit (#151).
 
 ### Changed
 

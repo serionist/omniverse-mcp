@@ -1441,6 +1441,60 @@
         "type": "object"
       }
     },
+    "set_prim_attribute": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "prim_path": {
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "items": {},
+                "type": "array"
+              }
+            ]
+          }
+        },
+        "required": [
+          "prim_path",
+          "name",
+          "value"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
     "set_prim_transform": {
       "annotations": {
         "destructiveHint": false,
