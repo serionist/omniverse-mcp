@@ -399,6 +399,59 @@ if undo is not None:
 result = "unwrapped"
 """
 
+# test_06b's box (#158): a rigid body with a collider, PATH, UP stage units above the origin along the stage's up axis,
+# with no ground to land on, and a physics scene of the test's own when the stage has none (SCENE), so a play
+# simulates whatever Kit's preferences say.
+_JOB_BOX = """
+import omni.usd
+from pxr import Gf, Usd, UsdGeom, UsdPhysics
+stage = omni.usd.get_context().get_stage()
+if not any(prim.IsA(UsdPhysics.Scene) for prim in stage.Traverse()):
+    UsdPhysics.Scene.Define(stage, SCENE)
+box = UsdGeom.Cube.Define(stage, PATH)
+box.CreateSizeAttr(0.2 / UsdGeom.GetStageMetersPerUnit(stage))
+at = [0.0, 0.0, 0.0]
+at["XYZ".index(UsdGeom.GetStageUpAxis(stage))] = UP
+UsdGeom.XformCommonAPI(box).SetTranslate(Gf.Vec3d(*at))
+UsdPhysics.CollisionAPI.Apply(box.GetPrim())
+UsdPhysics.RigidBodyAPI.Apply(box.GetPrim())
+result = at
+"""
+
+# test_06b's job: plays the timeline for STEPS updates, a line every 30, then pauses and returns PATH's world position.
+_JOB_FALL = """
+import omni.kit.app
+import omni.timeline
+import omni.usd
+from pxr import Usd, UsdGeom
+app = omni.kit.app.get_app()
+timeline = omni.timeline.get_timeline_interface()
+timeline.play()
+try:
+    for step in range(STEPS):
+        await app.next_update_async()
+        if step % 30 == 0:
+            print(f"step {step} of {STEPS}")
+finally:
+    timeline.pause()
+prim = omni.usd.get_context().get_stage().GetPrimAtPath(PATH)
+moved = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default()).ExtractTranslation()
+result = [moved[0], moved[1], moved[2]]
+"""
+
+# test_06c's job: awaits updates until it is cancelled, saying so in its cleanup.
+_JOB_ENDLESS = """
+import asyncio
+import omni.kit.app
+app = omni.kit.app.get_app()
+try:
+    while True:
+        await app.next_update_async()
+except asyncio.CancelledError as e:
+    print(f"cancelled: {e}")
+    raise
+"""
+
 _SENSORS = "import omni.syntheticdata as syn\ntarget = syn.sensors"
 # What a capture's feed captures with and renders through (handlers/camera_feed.py), each looked up when it is used.
 _FILE_CAPTURE = "import omni.kit.widget.viewport.capture as target"
@@ -784,6 +837,78 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertEqual(result["status"], "error")
         self.assertIn("test error", result["error"])
         print(f"  Error caught correctly: {result['error']}")
+
+    def _job_ended(self, job_id: str) -> dict[str, Any]:
+        """The job once it has ended, read with get_job's wait, within a minute."""
+        deadline = time.monotonic() + 60.0
+        while True:
+            read = self.client.job_get(job_id, wait=20.0)
+            self.assertEqual(read["status"], "success", read)
+            if read["result"]["state"] not in ("working", "cancelling") or time.monotonic() > deadline:
+                return read["result"]
+
+    def test_06b_a_script_job_runs_while_kit_answers(self):
+        """A job plays the timeline for a few seconds of updates while other routes answer (#158): the start answers at
+        once, the job's progress is read twice, get_sim_state names it, and its result is where the box fell to."""
+        path, scene = "/World/IntTestJobBox", "/World/IntTestJobScene"
+        state = self.client.sim_state()["result"]
+        up = 2.0 / state["meters_per_unit"]
+        self.addCleanup(self.client.delete_prim, scene)
+        self.addCleanup(self.client.delete_prim, path)
+        self.addCleanup(self.client.sim_control, "stop")
+        made = self.client.execute(f"PATH = {path!r}\nSCENE = {scene!r}\nUP = {up!r}\n{_JOB_BOX}")
+        self.assertEqual(made["status"], "success", made)
+        axis = "XYZ".index(state["up_axis"])
+
+        started_at = time.monotonic()
+        started = self.client.job_script(code=f"PATH = {path!r}\nSTEPS = 600\n{_JOB_FALL}")
+        answered_in = time.monotonic() - started_at
+        self.assertEqual(started["status"], "success", started)
+        job_id = started["result"]["id"]
+        self.addCleanup(self.client.job_cancel, job_id)
+        self.assertLess(answered_in, 5.0, "the start answers at once, not when the job ends")
+
+        first = self.client.job_get(job_id)["result"]
+        # Other routes answer while the job runs: Kit's loop runs between the job's awaits.
+        bounds = self.client.prim_bounds(path)
+        self.assertEqual(bounds["status"], "success", bounds)
+        capture = self.client.capture_viewport(320, 240)
+        self.assertEqual(capture["status"], "success", capture.get("error"))
+        named = self.client.sim_state()["result"].get("job")
+        second = self.client.job_get(job_id)["result"]
+        self.assertEqual((first["state"], second["state"]), ("working", "working"), "the job outlived the reads")
+        self.assertEqual((named or {}).get("id"), job_id, "get_sim_state names the running job")
+        self.assertGreater(second["lines_total"], first["lines_total"], "the job printed between the reads")
+        self.assertTrue(second["lines"], "the second read gives the lines since the first")
+
+        ended = self._job_ended(job_id)
+        self.assertEqual(ended["state"], "completed", ended)
+        position = ended["result"]["return_value"]
+        self.assertLess(position[axis], up - 0.5 / state["meters_per_unit"], f"the box fell: {position}")
+        self.assertIn("step 570 of 600", ended["output"]["stdout"])
+        erred, text = call_tool("get_job", {"job_id": job_id}, self._output_folder())
+        self.assertFalse(erred, text)
+        self.assertIn("state = completed", text)
+        fell = f"from {up:g} to {position[axis]:.2f} along {state['up_axis']}"
+        print(f"  Started in {answered_in:.2f} s; the box fell {fell}")
+
+    def test_06c_a_job_is_cancelled_and_a_plain_loop_is_refused(self):
+        refused = self.client.job_script(code="total = 0\nfor i in range(10**6):\n    total += i\nresult = total")
+        self.assertEqual(refused["status"], "error")
+        self.assertIn("never awaits", refused["error"])
+
+        started = self.client.job_script(code=_JOB_ENDLESS)
+        self.assertEqual(started["status"], "success", started)
+        job_id = started["result"]["id"]
+        self.addCleanup(self.client.job_cancel, job_id)
+        self.assertEqual(self.client.job_get(job_id)["result"]["state"], "working")
+        cancelled = self.client.job_cancel(job_id)
+        self.assertEqual(cancelled["status"], "success", cancelled)
+        self.assertEqual(cancelled["result"]["was"], "working")
+        ended = self._job_ended(job_id)
+        self.assertEqual((ended["state"], ended["message"]), ("cancelled", "cancel_job was called"))
+        self.assertEqual(ended["output"]["stdout"], "cancelled: cancel_job was called\n")
+        print(f"  {job_id} cancelled; a plain loop refused")
 
     # ===== Scene manipulation =====
 
