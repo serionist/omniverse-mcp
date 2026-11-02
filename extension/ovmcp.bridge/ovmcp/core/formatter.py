@@ -73,6 +73,22 @@ def relationship_targets(prop: Usd.Property) -> list[str] | None:
     return [str(path) for path in prop.GetTargets()]
 
 
+COMPUTED = " (computed: none authored)"
+
+
+def attribute_value(attr: Usd.Attribute) -> tuple[object, bool]:
+    """An attribute's value as a reader should see it, and whether it was computed. A shape's `extent` that the prim
+    doesn't author reads as its schema's fallback, a Cube's ±1 whatever its size, where Hydra and get_prim_bounds use
+    the box the shape computes; that box is given instead (#163). Every other attribute is its value, None when
+    unset."""
+    prim = attr.GetPrim()
+    if attr.GetName() == "extent" and not attr.HasAuthoredValue() and is_a(prim, UsdGeom.Boundable):
+        box = UsdGeom.Boundable.ComputeExtentFromPlugins(UsdGeom.Boundable(prim), Usd.TimeCode.Default())
+        if box is not None:
+            return box, True
+    return attr.Get(), False
+
+
 def format_prim_block(
     prim: Usd.Prim,
     include_properties: bool = True,
@@ -159,9 +175,9 @@ def format_prim_block(
                     lines.append(f"{name} = {format_value(targets)}")
                 continue
             try:
-                val = prop.Get()
+                val, computed = attribute_value(prop)
                 if val is not None:
-                    lines.append(f"{name} = {format_value(val)}")
+                    lines.append(f"{name} = {format_value(val)}{COMPUTED if computed else ''}")
             except Exception:
                 lines.append(f"{name} = <unreadable>")
 
@@ -249,9 +265,9 @@ def format_scene_tree(
                 if not isinstance(prop, Usd.Attribute):
                     continue
                 try:
-                    val = prop.Get()
+                    val, computed = attribute_value(prop)
                     if val is not None:
-                        block.append(f"{prop.GetName()} = {format_value(val)}")
+                        block.append(f"{prop.GetName()} = {format_value(val)}{COMPUTED if computed else ''}")
                 except Exception:
                     pass
         below = children(prim)
