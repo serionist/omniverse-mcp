@@ -15,6 +15,7 @@ from pxr import Gf, Sdf, Tf, Usd, UsdGeom
 
 from .deletion import instance_of
 from .formatter import attribute_value, format_value
+from .layers import EDIT_TARGET, SESSION, layer_named
 from .usd import attribute_spec, is_a, plugin_extent, prim_spec, spec_has_arcs
 from .xform import write_blocker
 
@@ -285,6 +286,31 @@ def target_layer(prim: Usd.Prim) -> Sdf.Layer:
     return edit
 
 
+AUTO = "auto"
+
+
+def chosen_layer(prim: Usd.Prim, choice: str) -> Sdf.Layer:
+    """The layer the tool's `layer` choice writes prim's attribute to (#155): auto is target_layer's rule; session and
+    edit_target force that layer, as set_variant_selection's choice does."""
+    if choice == AUTO:
+        return target_layer(prim)
+    if choice not in (SESSION, EDIT_TARGET):
+        raise ValueError(f"layer must be {AUTO}, {SESSION} or {EDIT_TARGET}, got {choice!r}")
+    return layer_named(prim.GetStage(), choice)
+
+
+def _session_way_out(prim: Usd.Prim, name: str, layer: Sdf.Layer) -> str:
+    """How a value the session layer holds goes, when it hides a write to another layer: no tool takes it back."""
+    session = prim.GetStage().GetSessionLayer()
+    spec = attribute_spec(session, prim.GetPath().AppendProperty(name))
+    if layer == session or spec is None or not spec.HasDefaultValue():
+        return ""
+    return (
+        ". Kit's session layer keeps that value until the stage is opened again, or execute_script removes it there "
+        f"(stage.GetSessionLayer().GetPrimAtPath('{prim.GetPath()}'), its property {name})"
+    )
+
+
 def _holds(spec: Sdf.PrimSpec, session: set[str]) -> bool:
     """Whether spec says who holds its prim: any spec in the stage's own layers but a bare over in a session layer,
     one with no arc, which a stray edit leaves on a user's prim and which would otherwise send its writes to the session
@@ -350,7 +376,7 @@ def set_attribute(prim: Usd.Prim, name: str, value: object, layer: Sdf.Layer | N
     target = layer if layer is not None else target_layer(prim)
     why = write_blocker(prim, attr, target)
     if why:
-        raise ValueError(why)
+        raise ValueError(why + _session_way_out(prim, name, target))
     stage = prim.GetStage()
     boundable = UsdGeom.Boundable(prim) if is_a(prim, UsdGeom.Boundable) else None
     extent_attr = boundable.GetExtentAttr() if boundable is not None else None
