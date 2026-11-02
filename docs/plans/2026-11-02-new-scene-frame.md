@@ -67,14 +67,19 @@ def new_scene(
 
 ### The suites
 
-- **Live, `tests/test_scenarios.py`:** `test_17_02_new_scene` checks the default (Z, 1.0, read back with
-  `sim_state`), then calls `new_scene(up_axis="Y", meters_per_unit=1.0)`, which leaves phases 22 to 26 the Y-up stage
-  their heights are written for; its comment at line 2718 says so. `tests/physics_checks.py:90`'s comment follows.
-- **AI scenarios, `tools/scenarios.py`:** a session that starts a new stage is told to call
-  `new_scene(up_axis="Y")`, and the runner's `prepare_stage` calls `new_scene(up_axis="Y", meters_per_unit=1.0)`, so
-  `scenarios.md`'s vectors and `outcomes.md`'s Givens, written for Y-up in metres, keep their meaning and earlier
-  runs stay comparable. `scenarios.md` 17.2 checks the default frame; the Givens drop their own
-  `SetStageMetersPerUnit` lines, which the call now does.
+- **Live, `tests/test_scenarios.py`:** phases 22 to 26 read the up axis as phases 1 to 16 have since #6,
+  `_along_up(self._up_axis(), ...)`, in place of their five Y literals (`:2698`, `:2707`, `:2785`, `:2919`, `:2945`)
+  and 26.2's side check that ran only on Y (`:2950`); the comment at `:2778` goes (fit I1). The order of phase 17's
+  `new_scene` calls then can't break them. `test_17_02_new_scene` checks the default frame (Z, 1.0) and an asked one
+  (Y, 0.01) with `sim_state`; phase 17's last `new_scene` (17.6, `:2473`) passes `up_axis="Y"`, so a second run of the
+  suites starts on a Y-up stage and a first on Isaac Sim's own Z-up one, today's rhythm without a step to remember.
+  `tests/physics_checks.py:90`'s comment follows.
+- **Outcomes, `tools/scenarios.py` and `test_project/outcomes.md`** (fit I2): the runner's `prepare_stage` calls
+  `new_scene()` with no arguments, so each outcome starts on the frame a user's agent now gets; the Givens of O2, O4
+  and O5 swap their Y and Z values and drop their `SetStageMetersPerUnit` lines, and lines 22 and 23 say Z-up in
+  metres. The Verify lines name no axis. Outcomes landed today, so no earlier run is lost to compare against.
+- **AI scenarios, `scenarios.md`:** a session that starts a new stage is told to call `new_scene(up_axis="Y")`, so its
+  vectors, written for Y-up, keep their meaning and earlier runs stay comparable; 17.2 checks the default frame.
 - **`test_project/AGENTS.md`** names the call a new-stage session makes.
 
 ### Alternatives
@@ -83,8 +88,9 @@ def new_scene(
   from.
 - **The Kit app's own setting** (`/persistent/app/stage/upAxis`) as the default: no; Z in Isaac Sim and Y in USD
   Composer would make one call give two frames, and a test can't pin it.
-- **Move the AI suites to Z-up:** no; their vectors and judges' lines are written for Y, and comparing runs across the
-  change would mix two frames. A later issue can move them.
+- **Move `scenarios.md` to Z-up:** no; its vectors and testers' lines are written for Y, and comparing runs across the
+  change would mix two frames. A later issue can move them. The outcomes move (fit I2): they are a user's requests,
+  and their Verify lines name no axis.
 
 ## Compatibility
 
@@ -104,16 +110,16 @@ maintainer's chat decision, 2026-11-02, before the PR).
 | 1 | `set_frame` in `ovmcp/core/stage_open.py`, tests first | `tests/test_stage_open.py`: Z and 1.0, Y and 0.01, read back by `describe` |
 | 2 | `handle_new_scene` reads, checks and applies the keys; without them, today's stage | a handler test with the Kit fakes the scene handler tests use: a bad axis and a zero refused before the stage is replaced; no keys, Y-up |
 | 3 | `client.new_scene`, the tool, its answer and warning; `uv run tools/golden.py` | `tests/test_client.py`, `tests/test_tools.py` (both sent, the lines, the warning), `tests/test_contract.py` |
-| 4 | The suites: `test_17_02`, `tools/scenarios.py`'s prompt line and `prepare_stage`, `scenarios.md` 17.2, `outcomes.md`, `test_project/AGENTS.md`, the comments | `tests/test_scenario_runs.py` (the prompt line, the call `prepare_stage` makes) |
+| 4 | The suites: phases 22 to 26 read the axis, `test_17_02` and 17.6, `tools/scenarios.py`'s prompt line and `prepare_stage`, `scenarios.md` 17.2, `outcomes.md`'s header and O2, O4, O5, `test_project/AGENTS.md`, the comments | `tests/test_scenario_runs.py` (the prompt line, the call `prepare_stage` makes); the live run |
 | 5 | Docs, `uv run tools/gate.py full`, the live suites on Z and Y, an AI run of phase 17 and O4, `review-code`, the PR | the review record |
 
 ## Tests
 
 - Unit (CI): the steps' tests above; each fails on today's code.
-- Live (by hand, Isaac Sim 6.2 at 8212): both suites on a Z-up and a Y-up stage; `test_17_02` shows the default and Y
-  read back; a capture after `new_scene()` shows the cube upright (`test_17_02` adds a cube and checks its box's
-  tallest side is along Z).
-- AI: phase 17 and O4 run as before (`--phases 17 --outcomes O4`): the runner's call, a new-stage session's call.
+- Live (by hand, Isaac Sim 6.2 at 8212): the suites twice in a row on one Kit, the first on Isaac Sim's own Z-up
+  stage, the second on the Y-up stage 17.6 leaves; `test_17_02` reads back the default (Z, 1.0) and an asked frame (Y,
+  0.01) with `sim_state`; phases 22 to 26 pass on both axes.
+- AI: phase 17 and O2, O4 and O5, whose Givens move to Z (`--phases 17 --outcomes O2,O4,O5`).
 - What neither shows: USD Composer, whose own default is Y-up: the tool sets the frame whatever the app's setting.
 
 ## Docs
@@ -126,9 +132,32 @@ skill if it names the frame, `docs/images/README.md`'s recipe (its `execute_scri
 
 - **An agent's saved workflow expects Y-up from `new_scene()`:** accepted; 0.x, under Breaking, and the answer names
   the frame.
-- **Kit's viewport camera after the axis changes under it:** today the handler sets Y after Isaac Sim's Z-up new stage
-  and the captures are right; the live capture check covers Z.
+- **Kit's cameras and light rig after `set_frame`** (fit I3), from Kit's own code: Kit turns its implicit cameras when
+  the up axis changes (`omni.kit.widget.viewport`, `impl/utility.py:509`, `class StageAxis`), as its own "Set up axis"
+  menu relies on; a light rig is turned to the axis only when it is set (`omni.kit.viewport.menubar.lighting`,
+  `actions.py:51-52`), and `viewport_light` sets it after the frame. Resolved for the axis. Units are the open part:
+  Kit places its implicit cameras for the stage's units only when it builds them (`utility.py:121-123`), so a
+  `meters_per_unit` other than the app's default leaves the viewport camera placed for the old one, 100 times off in a
+  centimetre app such as USD Composer under the new 1.0 default. On Isaac Sim the default changes nothing Kit built:
+  its new stage is Z-up in metres already (`apps/isaacsim.exp.base.kit:258`, `:273`). Accepted: the answer names the
+  units, `set_camera` places the camera, and the live run covers 0.01 on Isaac Sim.
 
 ## Plan review
 
-None yet.
+### Fit
+
+The plan at `ba7feda`, by a fresh general-purpose agent on Claude Opus 5.5, 2026-11-02, with this repo's `fit-plan`
+from branch `160-fit-plan`. The change's own question: with Z-up in metres the default, does any path stay wrong or
+untested (the robot and file turns, gravity, the viewport camera, the light rig, the AI suites, phases 22 to 26)?
+Answers by the author, 2026-11-02, on the maintainer's delegation.
+
+| # | Improvement | Answer |
+|---|---|---|
+| I1 | Phases 22 to 26 read the up axis with `_along_up`, as phases 1 to 16 do, so the order of phase 17's `new_scene` calls can't break them, and phase 17's last call passes `up_axis="Y"` for a Y-up second run | taken: The suites, Tests |
+| I2 | Run the outcomes on the new default: `prepare_stage` calls `new_scene()`, O2, O4 and O5's Givens swap Y and Z; they are a user's requests, their Verify lines name no axis, and no earlier run is lost | taken: The suites, Alternatives |
+| I3 | Replace the camera risk with what Kit's code does: implicit cameras follow the axis, a rig is turned when set, but units are read only when the cameras are built, 100 times off in a centimetre app | taken: Risks |
+
+Noticed on the way, for Round 1: 17.3, 17.5 and 17.6 call `new_scene()` after 17.2, so phases 22 to 26 would run on Z
+and 26.2's side check be skipped (The suites; I1 answers it); the comment the plan cites is at `:2778`, not `:2718`
+(The suites); "a cube's tallest side along Z" proves nothing for a cube (Tests); #159 has no agreement comment yet
+(Compatibility).
