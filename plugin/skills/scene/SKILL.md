@@ -24,7 +24,8 @@ while physics plays. Never edit blind: look, change, look again.
    - `get_scene_tree` lists the hierarchy, each prim's path, type and position; with `include_properties`, or
      `filter_types` or `property_filter` to keep some types or properties, Kit writes the prims' values to a file
      instead, to grep.
-   - `get_prim_properties` for one prim's attributes; `get_prim_bounds` for its world box.
+   - `get_prim_properties` for one prim's attributes, its applied schemas (`api_schemas`) and its relationships'
+     targets, such as the material it is bound to; `get_prim_bounds` for its world box.
 3. **Look.** `capture_viewport` writes three files to `mcp_output/captures/`: the image, the bounding boxes (each
    visible prim's screen box, world centre and size) and the instance segmentation (a colour per prim, with a legend).
    Read the boxes file for where things are; open the image when you need to see. `include_image=True` returns the

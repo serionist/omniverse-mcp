@@ -32,8 +32,9 @@ request and acted, and you check what it did against the Verify lines, which it 
 - **Your tools read and nothing else:** the read-only tools, and `Read` on the assistant's files and your own. Change
   nothing; the timeline is as the prompt says, stopped or paused after the runner's play. Make no `new_scene()` call.
 - **Check each Verify line on the stage itself** where a tool can read it, and against the assistant's answers and
-  captures where it can't: find its prims with `get_scene_tree`, measure with `get_prim_bounds`, read attributes with
-  `get_prim_properties`, open its captures with `Read`, and capture again when a line is about what the stage shows.
+  captures where it can't: find its prims with `get_scene_tree`, measure with `get_prim_bounds`, read attributes,
+  applied schemas (a collider, a material binding) and a binding's target with `get_prim_properties`, open its
+  captures with `Read`, and capture again when a line is about what the stage shows.
 - **Judge the outcome, not the path:** a request met in another way than you'd have chosen passes; the runner checks
   the Calls: line on its own.
 - **Answer** with one row for the outcome, as the prompt asks; the statuses are the table above.

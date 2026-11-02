@@ -62,7 +62,7 @@ CASES = [
         "get_prim_properties",
         {"prim_path": "/World/Cube"},
         "/scene/prim",
-        {"text": "[/World/Cube]\ntype = Cube\n"},
+        {"text": "[/World/Cube]\ntype = Cube\napi_schemas = []\n"},
         # The bridge sends text only when asked; without it the tool would read a key that isn't there.
         {"prim_path": "/World/Cube", "format": "text"},
         ("type = Cube",),
@@ -1986,6 +1986,26 @@ def test_delete_prim_warns_when_the_extension_made_no_check(
     assert not erred, text
     assert text.startswith("Deleted /World/Cube")
     assert ("check with get_scene_tree" in text) is warns
+
+
+@pytest.mark.parametrize(
+    ("block", "warns"),
+    [
+        ("[/World/Cube]\ntype = Cube\napi_schemas = PhysicsCollisionAPI\nsize = 1", False),
+        ("[/World/Cube]\ntype = Cube\nmaterial:binding = <unreadable>\nsize = 1", True),
+    ],
+)
+def test_get_prim_properties_warns_when_the_extension_lists_no_schemas(
+    block: str, warns: bool, bridge: MockIsaacServer, tmp_path: Path
+):
+    # An extension from before #149 lists no schemas and no relationship's targets, and the plugin updates the server
+    # first: without the warning, the description would promise targets the answer doesn't give.
+    bridge.set_response("/scene/prim", {"status": "success", "result": {"text": block, "prim_path": "/World/Cube"}})
+    erred, text, _calls = _call(bridge, tmp_path, "get_prim_properties", {"prim_path": "/World/Cube"})
+    assert not erred, text
+    assert text.startswith("[/World/Cube]")
+    assert ("WARNING: This Kit extension, older than the server, lists no applied API schemas" in text) is warns
+    assert ("extension install" in text) is warns
 
 
 def test_set_material_says_its_opacity_when_it_is_1(bridge: MockIsaacServer, tmp_path: Path):

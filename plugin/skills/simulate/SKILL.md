@@ -8,7 +8,7 @@ allowed-tools: >-
   mcp__plugin_omniverse-mcp_omniverse__get_sim_state mcp__plugin_omniverse-mcp_omniverse__get_robot_info
   mcp__plugin_omniverse-mcp_omniverse__raycast mcp__plugin_omniverse-mcp_omniverse__get_recording_frame
   mcp__plugin_omniverse-mcp_omniverse__get_prim_bounds mcp__plugin_omniverse-mcp_omniverse__capture_viewport
-  mcp__plugin_omniverse-mcp_omniverse__get_logs
+  mcp__plugin_omniverse-mcp_omniverse__get_logs mcp__plugin_omniverse-mcp_omniverse__get_prim_properties
 ---
 
 # Simulate, drive robots, record
@@ -21,7 +21,8 @@ before play, so pause to look at a moment in the middle.
 1. **Orient.** `get_sim_state`: the up axis decides which way gravity pulls, and whether the timeline plays.
 2. **Physics on what moves.** `create_prim(..., enable_physics=True)` gives a prim a rigid body and collision;
    `set_physics_properties` sets mass, density, friction and restitution. Without a collider an object falls through
-   the ground.
+   the ground: `get_prim_properties`' `api_schemas` line says whether a prim has one (`PhysicsCollisionAPI`) and a
+   rigid body (`PhysicsRigidBodyAPI`).
 3. **Robots.** `create_robot` spawns one of franka, ur10, carter, jetbot, g1, go1, go2, h1, spot or anymal from
    Isaac Sim's asset library (Isaac Sim only), or a robot's own USD file, a path or a URL, in any Kit app.
    `get_robot_info` lists its joints, and reads where they are while the simulation plays or is paused;

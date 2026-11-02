@@ -6,6 +6,7 @@ from mcp.server.mcpserver import MCPServer
 from pydantic import Field
 
 from omniverse_mcp.client import BridgeClient
+from omniverse_mcp.kit_extension import install_advice
 
 from ._annotations import DESTROYS, EDITS, READS, tool
 from ._bridge import bridge_call
@@ -51,8 +52,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         include_properties: Annotated[
             bool,
             Field(
-                description="Each prim's rotation, world box and attribute values, written by Kit to "
-                "mcp_output/scene_dump.txt"
+                description="Each prim's rotation, world box, applied API schemas, attribute values and "
+                "relationship targets, written by Kit to mcp_output/scene_dump.txt"
             ),
         ] = False,
         filter_types: Annotated[
@@ -76,10 +77,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         has children says how many, as children = N (truncated), and nothing below it is listed. The prims inside an
         instanceable prim are not listed (get_mesh_stats looks inside). With include_properties, filter_types or
         property_filter, Kit writes the blocks to mcp_output/scene_dump.txt instead, replacing the last, each with the
-        prim's rotation, world box and physics flags, and its attribute values with include_properties or
-        property_filter; the answer gives the file's path, how many prims it holds and how deep it went: grep it, or
-        read it in parts. Kit writes that file itself, so with Kit on another machine it lands there.
-        get_prim_properties reads one prim inline.
+        prim's rotation, world box and physics flags, and its applied API schemas, attribute values and relationship
+        targets with include_properties or property_filter; the answer gives the file's path, how many prims it holds
+        and how deep it went: grep it, or read it in parts. Kit writes that file itself, so with Kit on another machine
+        it lands there. get_prim_properties reads one prim inline.
         """
         # The parameters that ask for values choose Kit's file; an empty list asks for nothing, so it keeps the list.
         if not (include_properties or filter_types or property_filter):
@@ -103,17 +104,27 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
     @tool(mcp, READS)
     def get_prim_properties(prim_path: PrimPath) -> str:
-        """Get one prim as a prim block: its type, world position and rotation, world bounding box, physics flags, and
-        every attribute's value.
+        """Get one prim as a prim block: its type, world position and rotation, world bounding box, physics flags, its
+        applied API schemas, every attribute's value, and each relationship with its targets.
 
         Use it to read one prim; get_prim_bounds when only its size and place matter, get_scene_tree to find paths, and
         with include_properties for many prims at once, written to a file. The rotation, rot, is a quaternion w, x, y,
-        z with any scale taken out; a prim scaled to 0 has none. Relationships, such as a material binding, are named
-        without their targets.
+        z with any scale taken out; a prim scaled to 0 has none. api_schemas lists the applied API schemas the Kit app
+        knows, a type's built-in ones included, [] for none: PhysicsCollisionAPI for a collider, MaterialBindingAPI for
+        a bound material. A relationship gives its targets, such as material:binding = /World/Looks/Red; one with none
+        is left out, as an unset attribute is.
         """
         resp = bridge_call(client.prim_properties, prim_path, fmt="text")
         text = resp["result"]["text"]
-        return h.text_response(text, f"prim_{prim_path.replace('/', '_')}")
+        answer = h.text_response(text, f"prim_{prim_path.replace('/', '_')}")
+        if "\napi_schemas = " in text:
+            return answer
+        # An extension from before #149 gives no schemas and prints every relationship as <unreadable>, and the plugin
+        # updates the server ahead of the extension.
+        return (
+            f"{answer}\nWARNING: This Kit extension, older than the server, lists no applied API schemas and no "
+            f"relationship's targets. Install this server's, {install_advice()}."
+        )
 
     @tool(mcp, READS)
     def get_prim_bounds(prim_path: PrimPath) -> str:
