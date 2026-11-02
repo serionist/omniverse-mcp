@@ -5,6 +5,13 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+## 0.4.1 (2026-11-02)
+
+A fix for Isaac Sim 6.2's renderer hang on recordings: a recording now records through the render captures keep, so a
+session at the default sizes sets up one camera view for captures and recordings alike. The fix is in the Kit
+extension: run `uvx omniverse-mcp==0.4.1 extension install` (the plugin's `/omniverse-mcp:setup` does it) and restart
+Kit.
+
 ### Fixed
 
 - **A recording sets up no new view at the kept capture render's size:** Kit 110 (Isaac Sim 6.2) can hang for
@@ -19,7 +26,7 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 - **A recording's render is kept up to 30 s after `stop_recording`,** for the next capture or recording, as a
   capture's is, where it was deleted at the stop; it costs the GPU meanwhile, by size as `capture_viewport`'s
-  note in [TOOLS](docs/TOOLS.md#capture_viewport) says. It is deleted at once when another render is kept, a
+  note in [TOOLS](https://github.com/serionist/omniverse-mcp/blob/main/docs/TOOLS.md#capture_viewport) says. It is deleted at once when another render is kept, a
   frame failed or the stage changed. `start_recording`'s answer says so. Every render product the bridge makes
   is now named `ovmcp_feed_<id>`, where they were `ovmcp_capture_<id>` and `ovmcp_recording_<id>` (#141).
 
