@@ -32,7 +32,9 @@ before calling them.
    measure each state, then clear what you switched. A switch on an instance prim gives it a prototype of its own
    (the answer's `Note:`); a prim inside an instance is refused, naming the instance to switch.
 5. **Variants to keep.** `create_variant_structure` makes a set with named variants; fill each, then
-   `set_variant_selection(..., layer="edit_target")` writes the selection where edits go, which `save_scene` keeps.
+   `set_variant_selection(..., layer="edit_target")` writes the selection where edits go: the root layer, which
+   `save_scene` keeps, unless Kit's Layer window made a sublayer the edit target, which `save_scene` doesn't write
+   (the answer says so).
    Always switch with the tool: it detects Fabric Scene Delegate and refreshes the viewport, where a switch from
    `execute_script` leaves stale geometry on screen.
 6. **Asset preparation.**

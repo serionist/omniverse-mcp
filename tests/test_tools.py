@@ -841,6 +841,14 @@ _INSTANCE_NOTE = "/World/Area is an instance: a selection of its own gives it a 
             "files beneath select closed; save_scene writes it into the file)",
         ),
         (
+            # A sublayer made the edit target in Kit's Layer window, which save_scene, writing the root layer, never
+            # saves.
+            {"layer": "edit_target"},
+            _variant_answer(layer="edit_target", written_to="C:/scene/props.usda"),
+            "Variant switched at the edit target, C:/scene/props.usda: /World/Area state=open (the files beneath "
+            "select closed; save_scene writes only the root layer, not C:/scene/props.usda)",
+        ),
+        (
             {"variant_name": ""},
             _variant_answer(old_selection="open", new_selection="closed"),
             "Variant selection cleared in the session layer: /World/Area state=closed (the files select closed)",
@@ -852,7 +860,7 @@ _INSTANCE_NOTE = "/World/Area is an instance: a selection of its own gives it a 
             "Note: /World/Area is an instance",
         ),
     ],
-    ids=["edit-target", "clear", "instance"],
+    ids=["edit-target", "edit-target-a-sublayer", "clear", "instance"],
 )
 def test_set_variant_selection_says_where_the_switch_went(
     args: dict[str, Any], answer: dict[str, Any], says: str, bridge: MockIsaacServer, tmp_path: Path
@@ -893,6 +901,25 @@ def test_set_variant_selection_warns_when_the_extension_wrote_at_the_edit_target
     assert "Variant switched: /World/Area state=open (was: closed)" in text
     assert "WARNING: This Kit extension, older than the server, wrote the selection at the edit target" in text
     assert "extension install" in text
+
+
+@pytest.mark.parametrize("name", ["", "open"])
+def test_set_variant_selection_says_an_older_extension_cant_clear(name: str, bridge: MockIsaacServer, tmp_path: Path):
+    # An extension from before #155 refuses an empty variant_name with this alone, which reads as the caller's mistake.
+    bridge.set_response("/scene/variant_selection", {"status": "error", "error": "variant_name is required"})
+
+    erred, text, _calls = _call(
+        bridge,
+        tmp_path,
+        "set_variant_selection",
+        {"prim_path": "/World/Area", "variant_set": "state", "variant_name": name},
+    )
+
+    assert erred
+    assert "variant_name is required" in text
+    warns = "WARNING: This Kit extension, older than the server, can't clear a selection" in text
+    assert warns is (name == "")
+    assert ("extension install" in text) is (name == "")
 
 
 def test_set_prim_attribute_sends_the_layer_asked_for(bridge: MockIsaacServer, tmp_path: Path):

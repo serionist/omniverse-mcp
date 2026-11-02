@@ -15,7 +15,7 @@ from pxr import Sdf, Usd
 
 from .deletion import instance_of
 from .usd import prim_spec, remove_child_spec, select, selections, unselect
-from .xform import layer_name
+from .xform import layer_name, layer_ranks
 
 
 @dataclass(frozen=True)
@@ -80,14 +80,9 @@ def variant_json(prim: Usd.Prim) -> list[dict[str, object]]:
 # ----- what is refused -----
 
 
-def _rank(stage: Usd.Stage) -> dict[str, int]:
-    """The stage's own layers by strength, strongest first: the session layers, the root, its sublayers."""
-    return {layer.identifier: i for i, layer in enumerate(stage.GetLayerStack(includeSessionLayers=True))}
-
-
 def _stronger_holder(prim: Usd.Prim, variant_set: str, layer: Sdf.Layer) -> tuple[Sdf.Layer, str] | None:
     """The strongest of the stage's own layers above layer that holds a selection for prim's variant_set, with it."""
-    rank = _rank(prim.GetStage())
+    rank = layer_ranks(prim.GetStage())
     target = rank.get(layer.identifier, len(rank))
     for spec in prim.GetPrimStack():
         held = selections(spec)
@@ -140,7 +135,7 @@ def variant_refusal(prim: Usd.Prim, variant_set: str, name: str, layer: Sdf.Laye
 def beneath(prim: Usd.Prim, variant_set: str, layer: Sdf.Layer) -> str | None:
     """The selection for prim's variant_set that the layers under layer hold, what shows once layer holds none: a
     variant's name, "" for a blocked one, None when none of them holds one."""
-    rank = _rank(prim.GetStage())
+    rank = layer_ranks(prim.GetStage())
     target = rank.get(layer.identifier, len(rank))
     for spec in prim.GetPrimStack():
         held = selections(spec)

@@ -629,7 +629,7 @@ set and the variant must exist: an error lists the ones there.
 | `prim_path` | string | required | Prim with variant sets |
 | `variant_set` | string | required | Name of the variant set (e.g., `"model"`) |
 | `variant_name` | string | required | Variant to select (e.g., `"shell"`); `""` clears the layer's selection, so the one beneath shows again |
-| `layer` | `"session"` or `"edit_target"` | `"session"` | `session`: Kit's session layer, which no save writes; `edit_target`: where edits go, the stage's file |
+| `layer` | `"session"` or `"edit_target"` | `"session"` | `session`: Kit's session layer, which no save writes; `edit_target`: where edits go, the root layer, which `save_scene` writes, unless Kit's Layer window made a sublayer the edit target |
 
 **Returns:** where the selection went, what shows, and what the files select beneath it:
 
@@ -643,7 +643,9 @@ Was: closed. Available: closed, open
   it is cleared (`variant_name=""`) or the stage is opened again; `get_prim_properties` names it, `(session)`, and
   `save_scene`'s answer lists it.
 - **To keep a selection in the stage's file,** `layer="edit_target"`: it is refused while the session layer holds a
-  selection for that set, which would hide it, so clear that first with `variant_name=""`.
+  selection for that set, which would hide it, so clear that first with `variant_name=""`. The edit target is the
+  root layer, which `save_scene` writes, unless Kit's Layer window made a sublayer the edit target: `save_scene`
+  writes only the root layer, so the answer then names the sublayer and says `save_scene` doesn't write it.
 - **A clear** removes the layer's own selection only: one the layer doesn't hold writes nothing.
 - **An instance prim** takes a selection of its own, and gets a prototype of its own while it differs from the other
   instances'; the answer's `Note:` says so. A prim inside an instance is refused, naming the instance to switch.
@@ -651,8 +653,9 @@ Was: closed. Available: closed, open
   prim inactive in the session layer for some 10 app updates, then puts that layer back and waits 30, so the viewport
   drops the old geometry; otherwise it waits 5. A variant switched in a script can leave the old geometry on screen.
   An extension of 0.4.1 or older wrote that toggle at the edit target and left `active = true` in the stage's file.
-- **An older extension,** 0.4.1 or older, takes no `layer` and writes at the edit target, into the stage's file; the
-  answer then ends with a `WARNING:` line and how to install this server's.
+- **An older extension,** 0.4.1 or older, takes no `layer` and writes at the edit target, into the stage's file, and
+  refuses a clear (`variant_name=""`) as `variant_name is required`; either answer then ends with a `WARNING:` line
+  and how to install this server's.
 
 **When to use:** to look at a scene in another of its states, for a check or a capture; `get_scene_tree` with
 `property_filter=["variant_sets"]` finds every switch of a scene. `compare_prims` measures two variants and leaves the

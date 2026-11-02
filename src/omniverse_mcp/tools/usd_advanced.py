@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING, Annotated, Literal
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import Field
 
 from omniverse_mcp.client import BridgeClient
@@ -16,6 +17,10 @@ if TYPE_CHECKING:
 
 # How /scene/face_count_tree's text ends: the faces and meshes it listed, within max_depth only.
 TREE_TOTAL = "# total:"
+# How the extension names the stage's root layer in written_to (xform.layer_name), its file after it when it has one.
+ROOT_LAYER = "the stage's root layer"
+# How an extension from before #155 refuses variant_name "", a clear it can't do.
+OLDER_REFUSES_A_CLEAR = "variant_name is required"
 
 
 def _without_total(tree: str) -> str:
@@ -134,7 +139,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             Literal["session", "edit_target"],
             Field(
                 description="session: Kit's session layer, which no save writes, so every file stays as it is; "
-                "edit_target: where edits go, the stage's file, which save_scene keeps"
+                "edit_target: where edits go, the stage's root layer, which save_scene writes, unless Kit's Layer "
+                "window made a sublayer the edit target"
             ),
         ] = "session",
     ) -> str:
@@ -142,9 +148,12 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
 
         By default the selection goes to Kit's session layer: it shows at once over what the files select, and
         save_scene leaves it out of the file, so a check leaves every file as it found it; it lasts until it is
-        cleared or the stage is opened again. To keep one in the stage's file, use layer="edit_target", which is
-        refused while the session layer holds a selection for the set, since that would hide it: clear that first
-        with variant_name="". get_prim_properties' variant_sets line lists a prim's sets, their options and the layer
+        cleared or the stage is opened again. To keep one in the stage's file, use layer="edit_target", where edits
+        go: the root layer, which save_scene writes, unless Kit's Layer window made a sublayer the edit target, which
+        save_scene doesn't write; the answer names the layer. It is refused while the session layer holds a selection
+        for the set, since that would hide it: clear that first with variant_name="". An extension older than the
+        server writes every switch at the edit target and can't clear, and the answer warns. get_prim_properties'
+        variant_sets line lists a prim's sets, their options and the layer
         holding each selection. A selection on an instance prim gives it a prototype of its own; a prim inside an
         instance is refused, naming the instance. An unknown set or variant is refused, listing those there
         (create_variant_structure makes them). Switch variants with this rather than execute_script: with Fabric
@@ -152,7 +161,16 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         updates, so the viewport drops the old geometry; otherwise it waits 5. compare_prims measures two variants and
         leaves the selection as it was.
         """
-        r = bridge_call(client.set_variant_selection, prim_path, variant_set, variant_name, layer)["result"]
+        try:
+            r = bridge_call(client.set_variant_selection, prim_path, variant_set, variant_name, layer)["result"]
+        except ToolError as e:
+            # An extension from before #155 refuses a clear with this alone, which reads as the caller's mistake.
+            if variant_name or str(e) != OLDER_REFUSES_A_CLEAR:
+                raise
+            raise ToolError(
+                f"{e}\nWARNING: This Kit extension, older than the server, can't clear a selection, and writes every "
+                f"switch at the edit target, into the stage's file. Install this server's, {install_advice()}."
+            ) from e
         if "layer" not in r:
             # An extension from before #155 takes no layer and writes at the edit target, and the plugin updates the
             # server ahead of the extension.
@@ -167,7 +185,13 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         files = f"{'the files' if session else 'the files beneath'} select {r['files_select'] or 'none'}"
         shows = f"{r['prim_path']} {r['variant_set']}={r['new_selection'] or 'none'}"
         if variant_name:
-            kept = "save_scene leaves it out of the file" if session else "save_scene writes it into the file"
+            if session:
+                kept = "save_scene leaves it out of the file"
+            elif r["written_to"].startswith(ROOT_LAYER):
+                kept = "save_scene writes it into the file"
+            else:
+                # A sublayer Kit's Layer window made the edit target: save_scene writes the root layer alone.
+                kept = f"save_scene writes only the root layer, not {r['written_to']}"
             first = f"Variant switched {where}: {shows} ({files}; {kept})"
         else:
             first = f"Variant selection cleared {where}: {shows} ({files})"

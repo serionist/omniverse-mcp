@@ -270,6 +270,7 @@ def test_a_clear_of_nothing_writes_nothing_and_needs_no_refresh(handler, kit):
 
     assert r["status"] == "success", r
     assert _texts(kit.stage) == texts
+    assert kit.updates == 1  # the handler's own wait before it looks; the refresh would add 40
 
 
 # ---- compare_prims ----

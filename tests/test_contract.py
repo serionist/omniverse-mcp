@@ -90,7 +90,12 @@ def test_every_tool_and_parameter_is_described(listed):
         # An agent reading these looks for a collider or a binding here, not with execute_script (#149).
         ("get_prim_properties", "its applied API schemas"),
         ("get_prim_properties", "each relationship with its targets"),
-        ("get_scene_tree", "its applied API schemas, attribute values and relationship targets"),
+        ("get_scene_tree", "its applied API schemas, variant sets, attribute values and relationship targets"),
+        # An agent reading these switches for a check in the session layer and finds its switches inline (#155).
+        ("set_variant_selection", "By default the selection goes to Kit's session layer"),
+        ("get_prim_properties", "variant_sets lists each variant set with its selection"),
+        ("compare_prims", "An unknown variant set or variant is refused"),
+        ("save_scene", "the answer names the variant selections it holds"),
         # An agent reading this knows the frame it gets without asking, and how to ask for another (#159).
         ("new_scene", "Z-up in metres when left out"),
         ("new_scene", 'up_axis="Y"'),
