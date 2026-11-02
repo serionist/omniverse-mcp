@@ -29,10 +29,11 @@ def _unless_gone(layer: Sdf.Layer, read: Callable[[Sdf.Layer], T], gone: T) -> T
     Sdf.Layer.GetLoadedLayers gives weak handles, which keep no layer alive: a stage Python's garbage collector frees
     while they are walked takes its layers with it, and any read of a gone one raises (CI's Python 3.14 met it, #85).
     Python can't hold one alive meanwhile, since Find gives back the same weak object. A gone layer is passed over,
-    never refused: nothing holds it any more, so it has no edits to lose and can't go stale."""
+    never refused: nothing holds it any more, so it has no edits to lose and can't go stale. CI's Python 3.11 on
+    Windows met one as None instead, whose read raises AttributeError (#168)."""
     try:
         return read(layer)
-    except TypeError:  # Boost.Python's ArgumentError, which an expired handle raises for any call
+    except (TypeError, AttributeError):  # Boost.Python's ArgumentError for an expired handle; None's missing attribute
         return gone
 
 

@@ -37,6 +37,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ### Fixed
 
+- **A save no longer fails when Kit frees a layer mid-check:** `save_scene`, `open_scene` and the exports pass over a
+  layer freed while they walk Kit's layers, as they did since #85, now in the form Python 3.11 met it as, where they
+  raised `AttributeError`. The fix is in the Kit extension: run `uvx omniverse-mcp extension install`, then restart
+  Kit (#168).
 - **`get_mesh_stats` on `/` at `max_depth` 0 lists `/`:** its face count tree counted `/` itself as one level down,
   so it listed no prim there; from `max_depth` 1 on it listed what it should. The fix is in the Kit extension: run
   `uvx omniverse-mcp extension install`, then restart Kit (#145).
