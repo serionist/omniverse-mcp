@@ -12,6 +12,10 @@ may carry instance segmentation too, which `release` lets go of before the rende
 inspect_prim and capture_viewport share one feed, kept between calls (`kept_feed`, `put_back`): Kit 110 can hang for
 good during a new RTX view's first frames, and a feed made for each call made a view each call (#114). A recording at
 the kept feed's size borrows it for its length and hands it back at its stop (`lend`, `hand_back`, #141).
+
+RTX writes its exposure schemas onto a camera it renders through that lacks them, into the user's file: each camera is
+noted before a feed first renders through it, and put back with the feed's render product (`ovmcp.core.exposure`,
+#177).
 """
 
 import asyncio
@@ -24,7 +28,7 @@ import carb
 import omni.kit.app
 import omni.usd
 
-from ovmcp.core import capture
+from ovmcp.core import capture, exposure
 from ovmcp.core.recording import delete_render_product
 from ovmcp.core.serial import LazyLock
 
@@ -46,6 +50,16 @@ _LET_GO_SECONDS = 0.05
 # release_kept, and the routes that write the stage to a file. Not re-entrant (ovmcp.core.serial): what runs holding
 # it calls release, never these.
 _viewport = LazyLock()
+
+
+def _mark(camera_path: str) -> tuple[str, Any] | None:
+    """Notes what the edit target holds of the camera's exposure before a feed first renders through it, which RTX
+    writes onto a camera that lacks it (#177): its key, or None when RTX writes nothing or no stage is open."""
+    context = omni.usd.get_context()
+    stage = context.get_stage()
+    if stage is None or context.get_stage_state() != omni.usd.StageState.OPENED:
+        return None
+    return exposure.MARKS.take(stage, camera_path)
 
 
 def _subscribe(texture: Any, on_frame: Callable[[int], None]) -> Any:
@@ -91,13 +105,21 @@ class CameraFeed:
         self.segmented = False
         self.sensor_on = False
         self._pending: list[Any] = []
+        # Each camera noted before the first render through it, which is when RTX writes its exposure (#177).
+        self._marks: list[tuple[str, Any]] = []
+        self._note(camera_path)
         # As Replicator makes its render products: rendered with the update, so a frame shows the update before the
         # one it was asked on, not three before as the viewport's does (#25's E17).
-        self._texture: Any = create_hydra_texture(self.name, width, height, "", camera_path, "rtx", is_async=False)
-        if self._texture is None:
-            raise RuntimeError(f"Kit gave no texture to render {camera_path} with: is the RTX renderer loaded?")
-        self.render_product_path: str = self._texture.get_render_product_path()
-        self._subscription: Any = _subscribe(self._texture, self._on_frame)
+        try:
+            self._texture: Any = create_hydra_texture(self.name, width, height, "", camera_path, "rtx", is_async=False)
+            if self._texture is None:
+                raise RuntimeError(f"Kit gave no texture to render {camera_path} with: is the RTX renderer loaded?")
+            self.render_product_path: str = self._texture.get_render_product_path()
+            self._subscription: Any = _subscribe(self._texture, self._on_frame)
+        except BaseException:
+            # No feed comes of it to put the marks back with its render product: the count goes back now.
+            self._let_go_marks(None)
+            raise
 
     def _on_frame(self, result_handle: int) -> None:
         # Kit 110 calls this on its main thread (#25's E16); Kit 107's thread was never measured, so it does no USD
@@ -149,7 +171,14 @@ class CameraFeed:
         product (#114's K5, K15); each is set only when it changed. Both sides in one go, as K5 measured."""
         texture = self._texture
         if camera_path != self.camera_path:
-            texture.camera_path = camera_path
+            noted = self._note(camera_path)
+            try:
+                texture.camera_path = camera_path
+            except BaseException:
+                if noted is not None:
+                    self._marks.remove(noted)
+                    exposure.MARKS.let_go(noted, [])  # never rendered through: nothing to put back
+                raise
             self.camera_path = camera_path
         if (width, height) != (self.width, self.height):
             texture.width = width
@@ -216,7 +245,31 @@ class CameraFeed:
             return False
         delete_render_product(stage, self.render_product_path)
         carb.log_info(f"[MCP Bridge] Deleted the camera feed's render product {self.render_product_path}")
+        self._let_go_marks(stage)
         return True
+
+    def _note(self, camera_path: str) -> tuple[str, Any] | None:
+        """Marks the camera for this feed, once however often it is aimed back at it."""
+        key = _mark(camera_path)
+        if key is None:
+            return None
+        if key in self._marks:
+            exposure.MARKS.let_go(key, [])  # this feed holds one already: the count goes back
+            return None
+        self._marks.append(key)
+        return key
+
+    def _let_go_marks(self, stage: Any) -> None:
+        """Puts back what RTX wrote onto the feed's cameras, with its render product, in `stage`'s layers; with no
+        stage, the cameras were never rendered through."""
+        layers = list(stage.GetLayerStack(includeSessionLayers=True)) if stage is not None else []
+        marks, self._marks = self._marks, []
+        for key in marks:
+            # Each on its own: one that fails leaves the rest to be put back (round 2, M1).
+            try:
+                exposure.MARKS.let_go(key, layers)
+            except _RELEASE_ERRORS as e:
+                carb.log_warn(f"[MCP Bridge] Couldn't put back what RTX wrote onto {key[1]}: {e}")
 
 
 class _Leftovers:
@@ -639,3 +692,4 @@ def forget() -> None:
     if feed is not None:
         _tear_down_at_once(feed)
     _leftovers.forget()
+    exposure.MARKS.forget()

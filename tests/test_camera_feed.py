@@ -12,16 +12,18 @@ Kit-free core and pxr (usd-core) are the real ones.
 import asyncio
 import importlib.util
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
-from pxr import Usd
+from pxr import Sdf, Usd, UsdGeom
 
-from ovmcp.core import capture
+from ovmcp.core import capture, exposure
 
 from .conftest import HANDLERS, FakeUpdates, load_updates
+from .test_exposure import rtx_writes
 
 OPENED, CLOSING = "OPENED", "CLOSING"
 PRODUCT_PREFIX = "/Render/OmniverseKit/HydraTextures/"
@@ -335,6 +337,125 @@ def test_a_dropped_feed_stops_rendering_and_hands_out_nothing_more(feeds, kit):
     if kit.events_2:
         kit.frame(1)  # an event already on its way when the subscription went
     assert waiting.handed == []
+
+
+def _cameras(kit: FakeKit, *paths: str) -> None:
+    for path in paths:
+        UsdGeom.Camera.Define(kit.stage, path)
+
+
+@pytest.fixture(autouse=True)
+def _no_marks() -> Iterator[None]:
+    exposure.MARKS.forget()
+    yield
+    exposure.MARKS.forget()
+
+
+def _key(kit: FakeKit, path: str) -> tuple[str, Sdf.Path]:
+    return kit.stage.GetRootLayer().identifier, Sdf.Path(path)
+
+
+def _rendered(kit: FakeKit, feed: Any, path: str) -> None:
+    """A frame through the camera at path: RTX writes its exposure onto a bare camera then (#177)."""
+    assert not feed.dropped
+    rtx_writes(kit.stage, path)
+
+
+def test_what_rtx_wrote_onto_a_feed_s_camera_goes_with_its_render_product(feeds, kit):
+    # RTX wrote its exposure schemas into the root layer of a scene camera a capture rendered through (#177).
+    _cameras(kit, "/World/ShotCam")
+    root = kit.stage.GetRootLayer().ExportToString()
+    feed = feeds.CameraFeed("/World/ShotCam", 320, 240)
+    _rendered(kit, feed, "/World/ShotCam")
+
+    feed.drop()
+    assert "exposure:" in kit.stage.GetRootLayer().ExportToString()  # not while the render product stays
+    feeds.discard(feed)
+
+    assert kit.stage.GetRootLayer().ExportToString() == root
+
+
+def test_a_camera_two_feeds_render_through_is_put_back_by_the_last(feeds, kit):
+    _cameras(kit, "/World/ShotCam")
+    root = kit.stage.GetRootLayer().ExportToString()
+    recording = feeds.CameraFeed("/World/ShotCam", 640, 480)
+    _rendered(kit, recording, "/World/ShotCam")
+    capture = feeds.CameraFeed("/World/ShotCam", 320, 240)
+    _rendered(kit, capture, "/World/ShotCam")
+
+    feeds.discard(recording)
+    assert "exposure:" in kit.stage.GetRootLayer().ExportToString()  # the capture's feed still renders through it
+    feeds.discard(capture)
+
+    assert kit.stage.GetRootLayer().ExportToString() == root
+
+
+def test_every_camera_a_feed_was_aimed_at_is_put_back(feeds, kit):
+    _cameras(kit, "/World/A", "/World/B")
+    root = kit.stage.GetRootLayer().ExportToString()
+    feed = feeds.CameraFeed("/World/A", 320, 240)
+    _rendered(kit, feed, "/World/A")
+
+    feed.aim("/World/B", 320, 240)
+    rtx_writes(kit.stage, "/World/B")
+    feed.aim("/World/A", 320, 240)  # back again: still one mark for this feed
+    assert exposure.MARKS.feeds(_key(kit, "/World/A")) == 1
+    feeds.discard(feed)
+
+    assert kit.textures[-1].camera_path == "/World/A"
+    assert kit.stage.GetRootLayer().ExportToString() == root
+
+
+def test_a_camera_kit_refuses_keeps_no_mark(feeds, kit):
+    _cameras(kit, "/World/A", "/World/B")
+    feed = feeds.CameraFeed("/World/A", 320, 240)
+    kit.textures[-1].refuses_camera = True
+
+    with pytest.raises(RuntimeError, match="refused the camera"):
+        feed.aim("/World/B", 320, 240)
+
+    assert exposure.MARKS.feeds(_key(kit, "/World/B")) == 0
+    assert exposure.MARKS.feeds(_key(kit, "/World/A")) == 1
+
+
+def test_a_feed_made_while_the_stage_isn_t_open_takes_no_mark(feeds, kit):
+    _cameras(kit, "/World/ShotCam")
+    kit.stage_state = CLOSING
+
+    feeds.CameraFeed("/World/ShotCam", 320, 240)
+
+    assert exposure.MARKS.feeds(_key(kit, "/World/ShotCam")) == 0
+
+
+def test_a_mark_on_a_stage_since_replaced_writes_nothing_into_the_new_one(feeds, kit):
+    _cameras(kit, "/World/ShotCam")
+    feed = feeds.CameraFeed("/World/ShotCam", 320, 240)
+    rtx_writes(kit.stage, "/World/ShotCam")
+    kit.stage = Usd.Stage.CreateInMemory()
+    _cameras(kit, "/World/ShotCam")
+    root = kit.stage.GetRootLayer().ExportToString()
+
+    feeds.discard(feed)
+
+    assert kit.stage.GetRootLayer().ExportToString() == root  # only the render product went
+
+
+@pytest.mark.parametrize("failure", ["no texture", "raises"])
+def test_a_feed_that_never_came_leaves_no_mark(feeds, kit, monkeypatch, failure):
+    _cameras(kit, "/World/ShotCam")
+    if failure == "no texture":
+        kit.give_none = True
+    else:
+
+        def broken(*_args: Any, **_kwargs: Any) -> None:
+            raise RuntimeError("Kit's texture failed")
+
+        monkeypatch.setattr(sys.modules["omni.kit.hydra_texture"], "create_hydra_texture", broken)
+
+    with pytest.raises(RuntimeError):
+        feeds.CameraFeed("/World/ShotCam", 320, 240)
+
+    assert exposure.MARKS.feeds(_key(kit, "/World/ShotCam")) == 0
 
 
 def _with_product(kit: FakeKit, path: str) -> None:
