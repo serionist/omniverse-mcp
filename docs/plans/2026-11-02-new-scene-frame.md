@@ -1,9 +1,9 @@
 ---
 title: Give new_scene an up axis and units, Z-up in metres by default, a change to the tool contract
 issue: "#159"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist (delegated to the author, 2026-11-02)
+approved_at: 2026-11-02
 ---
 
 # Give new_scene an up axis and units, Z-up in metres by default, a change to the tool contract
@@ -51,8 +51,8 @@ def new_scene(
 - The answer: `New scene created with /World root prim`, then `up_axis = Z` and `meters_per_unit = 1.0` read back from
   the stage, the lines `open_scene` gives.
 - An older extension answers no `up_axis`: the tool adds `WARNING: this Kit extension, older than the server, made a
-  Y-up stage in Kit's units; run uvx omniverse-mcp extension install, then restart Kit`, as #149's and #150's tools
-  warn.
+  Y-up stage in Kit's units. Install this server's, {install_advice()}`, as #149's and #150's tools warn, so a
+  checkout's or the community registry's extension gets its own advice (round 1, P4).
 - The description drops today's advice to set the axis by `execute_script` and says the default and why.
 
 ### The extension (`handlers/scene.py`, `ovmcp/core/stage_open.py`)
@@ -79,8 +79,11 @@ def new_scene(
   and O5 swap their Y and Z values and drop their `SetStageMetersPerUnit` lines, and lines 22 and 23 say Z-up in
   metres. The Verify lines name no axis. Outcomes landed today, so no earlier run is lost to compare against.
 - **AI scenarios, `scenarios.md`:** a session that starts a new stage is told to call `new_scene(up_axis="Y")`, so its
-  vectors, written for Y-up, keep their meaning and earlier runs stay comparable; 17.2 checks the default frame.
-- **`test_project/AGENTS.md`** names the call a new-stage session makes.
+  vectors, written for Y-up, keep their meaning and earlier runs stay comparable. The header (line 13, in every
+  tester's prompt) names that call and says `new_scene()` alone makes Z-up; 17.2 checks the default frame, and 17.3,
+  17.5 and 17.6 pass `up_axis="Y"`, as the live 17.6 does, so the rest of phase 17 stays on Y (round 1, P2).
+- **`test_project/AGENTS.md`** says a new-stage session calls the `new_scene` its prompt names, so a later move of
+  `scenarios.md` to Z-up changes only the runner's prompt line (round 1, I5).
 
 ### Alternatives
 
@@ -108,8 +111,8 @@ maintainer's chat decision, 2026-11-02, before the PR).
 | # | Step | Proved by |
 |---|---|---|
 | 1 | `set_frame` in `ovmcp/core/stage_open.py`, tests first | `tests/test_stage_open.py`: Z and 1.0, Y and 0.01, read back by `describe` |
-| 2 | `handle_new_scene` reads, checks and applies the keys; without them, today's stage | a handler test with the Kit fakes the scene handler tests use: a bad axis and a zero refused before the stage is replaced; no keys, Y-up |
-| 3 | `client.new_scene`, the tool, its answer and warning; `uv run tools/golden.py` | `tests/test_client.py`, `tests/test_tools.py` (both sent, the lines, the warning), `tests/test_contract.py` |
+| 2 | `handle_new_scene` reads, checks and applies the keys; without them, today's stage | a handler test with the Kit fakes the scene handler tests use: a bad axis and a zero refused before the stage is replaced; no keys, Y-up; the answer's `up_axis` and `meters_per_unit` for (Z, 1.0) and (Y, 0.01), read after `set_frame` (round 1, P3) |
+| 3 | `client.new_scene`, the tool, its answer and warning; `uv run tools/golden.py`; `tests/test_scenario_runs.py:1034`'s `("/scene/new", {})` body, which the client's new body changes (round 1, I4) | `tests/test_client.py`, `tests/test_tools.py` (both sent, the lines, the warning), `tests/test_contract.py`, `tests/test_scenario_runs.py` |
 | 4 | The suites: phases 22 to 26 read the axis, `test_17_02` and 17.6, `tools/scenarios.py`'s prompt line and `prepare_stage`, `scenarios.md` 17.2, `outcomes.md`'s header and O2, O4, O5, `test_project/AGENTS.md`, the comments | `tests/test_scenario_runs.py` (the prompt line, the call `prepare_stage` makes); the live run |
 | 5 | Docs, `uv run tools/gate.py full`, the live suites on Z and Y, an AI run of phase 17 and O4, `review-code`, the PR | the review record |
 
@@ -118,7 +121,9 @@ maintainer's chat decision, 2026-11-02, before the PR).
 - Unit (CI): the steps' tests above; each fails on today's code.
 - Live (by hand, Isaac Sim 6.2 at 8212): the suites twice in a row on one Kit, the first on Isaac Sim's own Z-up
   stage, the second on the Y-up stage 17.6 leaves; `test_17_02` reads back the default (Z, 1.0) and an asked frame (Y,
-  0.01) with `sim_state`; phases 22 to 26 pass on both axes.
+  0.01) with `sim_state` and from the answer's `up_axis`. Phases 22 to 26 run after 17.6, so on Y in both runs; a
+  third run, `-k "test_22 or test_23 or test_24 or test_25 or test_26"` after a `new_scene()`, runs them on Z, 26.2's
+  side check included (round 1, P1).
 - AI: phase 17 and O2, O4 and O5, whose Givens move to Z (`--phases 17 --outcomes O2,O4,O5`).
 - What neither shows: USD Composer, whose own default is Y-up: the tool sets the frame whatever the app's setting.
 
@@ -161,3 +166,38 @@ Noticed on the way, for Round 1: 17.3, 17.5 and 17.6 call `new_scene()` after 17
 and 26.2's side check be skipped (The suites; I1 answers it); the comment the plan cites is at `:2778`, not `:2718`
 (The suites); "a cube's tallest side along Z" proves nothing for a cube (Tests); #159 has no agreement comment yet
 (Compatibility).
+
+### Round 1
+
+**How:** one fresh general-purpose agent on Claude Opus 5.5, 2026-11-02, read only, every lens, at `b4981f2`.
+**Verdict:** approved. **Now:** every finding fixed, I4 and I5 taken, and the plan approved on the maintainer's
+delegation.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P1 | minor | Phases 22 to 26 run after 17.6, which now leaves a Y-up stage, so both runs of the suites keep them on Y: the Z branch of the `_along_up` edits and 26.2's side check on Z would never run | fixed: Tests adds a run of phases 22 to 26 alone after a `new_scene()` |
+| P2 | minor | `scenarios.md`'s header, in every tester's prompt, still says `new_scene` makes Y-up, and 17.3, 17.5 and 17.6 would make Z-up stages, so phase 17 would run on Z against the plan's own reason for keeping the scenarios on Y | fixed: the header names `new_scene(up_axis="Y")`; 17.3, 17.5, 17.6 pass it |
+| P3 | minor | No automated test checked that the handler's answer gives the frame: an answer missing `describe`'s keys would pass CI and the live suites and make every `new_scene` warn of an older extension | fixed: step 2's handler test reads the answer's keys; `test_17_02` reads the answer's `up_axis` |
+| P4 | minor | The warning hard-coded the install command, where #149's and #150's use `install_advice()`, which gives a checkout's and the community registry's own | fixed: the warning uses `install_advice()` |
+
+**Refuted:**
+- **Noticed on the way:** phases 22 to 26 on Z and 26.2's check skipped (I1 answers it; on Z the scene is the exact
+  mirror of Y's by `TOOLS.md`'s azimuth convention, so 26.2's side cube stays out of frame); the comment's line number
+  (`:2778` now); the tallest-side check (gone); the agreement comment (posted before the PR, as `AGENTS.md` asks).
+- **"Five Y literals":** `:2785` is a Z literal; `_along_up` fixes it the same way.
+- **The protocol number:** optional keys and an older extension spotted by a missing key follow #149, #150 and
+  `ARCHITECTURE.md`.
+- **`test_integration.py`'s `new_scene()` in test 31:** it reopens its saved copy and compares the frame with what it
+  read before, so the default doesn't touch it.
+- **The in-Kit `mcp` helper:** it has no `new_scene`.
+- **Isaac Sim's defaults and Kit's `StageAxis`:** as the plan cites them.
+
+**Improvements:**
+
+| # | Improvement | Answer |
+|---|---|---|
+| I4 | Change `test_scenario_runs.py:1034`'s `("/scene/new", {})` body in step 3, where the client's body changes, so step 3's commit passes pytest | taken |
+| I5 | `test_project/AGENTS.md` says a new-stage session calls the `new_scene` its prompt names, so a later move to Z-up touches only the runner's prompt line | taken |
+
+**Not covered:** bridge-security (no route or token change); Isaac Sim 5.x and USD Composer, whose sources weren't
+read; the light rig's reference in `actions.py`.
