@@ -129,6 +129,7 @@ stop; this extension with an older server: the line says deleted at stop. Both a
 3. **The server:** the start line and the two descriptions; `tests/test_tools.py`'s start-line test.
 4. **Docs and CHANGELOG** (Docs, below).
 5. **Live:** the new and changed tests on a Z-up and a Y-up stage; both suites whole; AI phases 6, 7, 16, 17 and 26.
+6. **finish-work:** `uv run tools/gate.py full`, `review-code` until clean, the PR, with the live runs it names.
 
 ## Tests
 
