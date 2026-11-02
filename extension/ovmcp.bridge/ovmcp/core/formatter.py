@@ -20,7 +20,7 @@ from typing import cast
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 
 from .bounds import center_and_size, world_bbox
-from .usd import Vec, children, has_api, is_a, rotation_of
+from .usd import Vec, children, has_api, is_a, plugin_extent, rotation_of
 
 
 def _join(v: Vec, n: int) -> str:
@@ -83,10 +83,7 @@ def attribute_value(attr: Usd.Attribute) -> tuple[object, bool]:
     unset."""
     prim = attr.GetPrim()
     if attr.GetName() == "extent" and not attr.HasAuthoredValue() and is_a(prim, UsdGeom.Boundable):
-        # The stubs type it as never None, but a shape without a plugin, or one it can't size, gives None.
-        box = cast(
-            "object", UsdGeom.Boundable.ComputeExtentFromPlugins(UsdGeom.Boundable(prim), Usd.TimeCode.Default())
-        )
+        box = plugin_extent(prim)
         if box is not None:
             return box, True
     return attr.Get(), False

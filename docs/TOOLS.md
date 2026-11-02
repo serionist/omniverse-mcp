@@ -135,7 +135,8 @@ API schemas, every attribute's value, and each relationship with its targets.
   out, as an unset attribute is.
 - **`extent`:** a shape that authors none, as `create_prim`'s Cube doesn't, gives the box its size computes, the box
   `get_prim_bounds` measures, marked `(computed: none authored)`: `extent = [(-0.25, -0.25, -0.25), (0.25, 0.25,
-  0.25)] (computed: none authored)` for a 0.5 m cube, where the schema's fallback read ±1 whatever its size.
+  0.25)] (computed: none authored)` for a 0.5 m cube, where the schema's fallback read ±1 whatever its size. A Mesh or
+  a sized light (a sphere, rect, disk or cylinder light) without an authored extent has the computed line too.
 - **An older extension,** 0.4.1 or older, lists no schemas and prints every relationship as `<unreadable>`; the answer
   then ends with a `WARNING:` line and how to install this server's.
 

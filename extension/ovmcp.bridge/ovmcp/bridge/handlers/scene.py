@@ -7,7 +7,7 @@ visibility, save/new, mesh stats, and face count tree.
 
 import math
 import os
-from typing import Any
+from typing import Any, cast
 
 import omni.kit.app
 import omni.usd
@@ -152,12 +152,11 @@ def _json_properties(prim: Usd.Prim) -> dict[str, Any]:
     for prop in prim.GetProperties():
         try:
             targets = relationship_targets(prop)
+            # A prim's properties are its relationships, which have targets, and its attributes.
             if targets is not None:
                 props[prop.GetName()] = targets
-            elif isinstance(prop, Usd.Attribute):
-                props[prop.GetName()] = _serialize_value(attribute_value(prop)[0])
             else:
-                props[prop.GetName()] = _serialize_value(prop.Get())
+                props[prop.GetName()] = _serialize_value(attribute_value(cast("Usd.Attribute", prop))[0])
         except Exception:
             props[prop.GetName()] = "<unreadable>"
     return props

@@ -44,8 +44,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 - **`get_prim_properties` gives a resized shape's extent:** a Cube, Sphere or other shape that authors no extent, as
   `create_prim`'s Cube doesn't, printed its schema's fallback, ±1 for a cube whatever its size, beside `size = 0.5`;
   it now gives the box the shape computes, which `get_prim_bounds` measures, marked `(computed: none authored)`.
-  `get_scene_tree`'s properties and the JSON a script reads give the same. The fix is in the Kit extension: run
-  `uvx omniverse-mcp extension install`, then restart Kit (#163).
+  `get_scene_tree`'s properties, a recording's `state.txt`, the JSON a script reads and `set_prim_attribute`'s "was"
+  give the same; a Mesh or a sized light (a sphere, rect, disk or cylinder light) without an authored extent now has
+  the computed line too, where it had none. The fix is in the Kit extension: run `uvx omniverse-mcp extension install`,
+  then restart Kit (#163).
 - **`get_mesh_stats` on `/` at `max_depth` 0 lists `/`:** its face count tree counted `/` itself as one level down,
   so it listed no prim there; from `max_depth` 1 on it listed what it should. The fix is in the Kit extension: run
   `uvx omniverse-mcp extension install`, then restart Kit (#145).
