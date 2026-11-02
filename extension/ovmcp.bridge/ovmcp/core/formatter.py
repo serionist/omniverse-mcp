@@ -138,9 +138,11 @@ def format_prim_block(
 
     if include_properties:
         # What the running app applies, a type's built-in schemas included; [] says plainly that none is, so a missing
-        # collider shows as absent rather than unsaid (#149). A filter treats it as a property of that name.
+        # collider shows as absent rather than unsaid (#149). Every name, never shortened as a long list is: an Isaac
+        # Sim joint or collider carries ten or more, and the one an agent looks for may be the last. A filter treats
+        # it as a property of that name.
         if not property_filter or any(f in "api_schemas" for f in property_filter):
-            lines.append(f"api_schemas = {format_value(list(prim.GetAppliedSchemas()))}")
+            lines.append(f"api_schemas = {', '.join(prim.GetAppliedSchemas()) or '[]'}")
         for prop in prim.GetProperties():
             name = prop.GetName()
             if property_filter and not any(f in name for f in property_filter):

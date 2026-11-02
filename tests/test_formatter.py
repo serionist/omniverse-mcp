@@ -3,6 +3,7 @@
 import pytest
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics, UsdShade
 
+from ovmcp.core import formatter
 from ovmcp.core.formatter import (
     format_frame_state,
     format_prim_block,
@@ -213,11 +214,35 @@ def test_api_schemas_gives_a_types_built_in_schemas_and_leaves_out_a_name_the_ap
 
     cube = stage.GetPrimAtPath("/World/Cube")
     UsdPhysics.CollisionAPI.Apply(cube)
-    # Authored, but PhysX's schemas aren't registered in usd-core: what the app applies, as physics reads it (F7).
+    # Authored, but PhysX's schemas aren't registered in usd-core: what the app applies, as physics reads it.
     cube.AddAppliedSchema("PhysxRigidBodyAPI")
 
     assert "PhysxRigidBodyAPI" in cube.GetPrimTypeInfo().GetAppliedAPISchemas()
     assert _schemas_line(cube) == "api_schemas = PhysicsCollisionAPI"
+
+
+def test_api_schemas_names_every_schema_however_many(stage):
+    # A list of more than 8 is shortened elsewhere; here the last name may be the collider an agent looks for.
+    cube = stage.GetPrimAtPath("/World/Cube")
+    for n in range(9):
+        Usd.CollectionAPI.Apply(cube, f"c{n}")
+    UsdPhysics.CollisionAPI.Apply(cube)
+
+    line = _schemas_line(cube)
+
+    assert line.endswith(", PhysicsCollisionAPI")
+    assert "items)" not in line
+    assert line.count(", ") == 9
+
+
+def test_a_relationship_whose_targets_cant_be_read_says_so(stage, monkeypatch):
+    def unreadable(_prop):
+        raise RuntimeError("a broken layer")
+
+    monkeypatch.setattr(formatter, "relationship_targets", unreadable)
+    lines = format_prim_block(stage.GetPrimAtPath("/World/Group/Ball")).splitlines()
+
+    assert "material:binding = <unreadable>" in lines
 
 
 def test_a_property_filter_treats_api_schemas_as_a_property_of_that_name(stage):
