@@ -118,7 +118,8 @@ class HungKit:
                     self.why = (
                         f"Kit at {client.host}:{client.port} stopped answering: a call timed out after "
                         f"{client.timeout:g} s and /health got no answer in {PROBE_SECONDS:g} s, so the live run stops "
-                        "here (#54). Take a thread dump before ending Kit: uvx py-spy dump --native --pid <Kit's pid>"
+                        "here (#54, #162). Take thread dumps before ending Kit, native and Python: uvx py-spy dump "
+                        "--native --pid <Kit's pid>, then the same without --native"
                     )
                 raise
 
