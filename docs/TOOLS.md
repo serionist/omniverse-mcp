@@ -1015,8 +1015,9 @@ When `track_prims` is set, a `state.txt` file is written alongside frames in pri
 ### `stop_recording`
 
 Stop the active recording session. No parameters. It waits for the frames still being written, hands the render back,
-kept up to 30 s for the next capture or recording (deleted at once when another render is kept, a frame failed or the
-stage changed; frames that stopped early deleted it already), and writes `metadata.json`: the frames' camera, size
+kept up to 30 s for the next capture or recording (deleted at once when another render is kept, a frame failed, the
+stage changed or a capture was running at that moment; frames that stopped early deleted it already), and writes
+`metadata.json`: the frames' camera, size
 and times, what they span, and `ended` when frames stopped early.
 
 **Returns:** Frame count, duration, output directory, state file path (if tracking prims), and a `Note:` line when

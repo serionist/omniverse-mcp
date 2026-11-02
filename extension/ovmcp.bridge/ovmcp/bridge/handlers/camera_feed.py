@@ -569,17 +569,17 @@ async def hand_back(feed: CameraFeed, stage_id: object, healthy: bool) -> None:
     `healthy`, no other feed was kept meanwhile, it still renders and the stage open now is `stage_id`, the one it
     rendered; released otherwise, in `release`'s order, since a capture may have left segmentation graphs on it.
 
-    It takes _viewport only when no capture holds it, so a stop never waits out a capture: the feed is released then
-    instead. After the extension's shutdown it is torn down at once and nothing is kept."""
-    if _kept.closed:
-        let_go_now(feed)
-        return
+    It takes _viewport only when no capture holds it, so a stop doesn't wait out a capture running now: the feed is
+    released then instead. A capture already queued for the lock as its holder lets go is let in first, so the stop
+    waits for that one. After the extension's shutdown, before the stop or while it waited, the feed is torn down at
+    once and nothing is kept: no timer, and the stage's events not observed again."""
     lock = _viewport.get()
-    if not lock.locked():
+    if not _kept.closed and not lock.locked():
         async with lock:
             context = omni.usd.get_context()
             kept = (
                 healthy
+                and not _kept.closed
                 and _kept.feed is None
                 and not feed.dropped
                 and context.get_stage_id() == stage_id
@@ -590,7 +590,10 @@ async def hand_back(feed: CameraFeed, stage_id: object, healthy: bool) -> None:
                 _kept.keep(feed, stage_id)
                 _kept.start_timer()
                 return
-    await release(feed)
+    if _kept.closed:
+        let_go_now(feed)
+    else:
+        await release(feed)
 
 
 def let_go_now(feed: CameraFeed) -> None:

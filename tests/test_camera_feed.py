@@ -1068,3 +1068,30 @@ def test_let_go_now_frees_a_segmented_feeds_graphs_before_its_render_product_goe
     ]
     assert list(kit.registry._nodeGraphs.values()) == ["another product's graph"]
     assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+
+
+def test_a_stop_queued_behind_a_capture_during_which_the_extension_shuts_down_keeps_nothing(feeds, kit):
+    # The lock is free but a capture is queued for it, so the stop waits behind that capture; the extension shuts down
+    # during it. Kept then, the feed would observe the stage again for an unloaded module (code review round 1's F3).
+    feed = _lent(feeds, kit)
+
+    async def queued_then_shut_down() -> None:
+        lock = feeds._viewport.get()
+        await lock.acquire()  # a capture runs
+
+        async def queued_capture() -> None:
+            async with lock:
+                feeds.forget()  # the extension shuts down during this capture
+
+        queued = asyncio.ensure_future(queued_capture())
+        await asyncio.sleep(0)  # it queues for the lock
+        lock.release()  # the first capture ends; the queued one is woken but not yet in
+        assert not lock.locked()
+        await asyncio.wait_for(feeds.hand_back(feed, kit.stage_id, True), 1.0)
+        await queued
+
+    asyncio.run(queued_then_shut_down())
+    assert feed.dropped
+    assert (feeds._kept.feed, feeds._kept.timer, feeds._kept.stage_events) == (None, None, [])
+    assert not [o for o in kit.observers if o["event_name"].startswith("stage event")]
+    assert not kit.stage.GetPrimAtPath(feed.render_product_path)

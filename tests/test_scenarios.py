@@ -570,7 +570,8 @@ class TestScenarios(PhysicsChecks):
         self.assertEqual(self._run_in_kit(HYDRA_TEXTURES), textures, "a capture's render product stayed")
 
     def _kept_feeds(self) -> list[str]:
-        """The render products of capture feeds on the stage: one while a feed is kept (#114)."""
+        """The render products of the bridge's feeds on the stage: the kept one's (#114), and a running recording's
+        (#141), the one it borrowed or its own; every feed is `ovmcp_feed_<id>`."""
         return [path for path in self._run_in_kit(HYDRA_TEXTURES) if "ovmcp_feed_" in path]
 
     def _choose_backend(self, *names: str) -> str:
@@ -2488,8 +2489,8 @@ class TestScenarios(PhysicsChecks):
         self.assertEqual(r["status"], "success", r)
         captured = self.c.capture_viewport(320, 240)
         self.assertEqual(captured["status"], "success", captured)
-        (kept,) = self._kept_feeds()
-        self.assertNotEqual(kept, r["result"]["render_product"])
+        # Two feeds on the stage now: the one the recording borrowed, and the one the capture after it kept.
+        (kept,) = [path for path in self._kept_feeds() if path != r["result"]["render_product"]]
         drawn = self.c.draw_debug("line", start=[0, 0, 0], end=[1, 0, 0], duration=0.5)
         self.assertEqual(drawn["status"], "success", drawn)
         # The recording's and the drawing's observers are made by now, before an open adds Kit's own entries.
@@ -2505,6 +2506,9 @@ class TestScenarios(PhysicsChecks):
         # The watch ran on the update observer: the render products, carried over by the open, are gone.
         self.assertEqual(self._run_in_kit(RENDER_PRODUCT, PATH=r["result"]["render_product"]), [False, [], False])
         self.assertEqual(self._run_in_kit(RENDER_PRODUCT, PATH=kept), [False, [], False])
+        # The borrowed feed held the first capture's segmentation graphs: torn down as the frames stopped, quietly.
+        logged = self.c.get_logs(count=50, since_index=since, search="Py_Graph")["result"]["entries"]
+        self.assertEqual(logged, [], "omni.syntheticdata tripped on a capture's graph")
         marker = f"scenario 17.8 {time.time_ns()}"
         self.assertEqual(self.c.execute(f'import carb\ncarb.log_info("{marker}")')["status"], "success")
         # Kit's notices are Info: a log file that leaves Info out would pass this test with the notices still made.

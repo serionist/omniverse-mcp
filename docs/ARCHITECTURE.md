@@ -376,8 +376,9 @@ never change (#25):
    or recording when no other is kept, no frame failed and the stage is the one it started on; else released, its
    render product deleted. Kit writes a texture's render product into the root and session layers, whatever the edit
    target, and lists it in `/Render/OmniverseGlobalRenderSettings`'s `products`; both stay after the texture goes, so
-   the release deletes them from every layer of the stage open then, or of the next one once it opens. A stop never
-   waits out a capture for the viewport lock: it releases the feed instead. After the extension's shutdown it keeps
+   the release deletes them from every layer of the stage open then, or of the next one once it opens. A stop doesn't
+   wait out a capture holding the viewport lock: it releases the feed instead; only a capture already queued as the
+   lock frees goes first, and the stop waits for that one. After the extension's shutdown it keeps
    nothing.
 
 State tracking uses the prim-block format with frame headers:

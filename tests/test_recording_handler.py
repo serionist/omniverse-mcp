@@ -81,7 +81,7 @@ class FakeKit:
         self.events: list[str] = []
         self.feeds: list[FakeFeed] = []
         # What the start asked lend for; what the stop handed back, with the stage and whether healthy; what was torn
-        # down at once; and the teardowns and forget in order.
+        # down at once; and every lend, hand-back, teardown and forget in order.
         self.lent: list[tuple[str, int, int]] = []
         self.handed_back: list[tuple[FakeFeed, int, bool]] = []
         self.hand_back_raises = False
@@ -102,10 +102,12 @@ class FakeKit:
     async def lend(self, camera_path: str, width: int, height: int) -> FakeFeed:
         self.lent.append((camera_path, width, height))
         self.feeds.append(FakeFeed(self, camera_path, width, height))
+        self.feed_log.append(("lent", self.feeds[-1]))
         return self.feeds[-1]
 
     async def hand_back(self, feed: FakeFeed, stage_id: int, healthy: bool) -> None:
         self.handed_back.append((feed, stage_id, healthy))
+        self.feed_log.append(("handed back", feed))
         if self.hand_back_raises:
             raise RuntimeError("the layer is locked")
 
@@ -570,8 +572,10 @@ def test_a_forced_start_ends_the_running_recording_first(recording, kit, tmp_pat
     r = asyncio.run(scenario())
     assert r["status"] == "success"
     first, second = kit.feeds
-    # The running recording's feed handed back before the new one borrows: the kept feed, when the sizes match.
+    # The running recording's feed handed back before the new one borrows, so at the same size the new one gets it
+    # back rather than setting up a view (code review round 1's F2).
     assert kit.handed_back == [(first, 1, True)]
+    assert kit.feed_log == [("lent", first), ("handed back", first), ("lent", second)]
     assert kit.lent == [("/OmniverseKit_Persp", 320, 240)] * 2
     assert not second.dropped
     assert kit.updates.names == [f"ovmcp.bridge recording {r['result']['session_id']}"]  # the new one's alone
@@ -648,7 +652,7 @@ def test_shutdown_ends_the_frames_and_tears_the_feed_down_at_once_then_forgets(r
     assert feed.dropped
     # As the kept feed goes at shutdown (#114's S4, measured quiet): its render product deleted while a stage is open,
     # else forgotten with the rest; a lent feed's graphs freed first (#141).
-    assert kit.feed_log == [("let go", feed), "forgotten"]
+    assert kit.feed_log == [("lent", feed), ("let go", feed), "forgotten"]
     assert kit.handed_back == []
     assert kit.captures[0].cancelled()
     assert not recording.recording_active()
