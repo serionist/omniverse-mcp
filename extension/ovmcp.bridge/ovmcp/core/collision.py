@@ -29,11 +29,17 @@ def collides(prim: Usd.Prim) -> bool:
     return any(is_a(prim, schema) for schema in COLLIDING)
 
 
-def collision_refusal(prim: Usd.Prim) -> str | None:
-    """Why prim can't be made a collider, or have its collision turned off, or None. Checked before anything is
-    written, so the other values of the call aren't written either."""
+def collision_refusal(prim: Usd.Prim, on: bool = True) -> str | None:
+    """Why prim can't be made a collider (on) or have its collision turned off (not on), or None. Checked before
+    anything is written, so the other values of the call aren't written either. Worded for the call's direction: an
+    agent turning collision off mustn't be told to activate a prim the user deactivated."""
     path = prim.GetPath()
     if not prim.IsActive():
+        if not on:
+            return (
+                f"{path} is inactive, so PhysX makes no shape for it: it collides with nothing, and there is no "
+                "collision to turn off"
+            )
         return f"{path} is inactive, so PhysX makes no shape for it: activate it first"
     if prim.IsInstanceProxy():
         instance = instance_of(prim)
@@ -50,17 +56,25 @@ def collision_refusal(prim: Usd.Prim) -> str | None:
     if shapes:
         named = ", ".join(str(p.GetPath()) for p in shapes[:NAMED])
         more = f", of {len(shapes)} in all" if len(shapes) > NAMED else ""
+        what = "Make the shapes under it colliders" if on else "Turn collision off on the shapes under it"
         return (
-            f"{path} is {kind}, which PhysX makes no shape for: only a {COLLIDING_NAMES} collide. Make the shapes "
-            f"under it colliders one by one: {named}{more}"
+            f"{path} is {kind}, which PhysX makes no shape for: only a {COLLIDING_NAMES} collide. {what} one by one: "
+            f"{named}{more}"
         )
-    inside = [p for p in Usd.PrimRange(prim, Usd.TraverseInstanceProxies()) if p.IsInstanceProxy() and collides(p)]
-    if inside:
-        instance = instance_of(inside[0])
+    # The first will do: a refused root such as /World/envs could hold thousands, walked on Kit's main thread.
+    inside = next(
+        (p for p in Usd.PrimRange(prim, Usd.TraverseInstanceProxies()) if p.IsInstanceProxy() and collides(p)), None
+    )
+    if inside is not None:
+        instance = instance_of(inside)
         return (
             f"{path} is {kind}, which PhysX makes no shape for: only a {COLLIDING_NAMES} collide. The shapes under "
             f"it lie inside the instance {instance.GetPath()}, whose prims can't be changed one by one: their "
             "colliders belong in the asset it references, or the instance needs instanceable turned off"
+        )
+    if not on:
+        return (
+            f"{path} is {kind}, which PhysX makes no shape for, and nothing under it collides: no collision to turn off"
         )
     return f"{path} is {kind}, which PhysX makes no shape for: only a {COLLIDING_NAMES} collide, and none lies under it"
 

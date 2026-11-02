@@ -284,9 +284,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         normal and the distance in stage units, or "No hit".
 
         Use it to find what lies along a line, such as the ground under a point or what a robot faces; get_prim_bounds
-        measures a prim you already know. Only colliders (the Collision API, which create_prim's enable_physics adds)
-        are hit, not plain meshes. PhysX needs to know the scene: play or step the simulation once first, or it may
-        find nothing, or fail. The prim named is the rigid body hit, or a static collider itself.
+        measures a prim you already know. Only colliders (the Collision API, which set_physics_properties'
+        collision=True or create_prim's enable_physics adds) are hit, not plain meshes. PhysX needs to know the scene:
+        play or step the simulation once first, or it may find nothing, or fail. The prim named is the rigid body hit,
+        or a static collider itself.
         """
         resp = bridge_call(client.raycast, origin, _unit(direction), max_distance)
         r = resp["result"]

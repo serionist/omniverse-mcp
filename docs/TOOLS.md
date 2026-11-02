@@ -1143,6 +1143,11 @@ and says so. Then, when there are any:
 - the older shared material: `deleted its old material, /World/PhysicsMaterials/Box_PhysMat, which no prim binds now`,
   or `kept its old material, /World/PhysicsMaterials/Box_PhysMat: 1 prim still binds it: /World/Shelf/Box`.
 
+With `collision`: `Physics on /World/Cart/Wheel: collision=on; applied CollisionAPI, MeshCollisionAPI; approximation
+convexHull; part of the rigid body /World/Cart`, or `collision=off`, or `collision=off (it had no collider)`. With a Kit
+extension that doesn't know `collision`, a last line says so and how to install this server's:
+`WARNING: collision not set: ...`.
+
 The material and these clauses need the Kit extension of this release.
 
 **When to use:** for how a prim behaves in physics. Its look is `set_material`'s; to make a new prim physical in one

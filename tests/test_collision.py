@@ -243,3 +243,22 @@ def test_a_cube_under_a_rigid_body_names_the_body_and_gets_no_hull(stage):
     echo = set_collision(bumper, True)
 
     assert echo == {"applied": ["CollisionAPI"], "body": "/World/Cart", "collision": True}
+
+
+def test_turning_collision_off_is_refused_in_off_s_own_words(stage):
+    # "Activate it first" would bring back a prim the user hid, which then renders and collides (code review, F1).
+    crate = UsdGeom.Cube.Define(stage, "/World/Crate").GetPrim()
+    crate.SetActive(False)
+    UsdGeom.Xform.Define(stage, "/World/Ground")
+    UsdGeom.Cube.Define(stage, "/World/Ground/Slab")
+
+    inactive = collision_refusal(crate, on=False)
+    xform = collision_refusal(stage.GetPrimAtPath("/World/Ground"), on=False)
+    empty = collision_refusal(stage.DefinePrim("/World/Empty", "Xform"), on=False)
+
+    assert inactive is not None and inactive.endswith("it collides with nothing, and there is no collision to turn off")
+    assert "activate" not in inactive
+    assert xform is not None and xform.endswith(
+        "Turn collision off on the shapes under it one by one: /World/Ground/Slab"
+    )
+    assert empty is not None and empty.endswith("nothing under it collides: no collision to turn off")

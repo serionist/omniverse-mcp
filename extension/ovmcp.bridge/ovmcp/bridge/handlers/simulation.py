@@ -142,7 +142,7 @@ async def handle_set_physics_properties(body: dict) -> dict:
     # PhysX makes no shape for an Xform (#150).
     refusal = material_refusal(prim) if friction is not None or restitution is not None else None
     if refusal is None and collision is not None:
-        refusal = collision_refusal(prim)
+        refusal = collision_refusal(prim, on=bool(collision))
     if refusal:
         return {"status": "error", "error": refusal}
 
