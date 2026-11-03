@@ -10,7 +10,9 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 - **A tool's error when Kit stops answering names NVIDIA's workaround for Kit 110's new-view hang:** start Isaac Sim
   6.2 with `--/rtx/hydra/supportMultiTickRate=false`, with which NVIDIA's repro ran 1,000 new views twice where the
   default hung after 600. Repeated captures of one view differ a little more with it. The README's Known issues,
-  SETUP.md, `capture_sweep`'s docs and the plugin's scene skill say the same (#187).
+  SETUP.md, `capture_sweep`'s docs and the plugin's scene skill say the same (#187). Kit reads the flag only as it
+  starts: set from a script while Kit runs, it changes nothing in the renderer, and the skill tells agents not to
+  (#189).
 
 ## 0.5.0 (2026-11-03)
 

@@ -279,6 +279,9 @@ More in [SETUP.md](docs/SETUP.md#troubleshooting).
   after 600 without. Its cost: repeated captures of one view differ a little more. Two captures of Replicator's
   walking agents, with the timeline stopped, came a mean of about 3.2 of 255 a channel apart with the flag, against
   about 1.2 without, in our tests. NVIDIA hasn't said yet what it does to sensors that render at different rates.
+  Kit reads the flag only as it starts: set from a script while Kit runs, it changes nothing in the renderer, and
+  Replicator, which reads it on each step, then acts as if it were off
+  ([#189](https://github.com/serionist/omniverse-mcp/issues/189)).
 - **Isaac Sim 6.2 (Kit 110.4) can stop answering after a long session of stage changes,** its main thread busy inside
   Fabric's population code (`usdrt.population.plugin`), with none of the bridge's code running: seen in a test order
   that opens many stages, plays physics with colliders and captures with segmentation, never in a short session.
