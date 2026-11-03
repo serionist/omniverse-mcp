@@ -79,6 +79,9 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ### Changed
 
+- **The simulate skill and `get_scene_tree` say how to read where many bodies came to rest:** one
+  `get_scene_tree(root, property_filter=["physics:"])`, whose positions and rotations follow the simulation, where
+  agents read PhysX body by body with `execute_script` (#181).
 - **`get_prim_properties` lists a prim's applied API schemas and its relationships' targets:** an `api_schemas` line
   (`PhysicsCollisionAPI` for a collider, `MaterialBindingAPI` for a bound material, `[]` for none), and each
   relationship with its targets, such as `material:binding = /World/Looks/Red`, where every relationship read

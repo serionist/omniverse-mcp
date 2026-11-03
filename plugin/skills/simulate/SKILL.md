@@ -11,7 +11,7 @@ allowed-tools: >-
   mcp__plugin_omniverse-mcp_omniverse__raycast mcp__plugin_omniverse-mcp_omniverse__get_recording_frame
   mcp__plugin_omniverse-mcp_omniverse__get_prim_bounds mcp__plugin_omniverse-mcp_omniverse__capture_viewport
   mcp__plugin_omniverse-mcp_omniverse__get_logs mcp__plugin_omniverse-mcp_omniverse__get_prim_properties
-  mcp__plugin_omniverse-mcp_omniverse__get_performance
+  mcp__plugin_omniverse-mcp_omniverse__get_performance mcp__plugin_omniverse-mcp_omniverse__get_scene_tree
 ---
 
 # Simulate, drive robots, record, measure
@@ -46,7 +46,10 @@ before play, so pause to look at a moment in the middle.
    Frames come from `camera_path` (the viewport's camera when empty) at `width` x `height`, 640x480 unless given,
    without moving the viewport; they stop, with a note, if the stage changes or the camera is deleted.
 6. **Check** with `get_prim_bounds`, `get_robot_info`'s joint states or a capture, rather than assuming the run did
-   what was asked. A tool that fails: `get_logs(min_level="warn")`.
+   what was asked. Where many bodies came to rest, while the simulation plays or after a pause: one
+   `get_scene_tree(root, property_filter=["physics:"])`, whose blocks give each body's world `pos` (the centre of its
+   box) and `rot` as physics has them, with its physics values, in one file to grep; no script reads PhysX body by
+   body. A tool that fails: `get_logs(min_level="warn")`.
 7. **Measure the speed.** `get_performance` gives the frame rate a target reads (`app = ... FPS`), the GPU's render
    time, the physics step and the simulated-to-real ratio, GPU memory and what the stage holds. Measure as the target
    will run: play the simulation with the robots' sensors on, call nothing else meanwhile, measure before capturing

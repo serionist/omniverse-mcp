@@ -107,6 +107,11 @@ bytes) -> mcp_output/scene_dump.txt`. Its blocks don't mark a prim whose childre
   or older gives no `api_schemas` or `variant_sets` line and prints every relationship as `<unreadable>`.
 - **A scene's switches:** `property_filter=["variant_sets"]` gives every prim's `variant_sets` line, `[]` for a prim
   with none: grep the file for `variant_sets = ` lines that aren't `[]`.
+- **Where bodies came to rest:** each block's `pos` and `rot` follow the simulation, where physics has each rigid body
+  while it plays or after a pause, and they are written whatever `property_filter` keeps. A rigid body's `pos` is the
+  centre of its world box, read through Fabric, so it is the body's origin only when the body is centred on it.
+  `get_scene_tree("/World/Crates", property_filter=["physics:"])` gives every crate's pose and physics values in one
+  file, where a script would read PhysX body by body.
 - `filter_types` alone writes those flags and boxes for the types it names, without attribute values. Over every type
   that form has no call of its own: `include_properties=True` gives the full blocks, `get_prim_bounds` one prim's box.
 - Kit writes the file itself, so with Kit on another machine it lands there. An extension of 0.2.3 or older counts
