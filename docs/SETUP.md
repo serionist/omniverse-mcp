@@ -122,7 +122,9 @@ A Kit app without its window takes the bridge on its command line:
   ([#114](https://github.com/serionist/omniverse-mcp/issues/114)). NVIDIA's workaround is one more flag,
   `--/rtx/hydra/supportMultiTickRate=false`, on the command line or in `extra_args`; Isaac Sim with its window takes
   it from its launcher script too. Repeated captures of one view then differ a little more
-  ([Known issues](../README.md#known-issues)).
+  ([Known issues](../README.md#known-issues)). Kit's renderer reads it only as it starts: set from a script while
+  Kit runs, through `carb.settings`, it doesn't reconfigure the renderer, as a comment in Isaac Sim's own tests says
+  ([#189](https://github.com/serionist/omniverse-mcp/issues/189)).
 - Isaac Sim asks for NVIDIA's licence on its first start; accepting it, or setting `OMNI_KIT_ACCEPT_EULA=YES`, is your
   decision.
 

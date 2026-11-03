@@ -279,10 +279,15 @@ More in [SETUP.md](docs/SETUP.md#troubleshooting).
   after 600 without. Its cost: repeated captures of one view differ a little more. Two captures of Replicator's
   walking agents, with the timeline stopped, came a mean of about 3.2 of 255 a channel apart with the flag, against
   about 1.2 without, in our tests. NVIDIA hasn't said yet what it does to sensors that render at different rates.
+  Kit's renderer reads the flag only as it starts: set from a script while Kit runs, it doesn't reconfigure the
+  renderer, and it misleads Replicator's `step()`, which reads it on each call
+  ([#189](https://github.com/serionist/omniverse-mcp/issues/189)).
 - **Isaac Sim 6.2 (Kit 110.4) can stop answering after a long session of stage changes,** its main thread busy inside
   Fabric's population code (`usdrt.population.plugin`), with none of the bridge's code running: seen in a test order
   that opens many stages, plays physics with colliders and captures with segmentation, never in a short session.
   Restart Kit; nothing of the bridge's can prevent it ([#162](https://github.com/serionist/omniverse-mcp/issues/162)).
+  NVIDIA's flag for the new-view hang, above, avoided this one too in that order: 2 runs of 2 passed with it, where
+  Kit hung 9 times of 9 without.
 
 Report another as an [issue](https://github.com/serionist/omniverse-mcp/issues). When a tool misbehaves, your
 assistant asks whether to report it, then drafts the report with the versions, the call and Kit's log, and files it
