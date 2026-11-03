@@ -12,7 +12,8 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   default hung after 600. Repeated captures of one view differ a little more with it. The README's Known issues,
   SETUP.md, `capture_sweep`'s docs and the plugin's scene skill say the same (#187). Kit's renderer reads the flag
   only as it starts: set from a script while Kit runs, it doesn't reconfigure the renderer, and the error and the
-  skill tell agents not to (#189).
+  skill tell agents not to (#189). The flag also avoided #162's hang in Fabric's population code, in the test order
+  that hung Kit 9 times of 9: 2 runs of 2 passed with it (#162).
 
 ## 0.5.0 (2026-11-03)
 

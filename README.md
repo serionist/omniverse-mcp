@@ -286,6 +286,8 @@ More in [SETUP.md](docs/SETUP.md#troubleshooting).
   Fabric's population code (`usdrt.population.plugin`), with none of the bridge's code running: seen in a test order
   that opens many stages, plays physics with colliders and captures with segmentation, never in a short session.
   Restart Kit; nothing of the bridge's can prevent it ([#162](https://github.com/serionist/omniverse-mcp/issues/162)).
+  NVIDIA's flag for the new-view hang, above, avoided this one too in that order: 2 runs of 2 passed with it, where
+  Kit hung 9 times of 9 without.
 
 Report another as an [issue](https://github.com/serionist/omniverse-mcp/issues). When a tool misbehaves, your
 assistant asks whether to report it, then drafts the report with the versions, the call and Kit's log, and files it
