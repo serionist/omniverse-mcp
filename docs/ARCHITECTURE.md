@@ -97,7 +97,8 @@ This keeps the MCP context window clean - the AI reads files on demand rather th
   stands as it is. No answer raises `KitSilentError` and marks the client, under its lock, so each later request asks
   `/health` first and fails the same way at once while Kit stays silent; the mark clears once `/health` answers. A
   connect that times out is a host that is down, and keeps its error. `tools/_bridge.py` adds what it may mean: a long
-  script without an await, which holds `/health` back too, or Kit hung in NVIDIA's renderer, and when to restart it
+  script without an await, which holds `/health` back too, or Kit hung in NVIDIA's renderer, when to restart it, and
+  the flag Kit can start with to avoid that hang (NVIDIA's workaround, #187)
 - Proper Content-Length framing with chunked body reading (avoids O(n²) buffer concatenation)
 - JSON request/response encoding
 - Structured logging via Python `logging` module

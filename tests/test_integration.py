@@ -3775,7 +3775,14 @@ class TestCaptureSweepAgents(_SweepChecks):
         self.assertEqual([first["state"], second["state"]], ["completed", "completed"])
         sought = self._changed(*(output / "sweeps" / n / "0001.png" for n in ("seek1", "seek2")))
 
-        self.assertLess(still, _TWIN_TOLERANCE, f"a stopped timeline's agent differs by {still:.3f} of 255")
+        # Kit started with --/rtx/hydra/supportMultiTickRate=false, NVIDIA's workaround for #114, renders these about
+        # 3.2 apart, where the default renders them about 1.2 apart (#187).
+        self.assertLess(
+            still,
+            _TWIN_TOLERANCE,
+            f"a stopped timeline's agent differs by {still:.3f} of 255"
+            " (about 3.2 with Kit started with --/rtx/hydra/supportMultiTickRate=false)",
+        )
         self.assertGreater(sought, _APART, f"a time brought the agent back: {sought:.2%} of the pixels changed")
         print(f"  stopped twins {still:.3f} of 255 apart; the same time after the agent walked, {sought:.2%} changed")
 

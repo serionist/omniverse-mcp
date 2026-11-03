@@ -274,11 +274,11 @@ More in [SETUP.md](docs/SETUP.md#troubleshooting).
   ([#114](https://github.com/serionist/omniverse-mcp/issues/114)). The bridge keeps one render between captures, and
   records through it at its size, so it sets up few new views, but a long session can still meet it. NVIDIA's
   workaround is a flag on Kit's command line, `--/rtx/hydra/supportMultiTickRate=false`
-  ([isaac-sim/IsaacSim#920](https://github.com/isaac-sim/IsaacSim/issues/920); where it goes:
-  [Headless Kit](docs/SETUP.md#headless-kit)): NVIDIA's repro ran 1,000 new views twice with it, and hung after 600
-  without. Its cost: repeated captures of one view differ a little more, a mean of about 3.2 of 255 a channel against
-  about 1.2 for Replicator's walking agents in our tests. NVIDIA hasn't said yet what it does to sensors that render
-  at different rates.
+  ([isaac-sim/IsaacSim#920](https://github.com/isaac-sim/IsaacSim/issues/920); where it goes, with Kit's window or
+  without: [Headless Kit](docs/SETUP.md#headless-kit)): NVIDIA's repro ran 1,000 new views twice with it, and hung
+  after 600 without. Its cost: repeated captures of one view differ a little more. Two captures of Replicator's
+  walking agents, with the timeline stopped, came a mean of about 3.2 of 255 a channel apart with the flag, against
+  about 1.2 without, in our tests. NVIDIA hasn't said yet what it does to sensors that render at different rates.
 - **Isaac Sim 6.2 (Kit 110.4) can stop answering after a long session of stage changes,** its main thread busy inside
   Fabric's population code (`usdrt.population.plugin`), with none of the bridge's code running: seen in a test order
   that opens many stages, plays physics with colliders and captures with segmentation, never in a short session.
