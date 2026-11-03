@@ -5,6 +5,16 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+## 0.5.0 (2026-11-03)
+
+New tools for long work and many pictures, and two changed defaults. `run_script_job`, `get_job` and `cancel_job` run
+a script for minutes while Kit keeps rendering; `capture_sweep` takes many shots, each with its own camera, lens,
+variant selections and time, as one job, with a manifest that takes them again; `get_performance` measures the frame
+rate; `set_prim_attribute` sets one attribute of a prim. `new_scene` now makes a Z-up stage in metres, and
+`set_variant_selection` switches in Kit's session layer, which no save writes: see Breaking changes. Most of it is in
+the Kit extension: run `uvx omniverse-mcp==0.5.0 extension install` (the plugin's `/omniverse-mcp:setup` does it) and
+restart Kit.
+
 ### Breaking changes
 
 - **`new_scene` makes a Z-up stage in metres, and takes `up_axis` and `meters_per_unit`, a change to the tool
