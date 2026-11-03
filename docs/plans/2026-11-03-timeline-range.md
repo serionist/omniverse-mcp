@@ -1,9 +1,9 @@
 ---
 title: Say where the timeline starts and ends and what it does there, in get_sim_state
 issue: "#180"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist (delegated to the author, 2026-11-02)
+approved_at: 2026-11-03
 ---
 
 # Say where the timeline starts and ends and what it does there, in get_sim_state
@@ -40,14 +40,16 @@ In scope: the three facts, the line, the note, the docs and skills. Out of scope
 - **The server:** `get_sim_state` (`src/omniverse_mcp/tools/simulation.py`) adds
   `timeline = {start:.3f} to {end:.3f} s, then back to {start:.3f} s (looping)` or
   `..., then pauses at {end:.3f} s (not looping)`, only when the bridge sent all three; and
-  `note = the timeline's range is one frame or less: playing loops over a single frame, so time-accumulating sensors
-  and controllers produce nothing` when `end - start <= 1/fps`. An extension from before this sends none, and the
+  `note = the timeline's range is one frame or less: playing covers a single frame, so time-accumulating sensors and
+  controllers produce nothing` when `(end - start) * fps <= 1 + 1e-6`, compared in frames, since Kit puts a range it
+  is given end on start one frame apart, at any start (round 1, P1, P2). An extension from before this sends none, and the
   line is left out, as `job` and `recording_note` are. The description says what the line tells an agent: a wait for
   `time` to pass the end never finishes while the timeline loops, and a timeline that doesn't loop pauses at its end,
   physics with it. `docs/TOOLS.md`'s `time` row ("elapsed simulation time") says a loop or a stop takes it back to
   the start.
 - **The skills:** the `simulate` skill's Orient step and the `script` skill's job step say to read the `timeline`
-  line before a long run; `docs/AI_GUIDE.md` says the same for clients without the plugin.
+  line before a long run; `docs/AI_GUIDE.md` says the same for clients without the plugin, and `run_script_job`'s
+  description, which every client reads, says the timeline plays until its end, which the line names (round 1, I8).
 - **Alternatives:** a separate `get_timeline` tool, rejected: a change to the tool contract for three facts
   `get_sim_state` is already the place for. Kit's own word alone (`looping`), rejected by the fit: the agent then
   translates it, where the line can say what happens.
@@ -63,9 +65,9 @@ schema, name and hints are unchanged (the contract fixture holds no descriptions
 | # | Step | Proved by |
 |---|---|---|
 | 1 | `core/timeline.py` and `handle_sim_state`'s three fields | `tests/test_timeline.py` (the three from a fake timeline, both loopings); `tests/test_physics_handler.py`'s `/sim/state` tests with a fake timeline that has the getters |
-| 2 | The server's line and note, only when all three came; the description | `tests/test_tools.py`: both loopings, a one-frame range's note, an older extension's answer with no line; `tests/test_contract.py` pins the description's phrase |
+| 2 | The server's line and note, only when all three came; the descriptions | `tests/test_tools.py`: both loopings, a one-frame range's note, one starting away from 0 (2/24 to 3/24 s at 24), an older extension's answer with no line; `tests/test_contract.py` pins `get_sim_state`'s and `run_script_job`'s phrases |
 | 3 | Docs and skills | review |
-| 4 | Live: on a stage of its own, the test sets end 1.0 s with looping off and plays: the line reads `0.000 to 1.000 s, then pauses at 1.000 s`, and the state reads paused at 1.000; looping on, playing past the end takes `time` back below 1.0; then the end and looping are put back, and what a loop does to a falling body is printed | a test in `test_integration.py`, Z-up |
+| 4 | Live: on a stage of its own, the test registers the put-back of the end and the looping as cleanups first, then sets end 1.0 s with looping off and plays: the line reads `0.000 to 1.000 s, then pauses at 1.000 s`, and the state reads paused at 1.000; looping on, playing past the end takes `time` back below 1.0; what a loop does to a falling body is printed | a test in `test_integration.py`, Z-up |
 | 5 | `uv run tools/gate.py full`, `review-code`, the PR | the review record |
 
 ## Tests
@@ -108,3 +110,28 @@ delegation.
 
 Noticed on the way, for Round 1: per-field omission gave a half-filled answer read as "not looping" (gone with I6);
 the live check pinned Isaac Sim's range and ran on whatever stage Kit had (gone with I2).
+
+### Round 1
+
+**How:** one fresh general-purpose agent on Claude Opus 5.5, 2026-11-03, read only, every lens, at `0ac7a22`, checking
+the plan's Kit claims against Isaac Sim 6.2's and 5.1's `omni.timeline`. **Verdict:** approved. **Now:** every
+finding fixed in the plan.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P1 | minor | The one-frame check `end - start <= 1/fps` in floating seconds missed a one-frame range away from 0: Kit's setters put an end given on the start one frame after it, and at 24 a second 2/24 to 3/24 s came out 0.041666666666666670 against 0.041666666666666664 | fixed: compared in frames, `(end - start) * fps <= 1 + 1e-6`; a unit case at 2/24 to 3/24 |
+| P2 | minor | The note said playing "loops" over a single frame, under a line saying the timeline pauses (not looping) | fixed: "playing covers a single frame" |
+| P3 | minor | The live test put the end and the looping back only if it got that far, and `set_looping` isn't written into the stage, so a failure left the Kit app's timeline changed for the suite and its next user | fixed: the put-back registered as cleanups before the first change |
+
+**Refuted:** the fake timeline breaking the existing `/sim/state` tests (Step 1 gives it the getters); a division by
+zero (P1's fix doesn't divide, and `fps` comes as 60 when Kit gives 0); a second `note` line (other answers have
+several); the getters on Kit 107 (in 5.1's stubs); the live test's wrap proof (it starts paused at 1.000); the
+protocol number (additive fields never raised it); a truthiness check on `looping` (all three must come); `AGENTS.md`
+at its cap (folded into a line); the contract fixture (no descriptions); the tester's rules on a short looping range
+(runs use Isaac Sim's 16,666.7 s stage, outside #180); the Kit-free module (the Fit's I5).
+
+**Improvements:**
+
+| # | Improvement | Answer |
+|---|---|---|
+| I8 | `run_script_job`'s description, which every client reads, says the timeline plays until its end, which `get_sim_state`'s line names | taken: Design, Step 2 |
