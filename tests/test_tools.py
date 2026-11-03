@@ -2356,6 +2356,8 @@ def test_a_kit_that_stopped_answering_is_named_with_what_it_may_be_doing(bridge:
     assert "most likely in NVIDIA's RTX renderer" in text
     assert "#114" in text
     assert "If it stays silent for minutes, restart the Kit app." in text
+    # NVIDIA's workaround for the hang, which only the user can apply, when they next start Kit (#187).
+    assert "--/rtx/hydra/supportMultiTickRate=false avoids that hang" in text
     assert "connection failed" not in text
 
 

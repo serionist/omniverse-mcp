@@ -118,6 +118,11 @@ A Kit app without its window takes the bridge on its command line:
   The bridge runs on Kit's event loop, so it answers only while the script keeps calling `update()`. A script's own
   unknown command-line arguments reach Kit too, so `python.sh my_script.py --ext-folder <folder> --enable
   ovmcp.bridge` works as well.
+- **Isaac Sim 6.2** can hang for good while it sets up a new camera view
+  ([#114](https://github.com/serionist/omniverse-mcp/issues/114)). NVIDIA's workaround is one more flag,
+  `--/rtx/hydra/supportMultiTickRate=false`, on the command line or in `extra_args`; Isaac Sim with its window takes
+  it from its launcher script too. Repeated captures of one view then differ a little more
+  ([Known issues](../README.md#known-issues)).
 - Isaac Sim asks for NVIDIA's licence on its first start; accepting it, or setting `OMNI_KIT_ACCEPT_EULA=YES`, is your
   decision.
 
@@ -219,6 +224,7 @@ The server and the bridge come from one release; update both, then restart Kit a
 | "Missing or wrong bridge token" | The server can't read the bridge's token file: Kit runs as another user, in a container or on another machine. Set a token on both sides ([Kit on another machine](#kit-on-another-machine)). |
 | "older than this MCP server", "speaks bridge protocol" | The server and the bridge come from different releases. Run the command the message names, then restart Kit. |
 | "Kit app connection failed", refused | Kit isn't running, the bridge is off, or it listens on another port. `uvx omniverse-mcp extension path` says whether the bridge is installed. |
+| "Kit at ... stopped answering" | Kit runs a long script that never awaits, or hung for good in NVIDIA's renderer while it set up a new camera view (Isaac Sim 6.2, [#114](https://github.com/serionist/omniverse-mcp/issues/114)). Restart Kit if it stays silent for minutes; `--/rtx/hydra/supportMultiTickRate=false` on its command line avoids the hang ([Headless Kit](#headless-kit)). |
 | timed out | Kit is busy: on its first start Isaac Sim compiles shaders for minutes; a long physics step or script holds it too. Kit's console shows what it is doing. |
 | Kit logs `[MCP Bridge] Failed to start server` | Another program holds the port ([Ports](#ports-and-two-kit-apps)). |
 | The server doesn't start | `uvx` isn't on the PATH the client starts with: restart the client after installing uv. Claude Code's `/mcp` shows the error. |

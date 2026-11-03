@@ -249,10 +249,8 @@ its first start Isaac Sim compiles shaders for several minutes, and answers slow
 
 **"Kit at ... stopped answering"**: a call got no answer in 120 s, and `/health` none in 5 s either. Kit may be busy
 with a long script that never awaits, or hung: Kit 110 (Isaac Sim 6.2) can hang for good inside NVIDIA's renderer
-while it sets up a new camera view, its log silent from then on
-([#114](https://github.com/serionist/omniverse-mcp/issues/114)). Later calls fail in 5 s while Kit stays silent, and
-go again once it answers. If it stays silent for minutes, restart the Kit app. The bridge keeps one render between
-captures, and records through it at its size, so it sets up few new views.
+while it sets up a new camera view ([Known issues](#known-issues) has NVIDIA's workaround). Later calls fail in 5 s
+while Kit stays silent, and go again once it answers. If it stays silent for minutes, restart the Kit app.
 
 **Kit logs `[MCP Bridge] Failed to start server`**: another program, or a second Kit app, holds port 8211. Give this
 Kit app another port, and the server the same one ([The bridge](#the-bridge)).
@@ -271,6 +269,16 @@ More in [SETUP.md](docs/SETUP.md#troubleshooting).
 
 ## Known issues
 
+- **Isaac Sim 6.2 (Kit 110) can hang for good while it sets up a new camera view,** inside NVIDIA's renderer, its log
+  silent from then on, and tools fail with "Kit at ... stopped answering"
+  ([#114](https://github.com/serionist/omniverse-mcp/issues/114)). The bridge keeps one render between captures, and
+  records through it at its size, so it sets up few new views, but a long session can still meet it. NVIDIA's
+  workaround is a flag on Kit's command line, `--/rtx/hydra/supportMultiTickRate=false`
+  ([isaac-sim/IsaacSim#920](https://github.com/isaac-sim/IsaacSim/issues/920); where it goes, with Kit's window or
+  without: [Headless Kit](docs/SETUP.md#headless-kit)): NVIDIA's repro ran 1,000 new views twice with it, and hung
+  after 600 without. Its cost: repeated captures of one view differ a little more. Two captures of Replicator's
+  walking agents, with the timeline stopped, came a mean of about 3.2 of 255 a channel apart with the flag, against
+  about 1.2 without, in our tests. NVIDIA hasn't said yet what it does to sensors that render at different rates.
 - **Isaac Sim 6.2 (Kit 110.4) can stop answering after a long session of stage changes,** its main thread busy inside
   Fabric's population code (`usdrt.population.plugin`), with none of the bridge's code running: seen in a test order
   that opens many stages, plays physics with colliders and captures with segmentation, never in a short session.

@@ -1099,7 +1099,10 @@ and clipping range.
 a change or on a second scene built from the same spec; a manifest taken at another size is refused, naming its own,
 since its lenses fit that size. A `camera_path` shot is taken from the pose and lens it rendered with, so the second
 scene needn't have the camera. The same shots on an unchanged stage give the same pictures within a small difference (the live suite holds
-the mean under 2 of 255 a channel), for content that stands still or is time-sampled.
+the mean under 2 of 255 a channel), for content that stands still or is time-sampled. Kit started with
+`--/rtx/hydra/supportMultiTickRate=false`, NVIDIA's workaround for #114's hang, renders repeats a little further
+apart, past that 2: Replicator's walking agents, with the timeline stopped, came about 1.2 of 255 apart by default and
+about 3.2 with the flag.
 
 > **Replicator's walking agents** move on each update from a seeded routine, whatever the timeline's time, so a
 > `time` doesn't repeat them: stop the timeline (`sim_control("stop")`) before a sweep whose pictures of them must

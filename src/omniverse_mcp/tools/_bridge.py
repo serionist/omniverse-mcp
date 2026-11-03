@@ -12,11 +12,14 @@ from omniverse_mcp.kit_extension import install_advice
 TRACEBACK_LINES = 5
 # How the bridge answers a route it hasn't got: an extension older than the tool that asked.
 UNKNOWN_ROUTE = "Unknown endpoint"
-# What a Kit app that stopped answering may be doing, and when to restart it. Kit 110 can hang for good inside NVIDIA's
-# renderer during a new camera view's first frames (#114); a long script without an await holds /health back too.
+# What a Kit app that stopped answering may be doing, when to restart it, and how to start it so it doesn't hang. Kit
+# 110 can hang for good inside NVIDIA's renderer during a new camera view's first frames (#114); a long script without
+# an await holds /health back too. NVIDIA's workaround (isaac-sim/IsaacSim#920) is a flag the user starts Kit with.
 KIT_SILENT = (
     "It may be busy with a long synchronous script, or stuck, most likely in NVIDIA's RTX renderer during a new camera "
-    "view's first frames (omniverse-mcp issue #114). If it stays silent for minutes, restart the Kit app."
+    "view's first frames (omniverse-mcp issue #114). If it stays silent for minutes, restart the Kit app. Starting "
+    "Isaac Sim 6.2 with --/rtx/hydra/supportMultiTickRate=false avoids that hang (NVIDIA's workaround, "
+    "isaac-sim/IsaacSim issue #920); repeated captures of one view then differ a little more."
 )
 
 
