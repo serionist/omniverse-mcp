@@ -1000,10 +1000,11 @@ world_dimensions = [1.0, 1.0, 1.0]
 > **The render is kept between captures:** Kit 110 (Isaac Sim 6.2) can hang for good while it sets up a new view's
 > first frames, so `capture_viewport` and `inspect_prim` share one render, kept for 30 s after the last capture or
 > recording, at any size. A capture at the last one's size, of any camera, sets up no new view; one at another size
-> resizes the render, one new view. `start_recording` at the kept render's size records through it, its camera set,
-> and `stop_recording` keeps it again; at another size a recording renders through one of its own, a new view, and
-> leaves the kept one, which stays kept after the stop while the recording's own goes. While it is kept, Kit renders one view more. Idle, on headless Isaac Sim 6.2 and an RTX 5090,
-> with no capture running:
+> resizes the render, one new view. `start_recording` at the kept render's size records through it, its camera set;
+> at another size it renders through one of its own, a new view, and the kept one stays on its clock. The stop keeps
+> the recording's render when no other is kept then; a capture's render still kept, from before the recording or
+> during it, stays instead, and the recording's goes (#193). While it is kept, Kit renders one view more. Idle, on
+> headless Isaac Sim 6.2 and an RTX 5090, with no capture running:
 >
 > | Size | Kit's updates a second | Kit's share of the GPU's 3D engine | Video memory |
 > |---|---|---|---|
@@ -1085,7 +1086,8 @@ A robot's front camera, 0.65 m up, looking along +Y with a 7.337 mm lens, a dock
   shot 300`. A cancelled or failed sweep's last line says the same, `37 of 400 shots in ...; cancelled: cancel_job
   was called`.
 - **The render:** the one `capture_viewport` keeps, lent for the sweep when it is that size, as `start_recording`
-  borrows it, and kept again after it; else one of its own. One size for every shot; one job runs at a time.
+  borrows it; else one of its own. After the sweep it is kept, unless a capture's render is still kept then, which
+  stays instead, as after a recording (#193). One size for every shot; one job runs at a time.
 
 **The manifest,** `manifest.json` beside the PNGs, rewritten every 25 shots so a Kit that hangs still leaves an
 index: the sweep's size, stage, up axis, units, Kit app, renderer (with Path Tracing's samples), lighting mode and how
@@ -1330,8 +1332,9 @@ When `track_prims` is set, a `state.txt` file is written alongside frames in pri
 ### `stop_recording`
 
 Stop the active recording session. No parameters. It waits for the frames still being written, hands the render back,
-kept up to 30 s for the next capture or recording (deleted at once when another render is kept, a frame failed, the
-stage changed or a capture was running at that moment; frames that stopped early deleted it already), and writes
+kept up to 30 s for the next capture or recording (deleted at once when a capture's render is still kept then, which
+stays instead (#193), a frame failed, the stage changed, or another call held the render at that moment, such as a
+capture or a save; frames that stopped early deleted it already), and writes
 `metadata.json`: the frames' camera, size
 and times, what they span, and `ended` when frames stopped early.
 

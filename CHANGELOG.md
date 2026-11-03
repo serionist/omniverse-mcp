@@ -8,9 +8,9 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 ### Fixed
 
 - **`start_recording`'s answer says when its render isn't kept after the stop:** it said "kept up to 30 s after the
-  stop" in every case, but a render a capture at another size keeps by the stop stays instead, so the next capture
-  at its size sets up no new view, and the recording's goes. The answer and `stop_recording`'s description now say
-  so (#193).
+  stop" in every case, but a capture's render still kept at the stop, from before the recording or during it, stays
+  instead, so the next capture at its size sets up no new view, and the recording's goes. The answer, both tools'
+  descriptions and `capture_sweep`'s docs, whose render is kept the same way, now say so (#193).
 
 ## 0.5.1 (2026-11-03)
 

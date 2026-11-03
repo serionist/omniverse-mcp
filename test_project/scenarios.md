@@ -223,7 +223,8 @@ Needs: 2.1, 4.5
   `stop_recording()`: the cube is lower in the last frame than in the first (pausing, not stopping, keeps it down)
 - `camera_path="/World/RedCube"` or a path with no prim, and `width=4097`: each an error, and nothing recording
 - While recording, the answer's `render_product` is a prim on the stage; after `stop_recording()` it is the kept
-  feed, gone 30 s later with no capture or recording (#141)
+  feed, gone 30 s later with no capture or recording (#141), unless a capture's render was still kept at the stop,
+  which stays instead, as the start's answer says (#193)
 - At `fps=30`, `metadata.json` numbers its frames 0, 1, 2, ... with none repeated, each with its file
 - Delete the recording's camera mid-recording: `get_sim_state` shows `recording_note`, frames stop, and
   `stop_recording()` ends with a `Note:` saying the camera is gone
