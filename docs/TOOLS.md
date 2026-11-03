@@ -1002,7 +1002,7 @@ world_dimensions = [1.0, 1.0, 1.0]
 > recording, at any size. A capture at the last one's size, of any camera, sets up no new view; one at another size
 > resizes the render, one new view. `start_recording` at the kept render's size records through it, its camera set,
 > and `stop_recording` keeps it again; at another size a recording renders through one of its own, a new view, and
-> leaves the kept one. While it is kept, Kit renders one view more. Idle, on headless Isaac Sim 6.2 and an RTX 5090,
+> leaves the kept one, which stays kept after the stop while the recording's own goes. While it is kept, Kit renders one view more. Idle, on headless Isaac Sim 6.2 and an RTX 5090,
 > with no capture running:
 >
 > | Size | Kit's updates a second | Kit's share of the GPU's 3D engine | Video memory |
@@ -1271,9 +1271,10 @@ work on the machine idle. The numbers are this machine's and GPU's: measure wher
 Start recording simulation frames to disk. It records `camera_path`, or the active viewport's camera when empty, at
 `width` x `height`, through a render apart from the viewport's: the viewport, its camera and its size stay as they
 are, in the GUI too. It is the render `capture_viewport` and `inspect_prim` keep when that is the same size, else one
-of its own, and the stop keeps it up to 30 s for the next capture or recording: Kit 110 can hang while it sets up a
-new view ([`capture_viewport`](#capture_viewport), The render is kept between captures). A side of more than 4096
-pixels is refused. The answer names the camera, the size and `render_product`, the prim the recording renders into.
+of its own, and the stop keeps it up to 30 s for the next capture or recording, unless a capture keeps a render of
+its own by then, which stays instead (#193): Kit 110 can hang while it sets up a new view
+([`capture_viewport`](#capture_viewport), The render is kept between captures). A side of more than 4096 pixels is
+refused. The answer names the camera, the size and `render_product`, the prim the recording renders into.
 
 - **When frames come:** one every 1/`fps` seconds of the recording's own clock, at most one an app update; play the
   simulation to record motion.

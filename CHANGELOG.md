@@ -5,6 +5,13 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Fixed
+
+- **`start_recording`'s answer says when its render isn't kept after the stop:** it said "kept up to 30 s after the
+  stop" in every case, but a render a capture at another size keeps by the stop stays instead, so the next capture
+  at its size sets up no new view, and the recording's goes. The answer and `stop_recording`'s description now say
+  so (#193).
+
 ## 0.5.1 (2026-11-03)
 
 What to do about Kit 110's two hangs. The error a tool gives when Kit stops answering, and the plugin's scene

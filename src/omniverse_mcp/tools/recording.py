@@ -110,8 +110,13 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         size = f", {r['resolution'][0]}x{r['resolution'][1]} from {r['camera_path']}" if from_camera else ""
         msg = f"Recording {r['session_id']} at {r['fps']}fps{size} -> {h.rel(r['output_dir'])}"
         if from_camera:
-            # The render captures keep, lent to the recording, or one of its own: kept after the stop either way (#141).
-            kept = "kept up to 30 s after the stop for the next capture or recording"
+            # The render captures keep, lent to the recording, or one of its own: kept after the stop either way (#141),
+            # but for one case: a render a capture at another size kept, before the recording or during it, stays kept
+            # at the stop, so the next capture at its size sets up no new view, and the recording's goes (#193).
+            kept = (
+                "kept up to 30 s after the stop for the next capture or recording, "
+                "unless a capture keeps a render of its own by then, which stays instead"
+            )
             msg += f"\nRenders into {r['render_product']}, {kept}"
         if r.get("track_prims"):
             tp: list[str] | int = r["track_prims"]
@@ -126,7 +131,8 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @tool(mcp, EDITS)
     def stop_recording() -> str:
         """Stop the running recording: wait for the frames still being written, write metadata.json with each frame's
-        simulation time, and hand the render back to the captures, kept up to 30 s.
+        simulation time, and hand the render back to the captures, kept up to 30 s unless a capture keeps a render of
+        its own by then.
 
         Returns the frame count, the duration, the seconds of simulation played and the seconds stopped or paused (the
         frame count comes out near fps times their sum), the session folder and the state file, with a note when frames

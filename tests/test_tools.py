@@ -1489,7 +1489,11 @@ def test_start_recording_says_the_camera_and_size_it_records(
 ):
     text = _check(Case("start_recording", args, "/recording/start", answer, args, (says,)), bridge, tmp_path)
     assert "WARNING" not in text
-    kept = "kept up to 30 s after the stop for the next capture or recording"
+    # A render a capture keeps by the stop stays in place of the recording's, so the answer says so (#193).
+    kept = (
+        "kept up to 30 s after the stop for the next capture or recording, "
+        "unless a capture keeps a render of its own by then, which stays instead"
+    )
     assert f"\nRenders into /Render/OmniverseKit/HydraTextures/ovmcp_feed_0, {kept}\n" in text
 
 
