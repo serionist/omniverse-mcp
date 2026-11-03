@@ -2978,9 +2978,9 @@ if not any(prim.IsA(UsdPhysics.Scene) for prim in stage.Traverse()):
 result = True
 """
 
-# The heavy stage under ROOT: a point instancer of COUNT cubes in a square on the XY plane, and a 1920x1080 camera
-# feed of the bridge's own looking down on it, which renders every update as a sensor's camera does. The feed is kept on
-# camera_feed's module, so it lives until _PERF_UNPILE discards it.
+# The heavy stage under ROOT: a point instancer of COUNT cubes in a square on the XY plane, and FEEDS 1920x1080 camera
+# feeds of the bridge's own looking down on it, each rendering every update as a sensor's camera does. The feeds are
+# kept on camera_feed's module, so they live until _PERF_UNPILE discards them.
 _PERF_PILE = """
 from pxr import Gf, UsdGeom, Vt
 from ovmcp.bridge.handlers import camera_feed
@@ -2992,31 +2992,41 @@ pile.CreatePrototypesRel().SetTargets([cube.GetPath()])
 side = int(COUNT ** 0.5)
 pile.CreatePositionsAttr(Vt.Vec3fArray([Gf.Vec3f((i % side) * 0.3, (i // side) * 0.3, 0.0) for i in range(COUNT)]))
 pile.CreateProtoIndicesAttr(Vt.IntArray([0] * COUNT))
-camera = UsdGeom.Camera.Define(stage, ROOT + "/Cam")
-UsdGeom.XformCommonAPI(camera).SetTranslate(Gf.Vec3d(side * 0.15, side * 0.15, 120.0))
-camera_feed._ovmcp_test_perf_feed = camera_feed.CameraFeed(ROOT + "/Cam", 1920, 1080)
+feeds = []
+for n in range(FEEDS):
+    camera = UsdGeom.Camera.Define(stage, f"{ROOT}/Cam{n}")
+    UsdGeom.XformCommonAPI(camera).SetTranslate(Gf.Vec3d(side * 0.15 + n, side * 0.15, 120.0))
+    feeds.append(camera_feed.CameraFeed(f"{ROOT}/Cam{n}", 1920, 1080))
+camera_feed._ovmcp_test_perf_feeds = feeds
 result = int(pile.GetInstanceCount())
 """
 
 _PERF_UNPILE = """
 from ovmcp.bridge.handlers import camera_feed
-feed = getattr(camera_feed, "_ovmcp_test_perf_feed", None)
-camera_feed._ovmcp_test_perf_feed = None
-if feed is not None:
+feeds = getattr(camera_feed, "_ovmcp_test_perf_feeds", [])
+camera_feed._ovmcp_test_perf_feeds = []
+for feed in feeds:
     camera_feed.discard(feed)
-result = feed is not None
+result = len(feeds)
 """
+# The heavy stage's 1920x1080 feeds, each rendering every update as a sensor's camera does. With one, the heavy stage
+# read some 1.5 ms over a light stage of 5 to 7 ms, inside what another Kit app on the GPU moved a reading by, and the
+# test failed on time alone; with three it reads some 3 times the light one, and four readings of it lay within 4% of
+# each other with another session's sim on the GPU (#175).
+_PERF_FEEDS = 3
 
-# How far apart two measurements of the same stage may be, as a share of the smaller mean frame time (#156's step 5).
+# How far apart two measurements of the same stage may be, as a share of the smaller median frame time (#156's step
+# 5). The median, not the mean: a burst of another Kit app's work drags a mean and leaves the median (#175).
 _SAME_STAGE_SHARE = 0.15
 
 
 class TestGetPerformance(unittest.TestCase):
-    """get_performance on a playing stage (#156): a light stage, then a heavy one, whose mean frame time is higher; the
-    heavy one measured twice unchanged and once straight after a capture, each within 15% of the first; the physics
+    """get_performance on a playing stage (#156): a light stage, then a heavy one, whose median frame time is higher;
+    the heavy one measured twice unchanged and once straight after a capture, each within 15% of the first; the physics
     lines there. The limiter is turned on at 30 Hz first, so the light stage reading well over 30 FPS proves it was
     lifted, and it is on at 30 Hz again after every call; the Kit app's own setting comes back at the end. Run with the
-    shared machine's other Kit apps idle: they share the GPU, and their load moves frame times."""
+    shared machine's other Kit apps idle where they can be: they share the GPU, and their load moves frame times; the
+    heavy stage and the median are chosen so the test holds while one runs (#175)."""
 
     @classmethod
     def setUpClass(cls):
@@ -3077,23 +3087,23 @@ class TestGetPerformance(unittest.TestCase):
             self.assertTrue(any(line.startswith("physics = ") and "steps a frame" in line for line in lines), text)
             self.assertTrue(any(line.startswith("conditions = ") for line in lines), text)
 
-            self.assertEqual(self._run(f"ROOT = {root!r}\nCOUNT = 250000\n{_PERF_PILE}"), 250000)
+            self.assertEqual(self._run(f"ROOT = {root!r}\nCOUNT = 250000\nFEEDS = {_PERF_FEEDS}\n{_PERF_PILE}"), 250000)
             heavy = self._measure(capped)
             again = self._measure(capped)
             self.assertEqual(self.client.capture_viewport(640, 480)["status"], "success")
             after_capture = self._measure(capped)
 
-            light_ms, heavy_ms = light["app"]["mean_ms"], heavy["app"]["mean_ms"]
+            light_ms, heavy_ms = light["app"]["p50_ms"], heavy["app"]["p50_ms"]
             print(
-                f"  light {light_ms:.2f} ms, heavy {heavy_ms:.2f} ms, again {again['app']['mean_ms']:.2f} ms, after a "
-                f"capture {after_capture['app']['mean_ms']:.2f} ms; heavy point instances "
+                f"  medians: light {light_ms:.2f} ms, heavy {heavy_ms:.2f} ms, again {again['app']['p50_ms']:.2f} ms, "
+                f"after a capture {after_capture['app']['p50_ms']:.2f} ms; heavy point instances "
                 f"{heavy['stage']['point_instances']}, render products {len(heavy['render_products'])}"
             )
             self.assertGreater(heavy_ms, light_ms)
             self.assertEqual(heavy["stage"]["point_instances"], 250000)
             self.assertGreater(len(heavy["render_products"]), len(light["render_products"]))
-            self._close(heavy_ms, again["app"]["mean_ms"], "the unchanged heavy stage measured twice")
-            self._close(heavy_ms, after_capture["app"]["mean_ms"], "the heavy stage measured after a capture")
+            self._close(heavy_ms, again["app"]["p50_ms"], "the unchanged heavy stage measured twice")
+            self._close(heavy_ms, after_capture["app"]["p50_ms"], "the heavy stage measured after a capture")
         finally:
             self.client.sim_control("stop")
             self._run(_PERF_UNPILE)
