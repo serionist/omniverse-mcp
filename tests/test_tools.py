@@ -3028,28 +3028,14 @@ def test_get_sim_state_s_one_frame_note_is_left_out_of_a_longer_range(bridge: Mo
             "result": {"state": "stopped", "fps": 60.0, "start_time": 0.0, "end_time": 1.0, "looping": True},
         },
     )
-    text = _sim_state_text(bridge, tmp_path)
+    text = _call(bridge, tmp_path, "get_sim_state", {})[1]
     assert "timeline = 0.000 to 1.000 s" in text
     assert "one frame" not in text
 
 
 def test_get_sim_state_gives_no_timeline_line_from_an_older_extension(bridge: MockIsaacServer, tmp_path: Path):
     bridge.set_response("/sim/state", {"status": "success", "result": {"state": "stopped", "fps": 60.0}})
-    assert "timeline" not in _sim_state_text(bridge, tmp_path)
-
-
-def _sim_state_text(bridge: MockIsaacServer, tmp_path: Path) -> str:
-    client = BridgeClient(port=bridge.port, token="invented-test-token")
-    try:
-
-        async def call():
-            async with Client(create_server("127.0.0.1", bridge.port, str(tmp_path), client=client)) as c:
-                return await c.call_tool("get_sim_state", {})
-
-        result = asyncio.run(call())
-    finally:
-        client.close()
-    return "\n".join(getattr(c, "text", "") for c in result.content)
+    assert "timeline" not in _call(bridge, tmp_path, "get_sim_state", {})[1]
 
 
 def test_get_sim_state_names_a_running_job(bridge: MockIsaacServer, tmp_path: Path):

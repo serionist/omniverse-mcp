@@ -543,6 +543,14 @@ timeline.set_looping({loops!r})
 timeline.set_current_time({start!r})
 result = True
 """
+# Looping on and the time set, nothing else touched: the range and the bodies stay as they are.
+_LOOP_FROM = """
+import omni.timeline
+timeline = omni.timeline.get_timeline_interface()
+timeline.set_looping(True)
+timeline.set_current_time({time!r})
+result = True
+"""
 # A rigid cube 5 up the stage's up axis, nothing under it, and its height as PhysX holds it.
 _FALLING_BODY = """
 from pxr import Gf, UsdGeom, UsdPhysics
@@ -788,14 +796,15 @@ class TestIsaacSimIntegration(unittest.TestCase):
 
     def test_02b_the_timeline_s_range_and_what_it_does_at_its_end(self):
         """get_sim_state names the timeline's range and what it does at its end (#180): a range of 1 s that doesn't loop
-        pauses at 1.000 s; looping, playing on takes the time back below 1 s. Its own range, so any Kit app's default
-        does; the range and the looping are put back by cleanups registered first, whatever fails."""
+        pauses at 1.000 s; looping, played from 0.9 s, the time goes back below where it started, which only a wrap at
+        the end does. Its own range, so any Kit app's default does; the range and the looping are put back by cleanups
+        registered first, whatever fails, after the stop, which runs first."""
         before = self._kit(_TIMELINE_READ)
-        self.addCleanup(self.client.sim_control, "stop")
         self.addCleanup(self._kit, _TIMELINE_SET.format(start=before[0], end=before[1], loops=before[2]))
         body = "/World/IntTestTimelineBody"
         self.addCleanup(self.client.delete_prim, body + "Scene")  # made only when the stage has no physics scene
         self.addCleanup(self.client.delete_prim, body)
+        self.addCleanup(self.client.sim_control, "stop")
         self.client.sim_control("stop")
         self._kit(_TIMELINE_SET.format(start=0.0, end=1.0, loops=False))
         self._kit(_FALLING_BODY.replace("PATH", repr(body)))
@@ -810,18 +819,19 @@ class TestIsaacSimIntegration(unittest.TestCase):
         self.assertAlmostEqual(state["sim_time"], 1.0, places=3)
         height_at_end = self._kit(_BODY_HEIGHT.replace("PATH", repr(body)))
 
-        self._kit(_TIMELINE_SET.format(start=0.0, end=1.0, loops=True))
+        # Looping on, the time set to 0.9 s and nothing else reset: 0.5 s of play crosses the end, and a time below 0.9
+        # can only come of the wrap; a timeline that doesn't loop pauses at 1.000 instead (code review round 1, R1).
+        self._kit(_LOOP_FROM.format(time=0.9))
+        height_before_loop = self._kit(_BODY_HEIGHT.replace("PATH", repr(body)))
         self.client.sim_control("play")
         time.sleep(0.5)
         state = self.client.sim_state()["result"]
-        self.assertEqual(state["state"], "playing", state)
-        self.assertLess(
-            state["sim_time"], 0.999, "playing on from the end of a looping timeline went back to its start"
-        )
         height_after_loop = self._kit(_BODY_HEIGHT.replace("PATH", repr(body)))
+        self.assertEqual(state["state"], "playing", state)
+        self.assertLess(state["sim_time"], 0.9, "playing past the end of a looping timeline went back to its start")
         print(
-            f"  paused at {1.0:.3f} s; looping, back to {state['sim_time']:.3f} s; a falling body's height "
-            f"{height_at_end:.3f} at the end, {height_after_loop:.3f} after the loop"
+            f"  paused at 1.000 s; looping from 0.900 s, back to {state['sim_time']:.3f} s; a falling body's height "
+            f"{height_at_end:.3f} at the end, {height_before_loop:.3f} before the loop, {height_after_loop:.3f} after"
         )
 
     def _until_paused(self, seconds: float) -> dict[str, Any]:
