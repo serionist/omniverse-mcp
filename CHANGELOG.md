@@ -5,6 +5,12 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+## 0.5.1 (2026-11-03)
+
+What to do about Kit 110's two hangs. The error a tool gives when Kit stops answering, and the plugin's scene
+skill, name NVIDIA's workaround, a flag Isaac Sim 6.2 starts with, and its cost; no tool or extension behaviour
+changes.
+
 ### Changed
 
 - **A tool's error when Kit stops answering names NVIDIA's workaround for Kit 110's new-view hang:** start Isaac Sim
