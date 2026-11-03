@@ -528,6 +528,52 @@ spec = root.GetPrimAtPath(PATH)
 result = {"root": root.ExportToString(), "camera": spec.GetAsText() if spec else None}
 """
 
+# The timeline's start, end and looping, and a setter for the three (#180). set_end_time writes into the open stage.
+_TIMELINE_READ = """
+import omni.timeline
+timeline = omni.timeline.get_timeline_interface()
+result = [timeline.get_start_time(), timeline.get_end_time(), timeline.is_looping()]
+"""
+_TIMELINE_SET = """
+import omni.timeline
+timeline = omni.timeline.get_timeline_interface()
+timeline.set_start_time({start!r})
+timeline.set_end_time({end!r})
+timeline.set_looping({loops!r})
+timeline.set_current_time({start!r})
+result = True
+"""
+# Looping on and the time set, nothing else touched: the range and the bodies stay as they are.
+_LOOP_FROM = """
+import omni.timeline
+timeline = omni.timeline.get_timeline_interface()
+timeline.set_looping(True)
+timeline.set_current_time({time!r})
+result = True
+"""
+# A rigid cube 5 up the stage's up axis, nothing under it, and its height as PhysX holds it.
+_FALLING_BODY = """
+from pxr import Gf, UsdGeom, UsdPhysics
+stage = omni.usd.get_context().get_stage()
+if not any(prim.IsA(UsdPhysics.Scene) for prim in stage.Traverse()):
+    UsdPhysics.Scene.Define(stage, PATH + "Scene")
+cube = UsdGeom.Cube.Define(stage, PATH)
+cube.CreateSizeAttr(0.2 / UsdGeom.GetStageMetersPerUnit(stage))
+at = [0.0, 0.0, 0.0]
+at["XYZ".index(UsdGeom.GetStageUpAxis(stage))] = 5.0 / UsdGeom.GetStageMetersPerUnit(stage)
+UsdGeom.XformCommonAPI(cube).SetTranslate(Gf.Vec3d(*at))
+UsdPhysics.CollisionAPI.Apply(cube.GetPrim())
+UsdPhysics.RigidBodyAPI.Apply(cube.GetPrim())
+result = True
+"""
+_BODY_HEIGHT = """
+from omni.physx import get_physx_interface
+from pxr import UsdGeom
+stage = omni.usd.get_context().get_stage()
+pose = get_physx_interface().get_rigidbody_transformation(PATH)
+result = float(pose["position"]["XYZ".index(UsdGeom.GetStageUpAxis(stage))])
+"""
+
 # A camera prim aimed at a point from another side than the viewport's, on the stage's up axis. A wide lens, as the
 # viewport's own: with USD's default 50 mm the cube filled the frame, and a box that is the whole frame shows little.
 _AIMED_CAMERA = """
@@ -747,6 +793,55 @@ class TestIsaacSimIntegration(unittest.TestCase):
         app = f"kit_app = {facts['kit_app_name']} {facts['kit_app_version']}"
         self.assertIn(f"{app}\nkit_version = {facts['kit_version']}\nkit_os = {facts['kit_os']}\n", text)
         print(f"  State: {result['result']['state']}, Prims: {result['result']['prim_count']}, {app}")
+
+    def test_02b_the_timeline_s_range_and_what_it_does_at_its_end(self):
+        """get_sim_state names the timeline's range and what it does at its end (#180): a range of 1 s that doesn't loop
+        pauses at 1.000 s; looping, played from 0.9 s, the time goes back below where it started, which only a wrap at
+        the end does. Its own range, so any Kit app's default does; the range and the looping are put back by cleanups
+        registered first, whatever fails, after the stop, which runs first."""
+        before = self._kit(_TIMELINE_READ)
+        self.addCleanup(self._kit, _TIMELINE_SET.format(start=before[0], end=before[1], loops=before[2]))
+        body = "/World/IntTestTimelineBody"
+        self.addCleanup(self.client.delete_prim, body + "Scene")  # made only when the stage has no physics scene
+        self.addCleanup(self.client.delete_prim, body)
+        self.addCleanup(self.client.sim_control, "stop")
+        self.client.sim_control("stop")
+        self._kit(_TIMELINE_SET.format(start=0.0, end=1.0, loops=False))
+        self._kit(_FALLING_BODY.replace("PATH", repr(body)))
+
+        erred, text = call_tool("get_sim_state", {}, self._output_folder())
+        self.assertFalse(erred, text)
+        self.assertIn("timeline = 0.000 to 1.000 s, then pauses at 1.000 s (not looping)\n", text)
+
+        self.client.sim_control("play")
+        state = self._until_paused(10.0)
+        self.assertEqual(state["state"], "paused", state)
+        self.assertAlmostEqual(state["sim_time"], 1.0, places=3)
+        height_at_end = self._kit(_BODY_HEIGHT.replace("PATH", repr(body)))
+
+        # Looping on, the time set to 0.9 s and nothing else reset: 0.5 s of play crosses the end, and a time below 0.9
+        # can only come of the wrap; a timeline that doesn't loop pauses at 1.000 instead (code review round 1, R1).
+        self._kit(_LOOP_FROM.format(time=0.9))
+        height_before_loop = self._kit(_BODY_HEIGHT.replace("PATH", repr(body)))
+        self.client.sim_control("play")
+        time.sleep(0.5)
+        state = self.client.sim_state()["result"]
+        height_after_loop = self._kit(_BODY_HEIGHT.replace("PATH", repr(body)))
+        self.assertEqual(state["state"], "playing", state)
+        self.assertLess(state["sim_time"], 0.9, "playing past the end of a looping timeline went back to its start")
+        print(
+            f"  paused at 1.000 s; looping from 0.900 s, back to {state['sim_time']:.3f} s; a falling body's height "
+            f"{height_at_end:.3f} at the end, {height_before_loop:.3f} before the loop, {height_after_loop:.3f} after"
+        )
+
+    def _until_paused(self, seconds: float) -> dict[str, Any]:
+        """/sim/state's answer once the timeline has paused, or the last one read after `seconds`."""
+        deadline = time.monotonic() + seconds
+        state = self.client.sim_state()["result"]
+        while state["state"] != "paused" and time.monotonic() < deadline:
+            time.sleep(0.1)
+            state = self.client.sim_state()["result"]
+        return state
 
     def test_03_scene_tree(self):
         result = self.client.scene_tree("/", 3)

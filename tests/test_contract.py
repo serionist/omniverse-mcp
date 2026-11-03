@@ -107,6 +107,9 @@ def test_every_tool_and_parameter_is_described(listed):
         ("get_performance", "a stopped timeline gives no physics numbers"),
         # fps is no render rate, and the tool that measures one is named (#156).
         ("get_sim_state", "get_performance measures the frame rate"),
+        # An agent about to run a long job learns where the timeline ends and what it does there (#180).
+        ("get_sim_state", "timeline gives the timeline's range and what it does at its end"),
+        ("run_script_job", "get_sim_state's timeline line says where that is"),
         # A script that only defines or schedules its coroutine is refused, and the agent learns why first (#158).
         ("run_script_job", "a coroutine the script only defines or schedules doesn't count: await it at the top level"),
         # An agent reading these takes many pictures in one call, rereads them from a manifest, and knows what a time

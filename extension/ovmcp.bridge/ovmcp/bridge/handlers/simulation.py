@@ -41,6 +41,7 @@ from ovmcp.core.material import (
     walk_bindings,
 )
 from ovmcp.core.protocol import kit_app
+from ovmcp.core.timeline import timeline_range
 
 from ._utils import _get_stage, _next_update
 from .jobs import job_brief
@@ -106,6 +107,8 @@ async def handle_sim_state(_body: dict) -> dict:
             "state": state,
             "sim_time": sim_time,
             "fps": tps,
+            # Where the timeline ends and whether it loops there, before a long run (#180).
+            **timeline_range(timeline),
             "prim_count": prim_count,
             "up_axis": UsdGeom.GetStageUpAxis(stage),
             "meters_per_unit": UsdGeom.GetStageMetersPerUnit(stage),

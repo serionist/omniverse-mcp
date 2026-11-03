@@ -364,6 +364,22 @@ def test_sim_state_answers_the_kit_app_the_extension_kept(simulation, kit, monke
     assert r["result"]["state"] == "playing"
 
 
+# ---- /sim/state gives the timeline's range and whether it loops (#180) ----
+
+
+def test_sim_state_gives_the_timeline_s_range_and_looping(simulation, kit):
+    kit.start_time, kit.end_time, kit.looping = 0.5, 2.0, False
+
+    r = asyncio.run(simulation.handle_sim_state({}))
+
+    assert r["status"] == "success", r
+    assert {key: r["result"][key] for key in ("start_time", "end_time", "looping")} == {
+        "start_time": 0.5,
+        "end_time": 2.0,
+        "looping": False,
+    }
+
+
 # ---- /sim/state names a running job, as it names a recording (#158) ----
 
 

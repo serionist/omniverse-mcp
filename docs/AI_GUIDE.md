@@ -33,7 +33,8 @@ You are connected to a running NVIDIA Omniverse Kit app (Isaac Sim, USD Composer
 The scene is a USD stage: a hierarchy of prims with paths such as `/World/Robot/base`. Edits apply at once; things
 move only while physics plays.
 
-- **Call `get_sim_state` first:** the up axis (Y or Z), the stage's units, and whether physics is playing.
+- **Call `get_sim_state` first:** the up axis (Y or Z), the stage's units, whether physics is playing, and the
+  timeline's range: a run longer than it pauses at the end, or goes back to the start when the timeline loops.
 - **Look before you act, and after:** `get_scene_tree` for what is there, with `include_properties` for many prims'
   values, `capture_viewport` or `inspect_prim` for how it looks. Never assume a change worked.
 - **Files, not inline data:** images and long answers are written under `mcp_output/` in the server's working folder,

@@ -2988,6 +2988,56 @@ def test_a_wait_past_100_s_or_a_cancel_without_an_id_is_refused_before_any_reque
     assert calls == []
 
 
+@pytest.mark.parametrize(
+    ("timeline", "said"),
+    [
+        # Isaac Sim's own new stage: 1,000,000 time codes at 60 a second, looping (#180).
+        (
+            {"start_time": 0.0, "end_time": 16666.666666666668, "looping": True},
+            ("timeline = 0.000 to 16666.667 s, then back to 0.000 s (looping)",),
+        ),
+        (
+            {"start_time": 0.0, "end_time": 1.0, "looping": False},
+            ("timeline = 0.000 to 1.000 s, then pauses at 1.000 s",),
+        ),
+        # Kit's default range is 100 codes; a file with none runs 0 to 0, a single frame.
+        (
+            {"start_time": 0.0, "end_time": 0.0, "looping": True},
+            ("timeline = 0.000 to 0.000 s, then back to 0.000 s (looping)", "note = the timeline's range is one frame"),
+        ),
+        # One frame away from 0, as Kit's setters make it: 2/24 to 3/24 s at 24, which floating seconds put a hair
+        # over one frame's 1/24 (plan round 1, P1).
+        (
+            {"start_time": 2 / 24, "end_time": 3 / 24, "looping": False, "fps": 24.0},
+            ("timeline = 0.083 to 0.125 s, then pauses at 0.125 s (not looping)", "note = the timeline's range is one"),
+        ),
+    ],
+)
+def test_get_sim_state_gives_the_timeline_s_range_and_what_it_does_at_its_end(
+    bridge: MockIsaacServer, tmp_path: Path, timeline: dict[str, Any], said: tuple[str, ...]
+):
+    case = Case("get_sim_state", {}, "/sim/state", {"state": "stopped", "fps": 60.0, **timeline}, {}, said)
+    _check(case, bridge, tmp_path)
+
+
+def test_get_sim_state_s_one_frame_note_is_left_out_of_a_longer_range(bridge: MockIsaacServer, tmp_path: Path):
+    bridge.set_response(
+        "/sim/state",
+        {
+            "status": "success",
+            "result": {"state": "stopped", "fps": 60.0, "start_time": 0.0, "end_time": 1.0, "looping": True},
+        },
+    )
+    text = _call(bridge, tmp_path, "get_sim_state", {})[1]
+    assert "timeline = 0.000 to 1.000 s" in text
+    assert "one frame" not in text
+
+
+def test_get_sim_state_gives_no_timeline_line_from_an_older_extension(bridge: MockIsaacServer, tmp_path: Path):
+    bridge.set_response("/sim/state", {"status": "success", "result": {"state": "stopped", "fps": 60.0}})
+    assert "timeline" not in _call(bridge, tmp_path, "get_sim_state", {})[1]
+
+
 def test_get_sim_state_names_a_running_job(bridge: MockIsaacServer, tmp_path: Path):
     job = {"id": "j3", "kind": "script", "state": "working", "elapsed": 252.4}
     case = Case(
