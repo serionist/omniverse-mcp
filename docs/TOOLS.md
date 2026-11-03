@@ -1165,8 +1165,9 @@ Get the current simulation state. No parameters.
 - `fps` - the timeline's time codes per second, not the render rate: `get_performance` measures that
 - `timeline` - the timeline's range and what it does at its end, such as
   `0.000 to 1.000 s, then pauses at 1.000 s (not looping)` or `0.000 to 16666.667 s, then back to 0.000 s (looping)`.
-  While it loops, a wait for `time` to pass the end never finishes; a timeline that doesn't loop pauses at its end,
-  and physics with it. Kit's own new stage runs 100 time codes, under 2 s at 60 a second; Isaac Sim's runs
+  While it loops, a wait for `time` to pass the end never finishes, and a loop takes back the time but not the
+  physics: a falling body went on falling past the loop (Isaac Sim 6.2). A timeline that doesn't loop pauses at its
+  end, and physics with it. Kit's own new stage runs 100 time codes, under 2 s at 60 a second; Isaac Sim's runs
   1,000,000; a file with no range runs from 0 to 0. Left out with an extension of 0.4.1 or older
 - `note` - when the range is one frame or less: playing covers a single frame, so time-accumulating sensors and
   controllers produce nothing
