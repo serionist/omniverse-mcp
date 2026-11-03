@@ -81,6 +81,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         relationship targets with include_properties or property_filter; the answer gives the file's path, how many
         prims it holds and how deep it went: grep it, or read it in parts. Kit writes that file itself, so with Kit on
         another machine it lands there. get_prim_properties reads one prim inline.
+
+        The positions and rotations follow the simulation, where physics has each rigid body while it plays or after a
+        pause, so one call with property_filter=["physics:"] gives where every body under root came to rest, whatever
+        the filter keeps of the rest.
         """
         # The parameters that ask for values choose Kit's file; an empty list asks for nothing, so it keeps the list.
         if not (include_properties or filter_types or property_filter):
