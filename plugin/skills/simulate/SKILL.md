@@ -21,7 +21,9 @@ before play, so pause to look at a moment in the middle.
 
 ## Steps
 
-1. **Orient.** `get_sim_state`: the up axis decides which way gravity pulls, and whether the timeline plays.
+1. **Orient.** `get_sim_state`: the up axis decides which way gravity pulls, and whether the timeline plays. Its
+   `timeline` line says how long a run can be: a timeline that doesn't loop pauses at its end, physics with it, and
+   one that loops goes back to its start; Kit's own new stage runs under 2 s.
 2. **Physics on what moves.** `create_prim(..., enable_physics=True)` gives a prim a rigid body and collision;
    `set_physics_properties` sets mass, density, friction and restitution. Without a collider an object falls through
    the ground: `get_prim_properties`' `api_schemas` line says whether a prim has one (`PhysicsCollisionAPI`) and a

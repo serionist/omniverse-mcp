@@ -142,6 +142,10 @@ class FakeKit:
         self.warnings: list[str] = []
         # The running job as /sim/state names it (#158), or None.
         self.job: dict[str, Any] | None = None
+        # The timeline's range and looping, as Isaac Sim's own new stage has them (#180).
+        self.start_time = 0.0
+        self.end_time = 16666.666666666668
+        self.looping = True
 
     def add_body(self, path: str) -> None:
         prim = UsdGeom.Cube.Define(self.stage, path).GetPrim()
@@ -198,6 +202,9 @@ def load_simulation(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
         is_playing=lambda: not kit.stopped,
         get_time_codes_per_seconds=lambda: 60.0,
         get_current_time=lambda: 0.0,
+        get_start_time=lambda: kit.start_time,
+        get_end_time=lambda: kit.end_time,
+        is_looping=lambda: kit.looping,
     )
     context = SimpleNamespace(get_stage_id=lambda: kit.stage_id, get_stage=lambda: kit.stage)
     omni_usd = _module("omni.usd", get_context=lambda: context)

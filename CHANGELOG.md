@@ -82,6 +82,11 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 - **The simulate skill and `get_scene_tree` say how to read where many bodies came to rest:** one
   `get_scene_tree(root, property_filter=["physics:"])`, whose positions and rotations follow the simulation, where
   agents read PhysX body by body with `execute_script` (#181).
+- **`get_sim_state` says where the timeline starts and ends and what it does there:** a `timeline` line such as
+  `0.000 to 1.000 s, then pauses at 1.000 s (not looping)`, and a note when the range is one frame or less, where
+  agents read it with `execute_script` before a long run; `run_script_job`'s description points at it. The change is
+  in the Kit extension: run `uvx omniverse-mcp extension install`, then restart Kit; an older extension gives no line
+  (#180).
 - **`get_prim_properties` lists a prim's applied API schemas and its relationships' targets:** an `api_schemas` line
   (`PhysicsCollisionAPI` for a collider, `MaterialBindingAPI` for a bound material, `[]` for none), and each
   relationship with its targets, such as `material:binding = /World/Looks/Red`, where every relationship read

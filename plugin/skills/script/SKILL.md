@@ -55,7 +55,8 @@ and models are not trained on them: look an API up before using it, never guess.
    `run_script_job(code=...)`, or `file=` for a `.py` on Kit's machine, answers the job's id at once. Then
    `get_job(id, wait=60)` until its state is `completed`, `failed` or `cancelled`: each read gives the lines since the
    last, and at the end the result, or the error and the traceback's last lines. `cancel_job(id)` stops it at its
-   next await. With no id, `get_job()` reads the running or last job, after a compacted conversation too.
+   next await. With no id, `get_job()` reads the running or last job, after a compacted conversation too. Before a
+   job that plays the timeline for long, `get_sim_state`'s `timeline` line says whether it reaches the end first.
 7. **Let a job run alone.** One job runs at a time, and a tool that changes the stage meanwhile changes it under the
    job; `get_sim_state` names the job running.
 

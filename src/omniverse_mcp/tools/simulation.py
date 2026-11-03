@@ -234,6 +234,24 @@ def _unit(direction: list[float]) -> list[float]:
     return [float(d) / length for d in direction]
 
 
+def _timeline_lines(r: dict[str, Any]) -> list[str]:
+    """The timeline's range and what it does at its end, from an extension that sends all three (#180), and a note
+    when the range is one frame or less, where Isaac Sim warns only in Kit's log; none from an older extension."""
+    if not all(key in r for key in ("start_time", "end_time", "looping")):
+        return []
+    start, end = float(r["start_time"]), float(r["end_time"])
+    then = f"then back to {start:.3f} s (looping)" if r["looping"] else f"then pauses at {end:.3f} s (not looping)"
+    lines = [f"timeline = {start:.3f} to {end:.3f} s, {then}"]
+    # In frames, not seconds: Kit puts an end given on the start one frame after it, at any start, and that difference
+    # in floating seconds can come out a hair over one frame's (plan round 1, P1).
+    if (end - start) * float(r.get("fps") or 60.0) <= 1 + 1e-6:
+        lines.append(
+            "note = the timeline's range is one frame or less: playing covers a single frame, so time-accumulating "
+            "sensors and controllers produce nothing"
+        )
+    return lines
+
+
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @tool(mcp, EDITS)
     def sim_control(
@@ -256,6 +274,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         time, the up axis, meters_per_unit, the prim count; the Kit app, its version, Kit's version and the OS Kit
         runs on; and the versions of the Kit extension and this server.
 
+        timeline gives the timeline's range and what it does at its end: while it loops, time goes back to the start
+        there, so a wait for time to pass the end never finishes; a timeline that doesn't loop pauses at its end, and
+        physics with it. A range of one frame or less gets a note.
+
         fps is the timeline's time codes per second, not a render rate: get_performance measures the frame rate. When
         the two versions differ, the answer names the command that installs the matching extension; while a recording
         runs whose frames stopped early, it says why; while a job run_script_job started runs, it names it.
@@ -271,6 +293,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
             f"up_axis = {r.get('up_axis', '?')}",
             f"time = {r.get('sim_time', 0):.3f}s",
             f"fps = {r.get('fps', 0):.1f}",
+            *_timeline_lines(r),
             f"prim_count = {r.get('prim_count', 0)}",
             f"meters_per_unit = {r.get('meters_per_unit', 1.0)}",
             # The Kit app, for a bug report (#105): an extension from before it sends none, which reads unknown.
