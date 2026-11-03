@@ -11,7 +11,7 @@ carries them out with Kit's and USD's APIs: reading and editing the stage, captu
 ## The MCP server
 
 This extension is the Kit half. The other half, the MCP server your AI client starts, comes from PyPI and must be this
-release: `uvx omniverse-mcp==0.5.0` in your client's MCP config. The
+release: `uvx omniverse-mcp==0.5.1` in your client's MCP config. The
 [project's README](https://github.com/serionist/omniverse-mcp#install) says how, for each client.
 
 ## Installation
@@ -23,7 +23,7 @@ Two ways, one at a time: a second copy is a second version of this extension, an
   lists the registry; other Kit apps add it once under **Window > Extensions**, the menu button (three lines) at the
   top right, **Settings**, **Extension Registries**: `kit/community`,
   `https://dw290v42wisod.cloudfront.net/exts/kit/community`. Update it there too, with the server's pin.
-- **With the server's own command:** `uvx omniverse-mcp==0.5.0 extension install` copies the extension of its release
+- **With the server's own command:** `uvx omniverse-mcp==0.5.1 extension install` copies the extension of its release
   to your user data folder and prints the folder. Add that folder to Kit's extension search paths once (the same
   **Settings**, **Extension Search Paths**), then turn on **Omniverse MCP Bridge** with **AUTOLOAD**. A headless Kit
   takes `--ext-folder <that folder> --enable ovmcp.bridge` instead. `uvx omniverse-mcp extension path` prints the

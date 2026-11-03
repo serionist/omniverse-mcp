@@ -201,7 +201,7 @@ The server and the bridge come from one release; update both, then restart Kit a
 - **Unpinned, uvx can move on its own:** uv rechecks PyPI every few minutes, so a new release can start without the
   bridge to match. The server then says so, in `get_sim_state`'s `note` or in the connection error, with the command
   that installs the matching bridge.
-- **Pinned:** `"args": ["omniverse-mcp==0.5.0"]` stays on that release until you change the number, as the plugin
+- **Pinned:** `"args": ["omniverse-mcp==0.5.1"]` stays on that release until you change the number, as the plugin
   does. Install the bridge with the same number: `uvx omniverse-mcp==<version> extension install`.
 - **The bridge from Kit's community registry:** update it in Kit's Extensions window, once Kit lists the release, and
   the server's pin to the same number.
