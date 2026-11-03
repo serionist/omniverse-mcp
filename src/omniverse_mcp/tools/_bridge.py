@@ -19,7 +19,8 @@ KIT_SILENT = (
     "It may be busy with a long synchronous script, or stuck, most likely in NVIDIA's RTX renderer during a new camera "
     "view's first frames (omniverse-mcp issue #114). If it stays silent for minutes, restart the Kit app. Starting "
     "Isaac Sim 6.2 with --/rtx/hydra/supportMultiTickRate=false avoids that hang (NVIDIA's workaround, "
-    "isaac-sim/IsaacSim issue #920); repeated captures of one view then differ a little more."
+    "isaac-sim/IsaacSim issue #920); repeated captures of one view then differ a little more. It works only on "
+    "Kit's command line: set from a script while Kit runs, it doesn't reconfigure the renderer."
 )
 
 
