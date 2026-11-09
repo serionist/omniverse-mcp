@@ -35,7 +35,7 @@ jobs:
           persist-credentials: false
       # The gate is standard library only, so it runs without the project's packages (--no-sync). With nothing
       # installed there is nothing to cache, and setup-uv's cache step would fail on an empty cache folder.
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: false
       - name: No tool attribution, and the issue named
