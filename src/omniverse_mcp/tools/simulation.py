@@ -15,6 +15,7 @@ from ._annotations import EDITS, READS, tool
 from ._bridge import bridge_call
 from ._params import PrimPath
 from .misc import job_line
+from .robot import JOINT_UNITS, joint_state_lines
 
 if TYPE_CHECKING:
     from omniverse_mcp.server import Helpers
@@ -271,7 +272,10 @@ def _step_header(r: dict[str, Any]) -> list[str]:
         took = "" if loaded is None else f", which took {loaded} physics step{'s' if loaded != 1 else ''}"
         lines.append(f"was = stopped: physics loaded{took}")
     if r.get("observed"):
-        lines.append("source = read from PhysX after the last step: the simulated state, not drive targets")
+        lines.append(
+            "source = PhysX after the last step: positions and velocities simulated, targets and gains what it drives "
+            "with"
+        )
     return lines
 
 
@@ -295,14 +299,8 @@ def _observed_block(o: dict[str, Any]) -> list[str]:
         if joints.get("error"):
             lines.append(f"joints_error = {joints['error']}")
         else:
-            lines.append(
-                f"joints = {joints['root']}, {joints['dof_count']} DOF: radians for revolute joints, stage units for "
-                "prismatic ones, velocities per second"
-            )
-            lines += [
-                f"joint.{name} = pos {pos:.4f}, vel {vel:.4f}"
-                for name, pos, vel in zip(joints["names"], joints["positions"], joints["velocities"], strict=False)
-            ]
+            lines.append(f"joints = {joints['root']}, {joints['dof_count']} DOF: {JOINT_UNITS}")
+            lines += [f"joint.{name} = {line}" for name, line in joint_state_lines(joints)]
     return lines
 
 

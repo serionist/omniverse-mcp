@@ -598,3 +598,174 @@ def test_any_other_failure_while_converting_leaves_no_robot_and_names_the_step(
 def test_the_physx_schema_s_table_is_imported_once(robot, table):
     assert robot._physics_exponents() is robot._physics_exponents()
     assert robot._physics_exponents()("physics:density", None) == (1, -3)
+
+
+# ---- a robot's drives, read from physics and written (#199) ----
+
+
+class FakeRows:
+    def __init__(self, row: list[float]) -> None:
+        self.row = row
+
+    def numpy(self) -> Any:
+        import numpy as np
+
+        return np.array([self.row])
+
+
+class FakePhysics:
+    """What Isaac Sim's Articulation holds for /World/Bot: an arm joint with a position drive and a wheel driven by
+    velocity, per radian; `takes_usd` says whether a USD write reaches it, as omni.physx propagates one."""
+
+    def __init__(self, stage: Usd.Stage) -> None:
+        self.stage = stage
+        self.valid = True
+        self.takes_usd = True
+        self.names = ["arm", "wheel"]
+        self.stiffnesses = [57295.78, 0.0]
+        self.dampings = [5729.58, 100.0]
+        self.max_forces = [87.0, 3.4e38]
+        self.view_writes: list[tuple[str, Any]] = []
+
+    def sync_from_usd(self) -> None:
+        """A USD write reaching physics: the arm's drive, per degree in USD, per radian here."""
+        if not self.takes_usd:
+            return
+        drive = UsdPhysics.DriveAPI.Get(self.stage.GetPrimAtPath("/World/Bot/arm"), "angular")
+        self.stiffnesses[0] = drive.GetStiffnessAttr().Get() * 57.29577951308232
+        self.dampings[0] = drive.GetDampingAttr().Get() * 57.29577951308232
+        self.max_forces[0] = drive.GetMaxForceAttr().Get()
+
+
+class FakeArticulation:
+    physics: FakePhysics
+
+    def __init__(self, _root: str) -> None:
+        self.p = FakeArticulation.physics
+        self.dof_names = self.p.names
+
+    def is_physics_tensor_entity_valid(self) -> bool:
+        return self.p.valid
+
+    def get_dof_positions(self) -> FakeRows:
+        return FakeRows([0.25, 312.4])
+
+    def get_dof_velocities(self) -> FakeRows:
+        return FakeRows([0.0, 6.0])
+
+    def get_dof_limits(self) -> tuple[FakeRows, FakeRows]:
+        return FakeRows([-2.9, -3.4e38]), FakeRows([2.9, 3.4e38])
+
+    def get_dof_position_targets(self) -> FakeRows:
+        return FakeRows([0.5, 0.0])
+
+    def get_dof_gains(self) -> tuple[FakeRows, FakeRows]:
+        return FakeRows(list(self.p.stiffnesses)), FakeRows(list(self.p.dampings))
+
+    def get_dof_max_efforts(self) -> FakeRows:
+        return FakeRows(list(self.p.max_forces))
+
+    def set_dof_gains(self, stiffnesses=None, dampings=None, *, dof_indices: list[int]) -> None:
+        (i,) = dof_indices
+        if stiffnesses is not None:
+            self.p.stiffnesses[i] = stiffnesses[0][0]
+        if dampings is not None:
+            self.p.dampings[i] = dampings[0][0]
+        self.p.view_writes.append(("gains", i))
+
+    def set_dof_max_efforts(self, max_efforts, *, dof_indices: list[int]) -> None:
+        (i,) = dof_indices
+        self.p.max_forces[i] = max_efforts[0][0]
+        self.p.view_writes.append(("max_efforts", i))
+
+
+@pytest.fixture
+def physics(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> FakePhysics:
+    """/World/Bot, an articulation of an arm joint with an angular drive and a hand joint without one, and Isaac Sim's
+    Articulation faked over it; each update lets physics take what USD holds."""
+    bot = UsdGeom.Xform.Define(kit.stage, "/World/Bot").GetPrim()
+    UsdPhysics.ArticulationRootAPI.Apply(bot)
+    arm = UsdPhysics.RevoluteJoint.Define(kit.stage, "/World/Bot/arm").GetPrim()
+    drive = UsdPhysics.DriveAPI.Apply(arm, "angular")
+    drive.CreateStiffnessAttr(1000.0)
+    drive.CreateDampingAttr(100.0)
+    drive.CreateMaxForceAttr(87.0)
+    UsdPhysics.RevoluteJoint.Define(kit.stage, "/World/Bot/hand")
+    physics = FakePhysics(kit.stage)
+    FakeArticulation.physics = physics
+    monkeypatch.setitem(
+        sys.modules, "isaacsim.core.experimental.prims", _module("prims", Articulation=FakeArticulation)
+    )
+    return physics
+
+
+def _drives(robot: Any, physics: FakePhysics, monkeypatch: pytest.MonkeyPatch, **drives: Any) -> dict[str, Any]:
+    async def update() -> None:
+        physics.sync_from_usd()
+
+    monkeypatch.setattr(robot, "_next_update", update)
+    return asyncio.run(robot.handle_set_joint_drives({"prim_path": "/World/Bot", "drives": drives}))
+
+
+def test_joint_states_read_each_drive_and_no_tracking_error_without_a_position_drive(robot, physics):
+    r = asyncio.run(robot.handle_get_joint_states({"prim_path": "/World/Bot"}))
+    assert r["status"] == "success", r
+    states = r["result"]
+    assert states["targets"] == [0.5, 0.0]
+    assert states["stiffnesses"] == pytest.approx([57295.78, 0.0])
+    assert states["max_forces"] == pytest.approx([87.0, 3.4e38])
+    assert states["lower_limits"] == pytest.approx([-2.9, -3.4e38])
+    # The wheel, driven by velocity, has no position target pulling it.
+    assert states["tracking_errors"] == pytest.approx([0.25, None])
+
+
+def test_a_drive_is_written_to_usd_per_degree_and_read_back_from_physics(robot, kit, physics, monkeypatch):
+    r = _drives(robot, physics, monkeypatch, arm={"stiffness": 114591.56, "max_force": 50.0})
+    assert r["status"] == "success", r
+    result = r["result"]
+    drive = UsdPhysics.DriveAPI.Get(kit.stage.GetPrimAtPath("/World/Bot/arm"), "angular")
+    assert drive.GetStiffnessAttr().Get() == pytest.approx(2000.0, rel=1e-6)  # per degree in USD
+    assert drive.GetDampingAttr().Get() == pytest.approx(100.0)  # not asked for, so as it was
+    assert result["written"]["arm"] == {
+        "kind": "angular",
+        "usd": pytest.approx({"stiffness": 2000.0, "max_force": 50.0}),
+    }
+    assert result["in_simulation"]["arm"]["stiffness"] == pytest.approx(114591.56, rel=1e-5)
+    assert result["through_view"] is False
+    assert physics.view_writes == []
+
+
+def test_a_write_physics_did_not_take_goes_through_the_view(robot, physics, monkeypatch):
+    physics.takes_usd = False
+    r = _drives(robot, physics, monkeypatch, arm={"damping": 1000.0})
+    result = r["result"]
+    assert result["through_view"] is True
+    assert physics.view_writes == [("gains", 0)]
+    assert result["in_simulation"]["arm"]["damping"] == pytest.approx(1000.0)
+
+
+def test_a_joint_without_a_drive_or_a_name_is_not_written(robot, physics, monkeypatch):
+    r = _drives(robot, physics, monkeypatch, hand={"stiffness": 10.0}, elbow={"damping": 1.0})
+    assert r["result"]["not_written"] == {
+        "hand": "no drive: set_joint_targets gives it one",
+        "elbow": "no joint of that name under /World/Bot",
+    }
+    assert r["result"]["written"] == {}
+
+
+def test_without_a_physics_view_the_drives_are_in_usd_and_the_answer_says_why(robot, physics, monkeypatch):
+    physics.valid = False
+    r = _drives(robot, physics, monkeypatch, arm={"stiffness": 5729.58})
+    assert "No physics view of /World/Bot" in r["result"]["in_simulation"]["arm"]["none"]
+    assert r["result"]["through_view"] is False
+
+
+@pytest.mark.parametrize(
+    "drives",
+    [{"arm": {"stiffness": -1}}, {"arm": {"stiffness": float("nan")}}, {"arm": {"kp": 1}}, {"arm": {}}, {}],
+)
+def test_a_drive_no_physics_takes_is_refused_before_anything_is_written(robot, kit, physics, monkeypatch, drives):
+    r = _drives(robot, physics, monkeypatch, **drives)
+    assert r["status"] == "error"
+    drive = UsdPhysics.DriveAPI.Get(kit.stage.GetPrimAtPath("/World/Bot/arm"), "angular")
+    assert drive.GetStiffnessAttr().Get() == 1000.0

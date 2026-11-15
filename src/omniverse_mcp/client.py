@@ -469,6 +469,9 @@ class BridgeClient:
             body["targets"] = targets
         return self.request("/robot/joint_targets", body)
 
+    def set_joint_drives(self, prim_path: str, drives: dict[str, dict[str, float]]) -> dict[str, Any]:
+        return self.request("/robot/joint_drives", {"prim_path": prim_path, "drives": drives})
+
     # ----- Simulation -----
 
     def sim_control(self, action: str) -> dict[str, Any]:

@@ -2243,6 +2243,58 @@ class TestScenarios(PhysicsChecks):
         self.assertLess(abs(target - moved), abs(target - start), f"joint1 went from {start} to {moved}, not to 30 deg")
         self._pass()
 
+    def test_15_19_a_stiffer_drive_holds_a_franka_s_shoulder_closer_to_its_target(self):
+        """Phase 15.19: a Franka's shoulder (panda_joint2, which gravity loads) held out at 60 degrees sags under a soft
+        drive; set_joint_drives' stiffer one, read back from physics, settles it nearer its target; a jetbot's wheel,
+        driven by velocity, has no tracking error (#199)"""
+        path, wheels = "/World/DriveFranka", "/World/DriveJetbot"
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+        for prim in (path, wheels):
+            self.addCleanup(self.c.delete_prim, prim)
+        self.addCleanup(self.c.sim_control, "stop")
+        up = self._up_axis()
+        self.assertEqual(self.c.create_robot("franka", path, position=_along_up(up, 0, x=-80))["status"], "success")
+        self.assertEqual(self.c.create_robot("jetbot", wheels, position=_along_up(up, 0, x=-90))["status"], "success")
+        self.assertEqual(self.c.set_joint_targets(path, {"panda_joint2": 60.0})["status"], "success")
+
+        def shoulder(steps: int) -> dict:
+            r = self.c.sim_step(steps, [path])
+            self.assertEqual(r["status"], "success", r)
+            joints = r["result"]["observed"][0]["joints"]
+            self.assertNotIn("error", joints, joints)
+            i = joints["names"].index("panda_joint2")
+            return {key: joints[key][i] for key in ("positions", "targets", "stiffnesses", "tracking_errors")}
+
+        def settled(kp: float) -> float:
+            r = self.c.set_joint_drives(path, {"panda_joint2": {"stiffness": kp}})
+            self.assertEqual(r["status"], "success", r)
+            held = r["result"].get("in_simulation", {}).get("panda_joint2", {})
+            if "stiffness" in held:  # read back from physics once it holds the robot
+                self.assertAlmostEqual(held["stiffness"], kp, delta=kp * 1e-3)
+            error = shoulder(0)["tracking_errors"]
+            for _ in range(5):  # 120 steps a read, at most 600
+                before, error = error, shoulder(120)["tracking_errors"]
+                self.assertIsNotNone(error, "a position drive holds the shoulder")
+                if abs(error - before) <= abs(before) * 0.01:
+                    break
+            self.assertAlmostEqual(shoulder(0)["stiffnesses"], kp, delta=kp * 1e-3)
+            return abs(error)
+
+        soft = settled(300.0)
+        stiff = settled(30000.0)
+        self.assertLess(stiff, soft, f"the stiffer drive left the shoulder {stiff} rad off, the soft one {soft}")
+        print(f"  panda_joint2's settled error: {soft:.4f} rad at kp 300, {stiff:.4f} at kp 30000")
+
+        r = self.c.sim_step(0, [wheels])
+        joints = r["result"]["observed"][0]["joints"]
+        wheel_errors = [
+            e for name, e in zip(joints["names"], joints["tracking_errors"], strict=True) if "wheel" in name
+        ]
+        self.assertTrue(wheel_errors, joints["names"])
+        self.assertEqual(wheel_errors, [None] * len(wheel_errors), "a velocity-driven wheel has no tracking error")
+        self._pass()
+
     # ===== Phase 16: Raycasting & Debug Draw =====
 
     def test_16_01_raycast_hit(self):

@@ -46,6 +46,7 @@ from .robot import (
     handle_create_robot,
     handle_get_joint_states,
     handle_get_robot_info,
+    handle_set_joint_drives,
     handle_set_joint_targets,
 )
 
@@ -125,6 +126,7 @@ __all__ = [
     "handle_create_robot",
     "handle_get_joint_states",
     "handle_get_robot_info",
+    "handle_set_joint_drives",
     "handle_set_joint_targets",
     # Scene
     "handle_clone_prim",

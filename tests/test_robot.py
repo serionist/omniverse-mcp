@@ -5,7 +5,17 @@ a file to the stage are tests/test_metrics.py's."""
 import pytest
 from pxr import Usd, UsdGeom, UsdPhysics
 
-from ovmcp.core.robot import ARTICULATION, BODY, articulation_root, is_usd_file, observed_kinds, robot_prim_path
+from ovmcp.core.robot import (
+    ARTICULATION,
+    BODY,
+    articulation_root,
+    from_usd_gain,
+    is_usd_file,
+    observed_kinds,
+    robot_prim_path,
+    to_usd_gain,
+    tracking_errors,
+)
 
 
 @pytest.mark.parametrize(
@@ -78,3 +88,26 @@ def test_a_stepped_read_tells_a_body_a_robot_both_and_neither(robots: Usd.Stage)
     assert observed_kinds(robots.GetPrimAtPath("/World/Biped")) == {ARTICULATION}
     assert observed_kinds(pelvis) == {BODY, ARTICULATION}
     assert observed_kinds(robots.GetPrimAtPath("/World/Light")) == set()
+
+
+# ----- drive gains (#199) -----
+
+
+def test_an_angular_gain_is_per_radian_in_physics_and_per_degree_in_usd():
+    # Isaac Sim's own reading of a Franka: USD 400 per degree is 22918.31 per radian.
+    assert from_usd_gain(400.0, angular=True) == pytest.approx(22918.31, abs=0.01)
+    assert to_usd_gain(22918.31, angular=True) == pytest.approx(400.0, abs=1e-3)
+
+
+@pytest.mark.parametrize(("value", "angular"), [(1000.0, True), (5.5, True), (1000.0, False), (0.0, True)])
+def test_a_gain_goes_to_usd_and_back_unchanged(value: float, angular: bool):
+    assert from_usd_gain(to_usd_gain(value, angular), angular) == pytest.approx(value)
+
+
+def test_a_linear_gain_is_the_same_in_both():
+    assert to_usd_gain(250.0, angular=False) == from_usd_gain(250.0, angular=False) == 250.0
+
+
+def test_the_tracking_error_is_the_target_s_less_the_position_where_a_position_drive_acts():
+    # The second is a velocity-driven wheel (stiffness 0): no position target pulls it.
+    assert tracking_errors([0.25, 312.4, -1.0], [0.5, 0.0, -0.5], [57295.8, 0.0, 10.0]) == [0.25, None, 0.5]

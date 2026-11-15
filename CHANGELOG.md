@@ -17,9 +17,17 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   PhysX in the same call: a rigid body's position, rotation and velocities, a robot's joints. From playing it pauses
   first; from stopped it loads physics. The step, look, adjust loop of debugging a body or a robot, which needed
   `execute_script` before (#198).
+- **`set_joint_drives`, and each joint's drive in the joint states:** `get_robot_info` and `sim_control`'s `observe`
+  give each joint's target, tracking error (`none` where no position drive acts), limits, stiffness, damping and
+  force limit as PhysX drives with them, in radians and per radian; `set_joint_drives` takes stiffness, damping and
+  force limit in those same units, writes them to USD (per degree for an angular drive), and reads back what the
+  simulation holds. Tuning a drive no longer needs the attribute names or the per-degree arithmetic (#199).
 
 ### Changed
 
+- **The joint state lines' format:** `get_robot_info`'s `joint: pos=0.5 vel=0.0` is now `joint: pos 0.5000, vel
+  0.0000, target ...`, as the step's `joint.<name>` lines are, and the step's `source` line says targets and gains
+  are what PhysX drives with (#199).
 - **The server's instructions, the `script` skill and the docs name a second Context7 library,**
   `/websites/omniverse_nvidia_kit_omni_physics`, for PhysX: stepping by hand, Fabric and the `/physics/*` settings,
   which `isaac-sim/isaacsim` doesn't hold (#204).
