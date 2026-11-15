@@ -59,21 +59,24 @@ pull that changes `uv.lock`, and restart Kit and the client.
 
 ### API lookups
 
-The repo's `.mcp.json` names two documentation servers for the Kit, Isaac Sim, USD and PhysX APIs a change calls
-(AGENTS.md, Look up APIs before coding against them):
+Two documentation servers answer for the Kit, Isaac Sim, USD and PhysX APIs a change calls (AGENTS.md, Look up APIs
+before coding against them):
 
 - **Context7**, on once `.claude/settings.local.json.example` is copied to `.claude/settings.local.json`: library
   `isaac-sim/isaacsim` for Isaac Sim, and `/websites/omniverse_nvidia_kit_omni_physics` for omni.physx (manual
   stepping, Fabric, the `/physics/*` settings), which the first doesn't hold.
-- **`nvidia-kit`**, NVIDIA's own Kit documentation server, optional: it searches Kit 110's extension docs and source,
-  such as usdrt and OmniGraph's Script Node, which Context7 lacks. It runs on your machine, in Docker, with an
-  [NVIDIA API key](https://build.nvidia.com) for its search. From a clone of
-  [NVIDIA-Omniverse/kit-usd-agents](https://github.com/NVIDIA-Omniverse/kit-usd-agents), in `source/mcp`: copy
-  `.env.example` to `.env` and set `NVIDIA_API_KEY` there, run `build-wheels.sh kit` (it needs Poetry), then
-  `docker compose -f docker-compose.ngc.yaml up -d kit-mcp`; it answers at `http://localhost:9902/mcp`. Add
-  `"nvidia-kit"` to `enabledMcpjsonServers` in your `.claude/settings.local.json`. Its Isaac Sim and USD servers lost
-  to Context7 on this repo's questions (#204), so they aren't named. Neither source covers Kit 107 (Isaac Sim 5.x):
-  the live suites are the check there.
+- **NVIDIA's Kit documentation server**, optional: it searches Kit 110's extension docs and source, such as usdrt and
+  OmniGraph's Script Node, which Context7 lacks. It runs on your machine, in Docker, with an
+  [NVIDIA API key](https://build.nvidia.com) for its search. Clone
+  [NVIDIA-Omniverse/kit-usd-agents](https://github.com/NVIDIA-Omniverse/kit-usd-agents) with Git LFS installed, and
+  in its `source/mcp`:
+  1. copy `.env.example` to `.env` and set `NVIDIA_API_KEY` there;
+  2. `./build-wheels.sh kit`, which needs Poetry (PowerShell: `.\build-wheels.bat kit`);
+  3. `docker compose -f docker-compose.ngc.yaml up -d kit-mcp`, which answers at `http://localhost:9902/mcp`;
+  4. `claude mcp add --transport http nvidia-kit http://localhost:9902/mcp`, for you alone.
+
+  Its Isaac Sim and USD servers lost to Context7 on this repo's questions (#204), so they aren't named. Neither source
+  covers Kit 107 (Isaac Sim 5.x): the live suites are the check there.
 
 ### The live suites
 
