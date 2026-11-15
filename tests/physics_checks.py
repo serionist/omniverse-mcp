@@ -179,14 +179,16 @@ class PhysicsChecks(unittest.TestCase):
         self.assertEqual(rest["was"], "stopped")
         # The plan's Step 1 numbers, from every run: the steps the load took and whether Fabric was updated.
         print(f"  {name}: load_steps={rest['load_steps']}, fabric={rest['fabric']}")
-        loaded = rest["load_steps"] or 0
-        self.assertAlmostEqual(rest["body"]["linear_velocity"][up], -gravity * loaded * dt, delta=gravity * dt * 0.01)
+        # The speed the load left, read without a step: Isaac Sim's count of the load's steps read 2 in one run and 4
+        # in another on Isaac Sim 6.2 (#198's live run), so the steps asked for are measured from here, not from it.
+        start_speed = rest["body"]["linear_velocity"][up]
+        self.assertLessEqual(start_speed, 1e-6, "the load left the cube rising")
         start = rest["time"]
         for total in (30, 60):
             stepped = step(30)
-            speed = stepped["body"]["linear_velocity"][up]
-            expected = -gravity * (total + loaded) * dt
-            self.assertAlmostEqual(speed, expected, delta=abs(expected) * 0.01, msg=f"after {total} steps")
+            gained = stepped["body"]["linear_velocity"][up] - start_speed
+            expected = -gravity * total * dt
+            self.assertAlmostEqual(gained, expected, delta=abs(expected) * 0.01, msg=f"after {total} steps")
             self.assertEqual(stepped["time"], start, "stepping moved the timeline's time")
 
         position = stepped["body"]["position"]
