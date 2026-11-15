@@ -53,3 +53,5 @@ with `--/rtx/hydra/supportMultiTickRate=false`, 2026-11-15, on a local merge of 
   (another session started it, its log elsewhere, with the multi-tick flag); a run of `main` on the same launch
   settles it.
 - I1 to I3 (`np.fmin.at`, the legend's precision, the renames) came after the run; unit tests cover them.
+- 26.03, settled on the same Kit launch with `main`'s bridge (`2532cc9`, without this change), 16:27 UTC: it fails
+  there too, with the same count (5 assignments, not 2), so it isn't this change's; filed as #211.
