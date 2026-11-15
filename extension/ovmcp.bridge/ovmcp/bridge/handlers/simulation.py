@@ -293,9 +293,7 @@ def _read_body(path: str) -> dict:
 
 async def handle_sim_state(_body: dict) -> dict:
     timeline = omni.timeline.get_timeline_interface()
-    is_playing = timeline.is_playing()
-    is_stopped = timeline.is_stopped()
-    state = "playing" if is_playing else ("stopped" if is_stopped else "paused")
+    state = _state(timeline)
 
     stage = _get_stage()
     prim_count = sum(1 for _ in stage.Traverse())  # O(n) — acceptable for status endpoint

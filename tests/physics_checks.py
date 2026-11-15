@@ -177,6 +177,8 @@ class PhysicsChecks(unittest.TestCase):
 
         rest = step(0)
         self.assertEqual(rest["was"], "stopped")
+        # The plan's Step 1 numbers, from every run: the steps the load took and whether Fabric was updated.
+        print(f"  {name}: load_steps={rest['load_steps']}, fabric={rest['fabric']}")
         loaded = rest["load_steps"] or 0
         self.assertAlmostEqual(rest["body"]["linear_velocity"][up], -gravity * loaded * dt, delta=gravity * dt * 0.01)
         start = rest["time"]

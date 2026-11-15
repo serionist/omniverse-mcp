@@ -38,5 +38,5 @@ answers them. REVIEW questions on the PR's text wait for the PR.
 
 | # | Improvement | Answer |
 |---|---|---|
-| I1 | `handle_sim_state` repeats the playing, stopped or paused expression `_state(timeline)` now holds | open |
-| I2 | `_check_exact_steps` prints the answer's `load_steps` and `fabric`, so every live run records Step 1's numbers | open |
+| I1 | `handle_sim_state` repeats the playing, stopped or paused expression `_state(timeline)` now holds | taken |
+| I2 | `_check_exact_steps` prints the answer's `load_steps` and `fabric`, so every live run records Step 1's numbers | taken |
