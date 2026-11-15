@@ -148,6 +148,14 @@ tool contract, and the maintainer's agreement is recorded in #198 (round 1, P2).
 - **Long steps block Kit:** bounded at 1000 steps, yielding every 50 ms, and capped at 90 s of wall clock with
   "stepped k of N". Resolved.
 
+## Progress
+
+- **Fabric's update, from omni.physx's guide** to manual stepping (`simulation_control.html`): `omni.physxfabric`'s
+  `get_physx_fabric_interface().update(dt, current_time)` after each `fetch_results()`, not once after the last step
+  with `(t, dt)` as Design first said; the code follows the guide.
+- **The Franka check** went to `tests/test_scenarios.py` (15.18), beside phase 15's own Franka test, rather than
+  `test_integration.py`, so it reuses that phase's setup.
+
 ## Plan review
 
 ### Fit

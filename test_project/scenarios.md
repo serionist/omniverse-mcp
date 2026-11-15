@@ -171,9 +171,10 @@ Needs: 2.1, 4.5
 - `sim_control("stop")` → verify state is "stopped"
 
 ### 5.2 Step
-- `get_sim_state`, then `sim_control("step")`, then `get_sim_state` again
-- Verify: the step's answer says paused, and `time` moved on by the two app updates a step plays, as `sim_control`'s
-  description says: about 2 / fps (0.033 s at 60)
+- `get_sim_state`, then `sim_control("step", steps=30, observe=["/World/RedCube"])`, then `get_sim_state` again
+- Verify: the step's answer says paused and `stepped = 30 of 30 physics steps`, with a `[/World/RedCube]` block whose
+  `position` and `linear_velocity` are numbers, or an `error` line saying it is no rigid body; `time` is where it was
+  before the step, as `sim_control`'s description says the timeline's time doesn't move
 
 ### 5.3 Gravity Test
 - Reset cube: `set_prim_transform("/World/RedCube", position=[0,3,0])`

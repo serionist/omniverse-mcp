@@ -27,6 +27,21 @@ def robot_prim_path(robot_type: str) -> str:
     return "/World/" + Tf.MakeValidIdentifier(name)
 
 
+BODY = "body"
+ARTICULATION = "articulation"
+
+
+def observed_kinds(prim: Usd.Prim) -> frozenset[str]:
+    """What a stepped read of prim gives (#198): BODY for a rigid body, ARTICULATION when an articulation root is at or
+    under it, both for a prim that is both, as a G1's pelvis is, and neither for anything else."""
+    kinds: set[str] = set()
+    if has_api(prim, UsdPhysics.RigidBodyAPI):
+        kinds.add(BODY)
+    if articulation_root(prim) is not None:
+        kinds.add(ARTICULATION)
+    return frozenset(kinds)
+
+
 def articulation_root(prim: Usd.Prim) -> str | None:
     """The path of the robot's articulation root: prim itself, or its first descendant with ArticulationRootAPI, inside
     instanced assets too, as get_robot_info finds it. Isaac Sim 5.1 and 6.2 look for it each their own way, so the

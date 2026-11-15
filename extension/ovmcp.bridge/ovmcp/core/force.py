@@ -1,4 +1,5 @@
-"""apply_force's request, checked, whether PhysX can push the body, and the point it pushes at. No Kit.
+"""apply_force's request, checked, whether PhysX can push the body, and the point it pushes at; /sim/step's request
+and a body's state as it reads one back (#198). No Kit.
 
 The handler reads the facts from Kit and PhysX and passes them in, so the decisions here are unit-tested without it.
 What holds a body, an articulation it is a link of or a fixed joint to the world, is read from the stage, which
@@ -149,6 +150,48 @@ def tensor_centre_of_mass(transform7: object, com7: object) -> Vec3:
     pose = _vector(transform7, 7, "transform")
     com = _vector(com7, 7, "com")
     return world_point(pose[:3], pose[3:], com[:3])
+
+
+def body_state(transform7: object, velocity6: object) -> dict[str, list[float]]:
+    """A rigid body's state from the tensor API's two rows (#198): get_transforms' (x, y, z, qx, qy, qz, qw) and
+    get_velocities' (vx, vy, vz, wx, wy, wz), angular in rad/s. Given as the bridge's other answers give them: the
+    rotation w first, as get_prim_properties gives a quaternion, and the angular velocity in degrees per second, as USD
+    and the rest of the tools give angles."""
+    pose = _vector(transform7, 7, "transform")
+    velocity = _vector(velocity6, 6, "velocity")
+    return {
+        "position": pose[:3],
+        "rotation": [pose[6], *pose[3:6]],
+        "linear_velocity": velocity[:3],
+        "angular_velocity": [math.degrees(w) for w in velocity[3:]],
+    }
+
+
+# The most physics steps one /sim/step takes (#198): 16.7 s of physics at 60 Hz. Longer runs play, or run as a job.
+MAX_STEPS = 1000
+# The most prims one /sim/step reads back.
+MAX_OBSERVED = 20
+
+
+@dataclass(frozen=True)
+class StepArgs:
+    steps: int
+    observe: tuple[str, ...]
+
+
+def step_args(body: Mapping[str, Any]) -> StepArgs:
+    """/sim/step's request body, checked; the ValueError says what is wrong with it. 0 steps reads without stepping."""
+    steps = body.get("steps", 1)
+    # bool is an int to Python, and true is no count.
+    if isinstance(steps, bool) or not isinstance(steps, int) or not 0 <= steps <= MAX_STEPS:
+        raise ValueError(f"steps must be a whole number from 0 to {MAX_STEPS} (got {steps!r})")
+    given: object = body.get("observe") or []
+    if not isinstance(given, list) or not all(isinstance(p, str) and p for p in cast(list[object], given)):
+        raise ValueError(f"observe must be a list of prim paths (got {given!r})")
+    paths = cast(list[str], given)
+    if len(paths) > MAX_OBSERVED:
+        raise ValueError(f"observe takes at most {MAX_OBSERVED} prims (got {len(paths)})")
+    return StepArgs(steps, tuple(dict.fromkeys(paths)))
 
 
 def fixed_refusal(prim_path: str, fixed_base: str, articulation: str | None) -> str:

@@ -4,6 +4,9 @@ Simulation and physics handlers.
 Handles sim control, sim state, physics properties, apply force, and raycast.
 """
 
+import asyncio
+import contextlib
+import time
 import traceback
 
 import carb
@@ -16,11 +19,14 @@ from ovmcp.core.force import (
     AT_CENTRE_OF_MASS,
     AT_GIVEN,
     Joints,
+    StepArgs,
+    body_state,
     centre_of_mass,
     fixed_refusal,
     force_args,
     one_step_force,
     refusal,
+    step_args,
     step_seconds,
     tensor_centre_of_mass,
     world_point,
@@ -41,6 +47,7 @@ from ovmcp.core.material import (
     walk_bindings,
 )
 from ovmcp.core.protocol import kit_app
+from ovmcp.core.robot import ARTICULATION, BODY, articulation_root, observed_kinds
 from ovmcp.core.timeline import timeline_range
 
 from ._utils import _get_stage, _next_update
@@ -76,11 +83,200 @@ async def handle_sim_control(body: dict) -> dict:
     # Let the timeline state settle before reading it
     await _next_update()
 
-    is_playing = timeline.is_playing()
-    is_stopped = timeline.is_stopped()
-    state = "playing" if is_playing else ("stopped" if is_stopped else "paused")
+    return {"status": "success", "result": {"action": action, "current_state": _state(timeline)}}
 
-    return {"status": "success", "result": {"action": action, "current_state": state}}
+
+def _state(timeline) -> str:
+    """The timeline's state as the answers name it: playing, paused or stopped."""
+    return "playing" if timeline.is_playing() else ("stopped" if timeline.is_stopped() else "paused")
+
+
+# ---------------------------------------------------------------------------
+# /sim/step
+# ---------------------------------------------------------------------------
+
+# Stepping yields to Kit's loop this often, so its UI and the bridge's other requests aren't starved; a paused timeline
+# steps nothing on those updates.
+YIELD_SECONDS = 0.05
+# Stepping stops here and answers with the steps it took, under the server's 120 s, as get_performance stops at 90 s.
+STEP_SECONDS = 90.0
+
+# Held while a /sim/step runs: a second is refused, never queued, so it can't step for a caller the server gave up on.
+_stepping = asyncio.Lock()
+
+
+async def handle_sim_step(body: dict) -> dict:
+    """Step physics exactly `steps` times of the physics scene's dt and read back the prims in `observe` (#198).
+
+    PhysX's own manual loop on a paused timeline, as Isaac Sim's SimulationManager.step and its grasping tools step:
+    simulate, fetch_results, and Fabric's update after each, as omni.physx's guide to manual stepping has it. The
+    timeline's time doesn't move: recordings, time-sampled animation and Action Graphs on playback ticks don't advance.
+    """
+    try:
+        args = step_args(body)
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
+    if _stepping.locked():
+        return {"status": "error", "error": "A step is running: wait for its answer, then step again"}
+    async with _stepping:
+        return await _step(args)
+
+
+def _active_engine() -> str | None:
+    """Isaac Sim's active physics engine, "physx" or "newton"; None in a Kit app without Isaac Sim's simulation
+    manager, or one older than get_active_physics_engine, where PhysX is the only engine."""
+    try:
+        from isaacsim.core.simulation_manager import SimulationManager
+    except ImportError:
+        return None
+    get = getattr(SimulationManager, "get_active_physics_engine", None)
+    return str(get()) if get is not None else None
+
+
+def _physics_steps() -> int | None:
+    """Isaac Sim's count of physics steps, to tell how many the load from stopped took; None without it."""
+    try:
+        from isaacsim.core.simulation_manager import SimulationManager
+    except ImportError:
+        return None
+    get = getattr(SimulationManager, "get_num_physics_steps", None)
+    return int(get()) if get is not None else None
+
+
+def _fabric_update():
+    """omni.physx.fabric's update(dt, current_time), which manual stepping calls after each fetch_results so Fabric,
+    the viewport and captures show the stepped pose; None when the extension isn't loaded, where PhysX writes USD."""
+    try:
+        from omni.physxfabric import get_physx_fabric_interface
+    except ImportError:
+        return None
+    return get_physx_fabric_interface().update
+
+
+async def _step(args: StepArgs) -> dict:
+    try:
+        from omni.physx import get_physx_simulation_interface
+    except ImportError as e:
+        return {"status": "error", "error": f"PhysX (omni.physx) is not loaded in this Kit app: {e}"}
+    engine = _active_engine()
+    if engine not in (None, "physx"):
+        return {
+            "status": "error",
+            "error": f"The active physics engine is {engine}: stepping goes through PhysX, which runs nothing under "
+            "it. Play and pause with sim_control instead, or switch back to PhysX",
+        }
+    stage = _get_stage()
+    try:
+        dt = step_seconds(stage).seconds
+    except ValueError as e:
+        return {"status": "error", "error": f"the physics scene's step can't be used: {e}"}
+
+    timeline = omni.timeline.get_timeline_interface()
+    was = _state(timeline)
+    before = _physics_steps()
+    if was == "playing":
+        timeline.pause()
+        timeline.commit()
+    elif was == "stopped":
+        # PhysX loads the stage on play. Committed at once, the play and the pause both apply before the update, so
+        # Kit's loop never runs the timeline: whats2000 measured 0 steps this way on Isaac Sim 6.0.1.
+        timeline.play()
+        timeline.commit()
+        timeline.pause()
+        timeline.commit()
+    await _next_update()
+    after = _physics_steps()
+    load_steps = after - before if was == "stopped" and before is not None and after is not None else None
+
+    simulation = get_physx_simulation_interface()
+    fabric = _fabric_update()
+    stage_id = omni.usd.get_context().get_stage_id()
+    base = float(timeline.get_current_time())
+    done, stopped_early = 0, None
+    started = last_yield = time.monotonic()
+    while done < args.steps:
+        now = time.monotonic()
+        if now - started > STEP_SECONDS:
+            stopped_early = f"the call reached its {STEP_SECONDS:.0f} s limit: ask for fewer steps"
+            break
+        if now - last_yield > YIELD_SECONDS:
+            await _next_update()
+            last_yield = time.monotonic()
+            # Kit's loop ran: someone may have played, stopped or swapped the stage meanwhile.
+            if _state(timeline) != "paused" or omni.usd.get_context().get_stage_id() != stage_id:
+                stopped_early = "the timeline or the stage changed while stepping"
+                break
+        current = base + done * dt
+        simulation.simulate(dt, current)
+        simulation.fetch_results()
+        if fabric is not None:
+            fabric(dt, current)
+        done += 1
+    # One update, so the viewport renders the stepped pose before any capture asks for it.
+    await _next_update()
+
+    return {
+        "status": "success",
+        "result": {
+            "asked": args.steps,
+            "steps": done,
+            "dt": dt,
+            "was": was,
+            "load_steps": load_steps,
+            "fabric": fabric is not None,
+            "stopped_early": stopped_early,
+            "current_state": _state(timeline),
+            "time": float(timeline.get_current_time()),
+            "observed": [_observe(stage, path) for path in args.observe],
+        },
+    }
+
+
+def _observe(stage, path: str) -> dict:
+    """What a stepped read gives of one prim: a rigid body's state, an articulation's joints, both, or why neither."""
+    block: dict = {"prim_path": path}
+    prim = stage.GetPrimAtPath(path)
+    if not prim.IsValid():
+        block["error"] = f"Prim not found: {path}"
+        return block
+    kinds = observed_kinds(prim)
+    if not kinds:
+        block["error"] = (
+            f"{path} is neither a rigid body nor an articulation: observe a prim with RigidBodyAPI, or a robot's root"
+        )
+    if BODY in kinds:
+        block.update(_read_body(path))
+    if ARTICULATION in kinds:
+        from .robot import read_joint_states
+
+        root = articulation_root(prim)
+        states = read_joint_states(root) if root else {"error": "no articulation root"}
+        block["joints"] = {"root": root, **states}
+    return block
+
+
+def _read_body(path: str) -> dict:
+    """A rigid body's pose and velocities from PhysX's tensor API, which reads true under the Direct GPU API too, or
+    `body_error`."""
+    try:
+        import warp  # noqa: F401  # the view's frontend; its absence is said here, not as the view's failure
+        from omni.physics import tensors
+    except ImportError as e:
+        return {
+            "body_error": f"Reading a body needs omni.physics.tensors and warp, and this Kit app lacks one ({e}): "
+            "turn the missing one on with manage_extensions (omni.physics.tensors, or omni.warp.core for warp)"
+        }
+    try:
+        with _body_row(tensors, path, "sim_control's step") as (_view, bodies, row):
+            if row is None:
+                return {"body_error": f"PhysX holds no rigid body at {path}; get_logs(min_level='warn') may say why"}
+            count = bodies.count
+            transform = bodies.get_transforms().numpy().reshape(count, 7)[row].tolist()
+            velocity = bodies.get_velocities().numpy().reshape(count, 6)[row].tolist()
+    except Exception as e:
+        carb.log_error(f"sim_control's step could not read {path}:\n{traceback.format_exc()}")
+        return {"body_error": f"PhysX's tensor API could not read {path}: {e}"}
+    return body_state(transform, velocity)
 
 
 # ---------------------------------------------------------------------------
@@ -399,57 +595,67 @@ def _push_with_tensors(args, stage, prim, stopped: bool) -> dict:
 
     import numpy as np  # Kit ships it; only this path needs it
 
-    view = None
     try:
-        view = tensors.create_simulation_view("warp", omni.usd.get_context().get_stage_id())
-        bodies = view.create_rigid_body_view(args.prim_path)
-        # The prim's own path can match more than the prim: the view takes a plain last name at any depth under its
-        # parent (/physics/tensors/recursiveLeafPatternMatch, on by default in omni.physics.tensors 110.4), so
-        # /World/Cube brings /World/Table/Cube with it. The body is its own row of the view, and only that row moves.
-        paths = list(bodies.prim_paths)
-        if args.prim_path not in paths:
-            not_held = refusal(
-                args.prim_path, stopped=False, gpu_unavailable=None, enabled=True, kinematic=False, held=False
-            )
-            return {"status": "error", "error": not_held}
-        count, row = bodies.count, paths.index(args.prim_path)
+        with _body_row(tensors, args.prim_path, "apply_force") as (view, bodies, row):
+            if row is None:
+                not_held = refusal(
+                    args.prim_path, stopped=False, gpu_unavailable=None, enabled=True, kinematic=False, held=False
+                )
+                return {"status": "error", "error": not_held}
+            count = bodies.count
 
-        if args.position is not None:
-            point, at = args.position, AT_GIVEN
-        else:
-            # Both rows to the host: get_coms lives on the parameters' device, the CPU, and get_transforms on the
-            # simulation's.
-            transform = bodies.get_transforms().numpy().reshape(count, 7)[row]
-            com = bodies.get_coms().numpy().reshape(count, 7)[row]
-            point, at = tensor_centre_of_mass(transform.tolist(), com.tolist()), AT_CENTRE_OF_MASS
+            if args.position is not None:
+                point, at = args.position, AT_GIVEN
+            else:
+                # Both rows to the host: get_coms lives on the parameters' device, the CPU, and get_transforms on the
+                # simulation's.
+                transform = bodies.get_transforms().numpy().reshape(count, 7)[row]
+                com = bodies.get_coms().numpy().reshape(count, 7)[row]
+                point, at = tensor_centre_of_mass(transform.tolist(), com.tolist()), AT_CENTRE_OF_MASS
 
-        # A row for each body of the view, as the call takes them, zero but the body's; the indices name its row alone.
-        force_rows = np.zeros((count, 3), np.float32)
-        force_rows[row] = force
-        point_rows = np.zeros((count, 3), np.float32)
-        point_rows[row] = point
-        # The warp frontend takes float32 data and 32-bit indices only, and the backend reads each array on the device
-        # it was made on, so all three are made on the view's own device: the GPU under the Direct GPU API.
-        device = view.device
-        forces = wp.array(force_rows, dtype=wp.float32, device=device)
-        points = wp.array(point_rows, dtype=wp.float32, device=device)
-        indices = wp.array(np.array([row], np.uint32), dtype=wp.uint32, device=device)
-        bodies.apply_forces_and_torques_at_position(forces, None, points, indices, True)
+            # A row for each body of the view, as the call takes them, zero but the body's; the indices name its row
+            # alone.
+            force_rows = np.zeros((count, 3), np.float32)
+            force_rows[row] = force
+            point_rows = np.zeros((count, 3), np.float32)
+            point_rows[row] = point
+            # The warp frontend takes float32 data and 32-bit indices only, and the backend reads each array on the
+            # device it was made on, so all three are made on the view's own device: the GPU under the Direct GPU API.
+            device = view.device
+            forces = wp.array(force_rows, dtype=wp.float32, device=device)
+            points = wp.array(point_rows, dtype=wp.float32, device=device)
+            indices = wp.array(np.array([row], np.uint32), dtype=wp.uint32, device=device)
+            bodies.apply_forces_and_torques_at_position(forces, None, points, indices, True)
     except Exception as e:
         # The tensor API raises a bare Exception for each of its failures, so nothing narrower catches them; the same
         # catch would hide a slip of ours in the arrays or the point, hence the traceback in Kit's log.
         carb.log_error(f"apply_force through the tensor API failed for {args.prim_path}:\n{traceback.format_exc()}")
         return {"status": "error", "error": f"PhysX's tensor API could not push {args.prim_path}: {e}"}
-    finally:
-        if view is not None:
-            # The view is ours alone: invalidating it leaves Isaac Sim's own view valid, as measured on Isaac Sim 6.2. A
-            # failing invalidate must not replace the answer.
-            try:
-                view.invalidate()
-            except Exception as e:
-                carb.log_warn(f"apply_force could not invalidate its tensor view: {e}")
 
     return _answer(args, point, at, "tensor")
+
+
+@contextlib.contextmanager
+def _body_row(tensors, prim_path: str, who: str):
+    """A tensor view of prim_path's rigid body: `(view, bodies, row)`, row None when PhysX holds no body there.
+    apply_force pushes through it and /sim/step reads through it (#198).
+
+    The prim's own path can match more than the prim: the view takes a plain last name at any depth under its parent
+    (/physics/tensors/recursiveLeafPatternMatch, on by default in omni.physics.tensors 110.4), so /World/Cube brings
+    /World/Table/Cube with it. The body is its own row of the view.
+    """
+    view = tensors.create_simulation_view("warp", omni.usd.get_context().get_stage_id())
+    try:
+        bodies = view.create_rigid_body_view(prim_path)
+        paths = list(bodies.prim_paths)
+        yield view, bodies, (paths.index(prim_path) if prim_path in paths else None)
+    finally:
+        # The view is ours alone: invalidating it leaves Isaac Sim's own view valid, as measured on Isaac Sim 6.2. A
+        # failing invalidate must not replace the answer.
+        try:
+            view.invalidate()
+        except Exception as e:
+            carb.log_warn(f"{who} could not invalidate its tensor view: {e}")
 
 
 # ---------------------------------------------------------------------------

@@ -132,6 +132,77 @@ class PhysicsChecks(unittest.TestCase):
         self.assertEqual(r["status"], "success", r)
         return path
 
+    def _check_exact_steps(self, name: str, *, usd_written: bool) -> None:
+        """sim_control's step (#198), on a 5 kg cube of its own falling freely from rest, high above the scene so it
+        touches nothing in a second: from stopped, 0 steps reads it at rest; 30 steps give it 30 steps' fall, and 30
+        more twice that, the speed along the up axis g * n * dt to 1 %, whatever the machine's speed; the timeline
+        stays paused at its time. Fabric's world transform, which the viewport renders, follows the stepped pose;
+        USD's, which get_prim_bounds reads, only where PhysX writes USD (`usd_written`), not under the Direct GPU
+        API."""
+        path = f"/World/{name}"
+        up = self._up_axis()
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+        self.addCleanup(self.c.delete_prim, path)
+        self.addCleanup(self.c.sim_control, "stop")
+        r = self.c.create_prim(path, "Cube", position=_along_up(up, 200, x=-60), scale=[0.3, 0.3, 0.3])
+        self.assertEqual(r["status"], "success", r)
+        r = self.c.execute(
+            f"prim = omni.usd.get_context().get_stage().GetPrimAtPath({path!r})\n"
+            "UsdPhysics.RigidBodyAPI.Apply(prim)\n"
+            "UsdPhysics.CollisionAPI.Apply(prim)\n"
+            "UsdPhysics.MassAPI.Apply(prim).CreateMassAttr().Set(5.0)\n"
+            # The scene's gravity in stage units: its magnitude, or Earth's when unauthored (a negative value).
+            "g = 9.81 / UsdGeom.GetStageMetersPerUnit(prim.GetStage())\n"
+            "for p in prim.GetStage().Traverse():\n"
+            "    if p.IsA(UsdPhysics.Scene):\n"
+            "        m = UsdPhysics.Scene(p).GetGravityMagnitudeAttr().Get()\n"
+            "        g = m if m is not None and m >= 0 else g\n"
+            "        break\n"
+            "result = g"
+        )
+        self.assertEqual(r["status"], "success", r)
+        gravity = r["result"]["return_value"]
+        dt = self._physics_step()
+
+        def step(steps: int) -> dict:
+            r = self.c.sim_step(steps, [path])
+            self.assertEqual(r["status"], "success", r)
+            result = r["result"]
+            self.assertEqual((result["steps"], result["current_state"]), (steps, "paused"), result)
+            self.assertIsNone(result["stopped_early"], result)
+            (body,) = result["observed"]
+            self.assertIn("position", body, body)
+            return {**result, "body": body}
+
+        rest = step(0)
+        self.assertEqual(rest["was"], "stopped")
+        loaded = rest["load_steps"] or 0
+        self.assertAlmostEqual(rest["body"]["linear_velocity"][up], -gravity * loaded * dt, delta=gravity * dt * 0.01)
+        start = rest["time"]
+        for total in (30, 60):
+            stepped = step(30)
+            speed = stepped["body"]["linear_velocity"][up]
+            expected = -gravity * (total + loaded) * dt
+            self.assertAlmostEqual(speed, expected, delta=abs(expected) * 0.01, msg=f"after {total} steps")
+            self.assertEqual(stepped["time"], start, "stepping moved the timeline's time")
+
+        position = stepped["body"]["position"]
+        r = self.c.execute(
+            "import usdrt\n"
+            "stage = usdrt.Usd.Stage.Attach(omni.usd.get_context().get_stage_id())\n"
+            f"m = usdrt.Rt.Xformable(stage.GetPrimAtPath({path!r})).GetFabricHierarchyWorldMatrixAttr().Get()\n"
+            "result = [float(m[3][0]), float(m[3][1]), float(m[3][2])]"
+        )
+        self.assertEqual(r["status"], "success", r)
+        fabric = r["result"]["return_value"]
+        for axis in range(3):
+            self.assertAlmostEqual(fabric[axis], position[axis], delta=0.05, msg=f"Fabric's pose: {fabric}")
+        if usd_written:
+            centre = self.c.prim_bounds(path)["result"]["center"]
+            for axis in range(3):
+                self.assertAlmostEqual(centre[axis], position[axis], delta=0.05, msg=f"USD's bounds: {centre}")
+
     def _physx_pose(self, path: str) -> dict:
         """PhysX's pose of a rigid body now, and the simulation's time with it: `position`, `rotation` (x, y, z, w)
         and `time` in seconds."""

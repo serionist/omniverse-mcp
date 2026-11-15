@@ -25,7 +25,8 @@ and models are not trained on them: look an API up before using it, never guess.
    Without Context7, NVIDIA's documentation for that version.
 3. **Choose how it runs.** A short script, done in seconds: `execute_script`, whose call gives up after 120 s while
    the script runs on. Work that may take longer, such as many physics steps or objects settled one after another:
-   a job, `run_script_job` (step 6).
+   a job, `run_script_job` (step 6). Up to 1000 physics steps with nothing done between them need no script:
+   `sim_control("step", steps=...)`.
 4. **Write the script.** Already imported: `omni`, `carb`, `Usd`, `UsdGeom`, `UsdLux`, `UsdPhysics`, `Sdf`, `Gf` and
    `mcp`. Set `result = <value>` to return data. `await mcp.<handler>(...)` calls the tools' handlers from the
    script, so one script can capture, measure and move:

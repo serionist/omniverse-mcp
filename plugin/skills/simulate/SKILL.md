@@ -33,7 +33,11 @@ before play, so pause to look at a moment in the middle.
    Isaac Sim's asset library (Isaac Sim only), or a robot's own USD file, a path or a URL, in any Kit app.
    `get_robot_info` lists its joints, and reads where they are while the simulation plays or is paused;
    `set_joint_targets` drives them.
-4. **Run.** `sim_control("play")`, `"pause"`, `"step"` or `"stop"`. `apply_force` pushes a rigid body through
+4. **Run.** `sim_control("play")`, `"pause"`, `"step"` or `"stop"`. To debug a body or a robot, step, look, adjust:
+   `sim_control("step", steps=30, observe=["/World/Box", "/World/G1"])` advances physics exactly 30 steps and reads
+   each prim back from PhysX, a body's position, rotation and velocities, a robot's joints; `steps=0` reads without
+   stepping. The timeline's time doesn't move with a step, so recordings and Action Graphs need `play`. Up to 1000
+   steps a call; more is `play`, or a job (the script skill). `apply_force` pushes a rigid body through
    PhysX while the simulation plays or is paused, at its centre of mass unless a `position` is given: an impulse
    acts at once, a force for one physics step, so a sustained push is an impulse of force times seconds. A push on
    a robot's link moves the robot through its joints: a floating robot touching nothing by the impulse over its whole

@@ -8,13 +8,18 @@ import pytest
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics
 
 from ovmcp.core.force import (
+    MAX_OBSERVED,
+    MAX_STEPS,
     ForceArgs,
     Joints,
+    StepArgs,
+    body_state,
     centre_of_mass,
     fixed_refusal,
     force_args,
     one_step_force,
     refusal,
+    step_args,
     step_seconds,
     tensor_centre_of_mass,
     world_point,
@@ -576,3 +581,45 @@ def test_the_centre_of_mass_from_the_tensor_rows_is_turned_and_moved():
 def test_tensor_rows_of_the_wrong_size_are_an_error(transform, com):
     with pytest.raises(ValueError, match="must be 7 finite numbers"):
         tensor_centre_of_mass(transform, com)
+
+
+# ----- /sim/step's request and the body it reads back (#198) -----
+
+
+def test_a_body_s_state_comes_w_first_and_in_degrees_per_second():
+    # The tensor API's rows: at (1, 2, 3), turned 90 degrees about Z (x, y, z, w), falling at 9.81 and spinning at
+    # pi rad/s about Z.
+    half = math.sqrt(0.5)
+    state = body_state([1.0, 2.0, 3.0, 0.0, 0.0, half, half], [0.0, 0.0, -9.81, 0.0, 0.0, math.pi])
+    assert state["position"] == [1.0, 2.0, 3.0]
+    assert state["rotation"] == pytest.approx([half, 0.0, 0.0, half])
+    assert state["linear_velocity"] == [0.0, 0.0, -9.81]
+    assert state["angular_velocity"] == pytest.approx([0.0, 0.0, 180.0])
+
+
+def test_a_body_s_state_refuses_a_short_row():
+    with pytest.raises(ValueError, match="velocity"):
+        body_state([0.0] * 7, [0.0] * 5)
+
+
+def test_a_step_takes_one_by_default_and_keeps_each_prim_once():
+    assert step_args({}) == StepArgs(1, ())
+    assert step_args({"steps": 0, "observe": ["/A", "/B", "/A"]}) == StepArgs(0, ("/A", "/B"))
+    assert step_args({"steps": MAX_STEPS}).steps == MAX_STEPS
+
+
+@pytest.mark.parametrize(
+    ("body", "says"),
+    [
+        ({"steps": -1}, "steps must be a whole number from 0 to 1000"),
+        ({"steps": MAX_STEPS + 1}, "steps must be"),
+        ({"steps": 2.5}, "steps must be"),
+        ({"steps": True}, "steps must be"),
+        ({"observe": "/World/Box"}, "observe must be a list of prim paths"),
+        ({"observe": [""]}, "observe must be a list"),
+        ({"observe": [f"/P{i}" for i in range(MAX_OBSERVED + 1)]}, "at most 20 prims"),
+    ],
+)
+def test_a_step_refuses_a_request_it_cant_take(body: dict, says: str):
+    with pytest.raises(ValueError, match=says):
+        step_args(body)

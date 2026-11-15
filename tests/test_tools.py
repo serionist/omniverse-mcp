@@ -3060,3 +3060,114 @@ def test_get_sim_state_names_a_running_job(bridge: MockIsaacServer, tmp_path: Pa
 )
 def test_a_job_s_time_reads_in_seconds_minutes_and_hours(seconds: float, said: str):
     assert duration(seconds) == said
+
+
+# ----- sim_control's step (#198) -----
+
+# /sim/step's answer from a stopped timeline: 60 steps of 1/60 s, a box falling from rest and a G1 whose pelvis is both
+# a rigid body and the articulation's root.
+STEPPED: dict[str, Any] = {
+    "asked": 60,
+    "steps": 60,
+    "dt": 1 / 60,
+    "was": "stopped",
+    "load_steps": 0,
+    "fabric": True,
+    "stopped_early": None,
+    "current_state": "paused",
+    "time": 0.0,
+    "observed": [
+        {
+            "prim_path": "/World/Box",
+            "position": [0.0, 0.0, 0.0951],
+            "rotation": [1.0, 0.0, 0.0, 0.0],
+            "linear_velocity": [0.0, 0.0, -9.81],
+            "angular_velocity": [0.0, 0.0, 57.29578],
+        },
+        {
+            "prim_path": "/World/G1/pelvis",
+            "position": [0.0, 0.0, 0.79],
+            "rotation": [1.0, 0.0, 0.0, 0.0],
+            "linear_velocity": [0.0, 0.0, 0.0],
+            "angular_velocity": [0.0, 0.0, 0.0],
+            "joints": {
+                "root": "/World/G1/pelvis",
+                "dof_count": 2,
+                "names": ["left_hip", "right_hip"],
+                "positions": [0.1, -0.1],
+                "velocities": [0.0, 0.5],
+            },
+        },
+        {"prim_path": "/World/Light", "error": "/World/Light is neither a rigid body nor an articulation"},
+    ],
+}
+
+
+def test_step_sends_its_count_and_prims_and_gives_a_block_for_each(bridge: MockIsaacServer, tmp_path: Path):
+    text = _check(
+        Case(
+            "sim_control",
+            {"action": "step", "steps": 60, "observe": ["/World/Box", "/World/G1/pelvis", "/World/Light"]},
+            "/sim/step",
+            STEPPED,
+            {"steps": 60, "observe": ["/World/Box", "/World/G1/pelvis", "/World/Light"]},
+            (
+                "'step' executed. Sim is now: paused",
+                "stepped = 60 of 60 physics steps of 0.016667 s (1.000 s of physics); the timeline's time is "
+                "unchanged (0.000 s)",
+                "was = stopped: physics loaded, which took 0 physics steps",
+                "source = read from PhysX after the last step: the simulated state, not drive targets",
+                "[/World/Box]\nposition = [0.0, 0.0, 0.0951]\nrotation = [1.0, 0.0, 0.0, 0.0] (w, x, y, z)\n"
+                "linear_velocity = [0.0, 0.0, -9.81] (stage units/s)\nangular_velocity = [0.0, 0.0, 57.2958] (deg/s)",
+                "[/World/G1/pelvis]\nposition = [0.0, 0.0, 0.79]",
+                "joints = /World/G1/pelvis, 2 DOF",
+                "joint.left_hip = pos 0.1000, vel 0.0000\njoint.right_hip = pos -0.1000, vel 0.5000",
+                "[/World/Light]\nerror = /World/Light is neither a rigid body nor an articulation",
+            ),
+        ),
+        bridge,
+        tmp_path,
+    )
+    assert "stopped_early" not in text
+
+
+def test_step_alone_takes_one_step_and_reads_nothing(bridge: MockIsaacServer, tmp_path: Path):
+    answer = {**STEPPED, "asked": 1, "steps": 1, "was": "playing", "observed": []}
+    text = _check(
+        Case(
+            "sim_control",
+            {"action": "step"},
+            "/sim/step",
+            answer,
+            {"steps": 1, "observe": []},
+            ("stepped = 1 of 1 physics steps", "was = playing: paused first"),
+        ),
+        bridge,
+        tmp_path,
+    )
+    assert "source =" not in text
+
+
+def test_step_says_why_it_stopped_short(bridge: MockIsaacServer, tmp_path: Path):
+    changed = "the timeline or the stage changed while stepping"
+    answer = {**STEPPED, "steps": 12, "was": "paused", "stopped_early": changed}
+    _check(
+        Case(
+            "sim_control",
+            {"action": "step", "steps": 60},
+            "/sim/step",
+            answer,
+            {"steps": 60},
+            ("stepped = 12 of 60", "stopped_early = the timeline or the stage changed while stepping"),
+        ),
+        bridge,
+        tmp_path,
+    )
+
+
+@pytest.mark.parametrize("args", [{"steps": 5}, {"observe": ["/World/Box"]}])
+def test_steps_and_observe_go_with_step_alone(args: dict[str, Any], bridge: MockIsaacServer, tmp_path: Path):
+    erred, text, requests = _call(bridge, tmp_path, "sim_control", {"action": "play", **args})
+    assert erred
+    assert "steps and observe go with action='step', not 'play'" in text
+    assert requests == []
