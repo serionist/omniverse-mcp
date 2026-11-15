@@ -1,9 +1,9 @@
 ---
 title: Step physics by an exact count and read bodies and joints back in the same call
 issue: "#198"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-11-15
 ---
 
 # Step physics by an exact count and read bodies and joints back in the same call
@@ -38,7 +38,7 @@ In scope: exact stepping from a paused, playing or stopped timeline, the observa
   pose `observe` reports (fit I2). A wall-clock cap of 90 s, the limit `get_performance` stops at, ends the loop early
   with "stepped k of N" and the observations, rather than the server's 120 s timeout (fit I4).
 - **The timeline:** playing, it is paused first and the answer says so (today's `step` pauses too). Stopped, physics
-  holds no bodies: the handler calls `play()`, `commit()` and `pause()`, then awaits one update, and steps from there
+  holds no bodies: the handler calls `play()`, `commit()`, `pause()` and `commit()` again, then awaits one update, and steps from there
   (fit I1); the commit applies the play at once, as Isaac Sim's own `play(commit=True)` does before tensor reads, so
   the load doesn't rest on when Kit applies the timeline's changes (round 1, I10). `steps=0` from stopped loads physics
   the same way and reads (round 1, I11). whats2000 measured this load at zero steps on Isaac Sim 6.0.1, and asking the agent to play and pause in two
@@ -47,7 +47,7 @@ In scope: exact stepping from a paused, playing or stopped timeline, the observa
   many. The timeline's time doesn't move: the answer gives physics' time stepped (`N * dt`) beside it, and the
   description says recordings, time-sampled animation and Action Graphs on playback ticks don't advance.
 - **Observing:** a function beside `articulation_root` in `ovmcp/core/robot.py`, which it calls, sorts each path into
-  `body`, `articulation` or `neither` from what the stage says (`RigidBodyAPI`, `ArticulationRootAPI` at or under it),
+  what it holds, a set of `body` and `articulation`, empty for neither, from what the stage says (`RigidBodyAPI`, `ArticulationRootAPI` at or under it),
   with its tests in `tests/test_robot.py` (fit I8). The handler reads bodies through a PhysX tensor view
   (`omni.physics.tensors`, `create_rigid_body_view`: `get_transforms`, `get_velocities`), which reads true under the
   Direct GPU API too, through one helper drawn out of `apply_force`'s `_push_with_tensors` and used by both: the view
@@ -57,8 +57,11 @@ In scope: exact stepping from a paused, playing or stopped timeline, the observa
   articulation root, such as the G1's pelvis, gets the body lines and the joint lines (round 1, P4). A path that is
   neither, or that PhysX holds no body for, gets its reason in its own block; the steps still count.
 - **Engine and overlap:** on Isaac Sim, a step is refused when `SimulationManager.get_active_physics_engine()` isn't
-  `physx`: omni.physx's `simulate` advances nothing under Newton. Two `/sim/step` calls never interleave at the
-  50 ms yields: a module lock makes the second wait for the first (round 1, P7).
+  `physx`: omni.physx's `simulate` advances nothing under Newton. The method is read with `getattr`, and a Kit without
+  it or without `isaacsim.core.simulation_manager` counts as PhysX; Step 1 records what it reads on 6.2 (round 2,
+  P8). Two `/sim/step` calls never interleave at the 50 ms yields: a second while one runs is refused at once, "a
+  step is running", as the job board refuses a second job; waiting could outlast the server's 120 s and step physics
+  for a caller that has gone (round 1, P7; round 2, P10).
 - **Bounds:** `steps` 0 to 1000 (16.7 s of physics at 60 Hz), refused outside before the tool runs; longer runs are
   `play`, or `run_script_job`. `steps=0` pauses if playing and reads without stepping, so a read of a moving body
   doesn't change it (fit I6). `observe` at most 20 paths. The server's `Field` limits, and one check in the handler's
@@ -92,7 +95,8 @@ tool contract, and the maintainer's agreement is recorded in #198 (round 1, P2).
    that the tensor view reads the cube after manual steps; Fabric's pose and `get_prim_bounds` after stepping, with
    and without the flush, so the live check below is known to catch a missing flush.
    The results go in this plan's progress notes.
-2. **Core:** the sort beside `articulation_root` in `ovmcp/core/robot.py`, tested in `tests/test_robot.py`.
+2. **Core:** the sort beside `articulation_root` in `ovmcp/core/robot.py`, tested in `tests/test_robot.py`, a prim
+   with both APIs (the G1's pelvis) among its cases (round 2, P9).
 3. **Extension:** `handle_sim_step`, the route, the tensor-view helper drawn out of `_push_with_tensors`, the
    joint-state function shared with `/robot/joint_states`; `handle_sim_control`'s `step` left as it is, so an older
    server gets the two updates it asked for (fit I7). Unit tests of `handle_sim_step` with
@@ -106,7 +110,7 @@ tool contract, and the maintainer's agreement is recorded in #198 (round 1, P2).
    the observed position within the cube's size, which is what the flush writes and what a capture renders, in both
    suites; `get_prim_bounds`' centre, which reads USD, checked as well only where USD write-back is on, so not in the
    GPU suite (fit I3, round 1, P1); the timeline still paused and its time unchanged; `steps=0` reads without moving
-   it, from paused and from stopped (round 1, I11). In `test_integration.py`, a Franka stepped with a joint target
+   it, from paused and from stopped, where it allows exactly the steps the answer says the load took (round 1, I11). In `test_integration.py`, a Franka stepped with a joint target
    set: its joints observed move toward it. Run on Isaac Sim 6.2, Z-up, and the cube check on 5.1 (round 1, Q2).
 6. **Docs:** the list under Docs, below, `test_project/scenarios.md` 5.2 among them (round 1, P3).
 
@@ -203,3 +207,22 @@ number (additive, and a 404 is already "older extension").
 | I10 | `timeline.commit()` between `play()` and `pause()` from stopped | taken |
 | I11 | Say and test what `steps=0` does from stopped | taken |
 | I12 | Say in `TOOLS.md` that `mcp.sim_control("step")` keeps its two updates | taken |
+
+### Round 2
+
+**How:** a fresh general-purpose agent (Claude Opus 5.5), 2026-11-15, on the edits since `748df57` and Round 1's
+findings. **Verdict:** approved: P1-P7 fixed, no blocker or major, the three minors below fixed. **Now:** all applied.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P8 | minor | `get_active_physics_engine` unconfirmed on Isaac Sim 5.1: without a fallback every step there fails | fixed: read with `getattr`, missing counts as PhysX; Step 1 records what 6.2 reads |
+| P9 | minor | The sort still returns one of three, against P4's fix | fixed: it returns a set; the G1's pelvis a test case |
+| P10 | minor | A queued second step can outlast the server's 120 s and step for a caller that has gone | fixed: refused at once, as a second job is |
+
+Refuted: `steps=0` from stopped contradicting the load's steps (the check now allows exactly the count the answer
+gives); `timeline.commit()` missing (it exists, and Isaac Sim's `play(commit=True)` uses it); debug-draw expiry (real
+time); an older extension (404, already reported as such).
+
+| # | Improvement | Answer |
+|---|---|---|
+| I13 | `commit()` again after `pause()` from stopped, so the awaited update can't step physics | taken |
