@@ -155,6 +155,12 @@ tool contract, and the maintainer's agreement is recorded in #198 (round 1, P2).
   with `(t, dt)` as Design first said; the code follows the guide.
 - **The Franka check** went to `tests/test_scenarios.py` (15.18), beside phase 15's own Franka test, rather than
   `test_integration.py`, so it reuses that phase's setup.
+- **Step 1, measured live** on Isaac Sim 6.2.0 (Kit 110.4, `isaacsim.exp.base.kit`, Windows, 2026-11-15), through
+  the live tests rather than by hand: stepping by hand moves the cube exactly the steps asked for (its speed `g * n *
+  dt` within 1 %); the load from stopped took 2 steps in three runs and 4 in one, by Isaac Sim's count, so the answer
+  says how many and the live check measures from the speed the load left; `get_active_physics_engine` reads `physx`;
+  omni.physx.fabric isn't loaded in that experience (`fabric = False`), and Fabric's world matrix, read through usdrt,
+  still matched the stepped pose; the Franka's joint moved toward its target.
 
 ## Plan review
 

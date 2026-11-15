@@ -40,3 +40,19 @@ answers them. REVIEW questions on the PR's text wait for the PR.
 |---|---|---|
 | I1 | `handle_sim_state` repeats the playing, stopped or paused expression `_state(timeline)` now holds | taken |
 | I2 | `_check_exact_steps` prints the answer's `load_steps` and `fabric`, so every live run records Step 1's numbers | taken |
+
+## Live run
+
+On Isaac Sim 6.2.0-rc.14 (Kit 110.4.0), `isaacsim.exp.base.kit` headless on Windows 11, port 8212, Z-up, started with
+`--/rtx/hydra/supportMultiTickRate=false`, 2026-11-15, on a local merge of this branch and #203's:
+
+- `test_scenarios.py`: 15.17 (the exact step) and 15.18 (the Franka) passed alone; in three full runs, 136 tests
+  each, 15.17 failed once, when Isaac Sim's count of the load's steps read 4 instead of 2. The check now measures from
+  the speed the load left (`24ba58d`); that version hasn't run on Kit yet.
+- `test_integration.py`: 87 passed, 1 failed, `TestCaptureSweepAgents::test_a_stopped_timeline_repeats_an_agent_and_a_time_doesn_t`
+  (repeated captures 2.19 of 255 apart against 2.0; its own message says the multi-tick flag the Kit ran with makes
+  it about 3.2), not this change's code.
+- `test_scenarios.py` 26.03 failed in all three runs (5 RTX view assignments counted in Kit's log for five captures,
+  not 2); unsettled whether it is this Kit's launch (another session started it, its log elsewhere, with the
+  multi-tick flag) or a change: #198 touches no capture code, #203 does.
+- Not run: the GPU suite, Isaac Sim 5.1, USD Composer.
