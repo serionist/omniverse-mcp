@@ -368,7 +368,7 @@ def _release_step(what: str, step: Callable[[], object]) -> None:
         carb.log_warn(f"[MCP Bridge] Releasing a camera feed: {what} failed: {e}")
 
 
-def _turn_segmentation_off(feed: CameraFeed) -> None:
+def _turn_sensors_off(feed: CameraFeed) -> None:
     """Disables the feed's sensors, but not without a stage: omni.syntheticdata then raises rather than deactivates, and
     it has already reset its graphs as the stage closed. Its graphs stay, for the next call or the release."""
     import omni.syntheticdata as syn
@@ -378,7 +378,7 @@ def _turn_segmentation_off(feed: CameraFeed) -> None:
     feed.sensors_on.clear()
 
 
-def _free_segmentation_graphs(feed: CameraFeed) -> None:
+def _free_sensor_graphs(feed: CameraFeed) -> None:
     """Pops each of omni.syntheticdata's graphs under the feed's render product from its registry and resets it, as
     Replicator's own render product teardown does, under the session layer, as omni.syntheticdata's own reset does."""
     from omni.syntheticdata import SyntheticData
@@ -426,13 +426,13 @@ def _stop(feed: CameraFeed) -> None:
     would carry its render product onto the next stage."""
     try:
         if feed.sensor_on:
-            _release_step("turning segmentation off", lambda: _turn_segmentation_off(feed))
+            _release_step("turning its sensors off", lambda: _turn_sensors_off(feed))
     finally:
         try:
             _release_step("dropping the feed", feed.drop)
         finally:
             if feed.segmented:
-                _release_step("freeing the segmentation graphs", lambda: _free_segmentation_graphs(feed))
+                _release_step("freeing its sensor graphs", lambda: _free_sensor_graphs(feed))
 
 
 def _tear_down_at_once(feed: CameraFeed) -> None:
@@ -594,7 +594,7 @@ async def put_back(feed: CameraFeed, healthy: bool) -> None:
             if feed.sensor_on:
                 # Off between calls: left on, a kept 640x480 feed's segmentation cut Kit's updates a second while idle
                 # from 157 to 110 (#114's step 1, S1). Turning it off and on again makes no new view (K5).
-                _turn_segmentation_off(feed)
+                _turn_sensors_off(feed)
             keep = True
     except _release_errors() as e:
         carb.log_warn(f"[MCP Bridge] A capture's feed is released: turning its segmentation off failed: {e}")

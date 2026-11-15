@@ -95,3 +95,10 @@ def test_each_prim_s_nearest_distance_is_the_minimum_over_its_ids():
     _image, legend, nearest = capture.colour_instances(ids, names.__getitem__, distances)
     assert nearest == {"/World/A": 6.0, "/World/B": 2.0}
     assert list(legend) == ["/World/A", "/World/B"]
+
+
+def test_a_nan_under_a_prim_doesn_t_drop_its_distance():
+    ids = np.array([[3, 3]], dtype=np.uint32)
+    distances = np.array([[np.nan, 2.5]], dtype=np.float32)
+    _image, _legend, nearest = capture.colour_instances(ids, lambda _instance: "/World/A", distances)
+    assert nearest == {"/World/A": 2.5}

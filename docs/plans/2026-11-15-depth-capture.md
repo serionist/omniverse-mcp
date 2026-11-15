@@ -138,6 +138,14 @@ capture's files, `CHANGELOG.md` (Added).
   at; Step 5 measures it, and the description says depth costs most at large sizes (round 1, P4).
 - **Kit 107's omni.syntheticdata** is unread here: Step 1 runs on 6.2 only. Accepted, as Tests says.
 
+## Progress
+
+- **Steps 1 and 5, measured live** on Isaac Sim 6.2.0 (Kit 110.4, `isaacsim.exp.base.kit`, Windows, a metre stage,
+  2026-11-15), through `test_12k`: the sensor's values in metres, so the conversion holds (the cube's nearest 1.582
+  against 1.581); nothing hit is `inf` exactly where the segmentation shows no prim; release left no graph and no
+  error in Kit's log; a 4096 x 4096 capture with depth took 3.4 s. A centimetre stage wasn't run, so the division by
+  `metersPerUnit` stands on omni.syntheticdata's own test.
+
 ## Plan review
 
 ### Fit

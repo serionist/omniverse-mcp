@@ -103,7 +103,8 @@ def colour_instances(
     nearest_by_id = None
     if distances is not None:
         nearest_by_id = np.full(len(unique), np.inf)
-        np.minimum.at(nearest_by_id, flat, distances.reshape(-1).astype(np.float64))
+        # fmin, not minimum: a NaN under a prim would otherwise spread and drop its distance.
+        np.fmin.at(nearest_by_id, flat, distances.reshape(-1).astype(np.float64))
     palette = np.zeros((len(unique), 3), dtype=np.uint8)
     legend: dict[str, list[int]] = {}
     nearest: dict[str, float] = {}

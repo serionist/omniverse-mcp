@@ -139,7 +139,7 @@ def _legend_beside(seg_path: str) -> str:
 def _legend_line(prim_path: str, colour: list[int], nearest: float | None) -> str:
     """One prim of the segmentation legend, with its nearest distance when the capture took depth (#203)."""
     line = f"{prim_path} = [{colour[0]}, {colour[1]}, {colour[2]}]"
-    return f"{line} distance = {nearest:.4g}\n" if nearest is not None else f"{line}\n"
+    return f"{line} distance = {nearest:.6g}\n" if nearest is not None else f"{line}\n"
 
 
 def _save_depth(h: "Helpers", r: dict[str, Any], capture_id: int, extension: str | None) -> str:
