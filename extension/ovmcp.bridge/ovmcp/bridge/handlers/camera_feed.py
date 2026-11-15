@@ -100,10 +100,10 @@ class CameraFeed:
         # for every feed, since a capture's may render a recording later and the reverse (#141).
         self.name = f"ovmcp_feed_{uuid.uuid4().hex}"
         self.frames = 0
-        # Whether instance segmentation was ever turned on for this feed, so its release frees its graphs; and whether
-        # it is on now, so the call that turned it on, or the release, turns it off.
+        # Whether a sensor (instance segmentation, depth) was ever turned on for this feed, so its release frees its
+        # graphs; and the sensor types on now, so the call that turned them on, or the release, turns them off.
         self.segmented = False
-        self.sensor_on = False
+        self.sensors_on: list[Any] = []
         self._pending: list[Any] = []
         # Each camera noted before the first render through it, which is when RTX writes its exposure (#177).
         self._marks: list[tuple[str, Any]] = []
@@ -139,6 +139,11 @@ class CameraFeed:
         """The feed's size, read as omni.syntheticdata reads a viewport's (with `camera_path` and
         `render_product_path`), so its view parameters, projections and sensors take a feed as they take a viewport."""
         return self.width, self.height
+
+    @property
+    def sensor_on(self) -> bool:
+        """Whether any of the feed's sensors is on now."""
+        return bool(self.sensors_on)
 
     @property
     def dropped(self) -> bool:
@@ -313,12 +318,23 @@ def discard(feed: CameraFeed) -> None:
 
 
 def enable_segmentation(feed: CameraFeed) -> str | None:
-    """Turns instance segmentation on for `feed`; why it can't be, or None.
+    """Turns instance segmentation on for `feed`; why it can't be, or None (enable_sensors)."""
+    return enable_sensors(feed, "InstanceSegmentation", "segmentation")
+
+
+def enable_depth(feed: CameraFeed) -> str | None:
+    """Turns the distance to the camera on for `feed` (#203); why it can't be, or None (enable_sensors)."""
+    return enable_sensors(feed, "DistanceToCamera", "depth")
+
+
+def enable_sensors(feed: CameraFeed, sensor: str, what: str) -> str | None:
+    """Turns omni.syntheticdata's sensor of type `sensor` on for `feed`; why it can't be, naming `what`, or None.
 
     Only where its graphs can be freed again: omni.syntheticdata keeps the graph it makes under the feed's render
     product in a registry, and one left there when the render product goes makes Kit log hundreds of errors a second
     until the next stage (#51's E16). The registry is private, so a Kit whose omni.syntheticdata has no such registry
-    gets no segmentation rather than a leak.
+    gets no sensor rather than a leak. One sensor a call: omni.syntheticdata raises on any one type of a list, and a
+    depth that can't be turned on must not cost the segmentation (#203).
     """
     try:
         import omni.syntheticdata as syn
@@ -327,11 +343,12 @@ def enable_segmentation(feed: CameraFeed) -> str | None:
         return "omni.syntheticdata is not loaded: enable it with manage_extensions"
     registry = SyntheticData.Get()
     if registry is None or not hasattr(registry, "_nodeGraphs") or not hasattr(registry, "_reset_node_graph"):
-        return "This Kit app's omni.syntheticdata can't free a capture's segmentation graphs, so none was taken"
+        return f"This Kit app's omni.syntheticdata can't free a capture's {what} graphs, so none was taken"
+    kind = getattr(syn._syntheticdata.SensorType, sensor)
     # Marked first: a sensor half made when this raises is still turned off and its graphs freed.
     feed.segmented = True
-    feed.sensor_on = True
-    syn.sensors.enable_sensors(feed, [syn._syntheticdata.SensorType.InstanceSegmentation])
+    feed.sensors_on.append(kind)
+    syn.sensors.enable_sensors(feed, [kind])
     return None
 
 
@@ -352,13 +369,13 @@ def _release_step(what: str, step: Callable[[], object]) -> None:
 
 
 def _turn_segmentation_off(feed: CameraFeed) -> None:
-    """Disables the feed's sensor, but not without a stage: omni.syntheticdata then raises rather than deactivates, and
+    """Disables the feed's sensors, but not without a stage: omni.syntheticdata then raises rather than deactivates, and
     it has already reset its graphs as the stage closed. Its graphs stay, for the next call or the release."""
     import omni.syntheticdata as syn
 
     if omni.usd.get_context().get_stage() is not None:
-        syn.sensors.disable_sensors(feed, [syn._syntheticdata.SensorType.InstanceSegmentation])
-    feed.sensor_on = False
+        syn.sensors.disable_sensors(feed, list(feed.sensors_on))
+    feed.sensors_on.clear()
 
 
 def _free_segmentation_graphs(feed: CameraFeed) -> None:

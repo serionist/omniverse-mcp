@@ -5,6 +5,13 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Added
+
+- **`capture_viewport`'s `include_depth`:** the distance to the camera as a grey image, nearer brighter and nothing hit
+  black, with its near and far in stage units in the answer; the raw distances as a `.npy` (float32, stage units, `inf`
+  where nothing is hit); and each prim's nearest distance in the segmentation legend, so what is in front of what, and
+  how far, is a grep instead of a raycast per prim. A capture without it costs what it did (#203).
+
 ### Changed
 
 - **The server's instructions, the `script` skill and the docs name a second Context7 library,**

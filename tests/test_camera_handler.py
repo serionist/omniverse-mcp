@@ -12,7 +12,9 @@ one. No isaacsim is loaded, so the handlers take the USD fallback unless a test 
 """
 
 import asyncio
+import base64
 import importlib.util
+import io
 import sys
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -21,6 +23,7 @@ import numpy as np
 import pytest
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux
 
+from ovmcp.core.depth import depth_image
 from ovmcp.core.png import encode_png
 from ovmcp.core.serial import LazyLock
 from ovmcp.core.xform import aim, aim_error
@@ -142,6 +145,7 @@ def handler(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
             CameraFeed=FakeFeed,
             _viewport=LazyLock(),
             enable_segmentation=lambda _feed: "no segmentation in this test",
+            enable_depth=lambda _feed: "no depth in this test",
             kept_feed=kit.kept_feed,
             put_back=kit.put_feed_back,
         ),
@@ -202,13 +206,25 @@ def test_a_capture_that_raises_releases_its_feed(handler, kit):
 
 
 def _segments(handler: Any, monkeypatch: pytest.MonkeyPatch, turned_on: Any, read: Any) -> None:
-    """enable_segmentation and the segmentation's read, as a test has them."""
+    """enable_segmentation and the segmentation's read, as a test has them: `read` is _segmentation's (png, legend,
+    error), which a capture takes as the ids' read and their colouring (#203)."""
     monkeypatch.setattr(handler, "enable_segmentation", turned_on)
 
     async def segmentation(_feed: Any, _budget: Any) -> Any:
         return read
 
+    async def ids(_feed: Any, _budget: Any) -> Any:
+        if read is None or read[0] is None:
+            return None, None if read is None else read[2]
+        return np.zeros((24, 32), dtype=np.uint32), None
+
+    def colour(_ids: Any, distances: Any = None) -> Any:
+        assert read is not None
+        return read[0], read[1], {}
+
     monkeypatch.setattr(handler, "_segmentation", segmentation)
+    monkeypatch.setattr(handler, "_segmentation_ids", ids)
+    monkeypatch.setattr(handler, "_colour_segmentation", colour)
 
 
 def _sensor_raised(_feed: Any) -> None:
@@ -627,3 +643,63 @@ def test_a_bare_scene_camera_isaac_sims_call_broke_is_put_back_without_ops_and_a
     assert len(calls) == 1
     assert aim_error(camera, Gf.Vec3d(2, 8, -1), Gf.Vec3d(2, 0.5, -1), UNIT) is None
     assert _ops(camera) == ["xformOp:translate", "xformOp:orient"]
+
+
+# ----- depth (#203) -----
+
+
+def _depth_ready(handler: Any, monkeypatch: pytest.MonkeyPatch, problem: str | None = None) -> list[Any]:
+    """enable_depth as a test has it, and a depth read of 2 and 4 units with a quarter nothing hit; the feeds it was
+    turned on for."""
+    turned_on: list[Any] = []
+
+    def enable(feed: Any) -> str | None:
+        turned_on.append(feed)
+        return problem
+
+    async def read(_feed: Any, _budget: Any, _ids: Any) -> Any:
+        distances = np.array([[2.0, 4.0], [4.0, np.inf]], dtype=np.float32)
+        return depth_image(distances), None
+
+    monkeypatch.setattr(handler, "enable_depth", enable)
+    monkeypatch.setattr(handler, "_depth", read)
+    return turned_on
+
+
+def test_a_capture_with_depth_answers_its_image_raw_distances_and_range(handler, kit, monkeypatch):
+    _segments(handler, monkeypatch, lambda _feed: None, SEGMENTED)
+    turned_on = _depth_ready(handler, monkeypatch)
+    r = _capture(handler, width=32, height=24, include_depth=True)
+    assert r["status"] == "success", r
+    result = r["result"]
+    (feed,) = kit.feeds
+    assert turned_on == [feed]
+    assert (result["depth_near"], result["depth_far"], result["depth_nothing_hit"]) == (2.0, 4.0, 0.25)
+    assert base64.b64decode(result["depth_base64"]).startswith(b"\x89PNG")
+    raw = np.load(io.BytesIO(base64.b64decode(result["depth_npy_base64"])))
+    assert raw.tolist() == [[2.0, 4.0], [4.0, np.inf]]
+    assert result["depth_nearest"] == {}
+    assert kit.put_back == [(feed, True)]
+
+
+def test_a_capture_without_depth_never_turns_it_on(handler, kit, monkeypatch):
+    _segments(handler, monkeypatch, lambda _feed: None, SEGMENTED)
+    turned_on = _depth_ready(handler, monkeypatch)
+    r = _capture(handler, width=32, height=24)
+    assert turned_on == []
+    assert not any(key.startswith("depth") for key in r["result"])
+
+
+@pytest.mark.parametrize("raises", [False, True])
+def test_a_depth_that_cant_be_turned_on_costs_only_the_depth(handler, kit, monkeypatch, raises):
+    # Not the segmentation, and not the feed, which is kept (#203, plan round 1, P1).
+    _segments(handler, monkeypatch, lambda _feed: None, SEGMENTED)
+    _depth_ready(handler, monkeypatch, problem="This Kit app's omni.syntheticdata can't free a capture's depth graphs")
+    if raises:
+        monkeypatch.setattr(handler, "enable_depth", _sensor_raised)
+    r = _capture(handler, width=32, height=24, include_depth=True)
+    result = r["result"]
+    assert result["depth_error"].startswith("Depth failed" if raises else "This Kit app's omni.syntheticdata")
+    assert result["segmentation_base64"]
+    (feed,) = kit.feeds
+    assert kit.put_back == [(feed, True)]

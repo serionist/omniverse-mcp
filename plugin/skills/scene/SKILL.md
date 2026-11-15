@@ -37,6 +37,9 @@ while physics plays. Never edit blind: look, change, look again.
    - Another view: `set_camera`, from a `position` or around a prim with `prim_path`, then capture.
    - Inside or behind something: `set_visibility(path, false)`, capture, then show it again.
    - Overlapping prims that look alike: the segmentation tells them apart.
+   - What is in front of what, and how far: `include_depth=True` adds each prim's nearest distance to the legend
+     (`/World/Box = [R, G, B] distance = 2.413`, stage units), a grey depth image (nearer brighter, nothing hit black)
+     and the raw distances as a `.npy`. Grep the legend rather than raycasting prim by prim.
 4. **Place with numbers, not by eye.** `get_prim_bounds` of the thing and of what it goes on, compute the position
    on the up axis (an object rests on a surface when its bottom equals the surface's top), `set_prim_transform`, then
    capture to check.

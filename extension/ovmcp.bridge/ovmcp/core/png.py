@@ -15,23 +15,30 @@ _IEND = b"\x00\x00\x00\x00IEND\xaeB`\x82"
 
 
 def encode_png(image: "NDArray[Any]") -> bytes:
-    """An 8-bit RGB PNG of an (height, width, channels) array; a fourth channel (alpha) is dropped.
+    """An 8-bit PNG: RGB of an (height, width, channels) array, a fourth channel (alpha) dropped; grey of an
+    (height, width) one, a third of RGB's size and compression for a depth image (#203).
 
-    Anything that isn't three-dimensional gives b"", so a renderer's empty buffer reads as "no image".
+    Anything else gives b"", so a renderer's empty buffer reads as "no image".
     """
     # Here, not at the top: every capture uses this module, and the bridge must load in a Kit app without numpy.
     import numpy as np
 
-    if image.ndim != 3:
+    if image.ndim == 2:
+        height, width = image.shape
+        pixels = image.astype(np.uint8)
+        colour_type = 0  # grey
+    elif image.ndim == 3:
+        height, width, channels = image.shape
+        pixels = image.astype(np.uint8)
+        if channels == 4:
+            pixels = pixels[:, :, :3]
+        colour_type = 2  # RGB
+    else:
         return b""
-    height, width, channels = image.shape
-    pixels = image.astype(np.uint8)
-    if channels == 4:
-        pixels = pixels[:, :, :3]
 
     # Each row starts with its filter type: 0, none.
     raw = b"".join(b"\x00" + pixels[row].tobytes() for row in range(height))
-    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)  # 8 bits per channel, colour type 2 (RGB)
+    header = struct.pack(">IIBBBBB", width, height, 8, colour_type, 0, 0, 0)  # 8 bits per channel
     return _SIGNATURE + _chunk(b"IHDR", header) + _chunk(b"IDAT", zlib.compress(raw)) + _chunk(b"IEND", b"")
 
 

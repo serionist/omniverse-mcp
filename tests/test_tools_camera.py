@@ -1,8 +1,11 @@
 """The camera tools' text for the AI: warnings and advice, from canned bridge answers."""
 
+import base64
+import io
 import re
 from typing import cast
 
+import numpy as np
 import pytest
 from mcp.server.mcpserver import MCPServer
 
@@ -10,6 +13,7 @@ from omniverse_mcp.client import BridgeClient
 from omniverse_mcp.kit_extension import install_advice
 from omniverse_mcp.server import Helpers
 from omniverse_mcp.tools import camera
+from ovmcp.core.png import encode_png
 
 
 class _Tools:
@@ -27,6 +31,8 @@ class _Tools:
 
 
 class _Client:
+    extension_version: str | None = None
+
     def __init__(self, answers):
         self.answers = answers
         self.calls = []
@@ -482,3 +488,84 @@ def test_inspect_from_an_older_extension_at_the_size_asked_for_says_nothing_more
     out = fns["inspect_prim"]("/World/Lamp", width=640, height=480)
 
     assert "WARNING" not in out
+
+
+# ----- depth (#203) -----
+
+GREY_PNG = base64.b64encode(encode_png(np.zeros((2, 2), dtype=np.uint8))).decode()
+
+
+def _npy(distances) -> str:
+    buffer = io.BytesIO()
+    np.save(buffer, np.asarray(distances, dtype=np.float32))
+    return base64.b64encode(buffer.getvalue()).decode()
+
+
+def _with_depth(**depth):
+    answer = _capture_answer("stage", True)
+    answer["result"].update(
+        {
+            "is_black": False,
+            "segmentation_base64": GREY_PNG,
+            "segmentation_legend": {"/World/Box": [255, 0, 0], "/World/Floor": [0, 255, 0]},
+            **depth,
+        }
+    )
+    return answer
+
+
+def test_depth_writes_its_image_and_raw_distances_and_each_prim_s_nearest(tmp_path):
+    answer = _with_depth(
+        depth_base64=GREY_PNG,
+        depth_npy_base64=_npy([[2.0, 4.0], [4.0, np.inf]]),
+        depth_near=2.0,
+        depth_far=4.0,
+        depth_nothing_hit=0.25,
+        depth_nearest={"/World/Box": 2.0, "/World/Floor": 4.0},
+    )
+    fns, client = _tools(tmp_path, {"capture_viewport": answer})
+    out = fns["capture_viewport"](include_depth=True)
+    assert client.calls[0][1][-1] is True  # include_depth sent
+    (line,) = [line for line in out.splitlines() if line.startswith("Depth: ")]
+    assert "(near 2, far 4 stage units; brighter is nearer, black is nothing hit, 25% of the image)" in line
+    captures = tmp_path / "captures"
+    (png,) = captures.glob("viewport_*_depth.png")
+    (npy,) = captures.glob("viewport_*_depth.npy")
+    assert png.read_bytes().startswith(b"\x89PNG")
+    assert np.load(npy).tolist() == [[2.0, 4.0], [4.0, np.inf]]
+    (legend,) = captures.glob("*legend*")
+    text = legend.read_text()
+    assert "# Format: prim_path = [R, G, B] distance = <nearest, stage units>" in text
+    assert "/World/Box = [255, 0, 0] distance = 2\n" in text
+    assert "/World/Floor = [0, 255, 0] distance = 4\n" in text
+
+
+def test_without_depth_the_legend_and_the_answer_are_as_before(tmp_path):
+    fns, client = _tools(tmp_path, {"capture_viewport": _with_depth()})
+    out = fns["capture_viewport"]()
+    assert client.calls[0][1][-1] is False
+    assert "Depth" not in out
+    (legend,) = (tmp_path / "captures").glob("*legend*")
+    assert "/World/Box = [255, 0, 0]\n" in legend.read_text()
+    assert not list((tmp_path / "captures").glob("*depth*"))
+
+
+def test_depth_s_error_is_said(tmp_path):
+    fns, _ = _tools(tmp_path, {"capture_viewport": _with_depth(depth_error="Depth failed: no sensor")})
+    assert "Depth: ERROR Depth failed: no sensor" in fns["capture_viewport"](include_depth=True)
+
+
+def test_a_depth_of_nothing_hit_says_so(tmp_path):
+    answer = _with_depth(
+        depth_base64=GREY_PNG, depth_npy_base64=_npy([[np.inf]]), depth_near=None, depth_far=None, depth_nothing_hit=1.0
+    )
+    fns, _ = _tools(tmp_path, {"capture_viewport": answer})
+    assert "(nothing hit (100% of the image))" in fns["capture_viewport"](include_depth=True)
+
+
+def test_an_older_extension_s_silence_on_depth_is_said(tmp_path):
+    fns, client = _tools(tmp_path, {"capture_viewport": _with_depth()})
+    client.extension_version = "0.5.1"
+    out = fns["capture_viewport"](include_depth=True)
+    assert "Depth: none: the Kit extension is 0.5.1 and doesn't take include_depth; install this server's, " in out
+    assert install_advice() in out
