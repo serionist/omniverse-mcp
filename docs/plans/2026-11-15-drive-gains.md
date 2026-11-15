@@ -1,9 +1,9 @@
 ---
 title: Read and write joint drive gains, with each joint's tracking error
 issue: "#199"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-11-15
 ---
 
 # Read and write joint drive gains, with each joint's tracking error
