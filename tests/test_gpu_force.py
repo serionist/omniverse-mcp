@@ -473,6 +473,12 @@ class TestGpuForce(PhysicsChecks):
             f"the push on {outer} moved its twin: {what_moved}",
         )
 
+    def test_17_a_cube_stepped_by_an_exact_count_falls_that_many_steps(self) -> None:
+        """sim_control's step under the Direct GPU API (#198): read through the tensor API, Fabric updated; USD isn't
+        written here, so its bounds are left unchecked."""
+        self._switched()
+        self._check_exact_steps("GpuStepCube", usd_written=False)
+
 
 if __name__ == "__main__":
     unittest.main()

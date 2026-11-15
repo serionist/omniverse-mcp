@@ -474,6 +474,9 @@ class BridgeClient:
     def sim_control(self, action: str) -> dict[str, Any]:
         return self.request("/sim/control", {"action": action})
 
+    def sim_step(self, steps: int, observe: list[str]) -> dict[str, Any]:
+        return self.request("/sim/step", {"steps": steps, "observe": observe})
+
     def sim_state(self) -> dict[str, Any]:
         return self.request("/sim/state", {})
 

@@ -1157,19 +1157,41 @@ Query or set the viewport's lighting mode. Non-destructive: it changes how the v
 
 ### `sim_control`
 
-Control the simulation.
+Control the simulation, or step physics by an exact count and read bodies and joints back.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `action` | string | required | `"play"`, `"pause"`, `"stop"`, or `"step"` |
+| `steps` | int | `1` | `step` only: physics steps to take, 0 to 1000; 0 pauses and reads without stepping |
+| `observe` | list[string] | `null` | `step` only: up to 20 prims to read back after the steps, rigid bodies or a robot's root |
 
 - **play** - Start or resume physics simulation
 - **pause** - Pause simulation (state preserved)
 - **stop** - Stop simulation and reset to initial state
-- **step** - Play for two app updates, then pause
+- **step** - Advance physics by exactly `steps` steps of the physics scene's dt, then leave it paused
 
 **Returns:** the state the timeline is left in. `get_sim_state` reads it without changing it; `get_robot_info`'s joint
-states and `apply_force` need the simulation playing or paused.
+states and `apply_force` need the simulation playing or paused. `steps` or `observe` with another action is refused.
+
+**step** is the step, look, adjust loop of debugging physics ([#198](https://github.com/serionist/omniverse-mcp/issues/198)):
+
+- **How:** PhysX's own manual loop, as Isaac Sim's `SimulationManager.step` steps: `simulate` and `fetch_results`,
+  then omni.physx.fabric's update, once a step, on a paused timeline. Playing, the timeline is paused first; stopped,
+  physics is loaded, and the answer says how many steps the load took (`was = stopped: ...`).
+- **What doesn't move:** the timeline's time. Recordings, time-sampled animation and Action Graphs on playback ticks
+  advance only with `play`.
+- **The answer:** `stepped = N of N physics steps of dt s (... s of physics)`, then a prim block per `observe` path,
+  read from PhysX after the last step, the simulated state, not drive targets:
+  - a rigid body: `position`, `rotation` (w, x, y, z), `linear_velocity` (stage units/s), `angular_velocity` (deg/s);
+  - a robot's root, or a prim above it: `joints = <root>, N DOF`, then `joint.<name> = pos ..., vel ...` in radians or
+    stage units, as `get_robot_info` gives them;
+  - a prim that is both, such as a G1's pelvis, both; anything else, an `error` line saying why.
+  
+  Too long to give inline, the blocks go to a file, its path in the answer.
+- **Limits:** a step while another runs is refused. Stepping stops at 90 s and says how far it got
+  (`stopped_early`), as it does when the timeline or the stage changes under it. Under Isaac Sim's Newton engine, where
+  PhysX runs nothing, it is refused. Viewport captures show the stepped pose; USD tools such as `get_prim_bounds` show
+  it only where PhysX writes USD, not under the Direct GPU API.
 
 **A robot's first play** cooks its collision meshes, and the Kit app answers nothing until that ends: the G1 cooked
 from scratch in 0.6 s on Isaac Sim 6.2 with an RTX 5090. Kit keeps what it cooked, so the same meshes cook again
@@ -1299,8 +1321,9 @@ refused. The answer names the camera, the size and `render_product`, the prim th
 
 - **When frames come:** one every 1/`fps` seconds of the recording's own clock, at most one an app update; play the
   simulation to record motion.
-  - The clock runs with the simulation while it plays, `sim_control("step")`'s steps included: frames are 1/`fps` s
-    of `sim_time` apart. A simulation faster than real time, 1.25 to 2.5 times headless on Isaac Sim 6.2, so gives
+  - The clock runs with the simulation while it plays: frames are 1/`fps` s of `sim_time` apart.
+    `sim_control("step")` moves physics without moving the timeline, so while it steps the clock runs with the wall
+    clock, as it does paused. A simulation faster than real time, 1.25 to 2.5 times headless on Isaac Sim 6.2, so gives
     more than `fps` frames a second by the wall clock.
   - It runs with the wall clock while the simulation is stopped or paused, or plays a timeline whose time doesn't move
     (a file with no time-code range): `fps` frames a second, whatever Kit's update rate.
@@ -1738,7 +1761,7 @@ result = {"center": bounds["result"]["center"], "sim": state["result"]["state"]}
 | `mcp.create_prim(prim_path, prim_type, **kwargs)` | Create a prim |
 | `mcp.delete_prim(prim_path)` | Delete a prim |
 | `mcp.set_material(prim_path, color, opacity, roughness, metallic)` | Create and bind a material |
-| `mcp.sim_control(action)` | play/pause/stop/step |
+| `mcp.sim_control(action)` | play/pause/stop/step; its `step` plays two app updates, unlike the tool's |
 | `mcp.sim_state()` | Get simulation state |
 | `mcp.get_logs(count, min_level, channel, search)` | Get recent log entries |
 

@@ -213,6 +213,7 @@ the install command; a new route leaves `PROTOCOL` alone, so the other tools go 
 /robot/joint_states  -> handle_get_joint_states
 /robot/joint_targets -> handle_set_joint_targets
 /sim/control         -> handle_sim_control
+/sim/step            -> handle_sim_step
 /sim/capture         -> handle_capture
 /sim/state           -> handle_sim_state
 /sim/performance     -> handle_performance

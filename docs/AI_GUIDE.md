@@ -46,8 +46,9 @@ move only while physics plays.
   `isaac-sim/isaacsim`, and `/websites/omniverse_nvidia_kit_omni_physics` for PhysX) or NVIDIA's documentation for the
   app's version. Models are not trained on these APIs.
 - **Long work runs as a job:** an `execute_script` call gives up after 120 s while its script runs on. Work that may
-  take longer, such as many physics steps, goes to `run_script_job`, with a script that awaits
+  take longer, such as many physics steps with work between them, goes to `run_script_job`, with a script that awaits
   `omni.kit.app.get_app().next_update_async()` once a step; `get_job(id, wait=60)` reads it, `cancel_job` stops it.
+  Up to 1000 physics steps alone are `sim_control("step", steps=..., observe=[...])`, which reads the bodies back.
 - **When a tool fails,** `get_logs(min_level="warn")` shows what the Kit app reported.
 - **When a tool misbehaves** (an error its arguments don't explain, a wrong answer, a hang), say it looks like a bug
   in omniverse-mcp and ask the user first, before gathering anything, which they want:

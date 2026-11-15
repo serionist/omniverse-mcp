@@ -5,7 +5,7 @@ a file to the stage are tests/test_metrics.py's."""
 import pytest
 from pxr import Usd, UsdGeom, UsdPhysics
 
-from ovmcp.core.robot import articulation_root, is_usd_file, robot_prim_path
+from ovmcp.core.robot import ARTICULATION, BODY, articulation_root, is_usd_file, observed_kinds, robot_prim_path
 
 
 @pytest.mark.parametrize(
@@ -62,3 +62,19 @@ def robots() -> Usd.Stage:
 )
 def test_the_articulation_root_at_or_under_a_prim(robots: Usd.Stage, prim: str, root: str | None):
     assert articulation_root(robots.GetPrimAtPath(prim)) == root
+
+
+# ----- What a stepped read gives of a prim (#198) -----
+
+
+def test_a_stepped_read_tells_a_body_a_robot_both_and_neither(robots: Usd.Stage):
+    # The G1's pelvis is a rigid body and the articulation's root at once; the read gives it both.
+    pelvis = robots.GetPrimAtPath("/World/Biped/pelvis")
+    UsdPhysics.RigidBodyAPI.Apply(pelvis)
+    UsdPhysics.RigidBodyAPI.Apply(robots.GetPrimAtPath("/World/Table"))
+    UsdGeom.Xform.Define(robots, "/World/Light")
+    assert observed_kinds(robots.GetPrimAtPath("/World/Table")) == {BODY}
+    assert observed_kinds(robots.GetPrimAtPath("/World/Arm")) == {ARTICULATION}
+    assert observed_kinds(robots.GetPrimAtPath("/World/Biped")) == {ARTICULATION}
+    assert observed_kinds(pelvis) == {BODY, ARTICULATION}
+    assert observed_kinds(robots.GetPrimAtPath("/World/Light")) == set()

@@ -252,21 +252,110 @@ def _timeline_lines(r: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _step_header(r: dict[str, Any]) -> list[str]:
+    """/sim/step's answer before its prim blocks: what was stepped, from what, and where the values come from."""
+    dt = float(r["dt"])
+    # Only a step that ran to its end left the time alone: one stopped early may have been stopped by a play.
+    time_line = "the timeline's time is unchanged" if not r.get("stopped_early") else "the timeline's time is"
+    lines = [
+        f"'step' executed. Sim is now: {r['current_state']}",
+        f"stepped = {r['steps']} of {r['asked']} physics steps of {dt:.6f} s ({r['steps'] * dt:.3f} s of physics); "
+        f"{time_line} ({float(r['time']):.3f} s)",
+    ]
+    if r.get("stopped_early"):
+        lines.append(f"stopped_early = {r['stopped_early']}")
+    if r["was"] == "playing":
+        lines.append("was = playing: paused first")
+    elif r["was"] == "stopped":
+        loaded = r.get("load_steps")
+        took = "" if loaded is None else f", which took {loaded} physics step{'s' if loaded != 1 else ''}"
+        lines.append(f"was = stopped: physics loaded{took}")
+    if r.get("observed"):
+        lines.append("source = read from PhysX after the last step: the simulated state, not drive targets")
+    return lines
+
+
+def _observed_block(o: dict[str, Any]) -> list[str]:
+    """One prim a step read back, as a prim block: a body's pose and velocities, an articulation's joints, or why
+    neither."""
+    lines = [f"[{o['prim_path']}]"]
+    if o.get("error"):
+        lines.append(f"error = {o['error']}")
+    if o.get("body_error"):
+        lines.append(f"body_error = {o['body_error']}")
+    if "position" in o:
+        lines += [
+            f"position = {_rounded(o['position'])}",
+            f"rotation = {_rounded(o['rotation'])} (w, x, y, z)",
+            f"linear_velocity = {_rounded(o['linear_velocity'])} (stage units/s)",
+            f"angular_velocity = {_rounded(o['angular_velocity'])} (deg/s)",
+        ]
+    joints = o.get("joints")
+    if joints:
+        if joints.get("error"):
+            lines.append(f"joints_error = {joints['error']}")
+        else:
+            lines.append(
+                f"joints = {joints['root']}, {joints['dof_count']} DOF: radians for revolute joints, stage units for "
+                "prismatic ones, velocities per second"
+            )
+            lines += [
+                f"joint.{name} = pos {pos:.4f}, vel {vel:.4f}"
+                for name, pos, vel in zip(joints["names"], joints["positions"], joints["velocities"], strict=False)
+            ]
+    return lines
+
+
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @tool(mcp, EDITS)
     def sim_control(
         action: Annotated[Literal["play", "pause", "stop", "step"], Field(description="What to do")],
+        steps: Annotated[
+            int | None,
+            Field(
+                ge=0,
+                le=1000,
+                description="step only: how many physics steps, 1 by default; 0 pauses and reads without stepping",
+            ),
+        ] = None,
+        observe: Annotated[
+            list[str] | None,
+            Field(
+                max_length=20,
+                description="step only: prims to read back after the steps, rigid bodies or a robot's root",
+            ),
+        ] = None,
     ) -> str:
         """Play, pause, stop or step the simulation's timeline, and return the state it is left in.
 
         play starts or resumes physics; pause holds it where it is; stop rewinds the timeline, and physics puts bodies
-        back where play found them; step plays for two app updates, then pauses. A robot's first play cooks its
-        collision meshes, and Kit answers nothing until that ends. get_sim_state reads the state without changing it;
-        get_robot_info's joint states and apply_force need it playing or paused.
+        back where play found them. A robot's first play cooks its collision meshes, and Kit answers nothing until
+        that ends. get_sim_state reads the state without changing it; get_robot_info's joint states and apply_force
+        need it playing or paused.
+
+        step advances physics by exactly `steps` steps of the physics scene's dt, then leaves it paused: playing, it
+        pauses first; stopped, it loads physics and says how many steps that took. The timeline's time doesn't move,
+        so recordings, time-sampled animation and Action Graphs on playback ticks don't advance with it; play does
+        those. observe reads each prim back after the last step, from PhysX: a rigid body's position, rotation (w, x,
+        y, z), linear velocity and angular velocity in deg/s; a robot's joint positions and velocities, as
+        get_robot_info gives them; both for a body that is also a robot's root. steps=0 reads without moving
+        anything. The step, look, adjust loop of debugging physics: step a few, observe, change, step again.
+        Stepping stops at 90 s and says how far it got.
         """
-        resp = bridge_call(client.sim_control, action)
-        r = resp["result"]
-        return f"'{r['action']}' executed. Sim is now: {r['current_state']}"
+        if action != "step":
+            if steps is not None or observe:
+                raise ToolError(f"steps and observe go with action='step', not '{action}'")
+            r = bridge_call(client.sim_control, action)["result"]
+            return f"'{r['action']}' executed. Sim is now: {r['current_state']}"
+        r = bridge_call(client.sim_step, 1 if steps is None else steps, observe or [])["result"]
+        header = _step_header(r)
+        observed: list[dict[str, Any]] = r.get("observed") or []
+        blocks = [line for o in observed for line in ["", *_observed_block(o)]]
+        whole = "\n".join(header + blocks)
+        if not blocks or h.fits(whole):
+            return whole
+        wrote = h.write_response("\n".join(blocks).lstrip("\n"), "sim_step", f"the {len(observed)} prims read")
+        return "\n".join([*header, wrote])
 
     @tool(mcp, READS)
     def get_sim_state() -> str:

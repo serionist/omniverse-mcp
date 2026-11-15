@@ -78,6 +78,7 @@ from .simulation import (
     handle_set_physics_properties,
     handle_sim_control,
     handle_sim_state,
+    handle_sim_step,
 )
 
 # --- Capture sweep ---
@@ -147,6 +148,7 @@ __all__ = [
     "handle_raycast",
     "handle_set_physics_properties",
     "handle_sim_control",
+    "handle_sim_step",
     "handle_sim_state",
     # USD advanced
     "handle_compare_prims",

@@ -2211,6 +2211,38 @@ class TestScenarios(PhysicsChecks):
         self.assertEqual(r["status"], "success", r)
         self._pass()
 
+    def test_15_17_step_by_an_exact_count_and_read_the_body_back(self):
+        """Phase 15.17: a falling cube stepped 30 and 30 more from stopped falls exactly that many steps, the
+        timeline's time still, Fabric and USD at the pose read back (#198)"""
+        self._check_exact_steps("StepCube", usd_written=True)
+        self._pass()
+
+    def test_15_18_step_a_franka_toward_its_targets_and_read_its_joints(self):
+        """Phase 15.18: a Franka given a joint target and stepped: its joints, read back with the step, move toward it
+        (#198)"""
+        path = "/World/StepFranka"
+        self.c.sim_control("stop")
+        time.sleep(0.3)
+        self.addCleanup(self.c.delete_prim, path)
+        self.addCleanup(self.c.sim_control, "stop")
+        r = self.c.create_robot("franka", path, position=_along_up(self._up_axis(), 0, x=-70))
+        self.assertEqual(r["status"], "success", r)
+        r = self.c.set_joint_targets(path, {"panda_joint1": 30.0})
+        self.assertEqual(r["status"], "success", r)
+
+        def joint1(steps: int) -> float:
+            r = self.c.sim_step(steps, [path])
+            self.assertEqual(r["status"], "success", r)
+            joints = r["result"]["observed"][0]["joints"]
+            self.assertNotIn("error", joints, joints)
+            return joints["positions"][joints["names"].index("panda_joint1")]
+
+        start = joint1(0)
+        moved = joint1(60)
+        target = math.radians(30.0)
+        self.assertLess(abs(target - moved), abs(target - start), f"joint1 went from {start} to {moved}, not to 30 deg")
+        self._pass()
+
     # ===== Phase 16: Raycasting & Debug Draw =====
 
     def test_16_01_raycast_hit(self):
