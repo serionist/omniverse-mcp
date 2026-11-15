@@ -52,9 +52,10 @@ read-back says what the simulation holds).
   `pos 0.1234, vel 0.0000, target 0.5236, tracking_error 0.4102, limits [-2.8973, 2.8973], kp 57296, kd 5730,
   max_force 87`. `tracking_error`, not `error`, which the step's blocks keep for failures. Each header line says the
   values are the simulation's own, and the units: radians or stage units, `kp` per radian or per stage unit, `kd` the
-  same per second; and keeps today's warning that `set_joint_targets` takes degrees, unlike `set_joint_drives`, which
-  takes these units (round 1, P2). A value of PhysX's own for "no limit" (infinite, or 1e30 and over, as a continuous
-  joint's limits or a drive with no `maxForce` read) prints `unlimited`, unit-tested (round 1, P5). The step's
+  same per second; and says `set_joint_targets` takes degrees, unlike `set_joint_drives`, which takes these units:
+  `get_robot_info`'s header keeps today's warning, and the step's joints header gains it (round 1, P2; round 2). A
+  value of PhysX's own for "no limit" (infinite, or 1e30 and over in magnitude, as a continuous joint's limits either
+  way or a drive with no `maxForce` read) prints `unlimited`, unit-tested (round 1, P5; round 2). The step's
   `source` line, "the simulated state, not drive targets", becomes "read from PhysX after the last step: positions and
   velocities simulated, targets and gains what PhysX drives with" (noticed by the fit). `get_robot_info`'s description
   and its joint states header name the new columns (noticed by the fit), and say which limits are which: the Joints
@@ -62,7 +63,9 @@ read-back says what the simulation holds).
 - **The write, a new tool** `set_joint_drives(prim_path, drives)`: `drives` maps a joint's name, as `get_robot_info`
   lists it, to any of `stiffness`, `damping`, `max_force`, **in the read's units** (fit I2), so `kp 57296` read can be
   written back doubled as `114592` with no degrees in the agent's head. Each value is finite and 0 or more, refused
-  outside before the tool runs, bounds the tool contract records (round 1, P3). The handler:
+  outside before the tool runs (`allow_inf_nan=False` beside `ge=0`), bounds the tool contract records (round 1, P3);
+  the description says a `max_force` of 1e30 or more means no limit, which the read prints as `unlimited`, so a limit
+  set can be taken off again (round 2, P7). The handler:
   1. converts to USD's units and writes each value to the joint's existing `UsdPhysics.DriveAPI`, angular or linear
      by its type; a joint with no drive is listed as not written, "no drive: set_joint_targets gives it one" (fit I6),
      rather than given one with invented gains; the drive lookup is one helper shared with `_set_drive_target`;
@@ -98,10 +101,11 @@ answer gains keys, additive; an older extension sends none and the lines show wh
    the step's and force's handler tests replace `read_joint_states` whole.
 4. **Server:** `get_robot_info`'s header, description and joint lines, the step's joint lines and `source` line;
    `set_joint_drives`; `client.set_joint_drives`; `tests/test_tools.py`; `uv run tools/golden.py`.
-5. **Live:** in `tests/test_scenarios.py` phase 15, beside 15.18: a Franka's joint given a low stiffness and a
-   target, stepped until its tracking error settles (the sag low stiffness leaves); then a high stiffness through
-   `set_joint_drives` while paused, stepped again: the settled error shrinks, so the new gain acted, not the time
-   (round 1, P4); the answer's `in_simulation` holds the new stiffness, and `get_robot_info` reads it back; a
+5. **Live:** in `tests/test_scenarios.py` phase 15, beside 15.18: a Franka's `panda_joint2`, the shoulder gravity
+   loads (`panda_joint1` turns about the vertical, where gravity leaves no sag), given a low stiffness and a target
+   that holds the arm out, stepped 120 steps at a time until its tracking error changes by under 1 % between reads,
+   at most 600 steps (the sag low stiffness leaves); then a high stiffness through `set_joint_drives` while paused,
+   stepped the same way: the settled error shrinks, so the new gain acted, not the time (round 1, P4; round 2, P6); the answer's `in_simulation` holds the new stiffness, and `get_robot_info` reads it back; a
    velocity-driven wheel (jetbot) shows `tracking_error none`. Isaac Sim 6.2, Z-up.
 6. **Docs:** below.
 
@@ -121,8 +125,8 @@ step's joint line format and the step's `source` line, round 1, I11).
 
 ## Risks
 
-- **A paused simulation may not take a USD write until it steps:** Step 1 checks it; the view write is the fallback,
-  and the read-back says the truth either way. Open until Step 1.
+- **A paused or playing simulation may not take a USD write by the next update:** Step 1 checks both; the view write
+  is the fallback, one rule for both, and the read-back says the truth either way. Open until Step 1.
 - **Isaac Sim 5.1's getters** are read from 6.2's changelog and Context7, not 5.1's source: a missing one fails the
   read with the getter named. Accepted.
 
@@ -178,3 +182,19 @@ read-back measures them); limits shown twice (each line says its units; I10).
 | I10 | Say in `get_robot_info`'s description which limits are which (the Joints list's degrees from USD, the states' radians from physics) | taken |
 | I11 | A CHANGELOG Changed line beside Added: `get_robot_info`'s state line format and the step's `source` line change | taken |
 | I12 | One core `to_usd_gain` and its inverse, with a round-trip test | taken |
+
+### Round 2
+
+**How:** a fresh general-purpose agent (Claude Opus 5.5), 2026-11-15, on the edits since `c7c62b0`. **Verdict:**
+approved: P1-P5 fixed, the answers and taken improvements in place, no blocker or major; two minors and three
+wordings, fixed. **Now:** all applied.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P6 | minor | Step 5's settled sag may be zero: `panda_joint1` turns about the vertical, where gravity loads nothing, and "until it settles" had no bound | fixed: `panda_joint2`, held out; 120 steps a read, under 1 % change, at most 600 |
+| P7 | minor | No way to put "no force limit" back in the read's terms: the read prints `unlimited`, the write takes finite values | fixed: the description says 1e30 or more means no limit |
+
+Also fixed: the step's joints header gains the degrees warning (it had none to keep); "1e30 and over" in magnitude,
+for a continuous joint's lower limit; Risks names the playing case beside the paused, per Q2. Refuted: Q2 against
+Alternatives (they agree); I12 against Step 2 (consistent); P1 on a stopped simulation (an error line, not a wrong
+`none`); bounds on a nested map (the schema holds them).
