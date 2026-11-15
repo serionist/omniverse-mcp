@@ -196,8 +196,13 @@ def test_the_data_folder_is_where_platformdirs_puts_it(
 def test_the_wheel_installs_the_extension_it_carries(data: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     uv = shutil.which("uv")
     assert uv, "the wheel is built with uv"
-    # Offline: the build backend is in uv's cache from the editable install the tests run in.
-    built = gate.run([uv, "build", "--wheel", "--offline", "--out-dir", str(tmp_path / "dist"), str(REPO_ROOT)])
+    # Offline: the build backend is in uv's cache from the editable install the tests run in. With the tests' own
+    # Python: left to itself uv takes .python-version's, which CI's runners for the other versions lack, and offline
+    # it can't fetch one (#206).
+    dist = str(tmp_path / "dist")
+    built = gate.run(
+        [uv, "build", "--wheel", "--offline", "--python", sys.executable, "--out-dir", dist, str(REPO_ROOT)]
+    )
     assert built.returncode == 0, built.stderr
     (wheel,) = (tmp_path / "dist").glob("*.whl")
     site = tmp_path / "site"
