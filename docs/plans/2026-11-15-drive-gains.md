@@ -44,17 +44,22 @@ read-back says what the simulation holds).
   also reads, from the same `Articulation`, `get_dof_limits()`, `get_dof_position_targets()`, `get_dof_gains()` and
   `get_dof_max_efforts()`, each named in the existing `call` bookkeeping, so a failure says which getter failed (fit
   I5: the four date from the extension's first release, so no per-getter fallback). The tracking error is computed in
-  core, `target - position`, per DOF.
+  core, `target - position`, only for a DOF whose stiffness from physics is above 0, a position drive; any other
+  (a velocity-driven wheel, a damping-only or undriven joint) shows `tracking_error none`, so an agent never tunes a
+  joint no position drive controls (round 1, P1).
 - **The answer** (fit I8): `get_robot_info`'s joint state lines and the step's `joint.<name>` lines become
   `pos 0.1234, vel 0.0000, target 0.5236, tracking_error 0.4102, limits [-2.8973, 2.8973], kp 57296, kd 5730,
   max_force 87`. `tracking_error`, not `error`, which the step's blocks keep for failures. Each header line says the
   values are the simulation's own, and the units: radians or stage units, `kp` per radian or per stage unit, `kd` the
-  same per second. The step's `source` line, "the simulated state, not drive targets", becomes "read from PhysX after
+  same per second; and keeps today's warning that `set_joint_targets` takes degrees, unlike `set_joint_drives`, which
+  takes these units (round 1, P2). A value of PhysX's own for "no limit" (infinite, or 1e30 and over, as a continuous
+  joint's limits or a drive with no `maxForce` read) prints `unlimited`, unit-tested (round 1, P5). The step's `source` line, "the simulated state, not drive targets", becomes "read from PhysX after
   the last step: positions and velocities simulated, targets and gains what PhysX drives with" (noticed by the fit).
   `get_robot_info`'s description and its joint states header name the new columns (noticed by the fit).
 - **The write, a new tool** `set_joint_drives(prim_path, drives)`: `drives` maps a joint's name, as `get_robot_info`
   lists it, to any of `stiffness`, `damping`, `max_force`, **in the read's units** (fit I2), so `kp 57296` read can be
-  written back doubled as `114592` with no degrees in the agent's head. The handler:
+  written back doubled as `114592` with no degrees in the agent's head. Each value is finite and 0 or more, refused
+  outside before the tool runs, bounds the tool contract records (round 1, P3). The handler:
   1. converts to USD's units and writes each value to the joint's existing `UsdPhysics.DriveAPI`, angular or linear
      by its type; a joint with no drive is listed as not written, "no drive: set_joint_targets gives it one" (fit I6),
      rather than given one with invented gains; the drive lookup is one helper shared with `_set_drive_target`;
@@ -90,9 +95,11 @@ answer gains keys, additive; an older extension sends none and the lines show wh
    the step's and force's handler tests replace `read_joint_states` whole.
 4. **Server:** `get_robot_info`'s header, description and joint lines, the step's joint lines and `source` line;
    `set_joint_drives`; `client.set_joint_drives`; `tests/test_tools.py`; `uv run tools/golden.py`.
-5. **Live:** in `tests/test_scenarios.py` phase 15, beside 15.18: a Franka's joint stepped toward a target with low
-   stiffness, then high through `set_joint_drives` while paused; its tracking error after the same steps shrinks, the
-   answer's `in_simulation` holds the new stiffness, and `get_robot_info` reads it back. Isaac Sim 6.2, Z-up.
+5. **Live:** in `tests/test_scenarios.py` phase 15, beside 15.18: a Franka's joint given a low stiffness and a
+   target, stepped until its tracking error settles (the sag low stiffness leaves); then a high stiffness through
+   `set_joint_drives` while paused, stepped again: the settled error shrinks, so the new gain acted, not the time
+   (round 1, P4); the answer's `in_simulation` holds the new stiffness, and `get_robot_info` reads it back; a
+   velocity-driven wheel (jetbot) shows `tracking_error none`. Isaac Sim 6.2, Z-up.
 6. **Docs:** below.
 
 ## Tests
@@ -137,3 +144,33 @@ is a new tool the right shape, and can the units be settled from Isaac Sim's own
 Noticed on the way, both fixed in the plan at the maintainer's word: the step's `source` line would turn false with
 targets in the joint lines (Design, the answer); `get_robot_info`'s header and description need the new columns (Design,
 the answer; Step 4).
+
+### Round 1
+
+**How:** a fresh general-purpose agent (Claude Opus 5.5), 2026-11-15, who checked the cited Isaac Sim source (the units
+hold on both backends; the line numbers drift a few lines). **Verdict:** needs-fixes: one major, four minors, all
+fixed in the plan. **Now:** P1-P5 applied; a second round on the edits follows the major.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P1 | major | `tracking_error` for every DOF: a velocity-driven wheel (carter, jetbot) would read `-312.4` and an agent tune a joint no position drive controls | fixed: only where physics' stiffness is above 0, else `none`; live on a jetbot wheel |
+| P2 | minor | Targets in radians beside `set_joint_targets`, which takes degrees, with today's warning dropped | fixed: both headers keep it, and say `set_joint_drives` takes the read's units |
+| P3 | minor | No bounds on the gains: a negative or NaN would reach USD and PhysX | fixed: finite, 0 or more, in the contract |
+| P4 | minor | Step 5's error shrinks with time even if the gain did nothing | fixed: the low-stiffness sag settles first, then the high stiffness must shrink it |
+| P5 | minor | Infinite limits and an unset force limit print as `inf` or 3.4e38 | fixed: `unlimited`, unit-tested |
+
+Refuted: "as `set_joint_targets` lists failures" (it doesn't, but the plan lists missing names itself); I7's "reaches
+inside" today (Step 3 adds that test); security, the main thread, the protocol number, USD writes while playing (the
+read-back measures them); limits shown twice (each line says its units; I10).
+
+| # | Question | Recommendation | Answer |
+|---|---|---|---|
+| Q1 | P1's shape: leave `tracking_error` out for DOFs without a position drive, or show `none`? | `none`: every line keeps its columns | open |
+| Q2 | The view-write fallback for the playing case too, if Step 1 finds a playing simulation doesn't take the USD write? | yes: one rule for both states | open |
+
+| # | Improvement | Answer |
+|---|---|---|
+| I9 | Cite Isaac Sim's methods by name (`get_dof_gains`' USD branch), not line numbers, which already drift | open |
+| I10 | Say in `get_robot_info`'s description which limits are which (the Joints list's degrees from USD, the states' radians from physics) | open |
+| I11 | A CHANGELOG Changed line beside Added: `get_robot_info`'s state line format and the step's `source` line change | open |
+| I12 | One core `to_usd_gain` and its inverse, with a round-trip test | open |
