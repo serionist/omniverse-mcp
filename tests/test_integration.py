@@ -17,6 +17,7 @@ import tempfile
 import textwrap
 import time
 import unittest
+import zlib
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -691,6 +692,15 @@ def _png_size(image_base64: str) -> tuple[int, int]:
     """A base64 PNG's width and height, from its header."""
     head = base64.b64decode(image_base64[:32])
     return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+
+
+def _rgb(png: bytes) -> np.ndarray:
+    """The pixels of an RGB PNG the bridge's own encoder wrote (ovmcp.core.png): one IDAT, each row filter 0."""
+    width, height = int.from_bytes(png[16:20], "big"), int.from_bytes(png[20:24], "big")
+    start = png.index(b"IDAT") + 4
+    length = int.from_bytes(png[start - 8 : start - 4], "big")
+    raw = np.frombuffer(zlib.decompress(png[start : start + length]), dtype=np.uint8)
+    return raw.reshape(height, 1 + width * 3)[:, 1:].reshape(height, width, 3)
 
 
 # Turns the active viewport's updates off, then waits up to 3 s for a frame through Kit's own frame wait.
@@ -1489,7 +1499,16 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         self.assertLessEqual(r["depth_near"], r["depth_nearest"]["/World/IntTestCube"] + 1e-6)
         distances = np.load(io.BytesIO(base64.b64decode(r["depth_npy_base64"])))
         self.assertEqual(distances.shape, (480, 640))
-        self.assertTrue(np.isinf(distances).any() == (r["depth_nothing_hit"] > 0))
+        # Nothing hit is where segmentation shows no prim (black), whatever the sky's value reads (plan round 1, P2).
+        background = ~_rgb(base64.b64decode(r["segmentation_base64"])).any(axis=2)
+        self.assertTrue(np.array_equal(np.isinf(distances), background), "inf isn't where segmentation shows nothing")
+        # The kept feed's sensors are off between calls (#114's S1), depth's with segmentation's.
+        sensors_on = self._kit(
+            "from ovmcp.bridge.handlers import camera_feed\n"
+            "feed = camera_feed._kept.feed\n"
+            "result = None if feed is None else [str(s) for s in feed.sensors_on]"
+        )
+        self.assertEqual(sensors_on, [])
         print(
             f"  {camera}: cube nearest {r['depth_nearest']['/World/IntTestCube']:.3f} against {expected:.3f}, "
             f"near {r['depth_near']:.3f}, far {r['depth_far']:.3f}, nothing hit {r['depth_nothing_hit']:.0%}"

@@ -219,8 +219,10 @@ def _segments(handler: Any, monkeypatch: pytest.MonkeyPatch, turned_on: Any, rea
         return np.zeros((24, 32), dtype=np.uint32), None
 
     def colour(_ids: Any, distances: Any = None) -> Any:
+        # The nearest it gives is the distances' own minimum, so a test sees whether the capture passed them on.
         assert read is not None
-        return read[0], read[1], {}
+        nearest = {} if distances is None else {"/World/X": float(np.min(distances))}
+        return read[0], read[1], nearest
 
     monkeypatch.setattr(handler, "_segmentation", segmentation)
     monkeypatch.setattr(handler, "_segmentation_ids", ids)
@@ -678,7 +680,7 @@ def test_a_capture_with_depth_answers_its_image_raw_distances_and_range(handler,
     assert base64.b64decode(result["depth_base64"]).startswith(b"\x89PNG")
     raw = np.load(io.BytesIO(base64.b64decode(result["depth_npy_base64"])))
     assert raw.tolist() == [[2.0, 4.0], [4.0, np.inf]]
-    assert result["depth_nearest"] == {}
+    assert result["depth_nearest"] == {"/World/X": 2.0}  # the depth's distances reached the colouring
     assert kit.put_back == [(feed, True)]
 
 
