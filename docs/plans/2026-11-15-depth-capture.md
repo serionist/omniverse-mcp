@@ -1,9 +1,9 @@
 ---
 title: Capture a depth image beside the viewport image, on request
 issue: "#203"
-status: draft
-approved_by:
-approved_at:
+status: approved
+approved_by: serionist
+approved_at: 2026-11-15
 ---
 
 # Capture a depth image beside the viewport image, on request
@@ -61,11 +61,14 @@ annotators (the issue: only when someone asks).
 - **The image** (fit I6): a Kit-free core module, `ovmcp/core/depth.py`: `depth_image(distances, far_clip) -> Depth`
   with the PNG bytes, `near`, `far` and `nothing_hit`. Grey maps linearly in inverse distance, white at `1/near` and
   grey 40 at `1/far`, so a far floor doesn't squeeze the objects in front into a few grey levels; nothing hit is
-  black. The grey is stacked to three channels for `core/png.encode_png`, which writes RGB. A frame with nothing hit
+  black. `core/png.encode_png` takes a 2-D array as grey, PNG colour type 0, a third of an RGB file's compression and
+size (round 1, I8). A frame with nothing hit
   gives an all-black image and no range.
 - **Each prim's nearest distance** (fit I7): `depth.py`'s `nearest_by_name(ids, distances, name_of)` takes the
   minimum finite distance per prim path, joined through the same `name_of` the legend's colours use, so a prim two ids
-  name gets the minimum of both, from the same feed's segmentation and depth read in the same update. It goes on the
+  name gets the minimum of both, from the same feed's segmentation and depth read in the same update; computed from the
+`np.unique` inverse indices `colour_instances` already takes, with `np.minimum.at`, so no second pass over the pixels
+(round 1, I9). It goes on the
   wire as a key of its own, `depth_nearest: {path: d}`, leaving `segmentation_legend`'s `[R, G, B]` values as they
   are; the legend file's line for a prim becomes `path = [R, G, B] distance = d` (stage units), one line per prim, so
   a grep on a path returns its distance (round 1, P3). The issue's question, "what is in front of what, and how
@@ -161,8 +164,8 @@ thread); Design (the `.npy`'s unit); Step 5 (2 % of the centre pixel is tight; N
 
 ### Round 1
 
-**How:** a fresh general-purpose agent (Claude Opus 5.5), 2026-11-15. **Verdict:** approved once the owner calls are
-answered: six minors, all fixed in the plan, no blocker or major. **Now:** P1-P6 applied.
+**How:** a fresh general-purpose agent (Claude Opus 5.5), 2026-11-15. **Verdict:** approved, the owner calls
+answered by the maintainer: six minors, all fixed in the plan, no blocker or major. **Now:** P1-P6, I8 and I9 applied.
 
 | # | Sev | Finding | Status |
 |---|---|---|---|
@@ -180,10 +183,10 @@ ARCHITECTURE.md (same route, additive answer); Kit's main thread (no executor); 
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 | Cap depth's size, or store float16? | neither: name and measure the cost (P4) | open |
-| Q2 | Should a depth failure release the feed? | no: `depth_error` alone, the feed kept (P1) | open |
+| Q1 | Cap depth's size, or store float16? | neither: name and measure the cost (P4) | neither, as recommended |
+| Q2 | Should a depth failure release the feed? | no: `depth_error` alone, the feed kept (P1) | no, as recommended |
 
 | # | Improvement | Answer |
 |---|---|---|
-| I8 | `encode_png` takes a 2-D array as grey (colour type 0): a third of the compression and file size, no stacking | open |
-| I9 | The nearest per prim from `colour_instances`' `np.unique` inverse indices with `np.minimum.at`: no second pass over the pixels | open |
+| I8 | `encode_png` takes a 2-D array as grey (colour type 0): a third of the compression and file size, no stacking | taken |
+| I9 | The nearest per prim from `colour_instances`' `np.unique` inverse indices with `np.minimum.at`: no second pass over the pixels | taken |
