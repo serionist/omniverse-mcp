@@ -24,7 +24,9 @@ The answer gives the near and far distances in stage units, and the share of the
 
 Two departures from the issue (fit I1): grey, not a coloured map, since grey reads unambiguously as near and far and
 the numbers are in the text; and stage units, not metres, since `raycast`, `get_prim_bounds` and every other tool
-speak stage units, so a distance compares with theirs as it stands.
+speak stage units, so a distance compares with theirs as it stands. The issue also says to keep depth clear of #162's
+hang: it can't be, since it shares the segmentation path every capture takes, so the live run captures depth after a
+physics run (round 1, P6).
 
 In scope: `capture_viewport`. Out of scope: `capture_sweep` and `inspect_prim`, later: #208 (the sweep's shots go
 through their own handler, and `inspect_prim`'s angles would multiply the raw files by up to 14); normals and other
@@ -39,14 +41,19 @@ annotators (the issue: only when someone asks).
 - **Units and the sky,** from omni.syntheticdata's own tests (`tests/sensors/test_distance_to_camera.py`: a cube `n`
   centimetre stage units away reads `(n - 1) / 100`, so metres; an empty stage reads over 1000, a fisheye's sky `inf`)
   (fit I5): the extension converts metres to stage units once, `metres / metersPerUnit`, as `sweep.py` reads the
-  stage's, for the PNG's range, the text and the `.npy` alike. Nothing hit is a non-finite value, a non-positive one,
-  or one at or beyond the camera's far clipping distance, in case the sky reads large and finite.
+  stage's, for the PNG's range, the text and the `.npy` alike. Nothing hit is a pixel whose segmentation id, read in
+  the same update, is 0, since every capture takes segmentation (round 1, P2); without segmentation data, a non-finite
+  value, a non-positive one, or one at or beyond the camera's far clipping distance. The `.npy` holds `inf` there, so
+  a script's `min` or `mean` isn't fooled by the sky.
 - **The feed's sensors, one function** (fit I3): `enable_segmentation` becomes `enable_sensors(feed, types)`, which
   keeps the registry check (`_nodeGraphs`, `_reset_node_graph`) and the "omni.syntheticdata not loaded" reason in one
   place and makes one `syn.sensors.enable_sensors(feed, [...])` call; the feed holds the set of types it turned on in
   place of `sensor_on`, and turning off (between calls, at release) is one `disable_sensors(feed, [...those])`.
   `segmented` stays, meaning graphs were made; freeing them already pops every graph under the feed's render product
-  by prefix. A capture without depth passes segmentation's type alone, so its path is today's.
+  by prefix. A capture without depth passes segmentation's type alone, so its path is today's. Depth is turned on
+  after segmentation, in a call and a `try` of its own: `enable_sensors` raises on any one type, and a depth that
+  can't be turned on costs only `depth_error`, never the segmentation, and doesn't put the feed in doubt (round 1,
+  P1).
 - **The read** (fit I4): both sensors are turned on before the feed's settle frames, and segmentation is read first,
   so depth normally has data by then. Depth's read is `capture.poll(read, whole, next_update, SEGMENTATION_SECONDS,
   budget)` with the same size check, and an error line of its own; segmentation's retry state and logging stay
@@ -56,10 +63,13 @@ annotators (the issue: only when someone asks).
   grey 40 at `1/far`, so a far floor doesn't squeeze the objects in front into a few grey levels; nothing hit is
   black. The grey is stacked to three channels for `core/png.encode_png`, which writes RGB. A frame with nothing hit
   gives an all-black image and no range.
-- **Each prim's nearest distance** (fit I7): `depth.py`'s `nearest_by_instance(ids, distances)` takes the minimum
-  finite distance per instance id, from the same feed's segmentation and depth read in the same update; the legend
-  gains `distance = <d>` under each prim the segmentation names, in stage units. The issue's question, "what is in
-  front of what, and how far", is then a grep.
+- **Each prim's nearest distance** (fit I7): `depth.py`'s `nearest_by_name(ids, distances, name_of)` takes the
+  minimum finite distance per prim path, joined through the same `name_of` the legend's colours use, so a prim two ids
+  name gets the minimum of both, from the same feed's segmentation and depth read in the same update. It goes on the
+  wire as a key of its own, `depth_nearest: {path: d}`, leaving `segmentation_legend`'s `[R, G, B]` values as they
+  are; the legend file's line for a prim becomes `path = [R, G, B] distance = d` (stage units), one line per prim, so
+  a grep on a path returns its distance (round 1, P3). The issue's question, "what is in front of what, and how
+  far", is then a grep.
 - **The raw file:** `np.save` to bytes in the extension, base64 in the answer, written by the server as
   `viewport_<n>_depth.npy` beside `viewport_<n>_depth.png`; the server needs no numpy.
 - **The answer:** `Depth: <png> (near <n>, far <f> stage units; brighter is nearer, black is nothing hit, <p>% of the
@@ -72,8 +82,8 @@ annotators (the issue: only when someone asks).
 
 The tool contract gains `capture_viewport`'s `include_depth` (default false), additive; `golden.py` rewrites the
 fixture, under CHANGELOG's Added. The wire protocol: `/sim/capture` takes `include_depth` and may answer
-`depth_base64`, `depth_npy_base64`, `depth_near`, `depth_far`, `depth_nothing_hit`, `depth_error`, and a `distance`
-per legend entry; an older extension ignores the key and sends none, and the server then says the extension is older
+`depth_base64`, `depth_npy_base64`, `depth_near`, `depth_far`, `depth_nothing_hit`, `depth_error` and
+`depth_nearest`; an older extension ignores the key and sends none, and the server then says the extension is older
 and gave no depth. The output folder gains two file names under `captures/`, a layout it already has. No one-way door
 changes.
 
@@ -90,10 +100,12 @@ changes.
 4. **Server:** `client.capture_viewport`'s `include_depth`, the tool's parameter, files, line and legend;
    `tests/test_tools_camera.py` (the two files, the line, the legend's distances, the error line, an older
    extension's silence); `uv run tools/golden.py`.
-5. **Live:** in `test_integration.py`, a cube at a known distance captured with depth: the centre pixel within 0.1
-   stage units of the distance from the camera to the cube's front face, and the cube's legend `distance` the same;
-   the corners nothing hit on a stage without a floor; and, after it, `execute_script` reads that the feed's
-   depth sensor is off (fit I2). Isaac Sim 6.2, Z-up.
+5. **Live:** in `test_integration.py`, a cube at a known distance captured with depth: the centre pixel within 0.1 m
+   (`0.1 / meters_per_unit` stage units, round 1, P5) of the distance from the camera to the cube's front face, and
+   the cube's legend `distance` the same; the corners nothing hit on a stage without a floor; after it,
+   `execute_script` reads that the feed's depth sensor is off (fit I2); a capture with depth after a physics run (round
+   1, P6, #162); and one 4096 x 4096 capture with depth, its time recorded in Progress (round 1, P4). Isaac Sim 6.2,
+   Z-up.
 6. **Docs:** below.
 
 ## Tests
@@ -116,8 +128,11 @@ capture's files, `CHANGELOG.md` (Added).
 - **#162's hang** sits in the segmentation path's usdrt population after a physics run. Depth takes the same sensors
   API on the same feed; a capture without depth is as exposed as today, and one with depth as exposed as a plain
   capture already is. Accepted; the live run includes a capture with depth after a physics run.
-- **The far clip as nothing hit** treats a real surface right at the clip as sky. Accepted: the renderer doesn't
-  draw past it either.
+- **The far clip as nothing hit,** used only without segmentation data, treats a real surface right at the clip as
+  sky. Accepted: the renderer doesn't draw past it either.
+- **A large capture's cost:** at 4096 x 4096 the `.npy` is 64 MiB of float32, about 89 MB of base64, built and sent on
+  Kit's main thread with the PNG's compression, so Kit stalls for a second or more. Accepted for a size few ask depth
+  at; Step 5 measures it, and the description says depth costs most at large sizes (round 1, P4).
 - **Kit 107's omni.syntheticdata** is unread here: Step 1 runs on 6.2 only. Accepted, as Tests says.
 
 ## Plan review
@@ -143,3 +158,32 @@ Noticed on the way, for Round 1: Risks (#162: plain captures already take segmen
 answer's size (a `.npy` at 4096 x 4096 is 64 MB of float32, about 89 MB of base64 in one answer, built on Kit's main
 thread); Design (the `.npy`'s unit); Step 5 (2 % of the centre pixel is tight; NVIDIA's check uses the front face,
 0.1 m); Design (`encode_png` writes RGB only).
+
+### Round 1
+
+**How:** a fresh general-purpose agent (Claude Opus 5.5), 2026-11-15. **Verdict:** approved once the owner calls are
+answered: six minors, all fixed in the plan, no blocker or major. **Now:** P1-P6 applied.
+
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| P1 | minor | One `enable_sensors` call raises on any type: a depth that can't be turned on would cost the segmentation and release the feed | fixed: depth on after segmentation, in its own call and `try`; only `depth_error` |
+| P2 | minor | The sky may read large and finite under the default far clip (1e7 m), so it would count as a hit and the `.npy` would hold it | fixed: nothing hit is segmentation id 0, the depth rule only without segmentation data; `inf` in the `.npy` there |
+| P3 | minor | The legend's distance had no form or join: names two ids share, a file of one line per prim, `[R, G, B]` readers | fixed: minimum per path through `name_of`; `depth_nearest` on the wire; `path = [R, G, B] distance = d` in the file |
+| P4 | minor | A 4096 x 4096 depth capture's size (89 MB of base64 on Kit's main thread) isn't named | fixed: a Risk, measured in Step 5, said in the description |
+| P5 | minor | Step 5's 0.1 is in stage units: 1 mm on a centimetre stage | fixed: 0.1 m in stage units |
+| P6 | minor | The capture after a physics run was only promised; #162's departure from the issue unsaid | fixed: in Step 5, and in Goal |
+
+Refuted: the #162 wording (Risks already right); RGB-only encoding (the plan stacks; I8 below); the centre-pixel
+tolerance (already the front face); an older server (it never sends `include_depth`); the protocol number and
+ARCHITECTURE.md (same route, additive answer); Kit's main thread (no executor); security, harness, one-way doors
+(none touched); depth's graphs at release (freed by prefix).
+
+| # | Question | Recommendation | Answer |
+|---|---|---|---|
+| Q1 | Cap depth's size, or store float16? | neither: name and measure the cost (P4) | open |
+| Q2 | Should a depth failure release the feed? | no: `depth_error` alone, the feed kept (P1) | open |
+
+| # | Improvement | Answer |
+|---|---|---|
+| I8 | `encode_png` takes a 2-D array as grey (colour type 0): a third of the compression and file size, no stacking | open |
+| I9 | The nearest per prim from `colour_instances`' `np.unique` inverse indices with `np.minimum.at`: no second pass over the pixels | open |
