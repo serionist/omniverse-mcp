@@ -130,6 +130,14 @@ step's joint line format and the step's `source` line, round 1, I11).
 - **Isaac Sim 5.1's getters** are read from 6.2's changelog and Context7, not 5.1's source: a missing one fails the
   read with the getter named. Accepted.
 
+## Progress
+
+- **Step 1 and Step 5, live** on Isaac Sim 6.2.0 (Kit 110.4, `isaacsim.exp.base.kit`, Windows, 2026-11-15), through
+  15.19: a stiffer drive set with `set_joint_drives` while paused was read back from physics at once, and settled
+  `panda_joint2` 0.0011 rad from its target where kp 300 left 0.4343; the jetbot's wheels read `tracking_error none`.
+  Whether the paused simulation took the USD write without the view wasn't printed; the view fallback is built either
+  way, and the read-back is the answer's truth.
+
 ## Plan review
 
 ### Fit
