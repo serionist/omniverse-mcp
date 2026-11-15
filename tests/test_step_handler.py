@@ -121,7 +121,7 @@ def test_stepping_stops_when_the_timeline_changes_under_it(kit, monkeypatch):
 
     monkeypatch.setattr(kit, "simulate", simulate)
     simulation = load_simulation(kit, monkeypatch)
-    monkeypatch.setattr(simulation.time, "monotonic", lambda: next(clock) * 0.06)
+    monkeypatch.setattr(simulation, "_clock", lambda: next(clock) * 0.06)
     r = _step(simulation, steps=10)
     assert r["result"]["steps"] == 2
     assert r["result"]["stopped_early"] == "the timeline or the stage changed while stepping"
@@ -129,7 +129,7 @@ def test_stepping_stops_when_the_timeline_changes_under_it(kit, monkeypatch):
 
 def test_stepping_stops_at_its_time_limit(simulation, kit, monkeypatch):
     clock = iter(range(1000))
-    monkeypatch.setattr(simulation.time, "monotonic", lambda: next(clock) * 0.04)
+    monkeypatch.setattr(simulation, "_clock", lambda: next(clock) * 0.04)
     monkeypatch.setattr(simulation, "STEP_SECONDS", 0.1)
     r = _step(simulation, steps=50)
     assert 0 < r["result"]["steps"] < 50
@@ -152,3 +152,22 @@ def test_each_observed_prim_gets_its_own_block(simulation, kit):
     assert light["error"].startswith("/World/Light is neither a rigid body nor an articulation")
     assert loose["body_error"].startswith("PhysX holds no rigid body at /World/Loose")
     assert gone["error"] == "Prim not found: /World/Gone"
+
+
+def test_a_step_count_reset_by_the_play_gives_no_load_count(kit, monkeypatch):
+    # Isaac Sim's counter, if a play resets it, reads fewer steps after the load than before: no number to trust.
+    kit.paused, kit.stopped = False, True
+    kit.engine, kit.physics_steps, kit.load_steps = "physx", 50, -50
+    r = _step(load_simulation(kit, monkeypatch), steps=1)
+    assert r["result"]["load_steps"] is None
+
+
+def test_the_time_limit_counts_the_load_from_stopped(kit, monkeypatch):
+    # The load's update takes the whole limit: no step is left to take.
+    kit.paused, kit.stopped = False, True
+    simulation = load_simulation(kit, monkeypatch)
+    clock = iter([0.0, *[100.0 + i for i in range(100)]])
+    monkeypatch.setattr(simulation, "_clock", lambda: next(clock))
+    r = _step(simulation, steps=5)
+    assert r["result"]["steps"] == 0
+    assert r["result"]["stopped_early"] == "the call reached its 90 s limit: ask for fewer steps"

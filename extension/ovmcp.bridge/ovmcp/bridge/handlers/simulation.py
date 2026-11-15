@@ -100,6 +100,8 @@ def _state(timeline) -> str:
 YIELD_SECONDS = 0.05
 # Stepping stops here and answers with the steps it took, under the server's 120 s, as get_performance stops at 90 s.
 STEP_SECONDS = 90.0
+# The stepping's own clock, so a test can run it without touching the one asyncio's loop reads.
+_clock = time.monotonic
 
 # Held while a /sim/step runs: a second is refused, never queued, so it can't step for a caller the server gave up on.
 _stepping = asyncio.Lock()
@@ -171,6 +173,8 @@ async def _step(args: StepArgs) -> dict:
     except ValueError as e:
         return {"status": "error", "error": f"the physics scene's step can't be used: {e}"}
 
+    # The time limit counts the load from stopped too, which cooks a robot's meshes on its first play.
+    started = _clock()
     timeline = omni.timeline.get_timeline_interface()
     was = _state(timeline)
     before = _physics_steps()
@@ -187,21 +191,24 @@ async def _step(args: StepArgs) -> dict:
     await _next_update()
     after = _physics_steps()
     load_steps = after - before if was == "stopped" and before is not None and after is not None else None
+    # A count reset by the play, rather than by the stop before it, gives no number to trust.
+    if load_steps is not None and load_steps < 0:
+        load_steps = None
 
     simulation = get_physx_simulation_interface()
     fabric = _fabric_update()
     stage_id = omni.usd.get_context().get_stage_id()
     base = float(timeline.get_current_time())
     done, stopped_early = 0, None
-    started = last_yield = time.monotonic()
+    last_yield = _clock()
     while done < args.steps:
-        now = time.monotonic()
+        now = _clock()
         if now - started > STEP_SECONDS:
             stopped_early = f"the call reached its {STEP_SECONDS:.0f} s limit: ask for fewer steps"
             break
         if now - last_yield > YIELD_SECONDS:
             await _next_update()
-            last_yield = time.monotonic()
+            last_yield = _clock()
             # Kit's loop ran: someone may have played, stopped or swapped the stage meanwhile.
             if _state(timeline) != "paused" or omni.usd.get_context().get_stage_id() != stage_id:
                 stopped_early = "the timeline or the stage changed while stepping"

@@ -3171,3 +3171,16 @@ def test_steps_and_observe_go_with_step_alone(args: dict[str, Any], bridge: Mock
     assert erred
     assert "steps and observe go with action='step', not 'play'" in text
     assert requests == []
+
+
+def test_a_step_stopped_early_doesnt_say_the_time_stood_still(bridge: MockIsaacServer, tmp_path: Path):
+    changed = "the timeline or the stage changed while stepping"
+    answer = {**STEPPED, "steps": 3, "time": 0.5, "stopped_early": changed}
+    text = _check(
+        Case(
+            "sim_control", {"action": "step", "steps": 60}, "/sim/step", answer, {"steps": 60}, ("time is (0.500 s)",)
+        ),
+        bridge,
+        tmp_path,
+    )
+    assert "unchanged" not in text

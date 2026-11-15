@@ -255,10 +255,12 @@ def _timeline_lines(r: dict[str, Any]) -> list[str]:
 def _step_header(r: dict[str, Any]) -> list[str]:
     """/sim/step's answer before its prim blocks: what was stepped, from what, and where the values come from."""
     dt = float(r["dt"])
+    # Only a step that ran to its end left the time alone: one stopped early may have been stopped by a play.
+    time_line = "the timeline's time is unchanged" if not r.get("stopped_early") else "the timeline's time is"
     lines = [
         f"'step' executed. Sim is now: {r['current_state']}",
-        f"stepped = {r['steps']} of {r['asked']} physics steps of {dt:.6f} s ({r['steps'] * dt:.3f} s of physics); the "
-        f"timeline's time is unchanged ({float(r['time']):.3f} s)",
+        f"stepped = {r['steps']} of {r['asked']} physics steps of {dt:.6f} s ({r['steps'] * dt:.3f} s of physics); "
+        f"{time_line} ({float(r['time']):.3f} s)",
     ]
     if r.get("stopped_early"):
         lines.append(f"stopped_early = {r['stopped_early']}")
