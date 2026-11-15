@@ -12,51 +12,66 @@ approved_at:
 
 A robot that oscillates, sags or never reaches its target is a drive-tuning problem, and an agent needs each joint's
 gains and how far it is from its target side by side to fix it. Today `get_robot_info` shows each joint's drive type
-and, from physics, its position and velocity, but no stiffness, damping, force limit, target or tracking error; gains
-are written one attribute at a time with `set_prim_attribute`, in units the agent has to know (an angular drive's
-stiffness is per degree in USD), and whether a playing simulation takes the change is anyone's guess.
-whats2000/isaacsim-mcp-server has `get_joint_config` and `set_drive_params`, with where each value came from and
-whether the solver took it.
+and, from physics, its position and velocity, but no stiffness, damping, force limit, target or tracking error; its
+limits come from USD in degrees beside positions in radians; gains are written one attribute at a time with
+`set_prim_attribute`, in units the agent has to know (an angular drive's stiffness is per degree in USD), and whether a
+playing simulation takes the change is anyone's guess. whats2000/isaacsim-mcp-server has `get_joint_config` and
+`set_drive_params`, with where each value came from and whether the solver took it.
 
 When this is done:
 - **Reading:** wherever joint states are read, `get_robot_info` and `sim_control`'s `observe` (#198), each degree of
-  freedom also gives its position target, stiffness, damping, force limit and tracking error (target minus position),
-  all from physics, in one set of units the answer names.
-- **Writing:** `set_joint_drives(prim_path, drives={joint: {stiffness, damping, max_force}})` writes each joint's drive
-  in USD, in its own units, and, while physics holds the robot, sets the same values in the running simulation; the
-  answer says, per joint, what was written and whether the simulation took it.
+  freedom also gives its limits, position target, stiffness, damping, force limit and tracking error (target minus
+  position), all from physics, in physics' units, which the answer names once.
+- **Writing:** `set_joint_drives(prim_path, drives={joint: {stiffness, damping, max_force}})` takes values in those
+  same units, so a value read can be written back changed, writes each joint's drive in USD, and says, per joint, what
+  it wrote and what the simulation holds after it, read back.
 
 In scope: position drives' gains and force limit; the reads above. Out of scope: velocity targets and drive types
-(`set_joint_targets` and USD keep them), friction and armature (no case asks), and Newton (#198 refuses it; here a
-write under Newton says the simulation didn't take it).
+(`set_joint_targets` and USD keep them), friction and armature (no case asks), and Newton (#198 refuses it; here the
+read-back says what the simulation holds).
 
 ## Design
 
+- **Units, settled from Isaac Sim 6.2's own source** (fit I1): `isaacsim.core.experimental.prims`' `Articulation`
+  speaks per radian on both its backends. Its USD backend converts USD's per-degree gains by 180/pi
+  (`impl/articulation.py:3297`, `stiffnesses[i][j] = 1.0 / np.deg2rad(1.0 / stiffness)`, and the inverse in
+  `set_dof_gains`, `:3227-3233`); position targets are radians (`:2097-2099`, `np.deg2rad`); a force limit has no angle
+  in it (`:2966-2969`). Isaac Sim's gain tuner ("stored per degree") and omni.physx's tuning guide agree, and
+  whats2000 measured a 6.0 Franka's USD 400 / 80 as 22918.31 / 4583.66 from PhysX. So: angular stiffness and damping
+  times 180/pi from USD to physics, linear ones times 1, `max_force` times 1. A core function holds the conversion, in
+  `ovmcp/core/robot.py`, unit-tested.
 - **The read:** `handlers/robot.py`'s `read_joint_states` (shared by `/robot/joint_states` and `/sim/step` since #198)
-  also reads, from the same `isaacsim.core.experimental.prims.Articulation`, `get_dof_position_targets()`,
-  `get_dof_gains()` (stiffnesses, dampings) and `get_dof_max_efforts()`: Isaac Sim 6.x's API (Context7,
-  `isaacsim.core.experimental.prims` `python_api.md`). Each is read on its own, so one an older Isaac Sim lacks costs
-  only its column, named in a `missing` list. The tracking error is computed in core, `target - position`, per DOF.
-- **Units:** physics gives positions in radians or metres; Step 1 measures what the tensor API's gains are per (per
-  radian, or per degree as USD has them) by writing a known stiffness to USD and reading it back from physics. The
-  answer then gives all of a joint's values in one system, the one physics uses, said once in the header line, as
-  `get_robot_info` says it for positions today.
-- **The answer:** `get_robot_info`'s joint state lines and the step's `joint.<name>` lines become
-  `pos 0.1234, vel 0.0000, target 0.5236, error 0.4102, kp 1000, kd 100, max_force 87`. The header says the values
-  are the simulation's own, not USD's: what PhysX drives with now.
+  also reads, from the same `Articulation`, `get_dof_limits()`, `get_dof_position_targets()`, `get_dof_gains()` and
+  `get_dof_max_efforts()`, each named in the existing `call` bookkeeping, so a failure says which getter failed (fit
+  I5: the four date from the extension's first release, so no per-getter fallback). The tracking error is computed in
+  core, `target - position`, per DOF.
+- **The answer** (fit I8): `get_robot_info`'s joint state lines and the step's `joint.<name>` lines become
+  `pos 0.1234, vel 0.0000, target 0.5236, tracking_error 0.4102, limits [-2.8973, 2.8973], kp 57296, kd 5730,
+  max_force 87`. `tracking_error`, not `error`, which the step's blocks keep for failures. Each header line says the
+  values are the simulation's own, and the units: radians or stage units, `kp` per radian or per stage unit, `kd` the
+  same per second. The step's `source` line, "the simulated state, not drive targets", becomes "read from PhysX after
+  the last step: positions and velocities simulated, targets and gains what PhysX drives with" (noticed by the fit).
+  `get_robot_info`'s description and its joint states header name the new columns (noticed by the fit).
 - **The write, a new tool** `set_joint_drives(prim_path, drives)`: `drives` maps a joint's name, as `get_robot_info`
-  lists it, to any of `stiffness`, `damping`, `max_force`, in USD's units (per degree for angular drives, as USD and
-  `set_joint_targets`' degrees have them). The handler:
-  1. writes each value to the joint's `UsdPhysics.DriveAPI` (angular or linear by the joint's type), applying the API
-     with today's defaults when the joint has none, as `set_joint_targets` does;
-  2. when the simulation is playing or paused and Isaac Sim's articulation view is valid, also sets the same values,
-     converted to physics' units, with `set_dof_gains` and `set_dof_max_efforts` for those DOFs only;
-  3. answers per joint: the values written, and `applied_to_simulation: true`, or `false` with why (stopped: the next
-     play reads USD; no physics view; not Isaac Sim).
-  Names it doesn't find are listed, as `set_joint_targets` lists failures.
-- **Alternatives:** gains as parameters of `set_joint_targets`, rejected: targets and gains are tuned apart, and its
-  `targets` would stop being required. A write to USD alone, rejected: whether a playing simulation picks up a
-  `DriveAPI` change is what the issue asks the answer to say, and Isaac Sim's own tuning writes through the view.
+  lists it, to any of `stiffness`, `damping`, `max_force`, **in the read's units** (fit I2), so `kp 57296` read can be
+  written back doubled as `114592` with no degrees in the agent's head. The handler:
+  1. converts to USD's units and writes each value to the joint's existing `UsdPhysics.DriveAPI`, angular or linear
+     by its type; a joint with no drive is listed as not written, "no drive: set_joint_targets gives it one" (fit I6),
+     rather than given one with invented gains; the drive lookup is one helper shared with `_set_drive_target`;
+  2. writes USD only (fit I3): omni.physx propagates a USD change to a running simulation ("Once simulation starts
+     omni.physx listens to both USD and Fabric changes", its simulation-control guide), as Isaac Sim's own gain tuner
+     writes it;
+  3. after one update, reads the gains and force limit back from physics, while it holds the robot, and answers per
+     joint: the values written to USD (in USD's units, said), and `in_simulation` with the values physics now holds,
+     or why there are none (stopped: the next play reads USD; no physics view; not Isaac Sim). A value physics didn't
+     take shows as a difference, measured, not inferred.
+  Names it doesn't find are listed, as `set_joint_targets` lists failures. Step 1 checks the paused case; if a paused
+  simulation doesn't take a USD write before the next step, the handler also writes through the view with
+  `set_dof_gains` and `set_dof_max_efforts`, and the plan's Progress says so.
+- **Alternatives:** gains as parameters of `set_joint_targets`, rejected: targets and gains are tuned apart, its
+  `targets` would stop being required, and its list form, in joint order, has no meaning for gains. `set_prim_attribute`
+  as it is, rejected: the attribute names and the per-degree arithmetic stay the agent's, which is the issue. A
+  second write path through the view, rejected unless Step 1 needs it (I3).
 
 ## Compatibility
 
@@ -66,40 +81,59 @@ answer gains keys, additive; an older extension sends none and the lines show wh
 
 ## Steps
 
-1. **Measure on Kit** (Isaac Sim 6.2): a Franka's `panda_joint1` given stiffness 1000 per degree in USD reads back
-   from `get_dof_gains` as what, so the unit is known; that `set_dof_gains` on a playing robot changes how it tracks a
-   target (its error after 60 steps with low and high stiffness); that a USD write alone, while playing, doesn't. The
-   results go in this plan's Progress.
-2. **Core:** the tracking error and the unit conversion, with `tests/test_robot.py`.
-3. **Extension:** `read_joint_states`' new columns; `handle_set_joint_drives` and its route; handler tests beside
-   `tests/test_step_handler.py`'s fake Kit.
-4. **Server:** `get_robot_info`'s and the step's joint lines; `set_joint_drives`; `client.set_joint_drives`;
-   `tests/test_tools.py`; `uv run tools/golden.py`.
+1. **Check on Kit** (Isaac Sim 6.2): a Franka's `panda_joint1` given stiffness through `set_joint_drives` while
+   paused reads back from physics with the new value after one update, and while playing too; its read stiffness is
+   USD's times 180/pi, confirming the source. The results go in this plan's Progress.
+2. **Core:** the conversion and the tracking error, in `ovmcp/core/robot.py`, with `tests/test_robot.py`.
+3. **Extension:** `read_joint_states`' new columns; `handle_set_joint_drives`, its route, and the drive lookup shared
+   with `_set_drive_target`; handler tests in `tests/test_robot_handler.py` with a fake `Articulation` (fit I7), since
+   the step's and force's handler tests replace `read_joint_states` whole.
+4. **Server:** `get_robot_info`'s header, description and joint lines, the step's joint lines and `source` line;
+   `set_joint_drives`; `client.set_joint_drives`; `tests/test_tools.py`; `uv run tools/golden.py`.
 5. **Live:** in `tests/test_scenarios.py` phase 15, beside 15.18: a Franka's joint stepped toward a target with low
-   stiffness, then high through `set_joint_drives` while paused; its error after the same steps shrinks, and
-   `get_robot_info` reads the new stiffness back from physics. Isaac Sim 6.2, Z-up.
+   stiffness, then high through `set_joint_drives` while paused; its tracking error after the same steps shrinks, the
+   answer's `in_simulation` holds the new stiffness, and `get_robot_info` reads it back. Isaac Sim 6.2, Z-up.
 6. **Docs:** below.
 
 ## Tests
 
-- Unit (CI): `tests/test_robot.py`, the handler tests, `tests/test_tools.py`, `tests/test_contract.py`.
+- Unit (CI): `tests/test_robot.py`, `tests/test_robot_handler.py`, `tests/test_tools.py`, `tests/test_contract.py`.
 - Live: Step 5 on Isaac Sim 6.2.
-- Neither shows: Isaac Sim 5.1, whose `isaacsim.core.experimental.prims` may lack a getter (the `missing` list covers
-  it), Newton.
+- Neither shows: Isaac Sim 5.1's copy of `isaacsim.core.experimental.prims` (only 6.2.0-rc.14 is installed here),
+  Newton.
 
 ## Docs
 
-`docs/TOOLS.md` (`get_robot_info`'s joint lines, `sim_control`'s observe lines, `set_joint_drives`),
-`plugin/skills/simulate/SKILL.md` (tuning a drive: read the error, change the gains, step, read again),
-`CHANGELOG.md` (Added).
+`docs/TOOLS.md` (`get_robot_info`'s joint lines and units, `sim_control`'s observe lines and `source` line,
+`set_joint_drives`), `plugin/skills/simulate/SKILL.md` (tuning a drive: read the tracking error, change the gains,
+step, read again), `CHANGELOG.md` (Added).
 
 ## Risks
 
-- **The tensor API's gain units** may differ from USD's per degree: Step 1 measures them; the conversion and its test
-  follow what it finds. Open until Step 1.
-- **A write through the view and USD disagreeing** after a stop: the next play reads USD, which this writes too, so
-  they agree. Accepted.
+- **A paused simulation may not take a USD write until it steps:** Step 1 checks it; the view write is the fallback,
+  and the read-back says the truth either way. Open until Step 1.
+- **Isaac Sim 5.1's getters** are read from 6.2's changelog and Context7, not 5.1's source: a missing one fails the
+  read with the getter named. Accepted.
 
 ## Plan review
 
-None yet.
+### Fit
+
+The plan at `8cd665b`, by a fresh general-purpose agent (Claude Opus 5.5), 2026-11-15, with the change's own question:
+is a new tool the right shape, and can the units be settled from Isaac Sim's own source. Answers by the maintainer,
+2026-11-15.
+
+| # | Improvement | Answer |
+|---|---|---|
+| I1 | The units settled from Isaac Sim 6.2's `Articulation` source (angular gains x 180/pi, linear and force x 1, targets radians): no measurement in Step 1, the conversion unit-tested | taken |
+| I2 | `set_joint_drives` takes the read's units, converting to USD itself, so a value read can be written back changed | taken |
+| I3 | Write USD only and read the result back from physics after one update: `in_simulation` measured, one write path; the view write only a fallback | taken |
+| I4 | Limits from physics, in radians, in the read, as the issue asks | taken |
+| I5 | No per-getter `missing` list: the existing `call` naming says which getter failed | taken |
+| I6 | A joint with no drive is listed as not written, not given invented gains; one drive lookup shared with `_set_drive_target` | taken |
+| I7 | Handler tests in `tests/test_robot_handler.py`, which reaches inside `read_joint_states` | taken |
+| I8 | `tracking_error`, not `error`, which the step's blocks keep for failures | taken |
+
+Noticed on the way, both fixed in the plan at the maintainer's word: the step's `source` line would turn false with
+targets in the joint lines (Design, the answer); `get_robot_info`'s header and description need the new columns (Design,
+the answer; Step 4).
