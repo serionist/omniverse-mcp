@@ -854,8 +854,8 @@ Links: 11
 Joints (12):
   panda_joint1 (PhysicsRevoluteJoint [-166.0, 166.0] drive=angular)
   ...
-Joint states (9 DOF, from physics: radians for revolute joints, ... set_joint_targets takes degrees):
-  panda_joint1: pos=0.0000 vel=0.0000
+Joint states (9 DOF, from physics: radians or stage units, ... set_joint_targets takes degrees):
+  panda_joint1: pos 0.0000, vel 0.0000, target 0.0000, tracking_error 0.0000, limits [-2.8973, 2.8973], kp 57295.8, kd 5729.6, max_force 87.0
   ...
 ```
 
@@ -1197,9 +1197,9 @@ states and `apply_force` need the simulation playing or paused. `steps` or `obse
 - **What doesn't move:** the timeline's time. Recordings, time-sampled animation and Action Graphs on playback ticks
   advance only with `play`.
 - **The answer:** `stepped = N of N physics steps of dt s (... s of physics)`, then a prim block per `observe` path,
-  read from PhysX after the last step, the simulated state, not drive targets:
+  read from PhysX after the last step: positions and velocities simulated, targets and gains what PhysX drives with:
   - a rigid body: `position`, `rotation` (w, x, y, z), `linear_velocity` (stage units/s), `angular_velocity` (deg/s);
-  - a robot's root, or a prim above it: `joints = <root>, N DOF`, then `joint.<name> = pos ..., vel ...` in radians or
+  - a robot's root, or a prim above it: `joints = <root>, N DOF`, then `joint.<name> = pos ..., vel ..., target ...` in radians or
     stage units, as `get_robot_info` gives them;
   - a prim that is both, such as a G1's pelvis, both; anything else, an `error` line saying why.
   

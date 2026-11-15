@@ -3285,6 +3285,8 @@ def test_set_joint_drives_says_a_stopped_simulation_reads_them_at_its_next_play(
         "prim_path": "/World/Franka",
         "written": {"slide": {"kind": "linear", "usd": {"damping": 20.0}}},
         "not_written": {},
+        "in_simulation_note": "Not read back from physics: No physics view of /World/Franka: play or step the "
+        "simulation first. The next play reads the drives from USD.",
     }
     _check(
         Case(
@@ -3295,7 +3297,7 @@ def test_set_joint_drives_says_a_stopped_simulation_reads_them_at_its_next_play(
             {"drives": {"slide": {"damping": 20}}},
             (
                 "  slide: USD damping 20 (linear drive, gains per stage unit)",
-                "note = the simulation is stopped: the next play reads the drives from USD",
+                "note = Not read back from physics: No physics view of /World/Franka",
             ),
         ),
         bridge,

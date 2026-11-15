@@ -429,6 +429,8 @@ DRIVE_KEYS = ("stiffness", "damping", "max_force")
 # How far physics' value may sit from the one written and still count as taken: float32 against a per-degree
 # conversion.
 _TAKEN = 1e-3
+# PhysX's "no limit": a max force or limit this large or more, as get_robot_info prints `unlimited`.
+_UNLIMITED = 1e30
 
 
 async def handle_set_joint_drives(body: dict) -> dict:
@@ -485,7 +487,12 @@ async def handle_set_joint_drives(body: dict) -> dict:
     root = articulation_root(prim)
     if written and root is not None:
         await _next_update()
-        result["in_simulation"], result["through_view"] = await _held_by_physics(root, drives, written)
+        held, through_view, why_none = await _held_by_physics(root, drives, written)
+        if why_none:
+            # Stopped, or no view: one line for the call, not the reason repeated per joint.
+            result["in_simulation_note"] = why_none
+        else:
+            result["in_simulation"], result["through_view"] = held, through_view
     elif written:
         result["in_simulation_note"] = f"No articulation at or under {prim_path}: nothing to read back from physics"
     return {"status": "success", "result": result}
@@ -504,18 +511,27 @@ def _physics_values(states: dict, name: str) -> dict | None:
 
 
 def _took(asked: dict, held: dict | None) -> bool:
+    """Whether physics holds each value asked for, within float32's rounding; two values past PhysX's "no limit" are
+    the same, since one at float32's largest and over can't be told apart."""
     return held is not None and all(
-        abs(held[key] - value) <= _TAKEN * max(1.0, abs(value)) for key, value in asked.items()
+        (value >= _UNLIMITED and held[key] >= _UNLIMITED) or abs(held[key] - value) <= _TAKEN * max(1.0, abs(value))
+        for key, value in asked.items()
     )
 
 
-async def _held_by_physics(root: str, drives: dict, written: dict) -> tuple[dict, bool]:
-    """Per joint written, what physics holds after the update, or why nothing; and whether the values had to go
-    through Isaac Sim's articulation view, which they do only where the USD write wasn't taken."""
+async def _held_by_physics(root: str, drives: dict, written: dict) -> tuple[dict, bool, str | None]:
+    """Per joint written, what physics holds after the update, or why nothing; whether the values had to go through
+    Isaac Sim's articulation view, which they do only where the USD write wasn't taken; and, when physics can't be
+    read at all (stopped, no view), why, for the whole call."""
     states = read_joint_states(root)
     if "error" in states:
-        return {name: {"none": states["error"]} for name in written}, False
-    missed = [name for name in written if not _took(drives[name], _physics_values(states, name))]
+        return {}, False, f"Not read back from physics: {states['error']} The next play reads the drives from USD."
+    # A joint the articulation holds no DOF for (another robot's, one excluded from it) can't go through its view.
+    missed = [
+        name
+        for name in written
+        if (held := _physics_values(states, name)) is not None and not _took(drives[name], held)
+    ]
     through_view = False
     if missed:
         _write_through_view(root, states["names"], {name: drives[name] for name in missed})
@@ -525,8 +541,10 @@ async def _held_by_physics(root: str, drives: dict, written: dict) -> tuple[dict
     held = {}
     for name in written:
         values = _physics_values(states, name) if "error" not in states else None
-        held[name] = values if values is not None else {"none": f"physics holds no DOF named {name}"}
-    return held, through_view
+        held[name] = (
+            values if values is not None else {"none": f"the articulation at {root} holds no DOF named {name}"}
+        )
+    return held, through_view, None
 
 
 def _write_through_view(root: str, dof_names: list[str], drives: dict) -> None:

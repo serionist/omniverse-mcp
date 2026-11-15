@@ -111,8 +111,6 @@ def _drive_lines(r: dict[str, Any]) -> list[str]:
         lines.append("note = physics didn't take the USD write, so the drives were also set through the view")
     if r.get("in_simulation_note"):
         lines.append(f"note = {r['in_simulation_note']}")
-    elif written and not held:
-        lines.append("note = the simulation is stopped: the next play reads the drives from USD")
     not_written: dict[str, str] = r.get("not_written") or {}
     for name, why in not_written.items():
         lines.append(f"  {name}: not written: {why}")

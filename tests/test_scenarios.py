@@ -1748,7 +1748,8 @@ class TestScenarios(PhysicsChecks):
         self.assertGreater(dof, 0)
         states = paused[header.end() :].lstrip("\n").splitlines()[:dof]
         for line in states:
-            self.assertRegex(line, r"^  \S+: pos=-?\d+\.\d{4} vel=-?\d+\.\d{4}$")
+            # Position and velocity first, then each drive's values from physics (#199).
+            self.assertRegex(line, r"^  \S+: pos -?\d+\.\d{4}, vel -?\d+\.\d{4}, target \S+, tracking_error \S+, ")
         self.assertEqual(len(states), dof)
 
         stopped = self._robot_info(out)

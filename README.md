@@ -160,7 +160,7 @@ Something else? See [Troubleshooting](#troubleshooting).
 | **Materials** | `set_material`, `update_material_paths` | Give an object a colour and surface; fix material paths after files move |
 | **Simulation** | `sim_control`, `get_sim_state`, `get_performance` | Play, pause, stop and step physics; the state, the up axis and the versions; measure the frame rate, the physics step and GPU memory |
 | **Physics** | `set_physics_properties`, `apply_force`, `raycast` | Mass, friction and bounce; make a collider; push an object; cast a ray |
-| **Robots** | `create_robot`, `get_robot_info`, `set_joint_targets` | Add a robot from Isaac Sim's library (Franka, UR10, G1, Spot and more), read its joints and where they are, set joint targets |
+| **Robots** | `create_robot`, `get_robot_info`, `set_joint_targets`, `set_joint_drives` | Add a robot from Isaac Sim's library (Franka, UR10, G1, Spot and more), read its joints, where they are and how they are driven, set joint targets and tune drive gains |
 | **Recording** | `start_recording`, `stop_recording`, `get_recording_frame` | Record frames from any camera at any size, and objects' state, while physics plays, then look back at any frame |
 | **Geometry** | `get_mesh_stats`, `compare_prims` | Count faces and vertices and find the heaviest parts, compare two objects or variants |
 | **USD files and variants** | `flatten_usd`, `export_prim_as_file`, `create_variant_structure`, `set_variant_selection` | Write a stage as one file, export an object, make and switch variant sets |

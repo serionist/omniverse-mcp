@@ -754,10 +754,24 @@ def test_a_joint_without_a_drive_or_a_name_is_not_written(robot, physics, monkey
 
 
 def test_without_a_physics_view_the_drives_are_in_usd_and_the_answer_says_why(robot, physics, monkeypatch):
+    # One note for the call, not the reason per joint (code review F2).
     physics.valid = False
     r = _drives(robot, physics, monkeypatch, arm={"stiffness": 5729.58})
-    assert "No physics view of /World/Bot" in r["result"]["in_simulation"]["arm"]["none"]
-    assert r["result"]["through_view"] is False
+    note = r["result"]["in_simulation_note"]
+    assert note.startswith("Not read back from physics: No physics view of /World/Bot")
+    assert note.endswith("The next play reads the drives from USD.")
+    assert "in_simulation" not in r["result"]
+    assert physics.view_writes == []
+
+
+def test_a_joint_the_articulation_holds_no_dof_for_is_written_and_said_so(robot, kit, physics, monkeypatch):
+    # A joint under prim_path the first articulation doesn't hold, such as another robot's (code review F1).
+    other = UsdPhysics.RevoluteJoint.Define(kit.stage, "/World/Bot/tail").GetPrim()
+    UsdPhysics.DriveAPI.Apply(other, "angular").CreateStiffnessAttr(10.0)
+    r = _drives(robot, physics, monkeypatch, tail={"stiffness": 573.0})
+    assert r["status"] == "success", r
+    assert r["result"]["in_simulation"]["tail"] == {"none": "the articulation at /World/Bot holds no DOF named tail"}
+    assert physics.view_writes == []
 
 
 @pytest.mark.parametrize(
