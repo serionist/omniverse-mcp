@@ -249,15 +249,20 @@ async def handle_get_joint_states(body: dict) -> dict:
             "status": "error",
             "error": f"No articulation at or under {prim_path}: no prim there has UsdPhysics.ArticulationRootAPI",
         }
+    states = read_joint_states(root)
+    if "error" in states:
+        return {"status": "error", "error": states["error"]}
+    return {"status": "success", "result": {"prim_path": prim_path, **states}}
 
+
+def read_joint_states(root: str) -> dict:
+    """The joint states of the articulation rooted at `root`, read from physics: `dof_count`, `names`, `positions` and
+    `velocities`; or `error` saying why there are none. /robot/joint_states and /sim/step's reads (#198) share it."""
     try:
         from isaacsim.core.experimental.prims import Articulation
     except ImportError as e:
-        return {
-            "status": "error",
-            # get_robot_info gives this as its joint states' line, so it names the joint states, not a tool.
-            "error": f"Joint states need Isaac Sim's isaacsim.core.experimental.prims extension: {e}",
-        }
+        # get_robot_info gives this as its joint states' line, so it names the joint states, not a tool.
+        return {"error": f"Joint states need Isaac Sim's isaacsim.core.experimental.prims extension: {e}"}
 
     # The call under way, so an error names the one Isaac Sim's experimental API changed.
     call = "Articulation()"
@@ -267,10 +272,9 @@ async def handle_get_joint_states(body: dict) -> dict:
         if not articulation.is_physics_tensor_entity_valid():
             # Never load physics from here: that blocks Kit's main thread as a play does.
             return {
-                "status": "error",
                 "error": f"No physics view of {root}: play or step the simulation first; joint states are read "
                 "while it plays or is paused. If it already plays, get_logs(min_level='warn') says why Isaac Sim "
-                "made none.",
+                "made none."
             }
         call = "dof_names"
         names = list(articulation.dof_names)
@@ -281,21 +285,10 @@ async def handle_get_joint_states(body: dict) -> dict:
         velocities = articulation.get_dof_velocities().numpy()[0].tolist()
     except Exception as e:
         return {
-            "status": "error",
             "error": f"Reading {root}'s joints failed at isaacsim.core.experimental.prims.Articulation's {call}: "
-            f"{type(e).__name__}: {e}",
+            f"{type(e).__name__}: {e}"
         }
-
-    return {
-        "status": "success",
-        "result": {
-            "prim_path": prim_path,
-            "dof_count": len(positions),
-            "names": names,
-            "positions": positions,
-            "velocities": velocities,
-        },
-    }
+    return {"dof_count": len(positions), "names": names, "positions": positions, "velocities": velocities}
 
 
 # ---------------------------------------------------------------------------

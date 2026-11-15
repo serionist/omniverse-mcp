@@ -84,6 +84,9 @@ class FakeBodyView:
     def get_coms(self) -> FakeRows:
         return FakeRows([self.kit.tensor_bodies[path][1] for path in self.prim_paths])
 
+    def get_velocities(self) -> FakeRows:
+        return FakeRows([self.kit.velocities.get(path, [0.0] * 6) for path in self.prim_paths])
+
     def apply_forces_and_torques_at_position(self, forces, torques, points, indices, is_global) -> bool:
         if self.kit.push_raises:
             raise Exception("Failed to apply forces and torques at pos in backend")
@@ -119,6 +122,8 @@ class FakeKit:
         self.scene = UsdPhysics.Scene.Define(self.stage, SCENE).GetPrim()
         self.add_body(BOX)
         self.stopped = False
+        # Paused, with stopped False: what /sim/step steps from (#198).
+        self.paused = False
         self.suppress = True
         self.stage_id = 7
         # The CPU path's PhysX: the pose it holds, its mass information and the pushes made.
@@ -146,6 +151,36 @@ class FakeKit:
         self.start_time = 0.0
         self.end_time = 16666.666666666668
         self.looping = True
+        # /sim/step's side (#198): the timeline's calls, PhysX's steps and Fabric's updates as (dt, time), each body's
+        # velocity row, the active engine (None: no Isaac Sim simulation manager), its step count, the steps a play
+        # from stopped takes, whether omni.physx.fabric is loaded, and the joint states read_joint_states gives.
+        self.timeline_calls: list[str] = []
+        self.simulated: list[tuple[float, float]] = []
+        self.fetched = 0
+        self.fabric_updates: list[tuple[float, float]] = []
+        self.velocities: dict[str, list[float]] = {}
+        self.engine: str | None = None
+        self.physics_steps = 0
+        self.load_steps = 0
+        self.fabric = True
+        self.joint_states: dict[str, Any] = {"dof_count": 1, "names": ["j"], "positions": [0.5], "velocities": [0.0]}
+
+    def play(self) -> None:
+        self.timeline_calls.append("play")
+        if self.stopped:
+            self.physics_steps += self.load_steps
+        self.stopped = self.paused = False
+
+    def pause(self) -> None:
+        self.timeline_calls.append("pause")
+        self.paused = True
+
+    def simulate(self, dt: float, current: float) -> None:
+        self.simulated.append((dt, current))
+        self.physics_steps += 1
+
+    def fetch_results(self) -> None:
+        self.fetched += 1
 
     def add_body(self, path: str) -> None:
         prim = UsdGeom.Cube.Define(self.stage, path).GetPrim()
@@ -199,7 +234,10 @@ def load_simulation(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
     )
     timeline = SimpleNamespace(
         is_stopped=lambda: kit.stopped,
-        is_playing=lambda: not kit.stopped,
+        is_playing=lambda: not kit.stopped and not kit.paused,
+        play=kit.play,
+        pause=kit.pause,
+        commit=lambda: kit.timeline_calls.append("commit"),
         get_time_codes_per_seconds=lambda: 60.0,
         get_current_time=lambda: 0.0,
         get_start_time=lambda: kit.start_time,
@@ -216,7 +254,9 @@ def load_simulation(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
         get_physx_interface=lambda: SimpleNamespace(
             get_rigidbody_transformation=lambda _path: kit.pose if kit.held else {"ret_val": False}
         ),
-        get_physx_simulation_interface=lambda: SimpleNamespace(apply_force_at_pos=kit.apply_force_at_pos),
+        get_physx_simulation_interface=lambda: SimpleNamespace(
+            apply_force_at_pos=kit.apply_force_at_pos, simulate=kit.simulate, fetch_results=kit.fetch_results
+        ),
         get_physxunittests_interface=lambda: SimpleNamespace(get_mass_information=lambda _p: kit.mass_information),
     )
     tensors = _module("omni.physics.tensors", create_simulation_view=kit.create_simulation_view)
@@ -248,6 +288,27 @@ def load_simulation(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> Any:
         ),
         "handlers_under_test.jobs": _module("handlers_under_test.jobs", job_brief=lambda: kit.job),
     }
+    # Modules this Kit lacks: an import of each raises ImportError.
+    absent: list[str] = []
+    if kit.fabric:
+        fabric = SimpleNamespace(update=lambda dt, current: kit.fabric_updates.append((dt, current)))
+        fakes["omni.physxfabric"] = _module("omni.physxfabric", get_physx_fabric_interface=lambda: fabric)
+    else:
+        absent.append("omni.physxfabric")
+    if kit.engine:
+        manager = SimpleNamespace(
+            get_active_physics_engine=lambda: kit.engine, get_num_physics_steps=lambda: kit.physics_steps
+        )
+        fakes["isaacsim.core.simulation_manager"] = _module(
+            "isaacsim.core.simulation_manager", SimulationManager=manager
+        )
+    else:
+        absent.append("isaacsim.core.simulation_manager")
+    for name in absent:
+        monkeypatch.setitem(sys.modules, name, None)
+    fakes["handlers_under_test.robot"] = _module(
+        "handlers_under_test.robot", read_joint_states=lambda _root: dict(kit.joint_states)
+    )
     for name, module in fakes.items():
         monkeypatch.setitem(sys.modules, name, module)
     # PhysicsSchemaTools is Kit's: the path as an integer, which the fake push records.

@@ -51,8 +51,9 @@ been silent for 140 s.
 - **A scenario's own code runs as written,** as phase 25's does, unless it imports `ovmcp.*` or waits for time. A
   script a scenario only describes in words is code of your own, under the rule above.
 - **To let time pass,** as a scenario's "wait ~2 seconds" asks, call `get_sim_state` until its `time` has moved on that
-  far while the simulation plays. To see a drawing or a count change, repeat a short call. To read physics step by
-  step, `sim_control("step")` and a short read, as many times as the scenario counts.
+  far while the simulation plays. To see a drawing or a count change, repeat a short call. To read physics after a
+  count of steps, `sim_control("step", steps=<n>, observe=[...])`, which steps exactly that many and reads the prims
+  back.
 - **Where a check needs a rendered frame,** one tool call such as `capture_viewport` or `inspect_prim`: each waits for
   its own frame.
 - **A scenario, or a part of one, that only such code could judge:** SKIP it (WARN when the rest passed), and say which

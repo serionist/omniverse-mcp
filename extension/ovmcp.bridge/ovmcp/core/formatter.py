@@ -110,10 +110,8 @@ def format_prim_block(
     lines.append(f"type = {prim.GetTypeName() or 'Xform'}")
 
     if include_transform and is_a(prim, UsdGeom.Xformable):
-        # Use BBoxCache to get physics-accurate world position.
-        # ComputeLocalToWorldTransform reads authored USD transforms which
-        # don't reflect PhysX runtime state during simulation.  BBoxCache
-        # reads through Fabric and returns the real physics position.
+        # A rigid body's place from its bounds' centre. BBoxCache reads USD, not Fabric: it shows PhysX's pose only
+        # where PhysX writes USD, and the pose before play under the Direct GPU API, where it doesn't (#68, #198).
         pos_from_bbox = False
         if has_api(prim, UsdPhysics.RigidBodyAPI):
             try:

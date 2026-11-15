@@ -5,6 +5,19 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Breaking
+
+- **`sim_control("step")` steps physics an exact number of times and leaves the timeline's time where it was:** it
+  played the timeline for two app updates, a number of physics steps that depended on the frame rate. A recording's
+  clock and Action Graphs on playback ticks moved with those updates and don't with a step; `play` moves them (#198).
+
+### Added
+
+- **`sim_control`'s `steps` and `observe`:** `step` takes 0 to 1000 physics steps and reads up to 20 prims back from
+  PhysX in the same call: a rigid body's position, rotation and velocities, a robot's joints. From playing it pauses
+  first; from stopped it loads physics. The step, look, adjust loop of debugging a body or a robot, which needed
+  `execute_script` before (#198).
+
 ### Changed
 
 - **The server's instructions, the `script` skill and the docs name a second Context7 library,**
