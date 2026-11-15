@@ -17,7 +17,8 @@ defects in the plan as written, which are `review-plan`'s findings.
 
 Looked up, never recalled (`AGENTS.md`, Look up APIs before coding against them):
 
-- Context7, where it is on (`.mcp.json`, turned on by `.claude/settings.local.json.example`);
+- Context7, where it is on (`.mcp.json`, turned on by `.claude/settings.local.json.example`), and `nvidia-kit` where
+  it runs (`CONTRIBUTING.md`, API lookups);
 - the MCP SDK and `pxr` (usd-core) as installed under `.venv`, the versions `uv.lock` pins;
 - the repo: the bridge's `ovmcp/core` and handlers, for the Kit calls it already makes; the server's tools, the
   plugin's skills, `tools/`;

@@ -232,8 +232,9 @@ token by hand, and [Architecture](docs/ARCHITECTURE.md#the-bridge-token) where t
 ### Context7 for scripts
 
 Models are not trained on Omniverse and Isaac Sim APIs, and guess their names. With [Context7](https://context7.com)
-as a second MCP server, the assistant looks the API up (library `isaac-sim/isaacsim`) before writing `execute_script`
-code; the server's instructions and the `script` skill ask it to.
+as a second MCP server, the assistant looks the API up (library `isaac-sim/isaacsim`, and
+`/websites/omniverse_nvidia_kit_omni_physics` for PhysX) before writing `execute_script` code; the server's
+instructions and the `script` skill ask it to.
 
 ## Troubleshooting
 

@@ -19,9 +19,10 @@ and models are not trained on them: look an API up before using it, never guess.
 ## Steps
 
 1. **Prefer a tool.** A tool that does the job is checked, bounded and safer; script only what no tool covers.
-2. **Look the API up** with Context7, library `isaac-sim/isaacsim`, for the app's version: ask the user, or in Isaac
-   Sim run `from isaacsim.core.version import get_version; result = get_version()`. Without Context7, NVIDIA's
-   documentation for that version.
+2. **Look the API up** with Context7, library `isaac-sim/isaacsim`, and `/websites/omniverse_nvidia_kit_omni_physics`
+   for PhysX (stepping by hand, Fabric, `/physics/*` settings), which the first doesn't hold, for the app's version:
+   ask the user, or in Isaac Sim run `from isaacsim.core.version import get_version; result = get_version()`. Without
+   Context7, NVIDIA's documentation for that version.
 3. **Choose how it runs.** A short script, done in seconds: `execute_script`, whose call gives up after 120 s while
    the script runs on. Work that may take longer, such as many physics steps or objects settled one after another:
    a job, `run_script_job` (step 6).

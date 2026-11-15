@@ -5,6 +5,12 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
 
 ## Unreleased
 
+### Changed
+
+- **The server's instructions, the `script` skill and the docs name a second Context7 library,**
+  `/websites/omniverse_nvidia_kit_omni_physics`, for PhysX: stepping by hand, Fabric and the `/physics/*` settings,
+  which `isaac-sim/isaacsim` doesn't hold (#204).
+
 ### Fixed
 
 - **`start_recording`'s answer says when its render isn't kept after the stop:** it said "kept up to 30 s after the

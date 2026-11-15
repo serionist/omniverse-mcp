@@ -60,8 +60,8 @@ Drives an NVIDIA Omniverse Kit app (Isaac Sim, USD Composer, ...): its USD stage
   open them with your file tool. Only capture_viewport(include_image=True) returns an image inline, at a cost in
   context.
 - Text comes as prim blocks: a [/prim/path] header, then key = value lines. Grep for a path or a property.
-- Before writing execute_script code, look the API up with Context7 (library isaac-sim/isaacsim): Kit's APIs change
-  between releases.
+- Before writing execute_script code, look the API up with Context7 (library isaac-sim/isaacsim, and
+  /websites/omniverse_nvidia_kit_omni_physics for PhysX): Kit's APIs change between releases.
 - When a tool fails, get_logs(min_level="warn") shows what the Kit app reported.
 - When a tool misbehaves (an error its arguments don't explain, a wrong answer, a hang), say it looks like a bug in
   omniverse-mcp and ask the user first: you file it at https://github.com/serionist/omniverse-mcp/issues (this needs

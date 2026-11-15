@@ -1727,7 +1727,7 @@ Each method returns the full handler response dict with `"status"` and `"result"
 
 **When to use:** Complex operations not covered by other tools - custom physics queries, batch operations, accessing APIs that don't have dedicated tools. Use async `mcp.*` methods when you need to chain multiple MCP operations in a single script (e.g., capture viewport, analyse, reposition, recapture).
 
-**Fallback strategy:** Every MCP tool in this server can be replicated via `execute_script` using the Omniverse Python API directly. If any tool returns an error, you can fall back to writing the equivalent Python code. Use Context7 (`isaac-sim/isaacsim`) or the [NVIDIA Omniverse docs](https://docs.omniverse.nvidia.com/) to look up the correct API rather than guessing.
+**Fallback strategy:** Every MCP tool in this server can be replicated via `execute_script` using the Omniverse Python API directly. If any tool returns an error, you can fall back to writing the equivalent Python code. Use Context7 (`isaac-sim/isaacsim`, and `/websites/omniverse_nvidia_kit_omni_physics` for PhysX) or the [NVIDIA Omniverse docs](https://docs.omniverse.nvidia.com/) to look up the correct API rather than guessing.
 
 ---
 

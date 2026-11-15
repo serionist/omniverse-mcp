@@ -6,6 +6,10 @@
       "headers": {
         "CONTEXT7_API_KEY": "${CONTEXT7_API_KEY:-}"
       }
+    },
+    "nvidia-kit": {
+      "type": "http",
+      "url": "http://localhost:9902/mcp"
     }
   }
 }

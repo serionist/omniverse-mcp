@@ -42,7 +42,8 @@ move only while physics plays.
   image inline, which costs context like any image. Text comes as prim blocks: a `[/prim/path]` header, then
   `key = value` lines.
 - **Look Kit APIs up before scripting:** before writing `execute_script` code, use Context7 (library
-  `isaac-sim/isaacsim`) or NVIDIA's documentation for the app's version. Models are not trained on these APIs.
+  `isaac-sim/isaacsim`, and `/websites/omniverse_nvidia_kit_omni_physics` for PhysX) or NVIDIA's documentation for the
+  app's version. Models are not trained on these APIs.
 - **Long work runs as a job:** an `execute_script` call gives up after 120 s while its script runs on. Work that may
   take longer, such as many physics steps, goes to `run_script_job`, with a script that awaits
   `omni.kit.app.get_app().next_update_async()` once a step; `get_job(id, wait=60)` reads it, `cancel_job` stops it.

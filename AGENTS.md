@@ -34,7 +34,7 @@ extension it talks to.
 | `.claude-plugin/`, `plugin/` | the repo as a Claude Code marketplace (`marketplace.json`) of one plugin: `plugin/.claude-plugin/plugin.json`, `plugin/.mcp.json` (starts `uvx omniverse-mcp==<version>`), `plugin/skills/` (setup and the workflows, for the plugin's users; write-skill), `plugin/README.md`, the icon for a directory listing |
 | `.agents/skills/` | links to `.claude/skills/<name>` for Codex, written into git's index by `uv run tools/setup.py link` |
 | `AGENTS.md`, `REVIEW.md` | this file; what a review finding is, and the questions every review answers |
-| `.mcp.json` | Context7 over HTTP; `.claude/settings.local.json.example` turns it on |
+| `.mcp.json` | Context7 over HTTP, which `.claude/settings.local.json.example` turns on; `nvidia-kit`, NVIDIA's Kit docs server where it runs locally (`CONTRIBUTING.md`) |
 | `server.json`, `glama.json` | the server's entry in the official MCP registry, at the release's version (the README's `mcp-name:` line names it); the maintainers Glama's listing verifies |
 | `pyproject.toml`, `uv.lock`, `.python-version` | the build (hatchling; the wheel carries the extension), the settings of ruff, basedpyright, pytest, coverage and import-linter, dev tools pinned exactly; the lock; Python 3.12 for development |
 | `.basedpyright/baseline.json` | the type errors of before basedpyright, which only shrink |
@@ -136,8 +136,8 @@ What this repo's history already paid for:
 
 ## Look up APIs before coding against them
 
-Kit, Isaac Sim, USD (`pxr`) and the MCP SDK: look the API up with Context7 (`.mcp.json`) first, for the versions this
-repo supports. SDKs move faster than any model's memory, and Kit's change between releases.
+Kit, Isaac Sim, USD, PhysX and the MCP SDK move faster than any model's memory: look an API up first, for the versions
+supported, in Context7 (`isaac-sim/isaacsim`, `/websites/omniverse_nvidia_kit_omni_physics`) and `nvidia-kit` if on.
 
 ## Never
 
