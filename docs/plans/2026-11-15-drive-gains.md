@@ -33,13 +33,14 @@ read-back says what the simulation holds).
 ## Design
 
 - **Units, settled from Isaac Sim 6.2's own source** (fit I1): `isaacsim.core.experimental.prims`' `Articulation`
-  speaks per radian on both its backends. Its USD backend converts USD's per-degree gains by 180/pi
-  (`impl/articulation.py:3297`, `stiffnesses[i][j] = 1.0 / np.deg2rad(1.0 / stiffness)`, and the inverse in
-  `set_dof_gains`, `:3227-3233`); position targets are radians (`:2097-2099`, `np.deg2rad`); a force limit has no angle
-  in it (`:2966-2969`). Isaac Sim's gain tuner ("stored per degree") and omni.physx's tuning guide agree, and
-  whats2000 measured a 6.0 Franka's USD 400 / 80 as 22918.31 / 4583.66 from PhysX. So: angular stiffness and damping
-  times 180/pi from USD to physics, linear ones times 1, `max_force` times 1. A core function holds the conversion, in
-  `ovmcp/core/robot.py`, unit-tested.
+  speaks per radian on both its backends (`impl/articulation.py` in 6.2.0-rc.14, cited by method, round 1, I9): the
+  USD branch of `get_dof_gains` converts USD's per-degree gains by 180/pi (`1.0 / np.deg2rad(1.0 / stiffness)`) and
+  `set_dof_gains`' does the inverse; `get_dof_position_targets`' and `get_dof_limits`' USD branches give radians
+  (`np.deg2rad`); `get_dof_max_efforts`' has no angle in it. Isaac Sim's gain tuner ("stored per degree") and
+  omni.physx's tuning guide agree, and whats2000 measured a 6.0 Franka's USD 400 / 80 as 22918.31 / 4583.66 from
+  PhysX. So: angular stiffness and damping times 180/pi from USD to physics, linear ones times 1, `max_force` times 1.
+  One core helper and its inverse hold the conversion, `to_usd_gain(value, angular)` and `from_usd_gain`, in
+  `ovmcp/core/robot.py`, with a round-trip test (round 1, I12).
 - **The read:** `handlers/robot.py`'s `read_joint_states` (shared by `/robot/joint_states` and `/sim/step` since #198)
   also reads, from the same `Articulation`, `get_dof_limits()`, `get_dof_position_targets()`, `get_dof_gains()` and
   `get_dof_max_efforts()`, each named in the existing `call` bookkeeping, so a failure says which getter failed (fit
@@ -53,9 +54,11 @@ read-back says what the simulation holds).
   values are the simulation's own, and the units: radians or stage units, `kp` per radian or per stage unit, `kd` the
   same per second; and keeps today's warning that `set_joint_targets` takes degrees, unlike `set_joint_drives`, which
   takes these units (round 1, P2). A value of PhysX's own for "no limit" (infinite, or 1e30 and over, as a continuous
-  joint's limits or a drive with no `maxForce` read) prints `unlimited`, unit-tested (round 1, P5). The step's `source` line, "the simulated state, not drive targets", becomes "read from PhysX after
-  the last step: positions and velocities simulated, targets and gains what PhysX drives with" (noticed by the fit).
-  `get_robot_info`'s description and its joint states header name the new columns (noticed by the fit).
+  joint's limits or a drive with no `maxForce` read) prints `unlimited`, unit-tested (round 1, P5). The step's
+  `source` line, "the simulated state, not drive targets", becomes "read from PhysX after the last step: positions and
+  velocities simulated, targets and gains what PhysX drives with" (noticed by the fit). `get_robot_info`'s description
+  and its joint states header name the new columns (noticed by the fit), and say which limits are which: the Joints
+  list's in degrees from USD, the joint states' in radians from physics (round 1, I10).
 - **The write, a new tool** `set_joint_drives(prim_path, drives)`: `drives` maps a joint's name, as `get_robot_info`
   lists it, to any of `stiffness`, `damping`, `max_force`, **in the read's units** (fit I2), so `kp 57296` read can be
   written back doubled as `114592` with no degrees in the agent's head. Each value is finite and 0 or more, refused
@@ -70,9 +73,9 @@ read-back says what the simulation holds).
      joint: the values written to USD (in USD's units, said), and `in_simulation` with the values physics now holds,
      or why there are none (stopped: the next play reads USD; no physics view; not Isaac Sim). A value physics didn't
      take shows as a difference, measured, not inferred.
-  Names it doesn't find are listed, as `set_joint_targets` lists failures. Step 1 checks the paused case; if a paused
-  simulation doesn't take a USD write before the next step, the handler also writes through the view with
-  `set_dof_gains` and `set_dof_max_efforts`, and the plan's Progress says so.
+  Names it doesn't find are listed. Step 1 checks the paused and the playing case; in a state that doesn't take a USD
+  write by the update after it, the handler also writes through the view with `set_dof_gains` and
+  `set_dof_max_efforts`, one rule for both states (round 1, Q2), and the plan's Progress says so.
 - **Alternatives:** gains as parameters of `set_joint_targets`, rejected: targets and gains are tuned apart, its
   `targets` would stop being required, and its list form, in joint order, has no meaning for gains. `set_prim_attribute`
   as it is, rejected: the attribute names and the per-degree arithmetic stay the agent's, which is the issue. A
@@ -113,7 +116,8 @@ answer gains keys, additive; an older extension sends none and the lines show wh
 
 `docs/TOOLS.md` (`get_robot_info`'s joint lines and units, `sim_control`'s observe lines and `source` line,
 `set_joint_drives`), `plugin/skills/simulate/SKILL.md` (tuning a drive: read the tracking error, change the gains,
-step, read again), `CHANGELOG.md` (Added).
+step, read again), `CHANGELOG.md` (Added: `set_joint_drives`, the new columns; Changed: `get_robot_info`'s and the
+step's joint line format and the step's `source` line, round 1, I11).
 
 ## Risks
 
@@ -165,12 +169,12 @@ read-back measures them); limits shown twice (each line says its units; I10).
 
 | # | Question | Recommendation | Answer |
 |---|---|---|---|
-| Q1 | P1's shape: leave `tracking_error` out for DOFs without a position drive, or show `none`? | `none`: every line keeps its columns | open |
-| Q2 | The view-write fallback for the playing case too, if Step 1 finds a playing simulation doesn't take the USD write? | yes: one rule for both states | open |
+| Q1 | P1's shape: leave `tracking_error` out for DOFs without a position drive, or show `none`? | `none`: every line keeps its columns | `none`, as recommended |
+| Q2 | The view-write fallback for the playing case too, if Step 1 finds a playing simulation doesn't take the USD write? | yes: one rule for both states | yes, as recommended |
 
 | # | Improvement | Answer |
 |---|---|---|
-| I9 | Cite Isaac Sim's methods by name (`get_dof_gains`' USD branch), not line numbers, which already drift | open |
-| I10 | Say in `get_robot_info`'s description which limits are which (the Joints list's degrees from USD, the states' radians from physics) | open |
-| I11 | A CHANGELOG Changed line beside Added: `get_robot_info`'s state line format and the step's `source` line change | open |
-| I12 | One core `to_usd_gain` and its inverse, with a round-trip test | open |
+| I9 | Cite Isaac Sim's methods by name (`get_dof_gains`' USD branch), not line numbers, which already drift | taken |
+| I10 | Say in `get_robot_info`'s description which limits are which (the Joints list's degrees from USD, the states' radians from physics) | taken |
+| I11 | A CHANGELOG Changed line beside Added: `get_robot_info`'s state line format and the step's `source` line change | taken |
+| I12 | One core `to_usd_gain` and its inverse, with a round-trip test | taken |
