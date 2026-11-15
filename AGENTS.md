@@ -136,8 +136,8 @@ What this repo's history already paid for:
 
 ## Look up APIs before coding against them
 
-Kit, Isaac Sim, USD (`pxr`) and the MCP SDK: look the API up with Context7 (`.mcp.json`) first, for the versions this
-repo supports. SDKs move faster than any model's memory, and Kit's change between releases.
+Kit, Isaac Sim, USD, PhysX and the MCP SDK outrun any model's memory: look an API up first, for the versions supported,
+in Context7 (`isaac-sim/isaacsim`, `/websites/omniverse_nvidia_kit_omni_physics`) or NVIDIA's Kit server (CONTRIBUTING).
 
 ## Never
 
