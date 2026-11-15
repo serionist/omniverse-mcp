@@ -136,6 +136,41 @@ def _legend_beside(seg_path: str) -> str:
     return str(legend if legend.is_absolute() else Path.cwd() / legend)
 
 
+def _legend_line(prim_path: str, colour: list[int], nearest: float | None) -> str:
+    """One prim of the segmentation legend, with its nearest distance when the capture took depth (#203)."""
+    line = f"{prim_path} = [{colour[0]}, {colour[1]}, {colour[2]}]"
+    return f"{line} distance = {nearest:.6g}\n" if nearest is not None else f"{line}\n"
+
+
+def _save_depth(h: "Helpers", r: dict[str, Any], capture_id: int, extension: str | None) -> str:
+    """A capture's depth image and raw distances written beside its image, and the answer's line for them; the
+    extension's reason when it took none, or that it is too old to take any."""
+    if r.get("depth_error"):
+        return f"Depth: ERROR {r['depth_error']}"
+    if not r.get("depth_base64"):
+        return (
+            f"Depth: none: the Kit extension is {extension or 'older than this server'} and doesn't "
+            f"take include_depth; install this server's, {install_advice()}"
+        )
+    folder = os.path.join(h.output_dir, "captures")
+    png_path = os.path.join(folder, f"viewport_{capture_id:04d}_depth.png")
+    npy_path = os.path.join(folder, f"viewport_{capture_id:04d}_depth.npy")
+    try:
+        h.write(png_path, base64.b64decode(r["depth_base64"]))
+        h.write(npy_path, base64.b64decode(r.get("depth_npy_base64") or ""))
+    except (binascii.Error, ValueError) as e:
+        return f"Depth: ERROR: its data didn't decode: {e}"
+    share = f"{float(r.get('depth_nothing_hit') or 0) * 100:.0f}% of the image"
+    if r.get("depth_near") is None:
+        reach = f"nothing hit ({share})"
+    else:
+        reach = (
+            f"near {r['depth_near']:.4g}, far {r['depth_far']:.4g} stage units; brighter is nearer, black is nothing "
+            f"hit, {share}"
+        )
+    return f"Depth: {h.rel(png_path)} ({reach}); raw distances: {h.rel(npy_path)}"
+
+
 def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
     @tool(mcp, READS)
     def capture_viewport(
@@ -148,6 +183,9 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         include_image: Annotated[
             bool, Field(description="Also return the image inline, besides the file (uses more context)")
         ] = False,
+        include_depth: Annotated[
+            bool, Field(description="Also save the distance to the camera: a grey image and the raw distances")
+        ] = False,
     ) -> str | list[TextContent | ImageContent]:
         """Render one frame from a camera at width x height and save 3 files to mcp_output/captures/:
 
@@ -156,6 +194,11 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
            pixels, world centre and size.
         3. **Instance segmentation** (PNG): each prim in a colour of its own, with a legend naming them.
 
+        With include_depth, two more and a distance per prim: the distance to the camera as a grey PNG, nearer
+        brighter and nothing hit black, its near and far in stage units in the answer; the raw distances as a .npy
+        (float32, stage units, inf where nothing is hit); and each prim's nearest distance in the legend. What is in
+        front of what, and how far, from one capture. It costs most at large sizes.
+
         Use it to see the scene and tell which prim is where: the boxes for places, the segmentation for prims that
         overlap. It renders camera_path, or the viewport's camera when empty, in a render of its own, so the viewport
         the user sees keeps its camera and size. Aim first with set_camera, at a point or a prim; for one prim from
@@ -163,7 +206,7 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         scene lights) though Kit's grid shows, comes with a warning saying what to change with viewport_light.
         Without omni.syntheticdata only the image comes: the boxes and segmentation need it.
         """
-        resp = bridge_call(client.capture_viewport, width, height, camera_path)
+        resp = bridge_call(client.capture_viewport, width, height, camera_path, include_depth)
 
         r = resp["result"]
         lines: list[str] = []
@@ -222,10 +265,12 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
                 lines.append(f"Segmentation: ERROR: {e}")
             else:
                 abs_legend = _legend_beside(seg_path)
-                legend_lines = [f"{prim_path} = [{c[0]}, {c[1]}, {c[2]}]\n" for prim_path, c in legend.items()]
+                nearest: dict[str, float] = r.get("depth_nearest") or {}
+                legend_lines = [_legend_line(prim_path, c, nearest.get(prim_path)) for prim_path, c in legend.items()]
+                form = "prim_path = [R, G, B] distance = <nearest, stage units>" if nearest else "prim_path = [R, G, B]"
                 h.write(
                     abs_legend,
-                    "# Instance segmentation color legend\n# Format: prim_path = [R, G, B]\n\n" + "".join(legend_lines),
+                    f"# Instance segmentation color legend\n# Format: {form}\n\n" + "".join(legend_lines),
                 )
                 lines.append(f"Segmentation -> {seg_path}")
                 lines.append(f"Color legend ({len(legend)} prims) -> {h.rel(abs_legend)}")
@@ -234,6 +279,10 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         else:
             # An extension from before segmentation_error gives no reason.
             lines.append("Segmentation: not available (omni.syntheticdata may not be loaded)")
+
+        # 4. Depth, when asked for (#203)
+        if include_depth:
+            lines.append(_save_depth(h, r, capture_id, client.extension_version))
 
         if include_image and r.get("image_base64"):
             return [

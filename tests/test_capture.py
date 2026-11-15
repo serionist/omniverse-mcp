@@ -488,7 +488,7 @@ def test_instances_are_coloured_as_before_in_one_pass():
     ids = np.array([[0, 7, 7, 3], [3, 0, 9, 12], [12, 12, 0, 7]], dtype=np.uint32)
     names = {3: "/World/A", 7: "/World/B", 9: "/World/B", 12: "/World/C"}  # two ids, one prim
 
-    image, legend = capture.colour_instances(ids, names.__getitem__)
+    image, legend, nearest = capture.colour_instances(ids, names.__getitem__)
     expected_image, expected_legend = _colour_loop(ids, names.__getitem__)
     assert image.dtype == np.uint8
     assert image.shape == (3, 4, 3)
@@ -496,17 +496,18 @@ def test_instances_are_coloured_as_before_in_one_pass():
     assert legend == expected_legend
     assert list(legend) == ["/World/A", "/World/B", "/World/C"]
     assert not image[ids == 0].any()  # the background stays black
+    assert nearest == {}  # no distances given
 
 
 def test_an_instance_without_a_name_is_named_by_its_id():
-    _image, legend = capture.colour_instances(np.array([[0, 5]], dtype=np.uint32), lambda _instance: None)
+    _image, legend, _nearest = capture.colour_instances(np.array([[0, 5]], dtype=np.uint32), lambda _instance: None)
     assert list(legend) == ["instance_5"]
 
 
 def test_colouring_a_4096_a_side_capture_is_one_pass():
     ids = (np.arange(4096 * 4096, dtype=np.uint32) % 2000).reshape(4096, 4096)
     started = time.monotonic()
-    image, legend = capture.colour_instances(ids, lambda instance: f"/World/P{instance}")
+    image, legend, _nearest = capture.colour_instances(ids, lambda instance: f"/World/P{instance}")
     took = time.monotonic() - started
     assert image.shape == (4096, 4096, 3)
     assert len(legend) == 1999

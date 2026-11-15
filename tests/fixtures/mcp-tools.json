@@ -327,6 +327,10 @@
             "minimum": 1,
             "type": "integer"
           },
+          "include_depth": {
+            "default": false,
+            "type": "boolean"
+          },
           "include_image": {
             "default": false,
             "type": "boolean"

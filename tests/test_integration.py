@@ -7,7 +7,9 @@ Usage, with Kit running: OMNIVERSE_MCP_SIM=1 uv run pytest -m sim
 """
 
 import base64
+import io
 import json
+import math
 import re
 import secrets
 import shutil
@@ -15,9 +17,11 @@ import tempfile
 import textwrap
 import time
 import unittest
+import zlib
 from pathlib import Path
 from typing import Any, ClassVar
 
+import numpy as np
 import pytest
 from pxr import Sdf
 
@@ -688,6 +692,15 @@ def _png_size(image_base64: str) -> tuple[int, int]:
     """A base64 PNG's width and height, from its header."""
     head = base64.b64decode(image_base64[:32])
     return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+
+
+def _rgb(png: bytes) -> np.ndarray:
+    """The pixels of an RGB PNG the bridge's own encoder wrote (ovmcp.core.png): one IDAT, each row filter 0."""
+    width, height = int.from_bytes(png[16:20], "big"), int.from_bytes(png[20:24], "big")
+    start = png.index(b"IDAT") + 4
+    length = int.from_bytes(png[start - 8 : start - 4], "big")
+    raw = np.frombuffer(zlib.decompress(png[start : start + length]), dtype=np.uint8)
+    return raw.reshape(height, 1 + width * 3)[:, 1:].reshape(height, width, 3)
 
 
 # Turns the active viewport's updates off, then waits up to 3 s for a frame through Kit's own frame wait.
@@ -1457,6 +1470,68 @@ result = {"root_prims": [str(p.GetPath()) for p in stage.GetPseudoRoot().GetChil
         # No release asked for: Kit captured nothing, which escapes the capture, so its feed isn't kept.
         self._assert_nothing_left(before, since)
         print(f"  {len(before['render'])} paths under /Render before and after, a capture and a failed one")
+
+    def test_12k_a_capture_with_depth_measures_the_cube_and_leaves_nothing(self):
+        """include_depth (#203): the cube's nearest distance in the legend, and the depth image's near, within 0.1 m of
+        the camera's distance to the nearest point of the cube's box; the raw distances inf where nothing is hit; a
+        capture after a physics run; one at 4096 x 4096, timed; and, the kept feed released, nothing left (#51's
+        E16)."""
+        camera = "/World/IntTestCam"
+        self.addCleanup(self.client.delete_prim, camera)
+        bounds = self.client.prim_bounds("/World/IntTestCube")["result"]
+        center = bounds["center"]
+        self._kit(_AIMED_CAMERA.replace("TARGET", repr(center)).replace("PATH", repr(camera)))
+        eye = self._kit(
+            f"result = list(UsdGeom.Xformable(omni.usd.get_context().get_stage().GetPrimAtPath({camera!r}))"
+            ".ComputeLocalToWorldTransform(Usd.TimeCode.Default()).ExtractTranslation())"
+        )
+        nearest_point = [min(max(e, lo), hi) for e, lo, hi in zip(eye, bounds["min"], bounds["max"], strict=True)]
+        expected = math.dist(eye, nearest_point)
+        tolerance = 0.1 / self.client.sim_state()["result"]["meters_per_unit"]
+        self._kit(RELEASE_KEPT_FEED)
+        before, since = self._traces(), self._log_index()
+
+        result = self.client.capture_viewport(640, 480, camera_path=camera, include_depth=True)
+        self.assertEqual(result["status"], "success", result)
+        r = result["result"]
+        self.assertNotIn("depth_error", r, r.get("depth_error"))
+        self.assertAlmostEqual(r["depth_nearest"]["/World/IntTestCube"], expected, delta=tolerance)
+        self.assertLessEqual(r["depth_near"], r["depth_nearest"]["/World/IntTestCube"] + 1e-6)
+        distances = np.load(io.BytesIO(base64.b64decode(r["depth_npy_base64"])))
+        self.assertEqual(distances.shape, (480, 640))
+        # Nothing hit is where segmentation shows no prim (black), whatever the sky's value reads (plan round 1, P2).
+        background = ~_rgb(base64.b64decode(r["segmentation_base64"])).any(axis=2)
+        self.assertTrue(np.array_equal(np.isinf(distances), background), "inf isn't where segmentation shows nothing")
+        # The kept feed's sensors are off between calls (#114's S1), depth's with segmentation's.
+        sensors_on = self._kit(
+            "from ovmcp.bridge.handlers import camera_feed\n"
+            "feed = camera_feed._kept.feed\n"
+            "result = None if feed is None else [str(s) for s in feed.sensors_on]"
+        )
+        self.assertEqual(sensors_on, [])
+        print(
+            f"  {camera}: cube nearest {r['depth_nearest']['/World/IntTestCube']:.3f} against {expected:.3f}, "
+            f"near {r['depth_near']:.3f}, far {r['depth_far']:.3f}, nothing hit {r['depth_nothing_hit']:.0%}"
+        )
+
+        # After a physics run, where #162's hang lies in segmentation's path, which depth shares.
+        self.assertEqual(self.client.sim_control("play")["status"], "success")
+        time.sleep(0.5)
+        self.assertEqual(self.client.sim_control("stop")["status"], "success")
+        after_physics = self.client.capture_viewport(320, 240, camera_path=camera, include_depth=True)
+        self.assertEqual(after_physics["status"], "success", after_physics)
+        self.assertNotIn("depth_error", after_physics["result"])
+
+        started = time.monotonic()
+        large = self.client.capture_viewport(4096, 4096, camera_path=camera, include_depth=True)
+        took = time.monotonic() - started
+        self.assertEqual(large["status"], "success", large)
+        print(f"  a 4096 x 4096 capture with depth took {took:.1f} s")
+
+        plain = self.client.capture_viewport(320, 240, camera_path=camera)
+        self.assertNotIn("depth_base64", plain["result"])
+        self._kit(RELEASE_KEPT_FEED)
+        self._assert_nothing_left(before, since)
 
     def test_12dd_a_capture_through_a_scene_camera_leaves_its_file_as_it_was(self):
         """A capture through a camera of the user's file, never rendered through before, leaves the root layer as it

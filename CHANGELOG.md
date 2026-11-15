@@ -17,6 +17,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   PhysX in the same call: a rigid body's position, rotation and velocities, a robot's joints. From playing it pauses
   first; from stopped it loads physics. The step, look, adjust loop of debugging a body or a robot, which needed
   `execute_script` before (#198).
+- **`capture_viewport`'s `include_depth`:** the distance to the camera as a grey image, nearer brighter and nothing hit
+  black, with its near and far in stage units in the answer; the raw distances as a `.npy` (float32, stage units, `inf`
+  where nothing is hit); and each prim's nearest distance in the segmentation legend, so what is in front of what, and
+  how far, is a grep instead of a raycast per prim. A capture without it costs what it did (#203).
 
 ### Changed
 

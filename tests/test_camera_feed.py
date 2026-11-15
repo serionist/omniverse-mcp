@@ -218,7 +218,9 @@ def _fake_kit(kit: FakeKit, monkeypatch: pytest.MonkeyPatch) -> None:
     syntheticdata = _module(
         "omni.syntheticdata",
         sensors=SimpleNamespace(enable_sensors=kit.enable_sensors, disable_sensors=kit.disable_sensors),
-        _syntheticdata=SimpleNamespace(SensorType=SimpleNamespace(InstanceSegmentation="InstanceSegmentation")),
+        _syntheticdata=SimpleNamespace(
+            SensorType=SimpleNamespace(InstanceSegmentation="InstanceSegmentation", DistanceToCamera="DistanceToCamera")
+        ),
         SyntheticData=SimpleNamespace(Get=lambda: kit.registry),
         SyntheticDataException=FakeSyntheticDataError,
     )
@@ -1216,3 +1218,39 @@ def test_a_stop_queued_behind_a_capture_during_which_the_extension_shuts_down_ke
     assert (feeds._kept.feed, feeds._kept.timer, feeds._kept.stage_events) == (None, None, [])
     assert not [o for o in kit.observers if o["event_name"].startswith("stage event")]
     assert not kit.stage.GetPrimAtPath(feed.render_product_path)
+
+
+# ----- depth (#203) -----
+
+
+def test_depth_is_turned_on_in_a_call_of_its_own_and_both_go_off_as_the_feed_is_put_back(feeds, kit):
+    kept = _kept_with_frames(feeds, kit)
+    kit.log.clear()
+    assert feeds.enable_segmentation(kept) is None
+    assert feeds.enable_depth(kept) is None
+    # One sensor a call, so a depth omni.syntheticdata refuses can't take the segmentation with it.
+    assert kit.log == [
+        ("enable", kept.render_product_path, ["InstanceSegmentation"]),
+        ("enable", kept.render_product_path, ["DistanceToCamera"]),
+    ]
+    kit.log.clear()
+    _put_back(feeds, kept)
+    assert ("disable", kept.render_product_path, ["InstanceSegmentation", "DistanceToCamera"]) in kit.log
+    assert not kept.sensor_on
+    assert kept.segmented  # its graphs freed at the release, depth's with segmentation's
+
+
+def test_a_call_without_depth_never_turns_it_on(feeds, kit):
+    kept = _kept_with_frames(feeds, kit)
+    kit.log.clear()
+    feeds.enable_segmentation(kept)
+    _put_back(feeds, kept)
+    sensors = [entry[2] for entry in kit.log if isinstance(entry, tuple) and entry[0] in ("enable", "disable")]
+    assert sensors == [["InstanceSegmentation"], ["InstanceSegmentation"]]
+
+
+def test_depth_is_turned_on_only_where_its_graphs_can_be_freed(feeds, kit):
+    kit.registry = None
+    feed = feeds.CameraFeed("/World/Cam", 320, 240)
+    assert "can't free a capture's depth graphs" in feeds.enable_depth(feed)
+    assert not feed.segmented

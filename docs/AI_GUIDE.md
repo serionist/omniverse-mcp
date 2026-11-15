@@ -36,7 +36,8 @@ move only while physics plays.
 - **Call `get_sim_state` first:** the up axis (Y or Z), the stage's units, whether physics is playing, and the
   timeline's range: a run longer than it pauses at the end, or goes back to the start when the timeline loops.
 - **Look before you act, and after:** `get_scene_tree` for what is there, with `include_properties` for many prims'
-  values, `capture_viewport` or `inspect_prim` for how it looks. Never assume a change worked.
+  values, `capture_viewport` or `inspect_prim` for how it looks; `capture_viewport(include_depth=True)` for how far
+  each prim is from the camera. Never assume a change worked.
 - **Files, not inline data:** images and long answers are written under `mcp_output/` in the server's working folder,
   and the tool returns the path; open it with your file tool. `capture_viewport(include_image=True)` also returns the
   image inline, which costs context like any image. Text comes as prim blocks: a `[/prim/path]` header, then

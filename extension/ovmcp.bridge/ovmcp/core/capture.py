@@ -83,21 +83,31 @@ def settle_frames(render_mode: object, spp: object, total_spp: object) -> int:
 
 
 def colour_instances(
-    ids: "NDArray[Any]", name_of: Callable[[int], str | None]
-) -> tuple["NDArray[Any]", dict[str, list[int]]]:
-    """Instance ids as an RGB image, each id its own colour and 0 black, and the legend: name -> [R, G, B].
+    ids: "NDArray[Any]", name_of: Callable[[int], str | None], distances: "NDArray[Any] | None" = None
+) -> tuple["NDArray[Any]", dict[str, list[int]], dict[str, float]]:
+    """Instance ids as an RGB image, each id its own colour and 0 black, the legend: name -> [R, G, B], and with
+    `distances` (the same frame's, inf where nothing is hit), each name's nearest distance (#203).
 
     One pass over the pixels: a colour per distinct id, then each pixel's looked up, where masking the image once per id
-    cost ids times pixels on Kit's main thread, which a 4096-a-side capture makes long (#51). Colours step round the hue
-    circle by the golden ratio, by the id's place among the ids present; a name two ids share keeps the first one's
-    colour in the legend. An id `name_of` has no name for (None) is `instance_<id>`.
+    cost ids times pixels on Kit's main thread, which a 4096-a-side capture makes long (#51); the nearest distance per
+    id comes from the same pass's indices. Colours step round the hue circle by the golden ratio, by the id's place
+    among the ids present; a name two ids share keeps the first one's colour in the legend, and the nearer of their
+    distances.
+    An id `name_of` has no name for (None) is `instance_<id>`.
     """
     # Here, not at the top: every capture uses this module, and the bridge must load in a Kit app without numpy.
     import numpy as np
 
     unique, inverse = np.unique(ids, return_inverse=True)
+    flat = inverse.reshape(-1)
+    nearest_by_id = None
+    if distances is not None:
+        nearest_by_id = np.full(len(unique), np.inf)
+        # fmin, not minimum: a NaN under a prim would otherwise spread and drop its distance.
+        np.fmin.at(nearest_by_id, flat, distances.reshape(-1).astype(np.float64))
     palette = np.zeros((len(unique), 3), dtype=np.uint8)
     legend: dict[str, list[int]] = {}
+    nearest: dict[str, float] = {}
     for index, value in enumerate(unique.tolist()):
         instance = int(value)
         if instance == 0:
@@ -106,8 +116,10 @@ def colour_instances(
         colour = _hue_colour(index)
         palette[index] = colour
         legend.setdefault(name, colour)
-    image = palette[inverse.reshape(-1)].reshape((*ids.shape[:2], 3))
-    return image, legend
+        if nearest_by_id is not None and np.isfinite(nearest_by_id[index]):
+            nearest[name] = min(nearest.get(name, math.inf), float(nearest_by_id[index]))
+    image = palette[flat].reshape((*ids.shape[:2], 3))
+    return image, legend, nearest
 
 
 def _hue_colour(index: int) -> list[int]:
