@@ -53,3 +53,5 @@ On Isaac Sim 6.2.0-rc.14 (Kit 110.4.0), headless `isaacsim.exp.base.kit`, Window
   session's work beside this Kit); not run to its end. The joint and step paths it shares with the scenarios ran there.
 - Not shown: whether a paused simulation took the USD write without the view (the answer's `through_view` wasn't
   printed); Isaac Sim 5.1; a prismatic drive's units live.
+- `test_integration.py`, rerun 2026-11-16 on the same launch (the multi-tick flag, this branch at `fd6ee00`, merged
+  with `main`): 88 of 89; the one failure the capture sweep's repeat tolerance under that flag, as on `main`.
