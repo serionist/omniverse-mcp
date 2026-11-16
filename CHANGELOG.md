@@ -22,6 +22,10 @@ the same PR. The format follows [Keep a Changelog](https://keepachangelog.com/en
   force limit as PhysX drives with them, in radians and per radian; `set_joint_drives` takes stiffness, damping and
   force limit in those same units, writes them to USD (per degree for an angular drive), and reads back what the
   simulation holds. Tuning a drive no longer needs the attribute names or the per-degree arithmetic (#199).
+- **`capture_viewport`'s `include_depth`:** the distance to the camera as a grey image, nearer brighter and nothing hit
+  black, with its near and far in stage units in the answer; the raw distances as a `.npy` (float32, stage units, `inf`
+  where nothing is hit); and each prim's nearest distance in the segmentation legend, so what is in front of what, and
+  how far, is a grep instead of a raycast per prim. A capture without it costs what it did (#203).
 
 ### Changed
 

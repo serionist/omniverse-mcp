@@ -58,9 +58,19 @@ def test_other_dtypes_are_cast_to_bytes():
     assert raw == bytes([0, 200, 200, 200])
 
 
+def test_a_two_dimensional_array_is_a_grey_image():
+    # A depth image (#203): one byte a pixel, colour type 0.
+    image = np.array([[0, 128, 255], [40, 41, 42]], dtype=np.uint8)
+
+    header, raw = _read_png(encode_png(image))
+
+    assert header == {"width": 3, "height": 2, "depth": 8, "colour": 0, "interlace": 0}
+    assert raw == b"\x00" + image[0].tobytes() + b"\x00" + image[1].tobytes()
+
+
 def test_an_array_that_is_not_an_image_gives_nothing():
-    assert encode_png(np.zeros((4, 4), dtype=np.uint8)) == b""
     assert encode_png(np.zeros(0, dtype=np.uint8)) == b""
+    assert encode_png(np.zeros((2, 2, 2, 2), dtype=np.uint8)) == b""
 
 
 def test_a_whole_png_is_complete_and_a_partly_written_one_is_not():

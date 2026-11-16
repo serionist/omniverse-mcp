@@ -6,7 +6,7 @@ import base64
 import math
 import time
 import traceback
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import carb
 import omni.kit.app
@@ -15,6 +15,7 @@ from pxr import Gf, Usd, UsdGeom
 
 from ovmcp.core import capture
 from ovmcp.core.bounds import box_corners, center_and_size, project_in_front, screen_box, world_bbox
+from ovmcp.core.depth import Depth, depth_image, npy_bytes, stage_distances
 from ovmcp.core.framing import apply_zoom, bounding_radius, fit_distance, inspect_args, require_perspective
 from ovmcp.core.isolation import LIGHT_TYPES, Hidden, prims_to_hide
 from ovmcp.core.lighting import camera_light_switch, current_mode, scene_lights
@@ -41,7 +42,7 @@ from ._utils import (
     _settle_viewport,
     capture_feed_png,
 )
-from .camera_feed import CameraFeed, _viewport, enable_segmentation, kept_feed, put_back
+from .camera_feed import CameraFeed, _viewport, enable_depth, enable_segmentation, kept_feed, put_back
 
 # Where a wait for instance segmentation got nothing, per stage, camera and size, so the next waits only briefly there.
 _segmentation_waits = capture.SegmentationWaits()
@@ -428,9 +429,8 @@ _SEGMENTATION_AS_BEFORE = (
 )
 
 
-async def _segmentation(feed: CameraFeed, budget: capture.Budget) -> tuple[bytes | None, dict, str | None]:
-    """Instance segmentation of the feed's last frame, each prim its own colour: (png, legend, None), where the legend
-    maps prim_path -> [R, G, B], or (None, {}, why there is none).
+async def _segmentation_ids(feed: CameraFeed, budget: capture.Budget) -> tuple[Any, str | None]:
+    """Instance segmentation's ids of the feed's last frame: (ids, None), or (None, why there are none).
 
     The sensor, turned on for the call (enable_segmentation), gives data only once a frame has rendered
     after that, so it is read after each app update for SEGMENTATION_SECONDS: a count of updates was too few on a cold
@@ -440,7 +440,7 @@ async def _segmentation(feed: CameraFeed, budget: capture.Budget) -> tuple[bytes
     try:
         import omni.syntheticdata as syn
     except ImportError:
-        return None, {}, "omni.syntheticdata is not loaded: enable it with manage_extensions"
+        return None, "omni.syntheticdata is not loaded: enable it with manage_extensions"
     try:
         key = _segmentation_key(feed)
         width, height = feed.resolution
@@ -468,30 +468,45 @@ async def _segmentation(feed: CameraFeed, budget: capture.Budget) -> tuple[bytes
             took = time.monotonic() - started
             if seg_array is None:
                 if cut_short:
-                    return None, {}, "Instance segmentation gave no data before this call's time ran out"
+                    return None, "Instance segmentation gave no data before this call's time ran out"
                 _segmentation_waits.failed(key)
                 if waited_before:
-                    return None, {}, _SEGMENTATION_AS_BEFORE.format(seconds=seconds)
+                    return None, _SEGMENTATION_AS_BEFORE.format(seconds=seconds)
                 carb.log_warn(
                     f"[MCP Bridge] Instance segmentation gave no data in {updates} updates, {took:.2f} s after "
                     "enabling it"
                 )
-                return None, {}, _SEGMENTATION_NONE.format(seconds=seconds)
+                return None, _SEGMENTATION_NONE.format(seconds=seconds)
             carb.log_info(
                 f"[MCP Bridge] Instance segmentation's first data came {updates} updates, {took:.2f} s after "
                 "enabling it"
             )
         _segmentation_waits.got_data(key)
-        png_bytes, legend = _colour_segmentation(syn, seg_array)
-        return png_bytes, legend, None
+        return seg_array, None
+    except Exception as e:
+        carb.log_warn(f"[MCP Bridge] Instance segmentation failed: {e}")
+        return None, f"Instance segmentation failed: {e}"
+
+
+async def _segmentation(feed: CameraFeed, budget: capture.Budget) -> tuple[bytes | None, dict, str | None]:
+    """Instance segmentation of the feed's last frame, each prim its own colour: (png, legend, None), where the legend
+    maps prim_path -> [R, G, B], or (None, {}, why there is none)."""
+    seg_array, error = await _segmentation_ids(feed, budget)
+    if seg_array is None:
+        return None, {}, error
+    try:
+        png_bytes, legend, _nearest = _colour_segmentation(seg_array)
     except Exception as e:
         carb.log_warn(f"[MCP Bridge] Instance segmentation failed: {e}")
         return None, {}, f"Instance segmentation failed: {e}"
+    return png_bytes, legend, None
 
 
-def _colour_segmentation(syn, seg_array) -> tuple[bytes, dict]:
-    """The sensor's instance ids as a PNG, each prim its own colour, and the legend: prim_path -> [R, G, B]
-    (core/capture.py's colour_instances)."""
+def _colour_segmentation(seg_array, distances=None) -> tuple[bytes, dict, dict]:
+    """The sensor's instance ids as a PNG, each prim its own colour, the legend: prim_path -> [R, G, B], and with the
+    frame's distances each prim's nearest (core/capture.py's colour_instances)."""
+    import omni.syntheticdata as syn
+
     sd_iface = syn._syntheticdata.acquire_syntheticdata_interface()
 
     def name_of(instance: int) -> str | None:
@@ -500,8 +515,69 @@ def _colour_segmentation(syn, seg_array) -> tuple[bytes, dict]:
         except Exception:
             return None  # named by its id instead
 
-    image, legend = capture.colour_instances(seg_array, name_of)
-    return encode_png(image), legend
+    image, legend, nearest = capture.colour_instances(seg_array, name_of, distances)
+    return encode_png(image), legend, nearest
+
+
+def _turn_depth_on(feed: CameraFeed) -> str | None:
+    """enable_depth, after segmentation and in a call of its own, whose failure costs the depth alone: not the
+    segmentation, and not the feed, which is kept (#203)."""
+    try:
+        return enable_depth(feed)
+    except Exception as e:
+        carb.log_warn(f"[MCP Bridge] Depth could not be turned on: {e}")
+        return f"Depth failed: {e}"
+
+
+async def _depth(feed: CameraFeed, budget: capture.Budget, ids) -> tuple[Depth | None, str | None]:
+    """The distance to the camera of the feed's last frame, in stage units with nothing hit told by the segmentation's
+    `ids` where there are any (core/depth.py): (depth, None), or (None, why there is none). Turned on with
+    segmentation before the frames, it has data by the time segmentation has; the wait is a plain poll, bounded as
+    segmentation's is."""
+    import omni.syntheticdata as syn
+
+    width, height = feed.resolution
+
+    def read():
+        return syn.sensors.get_distance_to_camera(feed)
+
+    def whole(metres) -> bool:
+        return metres is not None and tuple(metres.shape[:2]) == (height, width)
+
+    try:
+        metres = read()
+        if not whole(metres):
+            metres = await capture.poll(read, whole, _next_update, capture.SEGMENTATION_SECONDS, budget)
+        if metres is None:
+            return None, f"Depth gave no data within {capture.SEGMENTATION_SECONDS:g} s of enabling it: capture again"
+        stage = _get_stage()
+        distances = stage_distances(
+            metres, UsdGeom.GetStageMetersPerUnit(stage), ids=ids, far_clip=_far_clip(stage, feed.camera_path)
+        )
+        return depth_image(distances), None
+    except Exception as e:
+        carb.log_warn(f"[MCP Bridge] Depth failed: {e}")
+        return None, f"Depth failed: {e}"
+
+
+def _depth_answer(depth: Depth) -> dict:
+    """A capture's depth as /sim/capture answers it: the grey PNG and the raw distances, base64, and the range."""
+    return {
+        "depth_base64": base64.b64encode(depth.png).decode("utf-8"),
+        "depth_npy_base64": base64.b64encode(npy_bytes(depth.distances)).decode("utf-8"),
+        "depth_near": depth.near,
+        "depth_far": depth.far,
+        "depth_nothing_hit": depth.nothing_hit,
+    }
+
+
+def _far_clip(stage, camera_path: str) -> float | None:
+    """The camera's far clipping distance in stage units, which nothing past is drawn; None when it has none."""
+    camera = UsdGeom.Camera(stage.GetPrimAtPath(camera_path))
+    if not camera:
+        return None
+    clipping = camera.GetClippingRangeAttr().Get()
+    return float(clipping[1]) if clipping is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -785,6 +861,7 @@ async def handle_capture(body: dict) -> dict:
         size = capture.capture_size(body)
     except ValueError as e:
         return {"status": "error", "error": str(e)}
+    include_depth = body.get("include_depth") is True
 
     await _next_update()
 
@@ -800,8 +877,9 @@ async def handle_capture(body: dict) -> dict:
     try:
         feed = _feed(camera_path, width, height)
         # Turned on before the frames, so it has data by the time the image is taken; off again as the feed is put
-        # back, whatever the capture does.
+        # back, whatever the capture does. Depth, asked for, after it and on its own (#203).
         segmentation = _turn_segmentation_on(feed)
+        depth_problem = _turn_depth_on(feed) if include_depth else None
         # The bound a viewport frame gets, sized for a renderer's cold start (#27).
         await feed.first_frame(capture.FRAME_SECONDS)
         # Every capture, a kept feed's too, waits frames of its own after the call set the camera, plus Path Tracing's
@@ -835,14 +913,35 @@ async def handle_capture(body: dict) -> dict:
             carb.log_warn(f"Screen bbox computation failed: {e}")
             result["screen_bboxes"] = []
 
-        # 3. Instance segmentation of the same feed
+        # 3. Instance segmentation of the same feed, and its depth when asked for, which tells what was hit from it
         if segmentation.problem:
-            seg_png, color_legend, seg_error = None, {}, segmentation.problem
+            seg_ids, seg_error = None, segmentation.problem
         else:
-            seg_png, color_legend, seg_error = await _segmentation(feed, call.budget)
+            seg_ids, seg_error = await _segmentation_ids(feed, call.budget)
+        depth = None
+        if include_depth:
+            if depth_problem:
+                result["depth_error"] = depth_problem
+            else:
+                depth, depth_error = await _depth(feed, call.budget, seg_ids)
+                if depth is None:
+                    result["depth_error"] = depth_error
+                else:
+                    result.update(_depth_answer(depth))
+        seg_png, color_legend, nearest = None, {}, {}
+        if seg_ids is not None:
+            try:
+                seg_png, color_legend, nearest = _colour_segmentation(
+                    seg_ids, depth.distances if depth is not None else None
+                )
+            except Exception as e:
+                carb.log_warn(f"[MCP Bridge] Instance segmentation failed: {e}")
+                seg_error = f"Instance segmentation failed: {e}"
         if seg_png:
             result["segmentation_base64"] = base64.b64encode(seg_png).decode("utf-8")
             result["segmentation_legend"] = color_legend
+            if depth is not None:
+                result["depth_nearest"] = nearest
         else:
             result["segmentation_base64"] = None
             result["segmentation_legend"] = {}

@@ -1006,12 +1006,31 @@ All three come from one frame of `camera_path`, rendered at `width` x `height` i
 | `height` | int | `480` | Image height, 1 to 4096 |
 | `camera_path` | string | `""` | Camera prim to render from (default: the viewport's camera); a path with no prim, or one that isn't a `Camera`, is refused |
 | `include_image` | bool | `false` | Return the viewport image inline as `ImageContent` so AI can see it directly. Files are always saved regardless. |
+| `include_depth` | bool | `false` | Also save the distance to the camera: a grey image, the raw distances, and each prim's nearest in the legend |
 
 **Output files:**
 - `mcp_output/captures/viewport_NNNN.png` - viewport screenshot
 - `mcp_output/captures/viewport_NNNN_bboxes.txt` - screen bounding boxes in prim-block format
 - `mcp_output/captures/viewport_NNNN_segmentation_NNNN.png` - instance segmentation image
 - `mcp_output/captures/viewport_NNNN_segmentation_NNNN_legend.txt` - colour-to-prim mapping
+- with `include_depth`, `mcp_output/captures/viewport_NNNN_depth.png` and `viewport_NNNN_depth.npy`
+
+**Depth** ([#203](https://github.com/serionist/omniverse-mcp/issues/203)): the distance from the camera to what each
+pixel shows, in stage units, from `omni.syntheticdata`'s distance to the camera, the radial distance, not depth along
+the view axis.
+
+- **The image:** grey, nearer brighter, nothing hit black; linear in 1/distance between the nearest hit (white) and
+  the farthest (dark grey), so a far floor doesn't squeeze what stands in front. The answer gives the near and far
+  distances and the share of the image that hits nothing: `Depth: <png> (near 1.2, far 38.5 stage units; brighter is
+  nearer, black is nothing hit, 12% of the image); raw distances: <npy>`.
+- **The raw distances:** a `.npy` of float32, height x width, stage units, `inf` where nothing is hit, for
+  `numpy.load`.
+- **Each prim's nearest:** the legend's line becomes `/World/Box = [255, 0, 0] distance = 2.413`, the nearest pixel of
+  that prim: what is in front of what, and how far, is a grep.
+- **Nothing hit** is where segmentation shows no prim, so a sky that reads as a large distance still counts as none.
+- **Cost:** a capture without depth costs what it did. With it, the raw file grows with the image: 1.2 MB at 640 x 480,
+  64 MB at 4096 x 4096, built on Kit's main thread. A depth that can't be taken says why (`Depth: ERROR ...`) and the
+  rest of the capture stands.
 
 **Bounding box format:**
 ```
