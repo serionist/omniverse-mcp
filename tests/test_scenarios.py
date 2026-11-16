@@ -2274,11 +2274,17 @@ class TestScenarios(PhysicsChecks):
             if "stiffness" in held:  # read back from physics once it holds the robot
                 self.assertAlmostEqual(held["stiffness"], kp, delta=kp * 1e-3)
             error = shoulder(0)["tracking_errors"]
-            for _ in range(5):  # 120 steps a read, at most 600
+            settled_after = None
+            for read in range(1, 6):  # 120 steps a read, at most 600
                 before, error = error, shoulder(120)["tracking_errors"]
                 self.assertIsNotNone(error, "a position drive holds the shoulder")
                 if abs(error - before) <= abs(before) * 0.01:
+                    settled_after = read * 120
                     break
+            print(
+                f"  kp {kp:g}: error {error:.4f} rad, "
+                + (f"settled after {settled_after} steps" if settled_after else "still moving after 600 steps")
+            )
             self.assertAlmostEqual(shoulder(0)["stiffnesses"], kp, delta=kp * 1e-3)
             return abs(error)
 
@@ -2288,6 +2294,7 @@ class TestScenarios(PhysicsChecks):
         print(f"  panda_joint2's settled error: {soft:.4f} rad at kp 300, {stiff:.4f} at kp 30000")
 
         r = self.c.sim_step(0, [wheels])
+        self.assertEqual(r["status"], "success", r)
         joints = r["result"]["observed"][0]["joints"]
         wheel_errors = [
             e for name, e in zip(joints["names"], joints["tracking_errors"], strict=True) if "wheel" in name

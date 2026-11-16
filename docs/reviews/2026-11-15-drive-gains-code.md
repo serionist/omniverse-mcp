@@ -33,10 +33,10 @@ token-checked table).
 
 | # | Improvement | Answer |
 |---|---|---|
-| I1 | 15.19's settle loop says whether it settled | open |
-| I2 | 15.19 asserts the wheel step's status before indexing it | open |
-| I3 | `JOINT_UNITS`: kd is per rad/s, not per radian | open |
-| I4 | Reflow `get_robot_info`'s cut-short docstring line | open |
+| I1 | 15.19's settle loop says whether it settled | taken |
+| I2 | 15.19 asserts the wheel step's status before indexing it | taken |
+| I3 | `JOINT_UNITS`: kd is per rad/s, not per radian | taken |
+| I4 | Reflow `get_robot_info`'s cut-short docstring line | taken |
 | I5 | `_took` already counts two values past 1e30 as equal (done with F1); the tool's line for a `max_force` at float32's top is `unlimited` | taken |
 
 ## Live run

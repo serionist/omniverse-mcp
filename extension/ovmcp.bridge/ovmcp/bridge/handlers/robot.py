@@ -541,9 +541,7 @@ async def _held_by_physics(root: str, drives: dict, written: dict) -> tuple[dict
     held = {}
     for name in written:
         values = _physics_values(states, name) if "error" not in states else None
-        held[name] = (
-            values if values is not None else {"none": f"the articulation at {root} holds no DOF named {name}"}
-        )
+        held[name] = values if values is not None else {"none": f"the articulation at {root} holds no DOF named {name}"}
     return held, through_view, None
 
 

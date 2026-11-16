@@ -34,7 +34,7 @@ def _joint_line(j: dict[str, Any]) -> str:
 
 # What a joint state line's numbers are in, said once above the lines (#199).
 JOINT_UNITS = (
-    "from physics: radians or stage units, per second for velocities, kp and kd per radian or unit as "
+    "from physics: radians or stage units, velocities per second, kp per radian or unit, kd per rad/s or unit/s, as "
     "set_joint_drives takes; set_joint_targets takes degrees"
 )
 # PhysX's "no limit": infinite, or float32's largest, for a continuous joint's limits or a drive with no maxForce.
@@ -172,14 +172,14 @@ def register(mcp: MCPServer, client: BridgeClient, h: "Helpers") -> None:
         Use it before driving a robot, to see where its joints are now, and to tune a drive: read the tracking error,
         change kp or kd with set_joint_drives, step, read again. The Joints list's limits are as USD holds them:
         degrees for revolute joints, stage units for prismatic ones. Joint states are in radians for revolute joints
-        and stage units for prismatic ones, velocities per second, kp per radian or per stage unit, the units
-        set_joint_drives takes; set_joint_targets takes degrees. `unlimited` is a limit or force PhysX doesn't cap. The
-        Joints list comes in the
-        order a list of set_joint_targets follows, fixed joints included, and the DOF count leaves fixed joints out;
-        the joint states come in physics' own order of degrees of freedom. Stopped, or in a Kit app without Isaac Sim,
-        the answer gives the structure and a line saying why there are no joint states. prim_path is the robot's root:
-        the joint states are the first articulation's at or under it. An answer too long to give inline keeps the
-        counts, and the joint states where they fit, and writes the Joints list to a file, its path in the answer.
+        and stage units for prismatic ones, velocities per second, kp per radian or per stage unit, kd per rad/s or
+        unit/s, the units set_joint_drives takes; set_joint_targets takes degrees. `unlimited` is a limit or force
+        PhysX doesn't cap. The Joints list comes in the order a list of set_joint_targets follows, fixed joints
+        included, and the DOF count leaves fixed joints out; the joint states come in physics' own order of degrees of
+        freedom. Stopped, or in a Kit app without Isaac Sim, the answer gives the structure and a line saying why there
+        are no joint states. prim_path is the robot's root: the joint states are the first articulation's at or under
+        it. An answer too long to give inline keeps the counts, and the joint states where they fit, and writes the
+        Joints list to a file, its path in the answer.
         """
         r = bridge_call(client.get_robot_info, prim_path)["result"]
         header = [
