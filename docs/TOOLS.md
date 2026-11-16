@@ -27,7 +27,7 @@ Reference for every tool the MCP server provides.
 | fix a black capture | `viewport_light` |
 | play, pause, stop or step physics | `sim_control`; `get_sim_state` for where it stands |
 | measure the frame rate, the physics step and GPU memory | `get_performance` |
-| add a robot, read and move its joints | `create_robot`, `get_robot_info`, `set_joint_targets` |
+| add a robot, read and move its joints, tune its drives | `create_robot`, `get_robot_info`, `set_joint_targets`, `set_joint_drives` |
 | record a run and look back at it | `start_recording`, `stop_recording`, `get_recording_frame` |
 | set mass or friction, make a collider, push, or probe | `set_physics_properties`, `apply_force`, `raycast` |
 | count faces and find where they are, or compare two prims or variants | `get_mesh_stats`, `compare_prims` |
@@ -44,7 +44,7 @@ it runs one; they are hints, never security (the bridge's token is what keeps ot
 | Hints | What they mean | Tools |
 |---|---|---|
 | read-only | Queries and captures: nothing in the stage, the simulation or the viewport changes (a capture's render of its own is in the stage while it runs and while it is kept for the next capture or recording, up to 30 s after, and leaves Kit's unsaved-edits flag set; the bridge's saves and Kit's own Save leave it out of the file; a camera rendered through carries the exposure schemas RTX writes onto it for as long, and they go with the render, with any value set on its `exposure:` attributes meanwhile, #177; `get_performance` lifts Kit's frame-rate limiter while it measures, and puts it back) | `get_scene_tree`, `get_prim_properties`, `get_prim_bounds`, `get_mesh_stats`, `get_robot_info`, `capture_viewport`, `get_sim_state`, `get_performance`, `get_recording_frame`, `raycast`, `get_logs`, `get_job` |
-| not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `set_prim_attribute`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_camera`, `inspect_prim`, `capture_sweep`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug`, `cancel_job` |
+| not destructive | Changes that destroy nothing: transforms, new prims, materials, variants, the camera, lights, the simulation | `set_prim_transform`, `create_prim`, `set_material`, `clone_prim`, `set_visibility`, `set_prim_attribute`, `compare_prims`, `set_variant_selection`, `create_variant_structure`, `create_robot`, `set_joint_targets`, `set_joint_drives`, `set_camera`, `inspect_prim`, `capture_sweep`, `viewport_light`, `sim_control`, `start_recording`, `stop_recording`, `set_physics_properties`, `apply_force`, `draw_debug`, `cancel_job` |
 | destructive | Deletes or overwrites prims, the whole stage, or USD files on disk | `delete_prim`, `save_scene`, `open_scene`, `new_scene`, `flatten_usd`, `export_prim_as_file`, `update_material_paths` |
 | destructive, open world | Runs Python or loads extensions inside the Kit app: anything can happen | `execute_script`, `run_script_job`, `manage_extensions` |
 
@@ -61,7 +61,7 @@ A value out of a parameter's range, or not one of its choices, is refused before
 - [USD Operations](#usd-operations) (2 tools)
 - [Variant Tools](#variant-tools) (2 tools)
 - [Material Tools](#material-tools) (2 tools)
-- [Robot Tools](#robot-tools) (3 tools)
+- [Robot Tools](#robot-tools) (4 tools)
 - [Camera Tools](#camera-tools) (5 tools)
 - [Simulation Tools](#simulation-tools) (3 tools)
 - [Recording Tools](#recording-tools) (3 tools)
@@ -829,9 +829,19 @@ or is paused.
 - **Joints,** from USD: each joint's name, type, limits and drive. Limits are as USD holds them: degrees for revolute
   joints, stage units for prismatic ones. They come in the order a list of `set_joint_targets` follows, fixed joints
   included; the DOF count leaves fixed joints out.
-- **Joint states,** from physics: each degree of freedom's name, position and velocity, in physics' own order. Radians
-  and radians per second for revolute joints, stage units and stage units per second for prismatic ones;
-  `set_joint_targets` takes degrees for revolute joints. They are the first articulation's at or under `prim_path`,
+- **Joint states,** from physics: each degree of freedom's name, position and velocity, in physics' own order, and its
+  drive as PhysX drives with it ([#199](https://github.com/serionist/omniverse-mcp/issues/199)): target,
+  `tracking_error` (target minus position; `none` where no position drive acts, as on a velocity-driven wheel),
+  limits, `kp` (stiffness), `kd` (damping) and `max_force`. Radians and radians per second for revolute joints, stage
+  units and stage units per second for prismatic ones; `kp` and `kd` per radian or per stage unit, the units
+  `set_joint_drives` takes; `set_joint_targets` takes degrees for revolute joints. A limit or force PhysX doesn't cap
+  reads `unlimited`. The Joints list's limits are USD's, in degrees; the joint states' are physics', in radians:
+
+  ```text
+    panda_joint2: pos 0.2500, vel 0.0000, target 0.5000, tracking_error 0.2500, limits [-1.7628, 1.7628], kp 57295.8, kd 5729.6, max_force 87.0
+  ```
+
+  `sim_control`'s `observe` gives the same values as `joint.<name>` lines. They are the first articulation's at or under `prim_path`,
   found as `UsdPhysics.ArticulationRootAPI` marks it, and read through Isaac Sim's
   `isaacsim.core.experimental.prims.Articulation`, which Isaac Sim 5.1 and 6.x ship; tested live on 6.2 and 5.1. The
   tool never starts physics itself.
@@ -844,8 +854,8 @@ Links: 11
 Joints (12):
   panda_joint1 (PhysicsRevoluteJoint [-166.0, 166.0] drive=angular)
   ...
-Joint states (9 DOF, from physics: radians for revolute joints, ... set_joint_targets takes degrees):
-  panda_joint1: pos=0.0000 vel=0.0000
+Joint states (9 DOF, from physics: radians or stage units, ... set_joint_targets takes degrees):
+  panda_joint1: pos 0.0000, vel 0.0000, target 0.0000, tracking_error 0.0000, limits [-2.8973, 2.8973], kp 57295.8, kd 5729.6, max_force 87.0
   ...
 ```
 
@@ -875,6 +885,31 @@ Works by setting USD drive target attributes directly - does not require articul
 running. A dict sets the joints it names and skips names it doesn't find; a list follows the order of
 `get_robot_info`'s Joints list, fixed joints included, not of its joint states. A joint without a drive gets one, with
 stiffness 1000 and damping 100. The answer counts the targets set.
+
+### `set_joint_drives`
+
+Set the stiffness, damping and force limit of a robot's joint drives, and read back what the simulation drives with
+([#199](https://github.com/serionist/omniverse-mcp/issues/199)).
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `prim_path` | string | required | Root prim of the robot |
+| `drives` | dict | required | `{joint_name: {stiffness, damping, max_force}}`, any of the three, each finite and 0 or more |
+
+- **Units:** those of `get_robot_info`'s joint states, so a `kp` read there can be written back changed: per radian for
+  a revolute joint's stiffness and damping, per stage unit for a prismatic one's. USD holds an angular drive's gains per
+  degree, 180/pi times smaller; the answer gives what it wrote there too. A `max_force` of 1e30 or more means no limit.
+- **How:** it writes the joint's existing `UsdPhysics.DriveAPI`, so it works stopped, and the next play takes it.
+  While the simulation plays or is paused, it reads the drives back from physics after one update; where physics
+  didn't take the USD write, it sets them through Isaac Sim's articulation view and says so. A joint with no drive
+  isn't written: `set_joint_targets` gives it one.
+- **Tuning a drive:** read the tracking error with `get_robot_info`, change `kp` or `kd`, step with
+  `sim_control("step", steps=...)`, read again.
+
+```text
+Set the drives of 1 joints on /World/Franka
+  panda_joint2: USD stiffness 2000 (angular drive, gains per degree); in the simulation: stiffness 114591.6, damping 5729.6, max_force 87.0
+```
 
 ---
 
@@ -1181,9 +1216,9 @@ states and `apply_force` need the simulation playing or paused. `steps` or `obse
 - **What doesn't move:** the timeline's time. Recordings, time-sampled animation and Action Graphs on playback ticks
   advance only with `play`.
 - **The answer:** `stepped = N of N physics steps of dt s (... s of physics)`, then a prim block per `observe` path,
-  read from PhysX after the last step, the simulated state, not drive targets:
+  read from PhysX after the last step: positions and velocities simulated, targets and gains what PhysX drives with:
   - a rigid body: `position`, `rotation` (w, x, y, z), `linear_velocity` (stage units/s), `angular_velocity` (deg/s);
-  - a robot's root, or a prim above it: `joints = <root>, N DOF`, then `joint.<name> = pos ..., vel ...` in radians or
+  - a robot's root, or a prim above it: `joints = <root>, N DOF`, then `joint.<name> = pos ..., vel ..., target ...` in radians or
     stage units, as `get_robot_info` gives them;
   - a prim that is both, such as a G1's pelvis, both; anything else, an `error` line saying why.
   

@@ -212,6 +212,7 @@ the install command; a new route leaves `PROTOCOL` alone, so the other tools go 
 /robot/info          -> handle_get_robot_info
 /robot/joint_states  -> handle_get_joint_states
 /robot/joint_targets -> handle_set_joint_targets
+/robot/joint_drives  -> handle_set_joint_drives
 /sim/control         -> handle_sim_control
 /sim/step            -> handle_sim_step
 /sim/capture         -> handle_capture
@@ -549,8 +550,12 @@ The robot tools use a hybrid approach:
   limits from USD properties. `/robot/joint_states` then finds the first articulation root at or under the prim
   (`core/robot.py`) and reads it through Isaac Sim's `isaacsim.core.experimental.prims.Articulation`, a new one per
   call, while physics plays or is paused; it never loads physics itself, and its error, stopped or without Isaac Sim,
-  is a line of the tool's answer
+  is a line of the tool's answer. The same read gives each DOF's target, limits, gains and force limit as PhysX holds
+  them, per radian, and a tracking error where a position drive acts (#199)
 - **`set_joint_targets`** sets USD drive target attributes directly, which works without articulation initialisation
+- **`set_joint_drives`** writes drives' stiffness, damping and force limit to USD (per degree for an angular drive),
+  then reads them back from physics after one update, and sets them through Isaac Sim's articulation view where
+  physics didn't take the USD write (#199)
 
 ## Viewport Capture
 

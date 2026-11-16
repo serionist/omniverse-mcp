@@ -1606,6 +1606,87 @@
         "type": "object"
       }
     },
+    "set_joint_drives": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input": {
+        "$defs": {
+          "DriveValues": {
+            "additionalProperties": false,
+            "properties": {
+              "damping": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "max_force": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "stiffness": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "type": "object"
+          }
+        },
+        "properties": {
+          "drives": {
+            "additionalProperties": {
+              "$ref": "#/$defs/DriveValues"
+            },
+            "minProperties": 1,
+            "type": "object"
+          },
+          "prim_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prim_path",
+          "drives"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    },
     "set_joint_targets": {
       "annotations": {
         "destructiveHint": false,

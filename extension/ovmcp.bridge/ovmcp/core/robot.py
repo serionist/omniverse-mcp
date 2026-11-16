@@ -6,6 +6,7 @@ ovmcp.core.metrics', which create_prim shares.
 Kit-free, so unit-tested without Kit.
 """
 
+import math
 from pathlib import PureWindowsPath
 
 from pxr import Tf, Usd, UsdPhysics
@@ -29,6 +30,31 @@ def robot_prim_path(robot_type: str) -> str:
 
 BODY = "body"
 ARTICULATION = "articulation"
+
+# USD holds an angular drive's stiffness and damping per degree, and PhysX, through Isaac Sim's Articulation, per
+# radian: its USD backend converts by 180/pi (isaacsim.core.experimental.prims' get_dof_gains and set_dof_gains, 6.2).
+# A linear drive's are per stage unit in both, and a force limit has no angle in it (#199).
+_PER_RADIAN_FROM_PER_DEGREE = 180.0 / math.pi
+
+
+def from_usd_gain(value: float, angular: bool) -> float:
+    """A drive's stiffness or damping as USD holds it, per degree for an angular drive, in physics' units, per
+    radian."""
+    return value * _PER_RADIAN_FROM_PER_DEGREE if angular else value
+
+
+def to_usd_gain(value: float, angular: bool) -> float:
+    """from_usd_gain's inverse: a gain per radian, as physics reads it, as USD holds it."""
+    return value / _PER_RADIAN_FROM_PER_DEGREE if angular else value
+
+
+def tracking_errors(positions: list[float], targets: list[float], stiffnesses: list[float]) -> list[float | None]:
+    """Each degree of freedom's target minus its position, where a position drive acts on it (stiffness above 0);
+    None elsewhere, as a velocity-driven wheel or an undriven joint, which no position target pulls (#199)."""
+    return [
+        target - position if stiffness > 0 else None
+        for position, target, stiffness in zip(positions, targets, stiffnesses, strict=True)
+    ]
 
 
 def observed_kinds(prim: Usd.Prim) -> frozenset[str]:

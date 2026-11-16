@@ -20,6 +20,7 @@ from omniverse_mcp import kit_extension
 from omniverse_mcp.client import BridgeClient, KitSilentError
 from omniverse_mcp.server import Helpers, create_server
 from omniverse_mcp.tools.misc import duration
+from omniverse_mcp.tools.robot import JOINT_UNITS
 from omniverse_mcp.tools.simulation import _unit
 
 from .mock_bridge import MockIsaacServer
@@ -399,7 +400,7 @@ CASES = [
         (
             "DOF: 1",
             "Joints (1):\n  joint1 (RevoluteJoint [-1.0, 1.0] drive=angular)\nJoint states (1 DOF, from physics: ",
-            "set_joint_targets takes degrees):\n  joint1: pos=0.5000 vel=0.2500",
+            "set_joint_targets takes degrees):\n  joint1: pos 0.5000, vel 0.2500",
         ),
         more=(
             (
@@ -421,6 +422,32 @@ CASES = [
         {"prim_path": "/World/Franka", "targets_set": 1, "failed": ["joint9"]},
         {"prim_path": "/World/Franka", "targets": {"joint1": 0.5}},
         ("Set 1 joint targets on /World/Franka", "Failed: ['joint9']"),
+    ),
+    Case(
+        "set_joint_drives",
+        {
+            "prim_path": "/World/Franka",
+            "drives": {"joint1": {"stiffness": 57295.78, "max_force": 87}, "hand": {"damping": 1}},
+        },
+        "/robot/joint_drives",
+        {
+            "prim_path": "/World/Franka",
+            "written": {"joint1": {"kind": "angular", "usd": {"stiffness": 1000.0, "max_force": 87.0}}},
+            "not_written": {"hand": "no drive: set_joint_targets gives it one"},
+            "in_simulation": {"joint1": {"stiffness": 57295.78, "damping": 5729.58, "max_force": 87.0}},
+            "through_view": False,
+        },
+        # Only the values given go, so the bridge writes no damping it wasn't asked for.
+        {
+            "prim_path": "/World/Franka",
+            "drives": {"joint1": {"stiffness": 57295.78, "max_force": 87}, "hand": {"damping": 1}},
+        },
+        (
+            "Set the drives of 1 joints on /World/Franka",
+            "  joint1: USD stiffness 1000, max_force 87 (angular drive, gains per degree); in the simulation: "
+            "stiffness 57295.8, damping 5729.6, max_force 87.0",
+            "  hand: not written: no drive: set_joint_targets gives it one",
+        ),
     ),
     # Camera
     Case(
@@ -2383,8 +2410,7 @@ def test_a_plain_timeout_is_still_a_connection_failure(bridge: MockIsaacServer, 
         ({"status": "error", "error": STOPPED}, f"Joint states: not read: {STOPPED}"),
         (
             {"status": "success", "result": _states(9)},
-            "Joint states (9 DOF, from physics: radians for revolute joints, stage units for prismatic ones, "
-            "velocities per second; set_joint_targets takes degrees):\n  invented_joint0: pos=0.5000 vel=0.0000",
+            f"Joint states (9 DOF, {JOINT_UNITS}):\n  invented_joint0: pos 0.5000, vel 0.0000",
         ),
     ],
     ids=["stopped", "playing"],
@@ -2421,7 +2447,7 @@ def test_joint_states_too_long_to_answer_inline_go_to_the_file_after_the_joints(
     written = _written(text, tmp_path)
     assert written.startswith("Joints (12):\n")
     assert "\n  panda_tcp_joint (PhysicsFixedJoint)\nJoint states (43 DOF, " in written
-    assert written.endswith("\n  invented_joint42: pos=0.5000 vel=0.0000")
+    assert written.endswith("\n  invented_joint42: pos 0.5000, vel 0.0000")
 
 
 DUMPED = {"prim_count": 12, "file_size_bytes": 4096, "file_path": "scene_dump.txt", "root": "/World"}
@@ -3116,19 +3142,26 @@ def test_step_sends_its_count_and_prims_and_gives_a_block_for_each(bridge: MockI
                 "stepped = 60 of 60 physics steps of 0.016667 s (1.000 s of physics); the timeline's time is "
                 "unchanged (0.000 s)",
                 "was = stopped: physics loaded, which took 0 physics steps",
-                "source = read from PhysX after the last step: the simulated state, not drive targets",
-                "[/World/Box]\nposition = [0.0, 0.0, 0.0951]\nrotation = [1.0, 0.0, 0.0, 0.0] (w, x, y, z)\n"
-                "linear_velocity = [0.0, 0.0, -9.81] (stage units/s)\nangular_velocity = [0.0, 0.0, 57.2958] (deg/s)",
-                "[/World/G1/pelvis]\nposition = [0.0, 0.0, 0.79]",
-                "joints = /World/G1/pelvis, 2 DOF",
-                "joint.left_hip = pos 0.1000, vel 0.0000\njoint.right_hip = pos -0.1000, vel 0.5000",
-                "[/World/Light]\nerror = /World/Light is neither a rigid body nor an articulation",
+                "source = PhysX after the last step: positions and velocities simulated, targets and gains what it "
+                "drives with",
             ),
         ),
         bridge,
         tmp_path,
     )
     assert "stopped_early" not in text
+    # Three prims' blocks run past the inline limit, so they are in the file the answer names.
+    (written,) = (tmp_path / "responses").glob("sim_step_*.txt")
+    blocks = written.read_text(encoding="utf-8")
+    for part in (
+        "[/World/Box]\nposition = [0.0, 0.0, 0.0951]\nrotation = [1.0, 0.0, 0.0, 0.0] (w, x, y, z)\n"
+        "linear_velocity = [0.0, 0.0, -9.81] (stage units/s)\nangular_velocity = [0.0, 0.0, 57.2958] (deg/s)",
+        "[/World/G1/pelvis]\nposition = [0.0, 0.0, 0.79]",
+        "joints = /World/G1/pelvis, 2 DOF",
+        "joint.left_hip = pos 0.1000, vel 0.0000\njoint.right_hip = pos -0.1000, vel 0.5000",
+        "[/World/Light]\nerror = /World/Light is neither a rigid body nor an articulation",
+    ):
+        assert part in blocks
 
 
 def test_step_alone_takes_one_step_and_reads_nothing(bridge: MockIsaacServer, tmp_path: Path):
@@ -3184,3 +3217,89 @@ def test_a_step_stopped_early_doesnt_say_the_time_stood_still(bridge: MockIsaacS
         tmp_path,
     )
     assert "unchanged" not in text
+
+
+# ----- drives (#199) -----
+
+DRIVEN = {
+    "prim_path": "/World/Jetbot",
+    "dof_count": 2,
+    "names": ["arm", "wheel"],
+    "positions": [0.25, 312.4],
+    "velocities": [0.0, 6.0],
+    "lower_limits": [-2.8973, -3.4e38],
+    "upper_limits": [2.8973, float("inf")],
+    "targets": [0.5, 0.0],
+    "stiffnesses": [57295.78, 0.0],
+    "dampings": [5729.58, 100.0],
+    "max_forces": [87.0, 3.4e38],
+    "tracking_errors": [0.25, None],
+}
+
+
+def test_joint_states_give_each_drive_with_none_and_unlimited(bridge: MockIsaacServer, tmp_path: Path):
+    # A wheel no position drive acts on has no tracking error, and PhysX's "no limit" reads as unlimited.
+    text = _check(
+        Case(
+            "get_robot_info",
+            {"prim_path": "/World/Jetbot"},
+            "/robot/info",
+            {"prim_path": "/World/Jetbot", "is_articulation": True, "dof_count": 2, "link_count": 3, "joints": []},
+            {"prim_path": "/World/Jetbot"},
+            (
+                "  arm: pos 0.2500, vel 0.0000, target 0.5000, tracking_error 0.2500, limits [-2.8973, 2.8973], "
+                "kp 57295.8, kd 5729.6, max_force 87.0",
+                "  wheel: pos 312.4000, vel 6.0000, target 0.0000, tracking_error none, limits [unlimited, unlimited], "
+                "kp 0.0, kd 100.0, max_force unlimited",
+            ),
+            more=(("/robot/joint_states", DRIVEN),),
+        ),
+        bridge,
+        tmp_path,
+    )
+    assert f"Joint states (2 DOF, {JOINT_UNITS}):" in text
+
+
+def test_the_step_reads_drives_into_its_joint_lines(bridge: MockIsaacServer, tmp_path: Path):
+    answer = {**STEPPED, "observed": [{"prim_path": "/World/Jetbot", "joints": {"root": "/World/Jetbot", **DRIVEN}}]}
+    text = _check(
+        Case("sim_control", {"action": "step", "steps": 1}, "/sim/step", answer, {"steps": 1}, ()),
+        bridge,
+        tmp_path,
+    )
+    assert f"joints = /World/Jetbot, 2 DOF: {JOINT_UNITS}" in text
+    assert "joint.wheel = pos 312.4000, vel 6.0000, target 0.0000, tracking_error none" in text
+
+
+@pytest.mark.parametrize("bad", [-1.0, float("nan"), float("inf")])
+def test_set_joint_drives_refuses_a_value_no_drive_takes(bad: float, bridge: MockIsaacServer, tmp_path: Path):
+    erred, _text, requests = _call(
+        bridge, tmp_path, "set_joint_drives", {"prim_path": "/World/Franka", "drives": {"joint1": {"stiffness": bad}}}
+    )
+    assert erred
+    assert requests == []
+
+
+def test_set_joint_drives_says_a_stopped_simulation_reads_them_at_its_next_play(bridge: MockIsaacServer, tmp_path):
+    answer = {
+        "prim_path": "/World/Franka",
+        "written": {"slide": {"kind": "linear", "usd": {"damping": 20.0}}},
+        "not_written": {},
+        "in_simulation_note": "Not read back from physics: No physics view of /World/Franka: play or step the "
+        "simulation first. The next play reads the drives from USD.",
+    }
+    _check(
+        Case(
+            "set_joint_drives",
+            {"prim_path": "/World/Franka", "drives": {"slide": {"damping": 20}}},
+            "/robot/joint_drives",
+            answer,
+            {"drives": {"slide": {"damping": 20}}},
+            (
+                "  slide: USD damping 20 (linear drive, gains per stage unit)",
+                "note = Not read back from physics: No physics view of /World/Franka",
+            ),
+        ),
+        bridge,
+        tmp_path,
+    )
