@@ -343,6 +343,9 @@ with open(carb.settings.get_settings().get("/log/file"), "rb") as f:
 assigned = r"View \d+ \(/Render/OmniverseKit/HydraTextures/ovmcp_feed_[0-9a-f]+\) assigned to device"
 result = {"created": text.count("createViewport - handle"), "assigned": len(re.findall(assigned, text))}
 """
+# Kit's /rtx/hydra/supportMultiTickRate: False when Kit started with 0.5.1's workaround for #187's hang, None or True
+# otherwise (#211).
+MULTI_TICK_RATE = "import carb.settings\nresult = carb.settings.get_settings().get('/rtx/hydra/supportMultiTickRate')\n"
 # How long the bridge keeps a feed with no capture or recording.
 KEPT_SECONDS = "from ovmcp.bridge.handlers import camera_feed\nresult = camera_feed.IDLE_SECONDS\n"
 # In one execute_script (#114), at W x H: camera B captured straight after camera A, through the kept feed, against a
@@ -3131,9 +3134,16 @@ class TestScenarios(PhysicsChecks):
         ):
             r = call()
             self.assertEqual(r["status"], "success", r)
-        # The feed made, and its first camera change; no other switch sets the view up again (K15).
+        # The feed made, and its first camera change; no other switch sets the view up again (K15). Kit started with
+        # --/rtx/hydra/supportMultiTickRate=false, 0.5.1's workaround for #187, logs the feed's view assigned again at
+        # each capture, but makes no new one: the view count, which #187's hang is about, holds either way (#211).
         views = self._run_in_kit(KIT_LOG_VIEWS, MARK=mark)
-        self.assertEqual(views, {"created": 1, "assigned": 2}, "five captures at one size")
+        multi_tick = self._run_in_kit(MULTI_TICK_RATE)
+        self.assertEqual(views["created"], 1, f"five captures at one size: {views}")
+        if multi_tick is False:
+            self.assertLessEqual(views["assigned"], 5, f"more assignments than captures: {views}")
+        else:
+            self.assertEqual(views["assigned"], 2, f"five captures at one size: {views}")
         r = self.c.capture_viewport(640, 480)
         self.assertEqual(r["status"], "success", r)
         self.assertEqual(self._run_in_kit(KIT_LOG_VIEWS, MARK=mark)["created"], 2, "a capture at another size")
